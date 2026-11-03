@@ -21,6 +21,7 @@ $ErrorActionPreference='Stop'
 $runtimeServiceSid='S-1-5-80-2399233179-3901739178-3110492099-2767556519-659945569'
 $runtimeOperatorSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $preparationLock=$null
+. (Join-Path $PSScriptRoot 'windows-scm-junction-acl.ps1')
 function RuntimeMust([bool]$ok,[string]$code){if(-not $ok){throw $code}}
 function RuntimeNoReparse([string]$path){
  $cursor=[IO.Path]::GetFullPath($path)
@@ -75,7 +76,7 @@ function RuntimeTargetAcl([string]$path,[bool]$writable=$false){
 }
 function RuntimeSeal([string[]]$paths,[string]$journal,[string]$work){
  # Persist the complete bounded pre-write journal once, before the first ACL.
- # No ownership changes. Junctions themselves are never Set-Acl targets.
+ # No ownership changes. Junctions are sealed separately through pinned handles.
  $changes=@(foreach($path in @($paths | Sort-Object {$_.Split('\').Count} -Descending)){
   RuntimeNoReparse $path
   $item=Get-Item -LiteralPath $path -Force
@@ -217,14 +218,25 @@ try{
     RuntimeMust ((Get-FileHash $PSCommandPath -Algorithm SHA256).Hash -eq (Get-FileHash (Join-Path $attemptPath 'payload\tools\operators\windows-scm-isolated-runtime.ps1') -Algorithm SHA256).Hash) 'RUNTIME_PS_CONTROL_NOT_IN_SNAPSHOT'
     Copy-Item -LiteralPath $tool -Destination $control
     Copy-Item -LiteralPath $PSCommandPath -Destination $control
+    $junctionHelper=Join-Path $PSScriptRoot 'windows-scm-junction-acl.ps1'
+    RuntimeMust ((Get-FileHash $junctionHelper -Algorithm SHA256).Hash -eq (Get-FileHash (Join-Path $attemptPath 'payload\tools\operators\windows-scm-junction-acl.ps1') -Algorithm SHA256).Hash) 'JUNCTION_HELPER_NOT_IN_SNAPSHOT'
+    Copy-Item -LiteralPath $junctionHelper -Destination $control
     & $Node $tool runners $attemptPath
     RuntimeMust ($LASTEXITCODE -eq 0) 'RUNTIME_RUNNER_CANDIDATES_FAILED'
     $work=Join-Path $attemptPath 'work\service'
     # Work may contain smoke output/cache. Its descendants inherit ONLY here.
+    Initialize-JunctionNative (Join-Path $attemptPath 'work\operator')
+    $junctions=@(JunctionPlan $attemptPath)
+    # Protect junction objects BEFORE sealing parents, without following targets.
+    JunctionSeal (Join-Path $attemptPath 'payload') $junctions (Join-Path $attemptPath 'junction-before.json')
     $paths=@(RuntimePayloadPaths $attemptPath)
     $paths+=@($control,(Join-Path $control 'windows-scm-isolated-runtime.mjs'),(Join-Path $control 'windows-scm-isolated-runtime.ps1'),(Join-Path $control 'service-probe-runner.ps1'),(Join-Path $control 'service-physical-runner.ps1'),(Join-Path $attemptPath 'manifest.json'),(Join-Path $attemptPath 'dependencies.json'),(Join-Path $attemptPath 'work'),(Join-Path $attemptPath 'work\operator'),$work,$attemptPath)
+    $paths+=@((Join-Path $control 'windows-scm-junction-acl.ps1'),(Join-Path $attemptPath 'junction-before.json'))
     RuntimeSeal $paths (Join-Path $attemptPath 'acl-before.json') $work
-    $ready=[ordered]@{schema=1;operatorSid=$runtimeOperatorSid;manifestSha256=(Get-FileHash (Join-Path $attemptPath 'manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant();controlNodeSha256=(Get-FileHash (Join-Path $control 'windows-scm-isolated-runtime.mjs') -Algorithm SHA256).Hash.ToLowerInvariant();controlPsSha256=(Get-FileHash (Join-Path $control 'windows-scm-isolated-runtime.ps1') -Algorithm SHA256).Hash.ToLowerInvariant();probeRunnerSha256=(Get-FileHash (Join-Path $control 'service-probe-runner.ps1') -Algorithm SHA256).Hash.ToLowerInvariant();physicalRunnerSha256=(Get-FileHash (Join-Path $control 'service-physical-runner.ps1') -Algorithm SHA256).Hash.ToLowerInvariant();dependenciesSha256=(Get-FileHash (Join-Path $attemptPath 'dependencies.json') -Algorithm SHA256).Hash.ToLowerInvariant();effective_scm_access='NOT_PROVEN'}
+    & $Node (Join-Path $control 'windows-scm-isolated-runtime.mjs') check-tree $attemptPath
+    RuntimeMust ($LASTEXITCODE -eq 0) 'RUNTIME_CHANGED_BEFORE_READY'
+    JunctionVerify (Join-Path $attemptPath 'payload') $junctions
+    $ready=[ordered]@{schema=2;junctionPolicy='nofollow-v1';junctionPlanSha256=(Get-FileHash (Join-Path $attemptPath 'junction-before.json') -Algorithm SHA256).Hash.ToLowerInvariant();junctionHelperSha256=(Get-FileHash (Join-Path $control 'windows-scm-junction-acl.ps1') -Algorithm SHA256).Hash.ToLowerInvariant();operatorSid=$runtimeOperatorSid;manifestSha256=(Get-FileHash (Join-Path $attemptPath 'manifest.json') -Algorithm SHA256).Hash.ToLowerInvariant();controlNodeSha256=(Get-FileHash (Join-Path $control 'windows-scm-isolated-runtime.mjs') -Algorithm SHA256).Hash.ToLowerInvariant();controlPsSha256=(Get-FileHash (Join-Path $control 'windows-scm-isolated-runtime.ps1') -Algorithm SHA256).Hash.ToLowerInvariant();probeRunnerSha256=(Get-FileHash (Join-Path $control 'service-probe-runner.ps1') -Algorithm SHA256).Hash.ToLowerInvariant();physicalRunnerSha256=(Get-FileHash (Join-Path $control 'service-physical-runner.ps1') -Algorithm SHA256).Hash.ToLowerInvariant();dependenciesSha256=(Get-FileHash (Join-Path $attemptPath 'dependencies.json') -Algorithm SHA256).Hash.ToLowerInvariant();effective_scm_access='NOT_PROVEN'}
     $readyPath=Join-Path $attemptPath 'READY.json'
     [IO.File]::WriteAllText($readyPath,(ConvertTo-Json $ready),[Text.UTF8Encoding]::new($false))
     Set-Acl -LiteralPath $readyPath -AclObject (RuntimeAcl $false)
@@ -235,6 +247,10 @@ try{
     if(Test-Path -LiteralPath (Join-Path $attemptPath 'acl-before.json')){
      $restored=RuntimeRestore $attemptPath (Join-Path $attemptPath 'acl-before.json')
      Write-Host ('RUNTIME_AUTOMATIC_ACL_RECOVERY='+$restored)
+    }
+    if(Test-Path -LiteralPath (Join-Path $attemptPath 'junction-before.json')){
+     $restoredLinks=JunctionRestore $attemptPath (Join-Path $attemptPath 'junction-before.json')
+     Write-Host ('RUNTIME_JUNCTION_RECOVERY='+$restoredLinks)
     }
     throw
    }
@@ -249,8 +265,15 @@ try{
   $lock=Join-Path $attemptPath '.prepare.lock'
   RuntimeNoReparse $lock
   $preparationLock=[IO.File]::Open($lock,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
-  $journal=Join-Path $attemptPath 'acl-before.json';RuntimeNoReparse $journal
-  $restored=RuntimeRestore $attemptPath $journal
+  $journal=Join-Path $attemptPath 'acl-before.json'
+  $linkJournal=Join-Path $attemptPath 'junction-before.json'
+  RuntimeMust ((Test-Path -LiteralPath $journal) -or (Test-Path -LiteralPath $linkJournal)) 'RUNTIME_NO_RECOVERY_JOURNAL'
+  $restored=$true
+  if(Test-Path -LiteralPath $journal){RuntimeNoReparse $journal;$restored=RuntimeRestore $attemptPath $journal}
+  if(Test-Path -LiteralPath $linkJournal){
+   RuntimeNoReparse $linkJournal;Initialize-JunctionNative (Join-Path $attemptPath 'work\operator')
+   $restoredLinks=JunctionRestore $attemptPath $linkJournal;$restored=$restored -and $restoredLinks
+  }
   $record=Join-Path $attemptPath ('RECOVERY-'+[guid]::NewGuid().ToString('N')+'.json')
   [IO.File]::WriteAllText($record,(ConvertTo-Json @{acl_restored=$restored;time=[DateTime]::UtcNow.ToString('o')}),[Text.UTF8Encoding]::new($false))
   RuntimeMust $restored 'RUNTIME_RECOVERY_REQUIRES_REVIEW'
@@ -261,11 +284,13 @@ try{
  $readyPath=Join-Path $attemptPath 'READY.json';RuntimeNoReparse $readyPath
  $ready=Get-Content -LiteralPath $readyPath -Raw -Encoding UTF8 | ConvertFrom-Json
  RuntimeMust ($ready.operatorSid -match '^S-1-5-21-(?:[0-9]+-){3}[0-9]+$') 'RUNTIME_OPERATOR_SID_REJECTED'
+ RuntimeMust ($ready.PSObject.Properties.Name -contains 'junctionPolicy') 'JUNCTION_POLICY_UPGRADE_REQUIRED_NEW_ATTEMPT'
+ RuntimeMust ($ready.schema -eq 2 -and $ready.junctionPolicy -ceq 'nofollow-v1') 'JUNCTION_POLICY_UPGRADE_REQUIRED_NEW_ATTEMPT'
  $runtimeOperatorSid=$ready.operatorSid
  RuntimeCheckAcl $readyPath
  RuntimeMust ((Get-FileHash (Join-Path $attemptPath 'dependencies.json') -Algorithm SHA256).Hash.ToLowerInvariant() -eq $ready.dependenciesSha256) 'RUNTIME_DEPENDENCY_GRAPH_HASH_CHANGED'
  $control=Join-Path $attemptPath 'control'
- foreach($spec in @(@('windows-scm-isolated-runtime.mjs',$ready.controlNodeSha256),@('windows-scm-isolated-runtime.ps1',$ready.controlPsSha256),@('service-probe-runner.ps1',$ready.probeRunnerSha256),@('service-physical-runner.ps1',$ready.physicalRunnerSha256))){
+ foreach($spec in @(@('windows-scm-isolated-runtime.mjs',$ready.controlNodeSha256),@('windows-scm-isolated-runtime.ps1',$ready.controlPsSha256),@('service-probe-runner.ps1',$ready.probeRunnerSha256),@('service-physical-runner.ps1',$ready.physicalRunnerSha256),@('windows-scm-junction-acl.ps1',$ready.junctionHelperSha256))){
   $p=Join-Path $control $spec[0];RuntimeCheckAcl $p
   RuntimeMust ((Get-FileHash $p -Algorithm SHA256).Hash.ToLowerInvariant() -eq $spec[1]) 'RUNTIME_CONTROL_HASH_CHANGED'
  }
@@ -277,6 +302,23 @@ try{
  RuntimeMust ($nodeRecords.Count -eq 1) 'RUNTIME_BOOTSTRAP_NODE_MISSING'
  RuntimeNoReparse $Node
  RuntimeMust ((Get-FileHash -LiteralPath $Node -Algorithm SHA256).Hash.ToLowerInvariant() -eq $nodeRecords[0].sha256) 'RUNTIME_BOOTSTRAP_NODE_HASH_CHANGED'
+ $linkJournal=Join-Path $attemptPath 'junction-before.json';RuntimeCheckAcl $linkJournal
+ RuntimeMust ((Get-FileHash $linkJournal -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $ready.junctionPlanSha256) 'JUNCTION_JOURNAL_HASH_CHANGED'
+ $junctions=Get-Content -LiteralPath $linkJournal -Raw -Encoding UTF8 | ConvertFrom-Json
+ $junctions=@($junctions)
+ $links=@($manifest.files | Where-Object {$_.type -eq 'link'})
+ RuntimeMust ($junctions.Count -eq $links.Count) 'JUNCTION_MANIFEST_COVERAGE_MISMATCH'
+ $payload=Join-Path $attemptPath 'payload'
+ foreach($link in $links){
+  $expectedPath=[IO.Path]::GetFullPath((Join-Path $payload $link.path))
+  $expectedTarget=[IO.Path]::GetFullPath((Join-Path $payload $link.target))
+  $matches=@($junctions | Where-Object {$_.Path -ieq $expectedPath -and $_.Target -ieq $expectedTarget})
+  RuntimeMust ($matches.Count -eq 1 -and $link.PSObject.Properties.Name -contains 'linkText' -and $link.linkText -ieq $link.target) 'JUNCTION_MANIFEST_COVERAGE_MISMATCH'
+ }
+ $compilerRole=if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -eq $runtimeServiceSid){'service'}else{'operator'}
+ Initialize-JunctionNative (Join-Path $attemptPath ('work\'+$compilerRole))
+ # Check self DACLs before Node's realpath is allowed to traverse any link.
+ JunctionVerify $payload $junctions
  & $Node (Join-Path $control 'windows-scm-isolated-runtime.mjs') verify $attemptPath
  RuntimeMust ($LASTEXITCODE -eq 0) 'RUNTIME_HASH_VERIFICATION_FAILED'
  foreach($p in @(RuntimePayloadPaths $attemptPath)+@($attemptPath,$prefix,$control,(Join-Path $attemptPath 'manifest.json'),(Join-Path $attemptPath 'dependencies.json'))){RuntimeCheckAcl $p}

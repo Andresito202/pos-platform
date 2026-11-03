@@ -208,3 +208,120 @@ pnpm disponible 9.15.0. No se hizo commit ni publicación.
   evidencia de la versión entregada. No se ocultaron como omisiones.
 - Instalación real desde registro, READY real, probe SCM y tests físicos:
   NO EJECUTADOS. No hay promoción de G1/G2, login humano ni producción.
+
+## Corrección de junctions — base fe53f3c9 (2026-11-03)
+
+La auditoría fue de sólo lectura sobre el intento histórico
+df4afd4cf4af44daa227f286ceb44df3 del laboratorio
+608ba7092afe4a5b93ac14a7df23a046. No se debe reparar, recuperar, reutilizar ni
+borrar ese intento para probar esta corrección. El runner y el XML instalados
+no fueron modificados.
+
+Se encontraron 957 junctions, no sólo los 35 de Desktop. Sus DACL propias
+eran D:AI con FullControl heredado exclusivamente de SYSTEM y Administradores.
+La lectura de READ_ATTRIBUTES bajo un token restringido de diagnóstico devolvió
+Win32 5 en los 957 enlaces; permitió leer sus destinos y los 455 ancestros
+físicos distintos de los enlaces. No hubo otros errores de apertura.
+El token restringido es una copia reducida del token del proceso de diagnóstico,
+no el token real SCM: Windows exige que pasen tanto los SIDs normales como los
+restrictivos. No se habilitaron privilegios ni se inició un servicio.
+La transición 5 -> 0 tras conceder RX sólo al junction se reprodujo en fixtures,
+manteniendo intactas las ACL del destino, padre y propietario.
+
+Esto acredita la omisión de configuración y reproduce una condición causal
+compatible con el EPERM físico. No acredita la lista completa de grupos,
+privilegios y restricciones del token SCM real; el probe posterior sigue siendo
+obligatorio. La ausencia de una ACE explícita por sí sola no se usó como prueba.
+
+El defecto del código era doble: el manifiesto registraba enlaces, pero el
+sellado los excluía, y Verify recorría realpath sin comprobar su propia DACL.
+La política nueva no contiene nombres de dependencias particulares:
+
+- Manifest/READY v2 y política nofollow-v1. Se conservan destino canónico y
+  texto lógico del enlace en el manifiesto; los hashes del código no cambian
+  por conceder una ACL al reparse point.
+- windows-scm-junction-acl.ps1 abre cada junction con OPEN_REPARSE_POINT y
+  BACKUP_SEMANTICS. GetSecurityInfo/SetSecurityInfo actúan sobre ese handle,
+  con WRITE_DAC para el preparador; no se usa Set-Acl sobre la ruta del enlace.
+- Sólo se aceptan junctions de directorio MOUNT_POINT con destino físico directo
+  dentro de payload. Se rechazan otros tags, destinos externos o alterados,
+  padres reparse, DACL nulas, denegaciones y escritores no confiables.
+- El resultado permite únicamente RX al SID de SCM y FullControl administrativo
+  y SYSTEM, sin ACE heredables en el junction. Se protege su DACL, sin cambiar
+  propietario, destino ni identidad. No concede escritura de código al servicio.
+- junction-before.json se crea de forma exclusiva antes de la primera escritura.
+  Fija volumen/file ID, hash del buffer reparse, propietario, DACL Before/Expected
+  y DACL/propietario del padre. El hash del journal y del helper queda en READY.
+- Los enlaces se sellan antes de los padres. La recuperación restaura primero
+  los objetos físicos y después los junctions; rechaza objetos sustituidos,
+  retargets y cambios concurrentes de DACL/propietario/padre.
+- Antes de publicar READY se vuelve a comparar todo el ?rbol con el manifiesto,
+  para rechazar archivos o enlaces aparecidos durante el sellado.
+- Verify comprueba cobertura exacta del manifiesto, hashes y DACL de los enlaces
+  ANTES del realpath de Node. READY no se publica si falla la configuración.
+  effective_scm_access sigue siendo NOT_PROVEN hasta el probe real.
+- Prepare repetido sobre un READY compatible sólo verifica. Los intentos de
+  política anterior se rechazan y requieren otro GUID, sin reparación automática.
+
+Referencias del mecanismo: [CreateFile y OPEN_REPARSE_POINT](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilea)
+y [evaluación de tokens restringidos](https://learn.microsoft.com/en-us/windows/win32/secauthz/restricted-tokens).
+Las pruebas comprueban el comportamiento real del kernel en temporales; no lo
+convierten en evidencia de interoperabilidad comercial.
+
+### Procedimiento mínimo posterior
+
+Primero revisar y guardar este diff en un commit de la misma rama y comprobar
+checkout limpio. La preparación exporta HEAD y exige que el helper copiado
+coincida con el snapshot; no se prepara desde herramientas sin commit.
+
+~~~powershell
+$repo='C:\CamachoLab\pos-platform'
+$lab='C:\CamachoPosScmLab\608ba7092afe4a5b93ac14a7df23a046'
+$fresh=Join-Path $lab ('runtimes\'+[guid]::NewGuid().ToString('N'))
+$addon=Join-Path $repo 'packages\local-channel\native\build\Release\camacho_windows_pipe.node'
+$sha=(Get-FileHash -LiteralPath $addon -Algorithm SHA256).Hash
+& powershell.exe -NoProfile -File "$repo\tools\operators\windows-scm-isolated-runtime.ps1" -Mode Prepare -LabRoot $lab -Attempt $fresh -NativeAddon $addon -NativeAddonSha256 $sha
+if($LASTEXITCODE -ne 0){throw 'PREPARE_NO_PASS_CONSERVAR_INTENTO'}
+& powershell.exe -NoProfile -File "$repo\tools\operators\windows-scm-isolated-runtime.ps1" -Mode Verify -LabRoot $lab -Attempt $fresh
+if($LASTEXITCODE -ne 0){throw 'VERIFY_NO_PASS'}
+~~~
+
+En otra ejecución expresamente autorizada para el probe, con SCM detenido:
+guardar bytes, SHA-256 y SDDL del runner actual; publicar únicamente el candidato
+control/service-probe-runner.ps1 de $fresh preservando ACL; verificar el hash;
+realizar un único arranque por el procedimiento existente y comprobar que vuelve
+a detenido. No cambiar XML, ImagePath, cuenta, logpath ni custodias. Restaurar
+después el runner original y verificar sus bytes, SHA-256 y SDDL.
+
+El candidato exige el SID virtual real y sesión 0. La comprobación de enlaces
+compila el helper en el scratch de esa identidad; la carga de dependencias y
+pruebas con flags físicas desactivadas escribe únicamente en work/service.
+No crea claves, no enrola ni ejecuta las pruebas físicas oficiales.
+
+~~~powershell
+& powershell.exe -NoProfile -File "$repo\tools\operators\windows-scm-isolated-runtime.ps1" -Mode Verify -RequireScmProbe -LabRoot $lab -Attempt $fresh
+if($LASTEXITCODE -ne 0){throw 'PROBE_SCM_NO_DEMOSTRADO'}
+~~~
+
+No aplicar estos comandos al GUID histórico. Los comandos de arranque no se
+ejecutan en esta entrega y no se propone una nueva modificación del XML.
+
+### Evidencia de regresión de junctions
+
+Suite completa observada sobre fe53f3c9 más este diff: 56 PASS, 0 FAIL,
+0 omitidas, exit 0. Los primeros casos focalizados tuvieron 2 PASS / 6 FAIL por
+metadatos AI no normalizados en el directorio del fixture; se corrigió el setup
+sin relajar el comparador productivo y la suite completa posterior pasó.
+La auditoría nativa inicial no compiló por referencias System.dll ausentes;
+se corrigió el parámetro de compilación antes de auditar el intento.
+
+El verificador original del intento histórico devolvió ISOLATED_RUNTIME_HASHES=PASS.
+Huella agregada de rutas/IDs/DACL/propietarios/destinos de los 957 junctions:
+c0b073202f3bc6b2aa49adef16c195986add9d17cee1bbad4a3c607fa1e7f7ee.
+SHA-256 observado del runner restaurado:
+0432efc499275c9af4169e35d3e308b0f7ac6e0b2b735193b90a050690a09aba.
+
+Pendiente: Prepare/Verify v2 de un intento real nuevo y probe con el token SCM
+real, incluida la disponibilidad del compilador .NET bajo esa identidad.
+No se concede ningún permiso global para resolver un fallo futuro de ese paso.
+No hay aprobación física de G1/G2 ni afirmación de producción.

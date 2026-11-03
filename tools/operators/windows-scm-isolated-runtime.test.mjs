@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {inventory,verifyTree,verify,digest,writeNew,event,installationSteps,sterileEnvironment,
- dependencyGraph,inside,stage,runnerCandidates,assertAclPathLengths} from './windows-scm-isolated-runtime.mjs';
+ dependencyGraph,inside,stage,runnerCandidates,assertAclPathLengths,verifyStaged} from './windows-scm-isolated-runtime.mjs';
 function fixture(body){
  const parent=fs.realpathSync.native(os.tmpdir());
  const root=fs.realpathSync.native(fs.mkdtempSync(path.join(parent,'camacho-runtime-unit-')));
@@ -20,7 +20,7 @@ function put(root,file,bytes='fixture'){
 }
 function ready(root){
  const payload=path.join(root,'payload');fs.mkdirSync(payload);put(payload,'package.json','{}');
- writeNew(path.join(root,'manifest.json'),{schema:1,files:inventory(payload)});
+ writeNew(path.join(root,'manifest.json'),{schema:2,files:inventory(payload)});
  writeNew(path.join(root,'READY.json'),{manifestSha256:digest(path.join(root,'manifest.json'))});return payload;
 }
 test('manifest verification is repeatable and read-only',()=>fixture(root=>{
@@ -268,4 +268,178 @@ Ensure $blocked 'SERVICE_CACHE_POISONING_NOT_REJECTED'
 test('long paths fail before PowerShell ACL sealing',()=>fixture(root=>{
  assert.doesNotThrow(()=>assertAclPathLengths(root,[{path:'short.js'}]));
  assert.throws(()=>assertAclPathLengths(root,[{path:'long/'.repeat(60)+'file.js'}]),/PATH_TOO_LONG_FOR_PS51/);
+}));
+
+function junctionFixture(body){
+ psFixture(String.raw`
+. (Join-Path (Split-Path $env:TEST_RUNTIME_SCRIPT -Parent) 'windows-scm-junction-acl.ps1')
+Initialize-JunctionNative $fixture
+$payload=Join-Path $fixture 'payload';$target=Join-Path $payload 'physical';$link=Join-Path $payload 'link'
+[void][IO.Directory]::CreateDirectory($target)
+[IO.File]::WriteAllText((Join-Path $target 'module.js'),'fixture')
+foreach($p in @($target,(Join-Path $target 'module.js'))){$a=Get-Acl -LiteralPath $p;Set-Acl -LiteralPath $p -AclObject $a}
+RuntimeSeal @($target,(Join-Path $target 'module.js')) (Join-Path $fixture 'target-before.json') (Join-Path $fixture 'unused')
+[void](New-Item -ItemType Junction -Path $link -Target $target)
+# Make the object's own DACL admin/SYSTEM-only, reproducing the observed defect.
+$h=[CamachoScmJunction.Handle]::new($link,$true)
+try{
+ $s=$h.Read();$a=[Security.AccessControl.DirectorySecurity]::new()
+ $a.SetSecurityDescriptorSddlForm((JunctionDesired $s),[Security.AccessControl.AccessControlSections]::Access)
+ foreach($r in @($a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))){if($r.IdentityReference.Value -eq $runtimeServiceSid){$a.RemoveAccessRuleSpecific($r)}}
+ $h.SetDacl($a.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access))
+}finally{$h.Dispose()}
+$files=@([ordered]@{path='link';type='link';target='physical';linkText='physical'})
+function SaveFixtureManifest{$m=[ordered]@{schema=2;files=$script:files};[IO.File]::WriteAllText((Join-Path $fixture 'manifest.json'),(ConvertTo-Json $m -Depth 6))}
+$script:files=$files;SaveFixtureManifest
+`+body);
+}
+test('junction self RX fixes kernel read model without changing target, parent or owner; recovery is exact',windows,()=>junctionFixture(String.raw`
+$before=JunctionRead $link;$targetBefore=Sddl $target;$parentBefore=Sddl $payload
+Ensure ([CamachoScmJunction.Handle]::RestrictedReadAttributes($link,$runtimeServiceSid,$true) -eq 5) 'MODEL_LINK_NOT_BLOCKED'
+Ensure ([CamachoScmJunction.Handle]::RestrictedReadAttributes($target,$runtimeServiceSid,$true) -eq 0) 'MODEL_TARGET_NOT_READABLE'
+$plan=@(JunctionPlan $fixture);$journal=Join-Path $fixture 'junction-before.json'
+$blocked=$false
+try{JunctionVerify $payload $plan}catch{$blocked=$_.Exception.Message -eq 'JUNCTION_RX_UNVERIFIED'}
+Ensure $blocked 'UNSEALED_JUNCTION_ACCEPTED'
+JunctionSeal $payload $plan $journal
+JunctionVerify $payload $plan;JunctionVerify $payload $plan
+$after=JunctionRead $link
+Ensure ($after.Owner -eq $before.Owner -and $after.Identity -eq $before.Identity) 'OWNER_OR_OBJECT_CHANGED'
+Ensure ([CamachoScmJunction.Handle]::RestrictedReadAttributes($link,$runtimeServiceSid,$true) -eq 0) 'MODEL_LINK_RX_FAILED'
+Ensure ((Sddl $target) -ceq $targetBefore -and (Sddl $payload) -ceq $parentBefore) 'TARGET_OR_PARENT_CHANGED'
+$a=[Security.AccessControl.DirectorySecurity]::new();$a.SetSecurityDescriptorSddlForm($after.Dacl,[Security.AccessControl.AccessControlSections]::Access)
+Ensure $a.AreAccessRulesProtected 'JUNCTION_NOT_PROTECTED'
+foreach($r in $a.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])){Ensure ($r.InheritanceFlags -eq 'None' -and -not $r.IsInherited) 'JUNCTION_PROPAGATES_ACE'}
+$again=@(JunctionPlan $fixture);$script:writes=0
+function JunctionWriteDacl($handle,$dacl){$script:writes++;$handle.SetDacl($dacl)}
+JunctionSeal $payload $again (Join-Path $fixture 'repeat.json')
+Ensure ($script:writes -eq 0) 'IDEMPOTENT_RUN_WROTE'
+Ensure (JunctionRestore $fixture $journal) 'JUNCTION_RECOVERY_FAILED'
+Ensure ((JunctionRead $link).Dacl -ceq $before.Dacl) 'JUNCTION_NOT_RESTORED'
+Ensure ((Sddl $target) -ceq $targetBefore -and (Sddl $payload) -ceq $parentBefore) 'RECOVERY_TOUCHED_TARGET'
+`));
+test('junction denied or writable ACLs fail planning without altering them',windows,()=>junctionFixture(String.raw`
+$baseline=(JunctionRead $link).Dacl
+foreach($kind in @('Deny','Allow')){
+ $a=[Security.AccessControl.DirectorySecurity]::new();$a.SetSecurityDescriptorSddlForm($baseline,[Security.AccessControl.AccessControlSections]::Access)
+ $rights=if($kind -eq 'Deny'){'ReadAndExecute'}else{'Modify'}
+ $a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($runtimeServiceSid),$rights,$kind))
+ $h=[CamachoScmJunction.Handle]::new($link,$true);try{$h.SetDacl($a.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access))}finally{$h.Dispose()}
+ $before=(JunctionRead $link).Dacl;$blocked=$false
+ try{JunctionPlan $fixture}catch{$blocked=$_.Exception.Message -match 'JUNCTION_(DENY_REQUIRES_REVIEW|EXISTING_WRITER_REJECTED)'}
+ Ensure ($blocked -and (JunctionRead $link).Dacl -ceq $before) 'UNSAFE_LINK_ACL_ACCEPTED_OR_CHANGED'
+}
+`));
+test('retargeted and replaced junctions fail without ACL changes on targets',windows,()=>junctionFixture(String.raw`
+$plan=@(JunctionPlan $fixture);$before=Sddl $target
+[IO.Directory]::Delete($link)
+[void](New-Item -ItemType Junction -Path $link -Target $target)
+$blocked=$false
+try{JunctionSeal $payload $plan (Join-Path $fixture 'replaced.json')}catch{$blocked=$_.Exception.Message -eq 'JUNCTION_CUSTODY_CHANGED'}
+Ensure ($blocked -and (Sddl $target) -ceq $before) 'REPLACED_LINK_ACCEPTED'
+$plan=@(JunctionPlan $fixture)
+[IO.Directory]::Delete($link)
+$outside=Join-Path $fixture 'external';[void][IO.Directory]::CreateDirectory($outside)
+$externalBefore=Sddl $outside
+[void](New-Item -ItemType Junction -Path $link -Target $outside)
+$blocked=$false
+try{JunctionSeal $payload $plan (Join-Path $fixture 'retargeted.json')}catch{$blocked=$_.Exception.Message -eq 'JUNCTION_TARGET_CHANGED'}
+Ensure ($blocked -and (Sddl $outside) -ceq $externalBefore -and (Sddl $target) -ceq $before) 'RETARGETED_LINK_MUTATED_TARGET'
+Ensure (-not (JunctionRestore $fixture (Join-Path $fixture 'retargeted.json'))) 'RECOVERY_FOLLOWED_RETARGET'
+`));
+test('partial junction failure has a complete pre-write journal and repeatable exact recovery',windows,()=>junctionFixture(String.raw`
+$second=Join-Path $payload 'second';[void](New-Item -ItemType Junction -Path $second -Target $target)
+$script:files+=@{path='second';type='link';target='physical';linkText='physical'};SaveFixtureManifest
+$plan=@(JunctionPlan $fixture);$journal=Join-Path $fixture 'partial.json';$script:failed=$false
+function JunctionWriteDacl($handle,$dacl){
+ $saved=Get-Content -LiteralPath $journal -Raw | ConvertFrom-Json
+ Ensure ($saved.Count -eq 2) 'INCOMPLETE_PREWRITE_JOURNAL'
+ $handle.SetDacl($dacl)
+ if(-not $script:failed){$script:failed=$true;throw 'INJECTED_AFTER_JUNCTION_WRITE'}
+}
+$blocked=$false
+try{JunctionSeal $payload $plan $journal}catch{$blocked=$_.Exception.Message -eq 'INJECTED_AFTER_JUNCTION_WRITE'}
+Ensure $blocked 'INJECTED_FAILURE_NOT_OBSERVED'
+Ensure (JunctionRestore $fixture $journal) 'PARTIAL_RECOVERY_FAILED'
+Ensure (JunctionRestore $fixture $journal) 'REPEATED_RECOVERY_FAILED'
+foreach($entry in $plan){Ensure ((JunctionRead $entry.Path).Dacl -ceq $entry.Before) 'PARTIAL_ACL_LEFT_APPLIED'}
+Ensure (Test-Path -LiteralPath $journal) 'JOURNAL_DELETED'
+`));
+test('concurrent junction ACL changes after journaling are preserved',windows,()=>junctionFixture(String.raw`
+$second=Join-Path $payload 'second';[void](New-Item -ItemType Junction -Path $second -Target $target)
+$script:files+=@{path='second';type='link';target='physical';linkText='physical'};SaveFixtureManifest
+$plan=@(JunctionPlan $fixture);$journal=Join-Path $fixture 'concurrent.json'
+$script:injected=$false;$script:concurrent=$null
+function JunctionWriteDacl($handle,$dacl){
+ $handle.SetDacl($dacl)
+ if(-not $script:injected){
+  $script:injected=$true
+  $h=[CamachoScmJunction.Handle]::new($second,$true)
+  try{
+   $a=[Security.AccessControl.DirectorySecurity]::new()
+   $a.SetSecurityDescriptorSddlForm($h.Read().Dacl,[Security.AccessControl.AccessControlSections]::Access)
+   $a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new('S-1-5-32-545'),'Read','Allow'))
+   $h.SetDacl($a.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access))
+   $script:concurrent=$h.Read().Dacl
+  }finally{$h.Dispose()}
+ }
+}
+$blocked=$false
+try{JunctionSeal $payload $plan $journal}catch{$blocked=$_.Exception.Message -eq 'JUNCTION_CONCURRENT_ACL_CHANGE'}
+Ensure $blocked 'CONCURRENT_LINK_CHANGE_ACCEPTED'
+Ensure (-not (JunctionRestore $fixture $journal)) 'CONCURRENT_LINK_RESTORE_ACCEPTED'
+Ensure ((JunctionRead $second).Dacl -ceq $script:concurrent) 'CONCURRENT_LINK_ACL_OVERWRITTEN'
+`));
+test('junction plan rejects escaped manifest paths and missing link metadata',windows,()=>junctionFixture(String.raw`
+$script:files=@(@{path='link';type='link';target='../outside';linkText='../outside'});SaveFixtureManifest
+$blocked=$false
+try{JunctionPlan $fixture}catch{$blocked=$_.Exception.Message -eq 'JUNCTION_OUTSIDE_PAYLOAD'}
+Ensure $blocked 'OUTSIDE_MANIFEST_TARGET_ACCEPTED'
+$script:files=@(@{path='link';type='link';target='physical'});SaveFixtureManifest
+$blocked=$false
+try{JunctionPlan $fixture}catch{$blocked=$_.Exception.Message -eq 'JUNCTION_MANIFEST_POLICY_REQUIRED'}
+Ensure $blocked 'OLD_LINK_POLICY_ACCEPTED'
+`));
+
+test('unprotected junction inheritance restores exactly and parent changes block recovery',windows,()=>junctionFixture(String.raw`
+$h=[CamachoScmJunction.Handle]::new($link,$true)
+try{
+ $a=[Security.AccessControl.DirectorySecurity]::new()
+ $a.SetSecurityDescriptorSddlForm($h.Read().Dacl,[Security.AccessControl.AccessControlSections]::Access)
+ $a.SetAccessRuleProtection($false,$true)
+ $h.SetDacl($a.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::Access))
+}finally{$h.Dispose()}
+$plan=@(JunctionPlan $fixture);$journal=Join-Path $fixture 'inheritance.json'
+JunctionSeal $payload $plan $journal
+Ensure (JunctionRestore $fixture $journal) 'UNPROTECTED_RECOVERY_FAILED'
+Ensure ((JunctionRead $link).Dacl -ceq $plan[0].Before) 'UNPROTECTED_DACL_CHANGED'
+$plan=@(JunctionPlan $fixture);$journal=Join-Path $fixture 'parent-change.json'
+JunctionSeal $payload $plan $journal
+$after=(JunctionRead $link).Dacl
+$a=Get-Acl -LiteralPath $payload
+$a.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($runtimeServiceSid),'Modify','Allow'))
+Set-Acl -LiteralPath $payload -AclObject $a
+Ensure (-not (JunctionRestore $fixture $journal)) 'UNSAFE_PARENT_RECOVERY_ACCEPTED'
+Ensure ((JunctionRead $link).Dacl -ceq $after) 'RECOVERY_UNPROTECTED_UNDER_CHANGED_PARENT'
+`));
+
+test('protected junction survives parent sealing and complete reverse-order recovery',windows,()=>junctionFixture(String.raw`
+$a=Get-Acl -LiteralPath $payload;Set-Acl -LiteralPath $payload -AclObject $a
+$parentBefore=Sddl $payload
+$plan=@(JunctionPlan $fixture);$linksJournal=Join-Path $fixture 'junction-before.json'
+JunctionSeal $payload $plan $linksJournal
+RuntimeSeal @($payload,$target,(Join-Path $target 'module.js')) (Join-Path $fixture 'acl-before.json') (Join-Path $fixture 'unused')
+JunctionVerify $payload $plan
+Ensure (RuntimeRestore $fixture (Join-Path $fixture 'acl-before.json')) 'PHYSICAL_RECOVERY_FAILED'
+Ensure (JunctionRestore $fixture $linksJournal) 'JUNCTION_AFTER_PARENT_RECOVERY_FAILED'
+Ensure ((Sddl $payload) -ceq $parentBefore -and (JunctionRead $link).Dacl -ceq $plan[0].Before) 'COMPLETE_RECOVERY_NOT_EXACT'
+`));
+
+test('pre-publication tree verification rejects added junctions without publishing READY',()=>fixture(root=>{
+ const payload=path.join(root,'payload');put(payload,'physical/module.js');
+ writeNew(path.join(root,'manifest.json'),{schema:2,files:inventory(payload)});
+ verifyStaged(root);
+ fs.symlinkSync(path.join(payload,'physical'),path.join(payload,'late-link'),'junction');
+ assert.throws(()=>verifyStaged(root),/MANIFEST_MISMATCH/);
+ assert.equal(fs.existsSync(path.join(root,'READY.json')),false);
 }));

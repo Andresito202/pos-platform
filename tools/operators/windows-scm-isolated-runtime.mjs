@@ -41,7 +41,7 @@ export function inventory(root){
     const lexical=path.resolve(path.dirname(file),fs.readlinkSync(file));
     must(inside(root,lexical),'RUNTIME_EXTERNAL_LINK_HOP');
     noLinks(target);
-    rows.push({path:relative,type:'link',target:path.relative(root,target).split(path.sep).join('/')});
+    rows.push({path:relative,type:'link',target:path.relative(root,target).split(path.sep).join('/'),linkText:path.relative(root,lexical).split(path.sep).join('/')});
    }else if(stat.isDirectory()){
     rows.push({path:relative,type:'directory'});walk(file);
    }else{
@@ -248,7 +248,7 @@ export function stage(repo,attempt,pnpm,addon,addonHash){
  event(attempt,'SMOKE_ELECTRON',smoke(attempt,'ELECTRON'));
  const files=inventory(payload);
  assertAclPathLengths(payload,files);
- writeNew(path.join(attempt,'manifest.json'),{schema:1,source,pnpmCliSha256:digest(pnpm),addonHash,files});
+ writeNew(path.join(attempt,'manifest.json'),{schema:2,source,pnpmCliSha256:digest(pnpm),addonHash,files});
  event(attempt,'STAGED',{files:files.length,packages:graph.packages.length});
 }
 export function runnerCandidates(attempt){
@@ -275,16 +275,20 @@ export function runnerCandidates(attempt){
   "exit $LASTEXITCODE"].join('\r\n')+'\r\n';
  return {probe,physical};
 }
+export function verifyStaged(attempt){
+ noLinks(attempt);
+ const manifest=JSON.parse(fs.readFileSync(path.join(attempt,'manifest.json'),'utf8'));
+ must(manifest.schema===2,'RUNTIME_MANIFEST_SCHEMA_REQUIRES_NEW_ATTEMPT');
+ verifyTree(path.join(attempt,'payload'),manifest.files);
+ return manifest;
+}
 export function verify(attempt){
  noLinks(attempt);
  must(!fs.readdirSync(attempt).some(name=>name.startsWith('FAILED-')),'RUNTIME_FAILED_ATTEMPT_REJECTED');
  must(fs.existsSync(path.join(attempt,'READY.json')),'RUNTIME_NOT_READY');
  const ready=JSON.parse(fs.readFileSync(path.join(attempt,'READY.json'),'utf8'));
  must(ready.manifestSha256===digest(path.join(attempt,'manifest.json')),'RUNTIME_READY_HASH_MISMATCH');
- const manifest=JSON.parse(fs.readFileSync(path.join(attempt,'manifest.json'),'utf8'));
- must(manifest.schema===1,'RUNTIME_MANIFEST_SCHEMA');
- verifyTree(path.join(attempt,'payload'),manifest.files);
- return manifest;
+ return verifyStaged(attempt);
 }
 export function writeIsolationProbe(payload,existingFile='package.json'){
  const candidate=path.join(payload,'write-probe-'+crypto.randomUUID());
@@ -308,6 +312,7 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
    for(const [kind,body] of Object.entries(scripts))fs.writeFileSync(path.join(args[0],'control','service-'+kind+'-runner.ps1'),body,{flag:'wx'});
   }
   else if(mode==='plan')console.log(JSON.stringify(planSource(args[0])));
+  else if(mode==='check-tree'){verifyStaged(args[0]);console.log('ISOLATED_STAGED_TREE=PASS');}
   else if(mode==='verify'){verify(args[0]);console.log('ISOLATED_RUNTIME_HASHES=PASS');}
   else if(mode==='smoke'){verify(args[0]);console.log(JSON.stringify(smoke(args[0],args[1]||'NODE')));}
   else if(mode==='probe'){
