@@ -89,3 +89,17 @@ private lab authority directory and signed/verified with the canonical owners.
 Metadata explicitly marks LAB_ONLY/PREPRODUCTION, device possession pending,
 human factor pending and no BUSINESS session. These artifacts are not productive
 trust, a completed enrollment or a passing G2 certificate.
+
+
+## Physical continuation: SCM/Electron G1 and transport G2
+
+Environment: Windows Server 2022 VM, branch `feat/p0-windows-login-install-readiness`, source snapshot `e005f0d105358db309ed6476fd68186772173d7b`, isolated runtime `09bf705703664e1ab2706d732ec45110`, addon SHA-256 `E4562A01388916F2D370214E0B61AB368A111AC3D5ADAF61EA3DED078BC8DF92`.
+
+- SCM identity was the installed virtual account and session 0. A real SCM dependency probe and full runtime hash verification passed. Portable PostgreSQL and Central continued on loopback; Central HTTPS trust checks passed with the lab-only root. `/ready` correctly reported `commercial_auth=NOT_ACTIVATED`.
+- Native physical Node round: service-side test 1/1 PASS and interactive Desktop-side test 1/1 PASS in `physical-combined-c381a5bb7ebe494e96d95e4c80236560`. The additional Electron round in that combined harness failed and remains recorded; it is not counted as a pass.
+- Focused Electron physical regression: SCM Service test 1/1 PASS and Desktop Electron test 1/1 PASS in `electron-physical-1849e67b104a48509743bc9c3d74658a`. The service report is owned by the real service SID. A separate direct Electron native connection diagnostic also passed with the service reporting the real interactive SID, logon SID and session. This confirms G1 transport interoperability for the tested Windows identities/runtime.
+- The physical test exercises the actual named pipe, kernel peer checks, signed handoff, MAC, two protected operations, lease/replay state, rejected signer pin, revocation and socket closure. This is a **transport lease/revocation G2 subcontrol**, not a BUSINESS session or complete commercial authorization G2 certification.
+- Under SCM session 0, the service created a new OS-bound device key using the existing DPAPI provider, signed a canonical device challenge, verified the public signature, restarted the local security component and recovered the same key. Evidence `results/service-device-public.json` records `protection=OS_BOUND`, recovery true, `deviceRegistered=false` and `businessSessionIssued=false`. Existing signer/receiver custody was not read, overwritten or changed.
+- Every temporary runner attempt restored the installed runner SHA-256 `0432EFC499275C9AF4169E35D3E308B0F7AC6E0B2B735193B90A050690A09ABA` and its recorded SDDL; the WinSW XML hash remained `F137F18A4020C8B32D62EC20A6DBB89B1D5B46A43351AAAA611176DC6B6CDB67`. SCM is stopped. WinSW’s existing access-denied stop notification remains a lab lifecycle limitation; no service-control ACL was widened.
+- Commercial authentication remains fail-closed and inactive: no real user, active WebAuthn factor, tenant membership, active device registration or branch-scoped commercial provision exists. No BUSINESS session, SSA activation, panel authorization, physical human MFA, or product Electron login was claimed. The expired and failed attempts, reports and journals remain preserved.
+- Local code changes also let Central bind explicitly to loopback while preserving the old default, and make Service consume the already-supported SCM handoff config key through strict config parsing. Focused tests and both package typechecks passed; these changes do not remove the SCM commercial certification barrier.

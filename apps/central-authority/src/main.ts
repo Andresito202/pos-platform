@@ -272,7 +272,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
 server.on("clientError", (_error, socket) => socket.destroy());
 if(deployment){server.requestTimeout=deployment.requestTimeoutMs;server.headersTimeout=deployment.headersTimeoutMs;}
 if(deployment)server.once("error",()=>{process.stderr.write("CENTRAL_LISTEN_FAILED\n");void pool.end().finally(()=>{process.exitCode=1;});});
-server.listen(PORT, "0.0.0.0", () => {
+server.listen(PORT, deployment?.bindAddress ?? "0.0.0.0", () => {
   collectionsRuntime?.start();
   process.stdout.write(JSON.stringify({ service: "central-authority", status: "LISTENING", port: PORT }) + "\n");
 });

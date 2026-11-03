@@ -65,3 +65,11 @@ it("readiness times out and coalesces concurrent probes without queuing database
   expect(await Promise.all([probe(),probe(),probe()])).toEqual([false,false,false]);expect(queries).toBe(1);
   expect(await probe()).toBe(false);expect(queries).toBe(1);
 });
+
+it("supports a loopback-only Central listener without changing the existing bind default",()=>{
+  expect(parseCentralDeploymentConfiguration(candidate()).bindAddress).toBeUndefined();
+  expect(parseCentralDeploymentConfiguration({...candidate(),CENTRAL_BIND_ADDRESS:"127.0.0.1"}).bindAddress).toBe("127.0.0.1");
+  expect(parseCentralDeploymentConfiguration({...candidate(),CENTRAL_BIND_ADDRESS:"0.0.0.0"}).bindAddress).toBe("0.0.0.0");
+  for(const value of ["","localhost","::","192.168.1.2","127.0.0.1:8443"])expect(()=>parseCentralDeploymentConfiguration({...candidate(),CENTRAL_BIND_ADDRESS:value})).toThrow("CENTRAL_BIND_ADDRESS_REJECTED");
+  expect(()=>resolveCentralDeploymentConfiguration({CENTRAL_BIND_ADDRESS:"127.0.0.1"})).toThrow("CENTRAL_DEPLOYMENT_ENVIRONMENT_REQUIRED");
+});

@@ -4,12 +4,12 @@ import type {Pool} from "@pos-platform/database-postgres";
 import {validateCommercialHttpsOrigin} from "@pos-platform/contracts";
 
 export interface CentralDeploymentConfiguration {
-  environment:"LOCAL"|"PREPRODUCTION"|"PRODUCTION";origin:string;port:number;
+  environment:"LOCAL"|"PREPRODUCTION"|"PRODUCTION";origin:string;port:number;bindAddress?:"127.0.0.1"|"0.0.0.0";
   maxBodyBytes:number;credentialLifetimeMs:number;shutdownTimeoutMs:number;
   requestTimeoutMs:number;headersTimeoutMs:number;enrollmentTokenFile:string;
 }
 export function resolveCentralDeploymentConfiguration(env:NodeJS.ProcessEnv):CentralDeploymentConfiguration|null{
-  return ["CENTRAL_DEPLOYMENT_ENVIRONMENT","CENTRAL_AUTHORITY_ORIGIN","CENTRAL_REQUEST_TIMEOUT_MS","CENTRAL_HEADERS_TIMEOUT_MS",
+  return ["CENTRAL_DEPLOYMENT_ENVIRONMENT","CENTRAL_AUTHORITY_ORIGIN","CENTRAL_BIND_ADDRESS","CENTRAL_REQUEST_TIMEOUT_MS","CENTRAL_HEADERS_TIMEOUT_MS",
     "CENTRAL_SHUTDOWN_TIMEOUT_MS","D3_ENROLLMENT_TRANSPORT_TOKEN_FILE"].some(name=>env[name]!==undefined)?parseCentralDeploymentConfiguration(env):null;
 }
 /** Opt-in deployment validation; never activates BUSINESS/SAS endpoints.
@@ -17,6 +17,8 @@ export function resolveCentralDeploymentConfiguration(env:NodeJS.ProcessEnv):Cen
 export function parseCentralDeploymentConfiguration(env:NodeJS.ProcessEnv):CentralDeploymentConfiguration{
   const environment=env.CENTRAL_DEPLOYMENT_ENVIRONMENT;
   if(!["LOCAL","PREPRODUCTION","PRODUCTION"].includes(environment??""))throw Error("CENTRAL_DEPLOYMENT_ENVIRONMENT_REQUIRED");
+  const bindAddress=env.CENTRAL_BIND_ADDRESS;
+  if(bindAddress!==undefined&&!["127.0.0.1","0.0.0.0"].includes(bindAddress))throw Error("CENTRAL_BIND_ADDRESS_REJECTED");
   const integer=(name:string,max=Number.MAX_SAFE_INTEGER)=>{const value=env[name];
     if(!value||!/^\d+$/.test(value)||!Number.isSafeInteger(Number(value))||Number(value)<=0||Number(value)>max)throw Error("CENTRAL_DEPLOYMENT_INTEGER_REQUIRED");return Number(value);};
   let origin:URL;try{origin=new URL(env.CENTRAL_AUTHORITY_ORIGIN??"");}catch{throw Error("CENTRAL_DEPLOYMENT_ORIGIN_INVALID");}
@@ -36,6 +38,7 @@ export function parseCentralDeploymentConfiguration(env:NodeJS.ProcessEnv):Centr
   const requestTimeoutMs=integer("CENTRAL_REQUEST_TIMEOUT_MS",2147483647),headersTimeoutMs=integer("CENTRAL_HEADERS_TIMEOUT_MS",2147483647);
   if(headersTimeoutMs>requestTimeoutMs)throw Error("CENTRAL_TIMEOUT_ORDER_INVALID");
   return Object.freeze({environment:environment as CentralDeploymentConfiguration["environment"],origin:origin.origin,
+    ...(bindAddress===undefined?{}:{bindAddress:bindAddress as "127.0.0.1"|"0.0.0.0"}),
     port:integer("CENTRAL_AUTHORITY_PORT",65535),maxBodyBytes:integer("D3_ENROLLMENT_MAX_BODY_BYTES"),credentialLifetimeMs:integer("D3_CREDENTIAL_LIFETIME_MS"),
     shutdownTimeoutMs:integer("CENTRAL_SHUTDOWN_TIMEOUT_MS",2147483647),requestTimeoutMs,headersTimeoutMs,enrollmentTokenFile:env.D3_ENROLLMENT_TRANSPORT_TOKEN_FILE});
 }

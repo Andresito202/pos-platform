@@ -123,3 +123,11 @@ describe("parseServiceConfig", () => {
     })).toThrow("session trust artifact path must be absolute");
   });
 });
+
+it("recognizes the SCM handoff consumed by main and requires an absolute managed path",()=>{
+  expect(parseServiceConfig(valid).windows_scm_handoff_file).toBeUndefined();
+  const file=valid.POS_DATA_DIRECTORY+"/service-provision.json";
+  expect(parseServiceConfig({...valid,POS_WINDOWS_SCM_HANDOFF_FILE:file}).windows_scm_handoff_file).toBe(file);
+  expect(()=>parseServiceConfig({...valid,POS_WINDOWS_SCM_HANDOFF_FILE:"relative.json"})).toThrow();
+  expect(()=>parseServiceConfig({...valid,POS_WINDOWS_SCM_HANDOFF_FILE:""})).toThrow();
+});

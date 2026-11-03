@@ -135,7 +135,7 @@ function describeStartupError(error: unknown): Record<string, unknown> {
 
 try {
   const config = parseServiceConfig(process.env);
-  const scmProvisionFile=process.env.POS_WINDOWS_SCM_HANDOFF_FILE;
+  const scmProvisionFile=config.windows_scm_handoff_file;
   if(scmProvisionFile!==undefined)assertWindowsScmCommercialCertification();
   const scmProvision=scmProvisionFile===undefined?undefined:readWindowsScmProvision(scmProvisionFile,"SERVICE",config.installation_id,config.device_id);
   if (process.platform !== "win32" && process.env.NODE_ENV !== "test") {
