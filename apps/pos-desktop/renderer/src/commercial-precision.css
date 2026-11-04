@@ -540,3 +540,37 @@ legend { padding: 0 6px; font-weight: 600; }
   }
 }
 /* CAMACHO_LOGIN_BG_OPTION_A_END */
+
+/* CAMACHO_POS_SIDEBAR_BRAND_FULL_START
+   Use the compact approved stacked logo (POS, receipt printer, complete name,
+   slogan) in the sidebar. Preserve the wide logo for the login and web.
+   Applies identically to cashier/admin/superadmin preview and real UI. */
+.pos-brand-mark {
+  display: block;
+  width: min(100%, 202px);
+  height: 206px;
+  margin: 0 auto 10px;
+  border: 1px solid #dce5ef;
+  border-radius: 10px;
+  background-color: #ffffff;
+  background-image: url("../../../../docs/brand/camacho-pos-colombia-apilado.png");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  box-shadow: 0 5px 18px rgb(0 0 0 / 12%);
+}
+/* Full logotype is baked into the asset; don't show its name twice. */
+.pos-sidebar > .pos-brand-name { display: none; }
+.pos-sidebar > .pos-subtitle {
+  text-align: center;
+  font-size: 12px;
+  margin: 0 0 24px;
+}
+@media (max-width: 800px) {
+  .pos-brand-mark {
+    width: min(100%, 160px);
+    height: 164px;
+    margin: 0 auto 12px;
+  }
+}
+/* CAMACHO_POS_SIDEBAR_BRAND_FULL_END */
