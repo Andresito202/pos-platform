@@ -243,6 +243,22 @@ describe("SalePanel — vertical comercial", () => {
     expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
   });
 
+  it("incluye la moneda de 100 COP y la cuenta sin registrar una venta", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    fireEvent.click(screen.getByTestId("denomination-add-100"));
+    fireEvent.click(screen.getByTestId("denomination-add-100"));
+    expect(screen.getByTestId("denomination-count-100").textContent).toContain("2");
+    expect(screen.getByTestId("tendered-display").textContent).toBe("200");
+    expect(screen.getByTestId("cash-change-estimate").textContent).toContain("3.300");
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+    fireEvent.click(screen.getByTestId("denomination-remove-100"));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("100");
+  });
+
   it("combina denominaciones y teclado conservando el importe de pago parcial", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", false) });
     render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
