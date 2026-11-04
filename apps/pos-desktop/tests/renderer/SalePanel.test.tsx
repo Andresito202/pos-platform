@@ -217,6 +217,63 @@ describe("SalePanel — vertical comercial", () => {
   });
 
 
+  it("cuenta billetes y monedas uno por uno sin registrar pagos al seleccionar", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+
+    fireEvent.click(screen.getByTestId("denomination-add-5000"));
+    fireEvent.click(screen.getByTestId("denomination-add-2000"));
+    fireEvent.click(screen.getByTestId("denomination-add-500"));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("7500");
+    expect(screen.getByTestId("denomination-count-5000").textContent).toContain("1");
+    expect(screen.getByTestId("denomination-count-2000").textContent).toContain("1");
+    expect(screen.getByTestId("denomination-count-500").textContent).toContain("1");
+    expect(screen.getByTestId("cash-change-estimate").textContent).toContain("4.000");
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+
+    fireEvent.click(screen.getByTestId("denomination-remove-2000"));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("5500");
+    expect(screen.getByTestId("cash-change-estimate").textContent).toContain("2.000");
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("sale-completed");
+    const request = calls.get("payment.register.cash")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["amount"]).toBe("3500.000000");
+    expect(request.payload["tendered_amount"]).toBe("5500.000000");
+    expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("combina denominaciones y teclado conservando el importe de pago parcial", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", false) });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.change(screen.getByTestId("payment-amount-input"), { target: { value: "2000" } });
+    fireEvent.click(screen.getByTestId("denomination-add-2000"));
+    fireEvent.click(screen.getByRole("button", { name: "5" }));
+    fireEvent.click(screen.getByRole("button", { name: "00" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("2500");
+    expect(screen.getByTestId("cash-change-estimate").textContent).toContain("500");
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("payment-partial");
+    const request = calls.get("payment.register.cash")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["amount"]).toBe("2000.000000");
+    expect(request.payload["tendered_amount"]).toBe("2500.000000");
+  });
+
+  it("el borrado elimina tanto el importe manual como el desglose físico", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByTestId("denomination-add-50000"));
+    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("50002");
+    fireEvent.click(screen.getByRole("button", { name: "Borrar" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("0");
+    expect(screen.getByTestId("denomination-count-50000").textContent).toContain("0");
+    expect(screen.queryByTestId("cash-change-estimate")).toBeNull();
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+  });
+
   it("normalizes typed cash before sending the payment contract", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
     render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
