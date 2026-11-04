@@ -1,4 +1,4 @@
-/* Commercial Precision (B), approved by the owner on 2026-10-24.
+﻿/* Commercial Precision (B), approved by the owner on 2026-10-24.
    Presentation only: no role, scope, session or lifecycle authority. */
 :root {
   font-family: Bahnschrift, "Segoe UI", system-ui, sans-serif;
@@ -6,20 +6,20 @@
   line-height: 1.5;
   color: var(--camacho-ink);
   background: var(--camacho-surface);
-  --camacho-navy: #10283d;
-  --camacho-navy-hover: #203d54;
-  --camacho-blue: #2577b0;
-  --camacho-blue-text: #123d68;
-  --camacho-blue-soft: #e9f1f6;
+  --camacho-navy: #1a1d23;
+  --camacho-navy-hover: #303742;
+  --camacho-blue: #0d6efd;
+  --camacho-blue-text: #0b4aa4;
+  --camacho-blue-soft: #eaf3ff;
   --camacho-green: #087052;
   --camacho-green-soft: #e4f3ec;
-  --camacho-surface: #f3f6f8;
+  --camacho-surface: #f7f8fa;
   --camacho-card: #fff;
-  --camacho-border: #d6dfe6;
-  --camacho-muted: #536475;
-  --camacho-on-dark: #e7eef4;
-  --camacho-on-dark-muted: #bacbd6;
-  --camacho-ink: #142b3a;
+  --camacho-border: #d9e0ea;
+  --camacho-muted: #4a5766;
+  --camacho-on-dark: #f8fafc;
+  --camacho-on-dark-muted: #cad3e1;
+  --camacho-ink: #1a1d23;
   --camacho-danger: #9f2525;
   --camacho-danger-soft: #fbe7e7;
   --camacho-warning: #805500;

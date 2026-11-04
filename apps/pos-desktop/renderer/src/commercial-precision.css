@@ -343,3 +343,32 @@ legend { padding: 0 6px; font-weight: 600; }
   .pos-screen label { font-size: 14px; }
   .pos-screen input, .pos-screen select { font-size: 16px; }
 }
+
+/* CAMACHO_BRAND_2026_11_04_START: solo presentación. No alterar auth, scopes ni estados. */
+:root {
+  --camacho-brand-orange: #ff6a00;
+  --camacho-brand-yellow: #ffc107;
+  --camacho-brand-blue: #0d6efd;
+  --camacho-brand-carbon: #1a1d23;
+}
+.pos-nav-button[aria-current="page"] {
+  background: #303742;
+  color: #ffffff;
+  box-shadow: inset 3px 0 var(--camacho-brand-yellow);
+}
+.pos-primary-action:not(:disabled),
+.pos-screen button.pos-form-primary:not(:disabled) {
+  background: var(--camacho-brand-orange);
+  border-color: var(--camacho-brand-orange);
+  color: var(--camacho-brand-carbon);
+}
+.pos-primary-action:not(:disabled):hover,
+.pos-screen button.pos-form-primary:not(:disabled):hover {
+  background: var(--camacho-brand-yellow);
+  border-color: var(--camacho-brand-yellow);
+  color: var(--camacho-brand-carbon);
+}
+/* Transparencia real de PNG; base blanca controlada para legibilidad de texto oscuro. */
+.pos-brand-mark { background-color: #ffffff; background-position: center; background-repeat: no-repeat; background-size: contain; }
+.pos-entry-logo { background-color: #ffffff; background-position: center; background-repeat: no-repeat; background-size: contain; }
+/* CAMACHO_BRAND_2026_11_04_END */

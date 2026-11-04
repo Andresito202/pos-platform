@@ -1,4 +1,4 @@
-@import "./design-tokens.css";
+﻿@import "./design-tokens.css";
 
 
 * { box-sizing: border-box; }
@@ -42,7 +42,7 @@ button {
   width: 100%;
   height: 76px;
   margin-bottom: 10px;
-  background: transparent url("../../../../docs/brand/camacho-pos-colombia-logo-960.png") center / contain no-repeat;
+  background: transparent url("../../../../docs/brand/camacho-pos-colombia-symbol.png") center / contain no-repeat;
   border-radius: 8px;
   animation: camacho-brand-entrance 700ms cubic-bezier(.2,.7,.2,1) both;
 }
@@ -512,7 +512,7 @@ button {
 }
 .pos-entry-brand { min-width: 0; display: grid; justify-items: center; gap: 36px; }
 .pos-entry-logo { width: min(100%, 480px); height: 115px;
-  background: url("../../../../docs/brand/camacho-pos-colombia-logo-960.png") center / contain no-repeat;
+  background: url("../../../../docs/brand/camacho-pos-colombia-login.png") center / contain no-repeat;
 }
 
 .pos-entry-card { max-width: 540px; width: 100%; padding: clamp(28px, 4vw, 54px); border: 1px solid #58c2a44d;
