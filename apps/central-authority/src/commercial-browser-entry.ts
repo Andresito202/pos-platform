@@ -22,21 +22,37 @@ export function sendCommercialBrowserEntry(res: ServerResponse, configuration: C
   const html = `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Acceso — Camacho POS Colombia</title>
 <style nonce="${nonce}">
-/* Commercial Precision B: presentation only; nonce and authentication unchanged. */
-:root{font-family:Bahnschrift,"Segoe UI",system-ui,sans-serif;color:#142b3a;background:#f3f6f8;line-height:1.5}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center}
-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,420px);gap:64px;width:min(1060px,100%);padding:40px;margin:0}
-.access-brand{align-self:center}.access-brand img{display:block;width:min(330px,100%);margin-bottom:36px;background:#fff;border:1px solid #d6dfe6;border-radius:4px;padding:12px}
-h1{font-size:34px;line-height:1.18;letter-spacing:-.6px;font-weight:600;margin:0 0 20px}h2{font-size:24px;line-height:1.25;margin:0 0 16px;font-weight:600}
-.access-brand p{font-size:14px;color:#536475;max-width:360px}.access-form{min-width:0;background:#fff;border:1px solid #d6dfe6;border-top:3px solid #087052;border-radius:4px;padding:30px}
-label{display:grid;gap:6px;margin-top:18px;font-size:13px;font-weight:600}
-input{width:100%;min-height:44px;padding:10px 12px;font:inherit;color:#142b3a;border:1px solid #b8c6d1;border-radius:4px;background:#fff}
-button{min-height:44px;padding:10px 16px;margin:20px 8px 0 0;font:inherit;font-size:14px;font-weight:600;cursor:pointer;border:1px solid #b8c6d1;border-radius:4px;background:#fff;color:#142b3a}
-#start,#confirm{background:#087052;border-color:#087052;color:#fff}button:disabled{cursor:not-allowed;background:#edf0f3!important;border-color:#d6dfe6!important;color:#536475!important}
-:is(button,input):focus-visible{outline:3px solid #2577b0;outline-offset:3px}p{line-height:1.5}#status{font-size:13px;padding:14px;border-left:3px solid #123d68;background:#e9f1f6;margin:24px 0 0;overflow-wrap:anywhere}
-#destination{font-size:13px;padding-top:18px;border-top:1px solid #d6dfe6;overflow-wrap:anywhere}#status[data-phase="REJECTED"],#status[data-phase="LOGOUT_UNCONFIRMED"]{background:#fff2d4;color:#805500;border-left-color:#805500}
-@media(max-width:700px){main{grid-template-columns:minmax(0,1fr);gap:24px;padding:24px 18px}.access-brand img{width:240px;margin-bottom:22px}h1{font-size:28px}.access-brand p{max-width:none}.access-form{padding:24px}}
+/* Commercial Precision B · central commercial login · presentation only. */
+:root{font-family:Bahnschrift,"Segoe UI",system-ui,sans-serif;color:#142b3a;background:#edf3f4;line-height:1.5;color-scheme:light;--navy:#10283d;--ink:#142b3a;--muted:#506577;--border:#c9d6de;--green:#087052;--focus:#2577b0}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:clamp(14px,3vw,40px)}
+main{display:grid;grid-template-columns:minmax(0,1fr) minmax(350px,460px);width:min(1110px,100%);min-width:0;min-height:610px;overflow:hidden;background:#fff;border:1px solid #cfdae0;border-radius:16px;box-shadow:0 14px 46px rgb(16 40 61 / 9%)}
+.access-brand{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-width:0;padding:clamp(36px,5vw,72px);background:var(--navy);color:#fff}
+.access-brand img{display:block;width:min(320px,100%);max-height:200px;object-fit:contain;padding:16px;margin:0 0 42px;background:#fff;border:1px solid #dce6ec;border-radius:10px}
+h1{margin:0 0 18px;max-width:430px;font-size:clamp(30px,3.4vw,40px);line-height:1.15;letter-spacing:-.035em;font-weight:650}
+.access-brand p{margin:0;max-width:400px;font-size:15px;color:#c9d9e4;line-height:1.65}
+.access-form{align-self:center;min-width:0;width:100%;padding:clamp(28px,4.5vw,52px);background:#fff;color:var(--ink)}
+h2{margin:0 0 26px;font-size:clamp(24px,2.5vw,29px);line-height:1.2;font-weight:650;letter-spacing:-.025em}
+label{display:grid;gap:8px;margin-top:18px;font-size:14px;font-weight:600;color:#304658}
+input{display:block;width:100%;min-height:48px;padding:11px 14px;font:inherit;font-size:16px;color:var(--ink);background:#fff;border:1px solid #aebfca;border-radius:7px}
+input:hover{border-color:#7891a1}input:focus{border-color:var(--focus)}
+button{display:inline-flex;align-items:center;justify-content:center;min-height:46px;padding:11px 16px;margin:12px 8px 0 0;font:inherit;font-size:14px;font-weight:600;line-height:1.3;border:1px solid var(--border);border-radius:7px;color:var(--ink);background:#fff;cursor:pointer}
+button:not(:disabled):hover{border-color:var(--focus);background:#f2f7fa}
+#start,#confirm{display:flex;width:100%;margin:25px 0 0;min-height:48px;color:#fff;background:var(--green);border-color:var(--green)}
+#start:not(:disabled):hover,#confirm:not(:disabled):hover{background:#075941;border-color:#075941}
+#cancel{display:flex;width:100%;margin:10px 0 0}#logout{width:100%;margin:18px 0 0}
+button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6dfe6!important;color:#536475!important}
+:is(button,input):focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+#status{margin:25px 0 0;padding:14px 15px;font-size:13px;line-height:1.55;color:#294e6d;background:#edf4f8;border:1px solid #cddde8;border-left:4px solid #2577b0;border-radius:6px;overflow-wrap:anywhere}
+#status[data-phase="BUSINESS_VERIFIED"],#status[data-phase="SIGNED_OUT"]{background:#e9f5ef;border-color:#b9ddcd;border-left-color:#087052;color:#175b42}
+#status[data-phase="REJECTED"],#status[data-phase="LOGOUT_UNCONFIRMED"]{background:#fff5e1;border-color:#e8d2a1;border-left-color:#9b6300;color:#674500}
+#destination{margin:20px 0 0;padding:16px 0 0;font-size:13px;border-top:1px solid var(--border);overflow-wrap:anywhere}
+[hidden]{display:none!important}
+@media(max-width:800px){body{padding:18px}main{grid-template-columns:minmax(0,1fr);min-height:auto;max-width:630px}.access-brand{padding:32px 36px}.access-brand img{width:230px;max-height:130px;margin-bottom:22px;padding:10px}h1{font-size:29px;margin-bottom:8px}.access-brand p{max-width:none;font-size:13px}.access-form{padding:34px 36px}}
+@media(max-width:480px){body{padding:0;display:block}main{min-height:100vh;border:0;border-radius:0;box-shadow:none}.access-brand{padding:24px 22px}.access-brand img{width:190px;max-height:110px;margin-bottom:18px}h1{font-size:25px}.access-form{padding:26px 22px 36px}h2{font-size:24px}}
 @media(pointer:coarse){input,button{min-height:48px;font-size:16px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
 </style><main><section class="access-brand"><img alt="Camacho POS Colombia" src="data:image/png;base64,${configuration.logoPng.toString("base64")}">
 <h1>Iniciar autenticación comercial</h1><p>Entorno local de integración. No habilita acceso productivo al POS.</p>
 </section><section class="access-form" aria-label="Autenticación comercial"><h2>Verifica tu identidad</h2>
