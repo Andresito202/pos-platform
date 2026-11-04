@@ -66,11 +66,10 @@ export async function stageLabCommercialSnapshot(directory:string,bytes:Buffer,p
     return output;
   }finally{unlinkSync(snapshot);}
 }
-async function main(){
-  const input=parseLabCommercialArguments(process.argv.slice(2));
+export function assertLabCommercialOperator(root:string){
   if(process.platform!=='win32')fail('LAB_COMMERCIAL_WINDOWS_REQUIRED');
   // Read only the current OS identity and authority-directory ACL; never widen it.
-  const authority=join(input.root,'central-lab','authority');
+  const authority=join(root,'central-lab','authority');
   const previous=process.env.CAMACHO_LAB_AUTHORITY_INSPECTION_PATH;
   try{
     process.env.CAMACHO_LAB_AUTHORITY_INSPECTION_PATH=authority;
@@ -80,6 +79,11 @@ async function main(){
     if(checked!=='LAB_COMMERCIAL_OPERATOR_AND_CUSTODY_VERIFIED')fail('LAB_COMMERCIAL_OPERATOR_OR_CUSTODY_REJECTED');
   }catch{fail('LAB_COMMERCIAL_OPERATOR_OR_CUSTODY_REJECTED');}
   finally{if(previous===undefined)delete process.env.CAMACHO_LAB_AUTHORITY_INSPECTION_PATH;else process.env.CAMACHO_LAB_AUTHORITY_INSPECTION_PATH=previous;}
+}
+async function main(){
+  const input=parseLabCommercialArguments(process.argv.slice(2));
+  assertLabCommercialOperator(input.root);
+  const authority=join(input.root,'central-lab','authority');
   // This file is explicit configuration, never evidence of MFA or device possession.
   const candidateBytes=managed(input.candidate);
   validateLabCommercialCandidate(JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(candidateBytes)),input.root);
