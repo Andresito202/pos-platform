@@ -496,3 +496,47 @@ legend { padding: 0 6px; font-weight: 600; }
   .pos-entry-card h2 { font-size: 29px; }
 }
 /* CAMACHO_ENTRY_PREVIEW_V2_END */
+
+/* CAMACHO_LOGIN_BG_OPTION_A_START
+   Background-only; static first-party SVG, no scripts or inline data URIs.
+   HTML/CSP and authentication are unchanged. */
+.pos-entry {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(135deg, #fbfcff 0%, #f2f6fb 55%, #eef2f7 100%);
+}
+.pos-entry::before,
+.pos-entry::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.pos-entry::before {
+  background:
+    radial-gradient(circle at 12% 22%, rgb(255 193 7 / 13%) 0%, transparent 36%),
+    radial-gradient(circle at 83% 16%, rgb(13 110 253 / 8%) 0%, transparent 30%),
+    radial-gradient(circle at 18% 87%, rgb(255 106 0 / 6%) 0%, transparent 29%);
+}
+.pos-entry::after {
+  background: url("./assets/login-waves.svg") center bottom / cover no-repeat;
+}
+.pos-entry > .pos-entry-brand,
+.pos-entry > .pos-entry-card {
+  position: relative;
+  z-index: 1;
+}
+@media (max-width: 600px) {
+  .pos-entry::before {
+    background:
+      radial-gradient(circle at 15% 15%, rgb(255 193 7 / 11%) 0%, transparent 36%),
+      radial-gradient(circle at 82% 70%, rgb(13 110 253 / 6%) 0%, transparent 36%);
+  }
+  .pos-entry::after {
+    background-size: auto 100%;
+    opacity: .7;
+  }
+}
+/* CAMACHO_LOGIN_BG_OPTION_A_END */
