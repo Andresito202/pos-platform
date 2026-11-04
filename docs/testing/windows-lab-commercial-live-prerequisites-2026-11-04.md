@@ -65,3 +65,29 @@ Es una comprobación estática acotada; no es un parser SQL general ni una
 ejecución PostgreSQL. La consulta corregida debe ejecutarse todavía en la VM.
 El aviso de pgpass no motivó actualización de dependencias ni cambios de
 credenciales. El mensaje de pnpm sobre tsx sigue siendo secundario al error SQL.
+
+## Separación confirmada entre arnés SCM e identidad del Service
+
+El propietario aportó los campos públicos del recibo del Service: installation_id
+y device_id son UUID v7, distintos de los v4 de scm-lab-identity.json. El formato
+v4 del arnés no demuestra incompatibilidad del dispositivo custodiado con DEV-003.
+El informe V1 consultaba el registro con el ID del arnés: su resultado ABSENT
+se refiere a ese ID, no al dispositivo v7. Ese diagnóstico se corrige, sin
+cambiar identificadores, claves, esquema o datos.
+
+V2 usa los UUID del recibo público del Service exclusivamente como selectores
+de consulta, nunca como prueba de posesión. Los comprueba en el registro real,
+con el ámbito BUSINESS publicado y la clave pública correspondiente. Rechaza
+metadatos ausentes o alias camel/snake contradictorios, en vez de adoptar el
+UUID del arnés como alternativa. No copia el tenant/empresa/sucursal históricos
+del recibo como autoridad: la membresía y destino se revalidan en PostgreSQL.
+
+Además carga los dos manifiestos SCM mediante readWindowsScmProvision existente
+y compara sus identificadores con el Service; no infiere que estén mal sólo
+por un archivo histórico del arnés. Es configuración leída bajo sus controles
+canónicos, no handshake nativo ni certificación de ejecución. Si falta o no
+coincide, informa SCM_COMMERCIAL_BINDING_NOT_VERIFIED y mantiene el gate.
+
+No se solicitó la clave privada ni se tomó un DEVICE_KEY redactado del chat.
+La ejecución real V2 queda pendiente; todavía no se ha determinado el estado
+central del dispositivo v7. Se conservan los informes anteriores como evidencia.

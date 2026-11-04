@@ -7,6 +7,7 @@ import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {UuidSchema,UuidV7Schema,uuidV7} from '../../packages/contracts/src/index.js';
 import {createPostgresPool,PostgresCommercialDeploymentContext} from '../../packages/database-postgres/src/index.js';
+import {readWindowsScmProvision} from '../../packages/local-channel/src/index.js';
 import {inspectCentralLoginPreflight} from '../../apps/central-authority/src/central-login-preflight.js';
 import {LAB_ADMIN_POLICY} from './windows-login-lab-business-context.mjs';
 import {assertLabCommercialOperator,parseLabCommercialArguments,safeLabCommercialError} from './windows-login-lab-commercial-provision.mjs';
@@ -21,16 +22,32 @@ export const LAB_CURRENT_HUMAN_SCOPE_SQL=`SELECT 1 FROM identity.users u
   WHERE u.id=$1 AND u.status='ACTIVE'`;
 
 function fail(code:string):never{throw Error(code);}
+/** Lookup selectors only. A public receipt never proves current possession. */
+export function getLabServiceDeviceBinding(receipt:unknown){
+  const binding=(receipt as {binding?:Record<string,unknown>}|null)?.binding;
+  if(!binding||typeof binding!=='object'||Array.isArray(binding))fail('LAB_SERVICE_DEVICE_BINDING_REQUIRED');
+  const value=(camel:string,snake:string)=>{
+    const present=[binding[camel],binding[snake]].filter(v=>v!==undefined);
+    if(!present.length)fail('LAB_SERVICE_DEVICE_BINDING_REQUIRED');
+    const parsed=present.map(v=>UuidSchema.parse(v));
+    if(parsed.some(v=>v!==parsed[0]))fail('LAB_SERVICE_DEVICE_BINDING_AMBIGUOUS');
+    return parsed[0]!;
+  };
+  return {installationId:value('installationId','installation_id'),deviceId:value('deviceId','device_id')};
+}
+/** Configuration metadata only; never a native peer or authentication proof. */
+export function matchesLabScmDeviceBinding(bindings:readonly {installation_id:string;device_id:string}[],device:{installationId:string;deviceId:string}){
+  return bindings.length===2&&bindings.every(b=>b.installation_id===device.installationId&&b.device_id===device.deviceId);
+}
 export function inspectLabDeviceIdentifiers(identity:unknown,receipt:unknown){
-  const a=identity as Record<string,unknown>|null,r=receipt as {binding?:Record<string,unknown>}|null;
-  const installation=UuidSchema.parse(a?.installation_id),device=UuidSchema.parse(a?.device_id);
-  const binding=r?.binding;
-  const same=(camel:string,snake:string,expected:string)=>Boolean(binding&&
-    (binding[camel]!==undefined||binding[snake]!==undefined)&&
-    [binding[camel],binding[snake]].filter(x=>x!==undefined).every(x=>x===expected));
-  return {installationUuidVersion:Number(installation[14]),deviceUuidVersion:Number(device[14]),
-    canonicalDeviceUuidV7:UuidV7Schema.safeParse(device).success,
-    historicalReceiptBindingMatches:same('installationId','installation_id',installation)&&same('deviceId','device_id',device)};
+  const a=identity as Record<string,unknown>|null;
+  const legacyInstallation=UuidSchema.parse(a?.installation_id),legacyDevice=UuidSchema.parse(a?.device_id);
+  const service=getLabServiceDeviceBinding(receipt);
+  return {lookupSource:'SERVICE_DEVICE_PUBLIC_BINDING_SELECTOR_ONLY' as const,
+    installationUuidVersion:Number(service.installationId[14]),deviceUuidVersion:Number(service.deviceId[14]),
+    canonicalDeviceUuidV7:UuidV7Schema.safeParse(service.deviceId).success,
+    legacyScmInstallationUuidVersion:Number(legacyInstallation[14]),legacyScmDeviceUuidVersion:Number(legacyDevice[14]),
+    historicalReceiptBindingMatches:service.installationId===legacyInstallation&&service.deviceId===legacyDevice};
 }
 export function choosePublishedLabContext(receipts:readonly unknown[]){
   const checksum=createHash('sha256').update(JSON.stringify(LAB_ADMIN_POLICY)).digest('hex');
@@ -60,7 +77,15 @@ async function main(){
   assertLabCommercialOperator(root);
   const identity=json(join(root,'scm-lab-identity.json')) as Record<string,string>;
   const device=json(join(root,'results','service-device-public.json')) as Record<string,unknown>;
+  const serviceDevice=getLabServiceDeviceBinding(device);
   const identifiers=inspectLabDeviceIdentifiers(identity,device);
+  let scmMetadataMatches=false,scmMetadataRead=false;
+  try{
+    const service=readWindowsScmProvision(join(root,'service','service-provision.json'),'SERVICE');
+    const desktop=readWindowsScmProvision(join(root,'desktop','desktop-provision.json'),'DESKTOP');
+    scmMetadataMatches=matchesLabScmDeviceBinding([service.handoff,desktop.handoff],serviceDevice);
+    scmMetadataRead=true;
+  }catch{/* Missing/unreadable metadata stays unverified; never weakens custody. */}
   const receipts=readdirSync(directory).filter(n=>/^business-context-[a-f0-9-]{36}\.json$/.test(n)).map(n=>json(join(directory,n)));
   const context=choosePublishedLabContext(receipts);
   const saved=json(join(authority,'central-runtime-environment.json')) as {env?:NodeJS.ProcessEnv};
@@ -84,13 +109,13 @@ async function main(){
       await c.query("SELECT set_config('app.tenant_id',$1,true)",[context.tenantId]);
       const human=await c.query(LAB_CURRENT_HUMAN_SCOPE_SQL,[context.userId,context.factorId,context.materialId,context.membershipId,context.tenantId,context.companyId,context.branchId,LAB_ADMIN_POLICY.company,LAB_ADMIN_POLICY.branch]);
       boundHuman=human.rows.length===1;
-      const registry=(await c.query('SELECT installation_id::text,tenant_id::text,company_id::text,device_key_id,device_public_key,status FROM identity.device_registry WHERE device_id=$1',[identity.device_id])).rows[0];
+      const registry=(await c.query('SELECT installation_id::text,tenant_id::text,company_id::text,device_key_id,device_public_key,status FROM identity.device_registry WHERE device_id=$1',[serviceDevice.deviceId])).rows[0];
       if(registry){
         status=registry.status;
-        scopeRegistered=registry.installation_id===identity.installation_id&&registry.tenant_id===context.tenantId&&registry.company_id===context.companyId;
+        scopeRegistered=registry.installation_id===serviceDevice.installationId&&registry.tenant_id===context.tenantId&&registry.company_id===context.companyId;
         keyMatches=createPublicKey(Buffer.from(registry.device_public_key)).export({format:'der',type:'spki'}).equals(createPublicKey(String(device.publicKeyPem)).export({format:'der',type:'spki'}))&&registry.device_key_id===device.deviceKeyId;
       }
-      activeCredentials=Number((await c.query("SELECT count(*)::int AS n FROM identity.device_credentials WHERE device_id=$1 AND status='ACTIVE' AND revoked_at IS NULL AND issued_at<=clock_timestamp() AND expires_at>clock_timestamp()",[identity.device_id])).rows[0]?.n??0);
+      activeCredentials=Number((await c.query("SELECT count(*)::int AS n FROM identity.device_credentials WHERE device_id=$1 AND status='ACTIVE' AND revoked_at IS NULL AND issued_at<=clock_timestamp() AND expires_at>clock_timestamp()",[serviceDevice.deviceId])).rows[0]?.n??0);
       const constraints=(await c.query("SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='identity.device_registry'::regclass AND conname='device_registry_id_v7_ck'")).rows;
       constraintV7=constraints.length===1&&/is_uuid_v7/.test(constraints[0].definition);
     }finally{try{await c.query('ROLLBACK');}finally{c.release();}}
@@ -98,13 +123,14 @@ async function main(){
     const blockers:string[]=[];
     if(!preflight.configurationValid||!preflight.tlsIdentityMatched||!preflight.environmentAllowed)blockers.push('CENTRAL_DEPLOYMENT_OR_TLS_NOT_VALIDATED');
     if(!boundHuman)blockers.push('ACTIVE_BUSINESS_HUMAN_CONTEXT_NOT_REVALIDATED');
-    if(!identifiers.historicalReceiptBindingMatches)blockers.push('SCM_PUBLIC_RECEIPT_BINDING_MISMATCH');
-    if(constraintV7&&!identifiers.canonicalDeviceUuidV7)blockers.push('SCM_DEVICE_UUID_VERSION_INCOMPATIBLE_WITH_DEV003');
+    if(!scmMetadataMatches)blockers.push('SCM_COMMERCIAL_BINDING_NOT_VERIFIED');
+    if(constraintV7&&!identifiers.canonicalDeviceUuidV7)blockers.push('SERVICE_DEVICE_UUID_VERSION_INCOMPATIBLE_WITH_DEV003');
     if(!constraintV7)blockers.push('DEVICE_SCHEMA_UUID_CONSTRAINT_NOT_VERIFIED');
     if(status===null)blockers.push('DEVICE_REGISTRY_ABSENT');
     else if(status!=='ACTIVE'||!scopeRegistered||!keyMatches||activeCredentials===0)blockers.push('DEVICE_ENROLLMENT_NOT_READY');
     if(preflight.missingFiles.includes('CENTRAL_COMMERCIAL_PROVISION_FILE'))blockers.push('BUSINESS_PROVISION_NOT_CONFIGURED');
-    const report={profile:'CAMACHO_LAB_COMMERCIAL_LIVE_READINESS_V1',identifiers,canonicalDeploymentVerified:true,
+    const report={profile:'CAMACHO_LAB_COMMERCIAL_LIVE_READINESS_V2',identifiers,canonicalDeploymentVerified:true,
+      scmProvisionMetadata:{readByCanonicalLoader:scmMetadataRead,deviceBindingMatches:scmMetadataMatches,nativeChannelVerified:false},
       humanContextRevalidated:boundHuman,deviceRegistry:{status,scopeMatches:scopeRegistered,keyMatches,activeCredentials,canonicalUuidV7Constraint:constraintV7},
       historicalDpapiReceipt:{protection:device.protection==='OS_BOUND'?'OS_BOUND':'UNVERIFIED',sameIdentityRecovery:device.dpapiSameIdentityRecovery===true},
       missingBusinessFiles:preflight.missingFiles.filter(n=>n!=='CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE'),

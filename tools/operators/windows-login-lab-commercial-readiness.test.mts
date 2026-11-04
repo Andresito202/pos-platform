@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {LAB_ADMIN_POLICY} from './windows-login-lab-business-context.mjs';
-import {choosePublishedLabContext,inspectLabDeviceIdentifiers,LAB_CURRENT_HUMAN_SCOPE_SQL} from './windows-login-lab-commercial-readiness.mts';
+import {choosePublishedLabContext,getLabServiceDeviceBinding,inspectLabDeviceIdentifiers,matchesLabScmDeviceBinding,LAB_CURRENT_HUMAN_SCOPE_SQL} from './windows-login-lab-commercial-readiness.mts';
 
 const v4='00000000-0000-4000-8000-000000000001',v7='01900000-0000-7000-8000-000000000001';
 const context={userId:v7,factorId:v7,materialId:v7,tenantId:v7,companyId:v7,branchId:v7,membershipId:v7,roleId:v7,assignmentId:v7};
@@ -17,12 +17,31 @@ test('matching local UUID v4 metadata does not become a valid DEV-003 UUID v7',(
 test('recognizes v7 identifiers and accepts only consistent public binding metadata',()=>{
   const identity={installation_id:v7,device_id:v7};
   assert.equal(inspectLabDeviceIdentifiers(identity,{binding:{installation_id:v7,device_id:v7}}).canonicalDeviceUuidV7,true);
-  assert.equal(inspectLabDeviceIdentifiers(identity,{binding:{installationId:v7,deviceId:v7,device_id:v4}}).historicalReceiptBindingMatches,false);
+  assert.throws(()=>inspectLabDeviceIdentifiers(identity,{binding:{installationId:v7,deviceId:v7,device_id:v4}}),/LAB_SERVICE_DEVICE_BINDING_AMBIGUOUS/);
   assert.equal(inspectLabDeviceIdentifiers(identity,{binding:{installationId:v7,deviceId:v4}}).historicalReceiptBindingMatches,false);
 });
 test('rejects invalid identifiers without substituting or generating another identity',()=>{
   assert.throws(()=>inspectLabDeviceIdentifiers({installation_id:'client',device_id:v7},{binding:{}}));
-  assert.equal(inspectLabDeviceIdentifiers({installation_id:v7,device_id:v7},{}).historicalReceiptBindingMatches,false);
+  assert.throws(()=>inspectLabDeviceIdentifiers({installation_id:v7,device_id:v7},{}),/LAB_SERVICE_DEVICE_BINDING_REQUIRED/);
+});
+test('legacy SCM v4 identifiers do not replace an existing Service v7 key binding',()=>{
+  const scm={installation_id:v4,device_id:v4};
+  const publicDevice={binding:{profile:'CAMACHO_WINDOWS_LOCAL_LAB_ONLY',installation_id:v7,device_id:v7,deviceRegistered:false},businessSessionIssued:false};
+  const before=structuredClone({scm,publicDevice});
+  assert.deepEqual(getLabServiceDeviceBinding(publicDevice),{installationId:v7,deviceId:v7});
+  const report=inspectLabDeviceIdentifiers(scm,publicDevice);
+  assert.equal(report.deviceUuidVersion,7);assert.equal(report.canonicalDeviceUuidV7,true);
+  assert.equal(report.legacyScmDeviceUuidVersion,4);assert.equal(report.historicalReceiptBindingMatches,false);
+  assert.equal(report.lookupSource,'SERVICE_DEVICE_PUBLIC_BINDING_SELECTOR_ONLY');
+  assert.deepEqual({scm,publicDevice},before);
+});
+test('SCM configuration is checked from both loaded manifests, not a legacy lab identity file',()=>{
+  const device={installationId:v7,deviceId:v7},actual={installation_id:v7,device_id:v7},legacy={installation_id:v4,device_id:v4};
+  assert.equal(matchesLabScmDeviceBinding([actual,actual],device),true);
+  assert.equal(matchesLabScmDeviceBinding([legacy,legacy],device),false);
+  assert.equal(matchesLabScmDeviceBinding([actual,legacy],device),false);
+  assert.equal(matchesLabScmDeviceBinding([],device),false);
+  assert.equal(matchesLabScmDeviceBinding([actual],device),false);
 });
 test('selects published context consistently and never adopts the rolled-back candidate',()=>{
   const rolledBack={...receipt('VERIFIED_ROLLED_BACK'),context:{...context,companyId:v4}};

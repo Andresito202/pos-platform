@@ -1,0 +1,43 @@
+{
+  "schema": "CAMACHO_LAB_DEVICE_LOOKUP_CORRECTION_EVIDENCE_V1",
+  "date": "2026-11-04",
+  "sourceBaseSha": "32e4509526e9ce8ac2e7e8867f7acca863f6e4c4",
+  "sourceFileSha256": {
+    "tools/operators/windows-login-lab-commercial-readiness.mts": "f77d8cdd0d7fdb89215d6989cdbd8f36c381a2f648e7545ed1ca1561d8709e0f",
+    "tools/operators/windows-login-lab-commercial-readiness.test.mts": "52c69a2ccc301548591e9e8b2a4008e6386eb1716062156422a0ec344d27ee31"
+  },
+  "ownerProvidedPublicMetadata": {
+    "legacyScmDeviceUuidVersion": 4,
+    "legacyScmInstallationUuidVersion": 4,
+    "deviceKeyIdCollectedFromChat": false,
+    "serviceDeviceUuidVersion": 7,
+    "serviceInstallationUuidVersion": 7
+  },
+  "correction": "Lookup uses public Service binding selectors; SCM manifests checked separately through the canonical loader",
+  "oldRegistryAbsenceScope": "Legacy SCM identifier only; not evidence of absence for the Service v7 device",
+  "checks": [
+    {
+      "command": "pnpm --filter @pos-platform/central-authority exec tsx --test ../../tools/operators/windows-login-lab-commercial-readiness.test.mts",
+      "newRegression": 2,
+      "scope": "Metadata/selection and static SQL-reference tests; no authentication performed",
+      "exit": 0,
+      "passed": 8
+    },
+    {
+      "command": "pnpm --filter @pos-platform/central-authority exec tsc --ignoreConfig --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext --allowImportingTsExtensions ../../tools/operators/windows-login-lab-commercial-readiness.mts ../../tools/operators/windows-login-lab-commercial-readiness.test.mts",
+      "exit": 0
+    },
+    {
+      "command": "node tools/architecture/validate-boundaries.mjs",
+      "exit": 0
+    }
+  ],
+  "liveServiceDeviceRegistryStatus": "NOT_YET_OBSERVED",
+  "keyRecreated": false,
+  "uuidChanged": false,
+  "databaseMutations": 0,
+  "scmGateChanged": false,
+  "businessSessionIssued": false,
+  "humanLoginCertified": false,
+  "actionsDispatched": 0
+}
