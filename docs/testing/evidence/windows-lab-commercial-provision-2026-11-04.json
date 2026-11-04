@@ -1,0 +1,42 @@
+{
+  "schema": "CAMACHO_LAB_COMMERCIAL_PROVISION_TOOL_EVIDENCE_V1",
+  "date": "2026-11-04",
+  "sourceBaseSha": "1a2861329a1e6bdaf63dc936d0baf27704596069",
+  "sourceFileSha256": {
+    "tools/operators/windows-login-lab-commercial-provision.mts": "fdc4760f751f2e79fbfe37de8da6a4071864284da0da09efba9e046aa6252e82",
+    "tools/operators/windows-login-lab-commercial-provision.test.mts": "535a348b49dffa8e15ece39f080f5c093136892ce56b4292c103e5a359536190"
+  },
+  "checks": [
+    {
+      "scope": "8 argument/schema/path/redaction unit tests plus 4 real temporary-file/hard-link publication and rollback tests; no PostgreSQL or signatures certified",
+      "command": "pnpm --filter @pos-platform/central-authority exec tsx --test ../../tools/operators/windows-login-lab-commercial-provision.test.mts",
+      "failed": 0,
+      "passed": 12,
+      "exit": 0
+    },
+    {
+      "command": "pnpm --filter @pos-platform/central-authority exec tsc --ignoreConfig --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext --allowImportingTsExtensions ../../tools/operators/windows-login-lab-commercial-provision.mts ../../tools/operators/windows-login-lab-commercial-provision.test.mts",
+      "exit": 0
+    },
+    {
+      "command": "pnpm architecture:check",
+      "passed": 16,
+      "exit": 0
+    },
+    {
+      "command": "pnpm ci:repository-policy",
+      "exit": 0,
+      "trackedFiles": 1376
+    }
+  ],
+  "correctedFailures": [
+    "Initial TypeScript undefined environment narrowing and implicit test callback argument types corrected; final compiler exit 0"
+  ],
+  "physicalValidation": "NOT_EXECUTED_MISSING_COMPLETE_CANDIDATE_AND_UNVERIFIED_DEVICE_ENROLLMENT",
+  "policyProposal": "NOT_APPROVED_NOT_LOADED",
+  "businessSessionIssued": false,
+  "listenerStarted": false,
+  "privateKeysGenerated": false,
+  "productionCertified": false,
+  "actionsDispatched": 0
+}
