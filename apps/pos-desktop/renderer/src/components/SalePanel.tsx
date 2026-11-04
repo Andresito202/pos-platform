@@ -4,12 +4,19 @@ import { useCommercialSale } from "../hooks/useCommercialSale.js";
 import { ProductAvatar } from "./ProductAvatar.js";
 
 const paymentButtons = [
-  { id: "cash", label: "Efectivo" },
-  { id: "transfer", label: "Transferencia / Nequi / Daviplata / QR manual" },
-  { id: "card", label: "Tarjeta" },
-  { id: "qr", label: "QR integrado" },
-  { id: "credit", label: "Fiado / crédito" },
+  { id: "cash", label: "Efectivo", icon: new URL("../assets/payment-icons/banknote.svg", import.meta.url).href },
+  { id: "transfer", label: "Transferencia / Nequi / Daviplata / QR manual", icon: new URL("../assets/payment-icons/landmark.svg", import.meta.url).href },
+  { id: "card", label: "Tarjeta", icon: new URL("../assets/payment-icons/credit-card.svg", import.meta.url).href },
+  { id: "qr", label: "QR integrado", icon: new URL("../assets/payment-icons/qr-code.svg", import.meta.url).href },
+  { id: "credit", label: "Fiado / crédito", icon: new URL("../assets/payment-icons/notebook-pen.svg", import.meta.url).href },
 ] as const;
+
+function PaymentMethodContent({ icon, label }: { icon: string; label: string }): React.JSX.Element {
+  return <span className="pos-payment-method-content">
+    <img className="pos-payment-method-icon" src={icon} width={24} height={24} alt="" aria-hidden="true" />
+    <span>{label}</span>
+  </span>;
+}
 
 const calculatorKeys = ["1","2","3","4","5","6","7","8","9","0","00","Borrar"] as const;
 
@@ -168,14 +175,14 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                   method.id === "cash" ? (
                     <button key={method.id} type="button" data-testid="charge-cash-button"
                       onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
-                      disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}>{method.label}</button>
+                      disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}><PaymentMethodContent icon={method.icon} label={method.label} /></button>
                   ) : method.id === "transfer" ? (
                     <button key={method.id} type="button" data-testid="register-transfer-button"
                       onClick={() => { void sale.registerTransfer(paymentAmount || undefined); }}
-                      disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}>{method.label}</button>
+                      disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}><PaymentMethodContent icon={method.icon} label={method.label} /></button>
                   ) : (
                     <button key={method.id} type="button" disabled title="Interfaz reservada; falta el contrato de pago integrado.">
-                      {method.label}<small>En materialización</small>
+                      <PaymentMethodContent icon={method.icon} label={method.label} /><small>En materialización</small>
                     </button>
                   )
                 ))}
