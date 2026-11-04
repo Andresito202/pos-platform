@@ -90,6 +90,28 @@ legend { padding: 0 6px; font-weight: 600; }
 .pos-total { font-variant-numeric: tabular-nums; }
 .pos-total strong { font-size: 28px; }
 .pos-payment-methods button, .pos-calculator-grid button { border-radius: var(--camacho-radius); min-height: 44px; }
+.pos-payment-methods button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 5px;
+  min-height: 68px;
+  padding: 12px;
+  line-height: 1.35;
+}
+.pos-payment-method-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+.pos-payment-method-content > span { min-width: 0; overflow-wrap: anywhere; }
+.pos-payment-method-icon { flex: 0 0 24px; width: 24px; height: 24px; object-fit: contain; }
+.pos-payment-methods button:disabled .pos-payment-method-icon { opacity: .55; }
+.pos-payment-methods small { display: block; padding-left: 36px; line-height: 1.4; }
 .pos-calculator-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .pos-result-success { background: var(--camacho-green-soft); border-color: #bedbcc; color: #17623c; border-radius: var(--camacho-radius); }
 .pos-result-pending { background: var(--camacho-warning-soft); border-color: #dcc68b; color: var(--camacho-warning); border-radius: var(--camacho-radius); }
