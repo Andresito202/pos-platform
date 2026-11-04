@@ -1,0 +1,28 @@
+{
+  "schema": "CAMACHO_LAB_ADMIN_PHYSICAL_EVIDENCE_V1",
+  "date": "2026-11-04",
+  "sourceSha": "bc26e037b936ac99f88fc6ae66bb5a17456929bf",
+  "machine": "WIN-QH2KNH6JRL3",
+  "evidenceSource": "Owner executed commands in the Windows Server VM and supplied console output in this conversation",
+  "agentExecutedInVm": false,
+  "scope": "ISOLATED_LAB_ONLY",
+  "company": "Camacho POS Laboratorio",
+  "branch": "Principal",
+  "role": "GENERAL_ADMIN",
+  "permissionCount": 17,
+  "observations": [
+    {"phase": "new-operator-tests", "passed": 14, "failed": 0},
+    {"phase": "first-postgres-verification", "outcome": "FAILED_NO_SESSION", "postgresRunning": false},
+    {"phase": "existing-postgres-recovery", "outcome": "SERVER_STARTED", "cluster": "central-lab/pgdata", "newClusterInitialized": false},
+    {"phase": "postgres-verify-rollback", "outcome": "VERIFIED_ROLLED_BACK", "receipt": "business-context-01a1a742-1149-7e54-b3e4-3cee39a69324.json"},
+    {"phase": "postgres-apply", "outcome": "CREATED", "receipt": "business-context-01a1a742-842f-7de7-b137-eb12d9aed2d2.json"},
+    {"phase": "postgres-idempotent-retry", "outcome": "UNCHANGED", "receipt": "business-context-01a1a742-e4ad-7e2d-a382-493042901350.json"}
+  ],
+  "businessSessionIssued": false,
+  "commercialDeviceRegistered": "NOT_VERIFIED_BY_THIS_EVIDENCE",
+  "ssaSasActivated": "NOT_VERIFIED_BY_THIS_EVIDENCE",
+  "dashboardAuthorized": false,
+  "fullHumanLoginCertified": false,
+  "productionCertified": false,
+  "actionsDispatchedByAgent": 0
+}
