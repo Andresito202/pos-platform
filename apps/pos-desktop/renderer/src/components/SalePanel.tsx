@@ -30,6 +30,7 @@ const cashDenominations = [
   { value: 50000, kind: "billetes", label: "Billete de $50.000" },
   { value: 100000, kind: "billetes", label: "Billete de $100.000" },
   { value: 50, kind: "monedas", label: "Moneda de $50" },
+  { value: 100, kind: "monedas", label: "Moneda de $100" },
   { value: 200, kind: "monedas", label: "Moneda de $200" },
   { value: 500, kind: "monedas", label: "Moneda de $500" },
   { value: 1000, kind: "monedas", label: "Moneda de $1.000" },
@@ -70,6 +71,8 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   const [counted, setCounted] = useState("");
   const [manualTendered, setManualTendered] = useState("");
   const [denominationCounts, setDenominationCounts] = useState<Record<number, number>>({});
+  const [paymentId, setPaymentId] = useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
   const selectedDenominationTotal = cashDenominations.reduce(
     (total, denomination) => total + BigInt(denomination.value) * BigInt(denominationCounts[denomination.value] ?? 0),
     0n,
@@ -79,8 +82,6 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   const previewPayable = parseCopMicros(paymentAmount || sale.sale?.payableAmount || "");
   const previewDelta = receivedTotal > 0n && previewPayable !== null
     ? receivedTotal * 1_000_000n - previewPayable : null;
-  const [paymentId, setPaymentId] = useState("");
-  const [paymentAmount, setPaymentAmount] = useState("");
 
   const appendTendered = (key: string): void => {
     if (key === "Borrar") {
