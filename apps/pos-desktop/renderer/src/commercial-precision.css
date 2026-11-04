@@ -128,18 +128,137 @@ legend { padding: 0 6px; font-weight: 600; }
 .pos-form-grid fieldset label { display: grid; gap: 6px; margin: 12px 0; }
 .pos-operation { border-radius: var(--camacho-radius); }
 .pos-privacy-notice, .pos-customer-fields input, .pos-customer-panel > input { border-radius: var(--camacho-radius); }
-.pos-entry { color: var(--camacho-ink); background: var(--camacho-surface); gap: 60px; padding: clamp(24px, 5vw, 72px); }
-.pos-entry-brand { animation: none; }
-.pos-entry-logo { width: min(100%, 380px); height: 210px; background-color: #fff; border: 1px solid var(--camacho-border); border-radius: var(--camacho-radius); background-size: 90% auto; }
-.pos-entry-card { max-width: 500px; padding: 32px; color: var(--camacho-ink); background: #fff; border: 1px solid var(--camacho-border); border-top: 3px solid var(--camacho-green); border-radius: var(--camacho-radius); box-shadow: none; animation: none; }
+/* Session state in Electron: visual authority stays with the HTTPS login. */
+.pos-entry {
+  grid-template-columns: minmax(0, 1.06fr) minmax(0, .94fr);
+  gap: clamp(20px, 3.5vw, 48px);
+  min-height: 100vh;
+  padding: clamp(20px, 3.5vw, 48px);
+  color: var(--camacho-ink);
+  background: #edf3f4;
+}
+.pos-entry-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: min(600px, calc(100vh - 96px));
+  padding: clamp(28px, 5vw, 68px);
+  background: var(--camacho-navy);
+  border: 1px solid #183b55;
+  border-radius: 16px;
+  animation: none;
+}
+.pos-entry-logo {
+  width: min(100%, 340px);
+  height: 198px;
+  margin: 0;
+  padding: 14px;
+  background-color: #fff;
+  background-size: 89% auto;
+  border: 1px solid #dce6ec;
+  border-radius: 10px;
+}
+.pos-entry-card {
+  position: relative;
+  overflow: visible;
+  width: 100%;
+  max-width: 520px;
+  justify-self: center;
+  padding: clamp(28px, 3.5vw, 48px);
+  color: var(--camacho-ink);
+  background: #fff;
+  border: 1px solid #cfdae0;
+  border-radius: 14px;
+  box-shadow: 0 12px 42px rgb(16 40 61 / 8%);
+  animation: none;
+}
 .pos-entry-card::before { display: none; }
-.pos-entry-eyebrow, .pos-entry-card h1 { color: var(--camacho-blue-text); }
-.pos-entry-card h2 { font-size: 29px; font-weight: 600; letter-spacing: -.02em; }
-.pos-entry-card p { color: var(--camacho-muted); }
-.pos-entry-card [role="status"], .pos-entry-card [role="alert"] { margin: 22px 0; padding: 12px; background: var(--camacho-surface); border: 1px solid var(--camacho-border); border-left: 3px solid var(--camacho-green); border-radius: 3px; color: var(--camacho-ink); overflow-wrap: anywhere; }
-.pos-entry-card [role="alert"] { background: var(--camacho-warning-soft); color: var(--camacho-warning); border-color: #dcc68b; }
-.pos-entry-card > button { background: var(--camacho-green); color: #fff; border-color: var(--camacho-green); }
-.pos-entry-card > button:disabled { background: #d8e0e5; border-color: #d8e0e5; color: #435867; }
+.pos-entry-eyebrow {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--camacho-green);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.4;
+  letter-spacing: .12em;
+}
+.pos-entry-card h1 {
+  margin: 0 0 7px;
+  color: var(--camacho-blue-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.pos-entry-card h2 {
+  margin: 0 0 14px;
+  color: var(--camacho-ink);
+  font-size: clamp(26px, 2.7vw, 34px);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -.035em;
+}
+.pos-entry-card p {
+  margin: 0 0 16px;
+  color: var(--camacho-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.pos-entry-card [role="status"],
+.pos-entry-card [role="alert"] {
+  margin: 20px 0;
+  padding: 14px 16px;
+  color: #294e6d;
+  background: #edf4f8;
+  border: 1px solid #cddde8;
+  border-left: 4px solid var(--camacho-blue);
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.pos-entry-card [role="alert"] {
+  color: #674500;
+  background: #fff5e1;
+  border-color: #e8d2a1;
+  border-left-color: #9b6300;
+}
+.pos-entry-card > button {
+  width: 100%;
+  min-height: 48px;
+  margin: 4px 0 20px;
+  padding: 11px 16px;
+  color: #fff;
+  background: var(--camacho-green);
+  border: 1px solid var(--camacho-green);
+  border-radius: 7px;
+  font-size: 15px;
+}
+.pos-entry-card > button:not(:disabled):hover {
+  color: #fff;
+  background: #075a43;
+  border-color: #075a43;
+}
+.pos-entry-card > button:disabled {
+  color: #435867;
+  background: #e8edf0;
+  border-color: #d4dfe6;
+}
+.pos-entry-card [data-testid^="status-"] {
+  padding: 10px 12px;
+  color: #415b6b;
+  background: #f3f6f8;
+  border: 1px solid #d6dfe6;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.pos-entry-card [data-testid="status-error"] {
+  color: #805500;
+  background: var(--camacho-warning-soft);
+  border-color: #dcc68b;
+}
 .pos-skip-link { position: fixed; top: -100px; left: 16px; z-index: 10; background: #fff; padding: 12px 16px; color: var(--camacho-blue-text); }
 .pos-skip-link:focus { top: 16px; }
 
@@ -155,7 +274,9 @@ legend { padding: 0 6px; font-weight: 600; }
   .pos-nav { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
   .pos-content { padding: 20px; }
   .pos-entry { grid-template-columns: 1fr; gap: 24px; justify-items: center; }
-  .pos-entry-logo { width: 270px; height: 150px; }
+  .pos-entry-brand { width: 100%; min-height: 240px; padding: 28px; }
+  .pos-entry-card { width: 100%; max-width: 600px; }
+  .pos-entry-logo { width: min(260px, 100%); height: 145px; }
 }
 @media (max-width: 600px) {
   .pos-content { padding: 16px; }
@@ -167,7 +288,10 @@ legend { padding: 0 6px; font-weight: 600; }
   .pos-data-table { min-width: 650px; }
   .pos-entry { padding: 24px 16px; }
   .pos-entry-card { padding: 24px; }
-  .pos-entry-logo { height: 120px; }
+  .pos-entry { gap: 16px; padding: 16px; }
+  .pos-entry-brand { min-height: 190px; padding: 22px; }
+  .pos-entry-logo { width: min(210px, 100%); height: 112px; }
+  .pos-entry-card { padding: 26px 22px; }
 }
 @media (pointer: coarse) {
   .pos-nav-button, .pos-screen button:not(.pos-product-tile), .pos-screen input:not([type="checkbox"]):not([type="radio"]), .pos-screen select, .pos-entry-card > button { min-height: 48px; }
