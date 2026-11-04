@@ -20,7 +20,7 @@ const previewCapabilities = Object.freeze([
   "SALES_RECEIPT_READ", "FISCAL_DOCUMENT_ISSUE",
   "CATALOG_PRODUCT_READ", "CATALOG_PRODUCT_REGISTER",
   "INVENTORY_STOCK_RECEIVE", "INVENTORY_STOCK_READ",
-  "INVENTORY_STOCK_ADJUST",
+  "INVENTORY_STOCK_ADJUST", "HARDWARE_READ",
   "CUSTOMERS_CUSTOMER_READ", "CUSTOMERS_CUSTOMER_REGISTER",
 ]);
 
@@ -30,7 +30,9 @@ const visualOnlyChannel = {
       && envelope.message_type === "authorization.capabilities.get") {
       return {
         status: "SUCCEEDED",
-        result_code: "VISUAL_PREVIEW_ONLY",
+        // The React capabilities parser requires AVAILABLE. This is only an
+        // isolated Electron e2e preview: the channel has no real backend.
+        result_code: "AVAILABLE",
         result: { outcome: "AVAILABLE", permissions: [...previewCapabilities] },
       };
     }
