@@ -49,3 +49,19 @@ Pendientes de implementación separados de configuración:
 
 No se declara la certificación del login ni se atribuyen estos bloqueos a un
 VPS: son dependencias concretas del laboratorio y de su composición Windows.
+
+## Corrección observada después de proteger la autoridad
+
+El propietario ejecutó el reparador en la VM: PROTECTED_SAME_PERMISSIONS,
+con respaldo authority-acl-before-ef12fda9712c48b6b4936bda68226963.sddl.txt.
+La consulta siguiente superó ese control pero falló con PostgreSQL 42703.
+El defecto del operador era `co.name`; la migración canónica 001 declara
+`organization.companies.trade_name`. Se corrige sólo ese identificador, sin
+DDL, cambios de datos ni relajación del ámbito o de la membresía.
+
+La regresión comprueba todas las referencias alias/columna del SELECT frente
+a las declaraciones canónicas 001/010 y reproduce el rechazo de co.name.
+Es una comprobación estática acotada; no es un parser SQL general ni una
+ejecución PostgreSQL. La consulta corregida debe ejecutarse todavía en la VM.
+El aviso de pgpass no motivó actualización de dependencias ni cambios de
+credenciales. El mensaje de pnpm sobre tsx sigue siendo secundario al error SQL.

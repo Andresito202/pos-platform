@@ -11,6 +11,15 @@ import {inspectCentralLoginPreflight} from '../../apps/central-authority/src/cen
 import {LAB_ADMIN_POLICY} from './windows-login-lab-business-context.mjs';
 import {assertLabCommercialOperator,parseLabCommercialArguments,safeLabCommercialError} from './windows-login-lab-commercial-provision.mjs';
 
+export const LAB_CURRENT_HUMAN_SCOPE_SQL=`SELECT 1 FROM identity.users u
+  JOIN identity.user_credentials p ON p.user_id=u.id AND p.credential_type='PASSWORD' AND p.status='ACTIVE' AND p.revoked_at IS NULL AND (p.locked_until IS NULL OR p.locked_until<=clock_timestamp())
+  JOIN identity.mfa_factors f ON f.user_id=u.id AND f.id=$2 AND f.status='ACTIVE' AND f.factor_type='WEBAUTHN' AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL
+  JOIN identity.webauthn_credential_material w ON w.id=$3 AND w.factor_id=f.id AND f.secret_reference='webauthn:v1:'||w.id::text
+  JOIN tenancy.tenant_memberships m ON m.id=$4 AND m.user_id=u.id AND m.tenant_id=$5 AND m.status='ACTIVE' AND m.suspended_at IS NULL AND m.revoked_at IS NULL
+  JOIN organization.companies co ON co.id=$6 AND co.tenant_id=m.tenant_id AND co.status='ACTIVE' AND co.trade_name=$8
+  JOIN organization.branches b ON b.id=$7 AND b.company_id=co.id AND b.tenant_id=m.tenant_id AND b.status='ACTIVE' AND b.name=$9
+  WHERE u.id=$1 AND u.status='ACTIVE'`;
+
 function fail(code:string):never{throw Error(code);}
 export function inspectLabDeviceIdentifiers(identity:unknown,receipt:unknown){
   const a=identity as Record<string,unknown>|null,r=receipt as {binding?:Record<string,unknown>}|null;
@@ -73,14 +82,7 @@ async function main(){
       await c.query('BEGIN READ ONLY');
       if((await c.query('SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()')).rows[0]?.ssl!==true)fail('LAB_READINESS_DATABASE_TLS_REQUIRED');
       await c.query("SELECT set_config('app.tenant_id',$1,true)",[context.tenantId]);
-      const human=await c.query(`SELECT 1 FROM identity.users u
-        JOIN identity.user_credentials p ON p.user_id=u.id AND p.credential_type='PASSWORD' AND p.status='ACTIVE' AND p.revoked_at IS NULL AND (p.locked_until IS NULL OR p.locked_until<=clock_timestamp())
-        JOIN identity.mfa_factors f ON f.user_id=u.id AND f.id=$2 AND f.status='ACTIVE' AND f.factor_type='WEBAUTHN' AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL
-        JOIN identity.webauthn_credential_material w ON w.id=$3 AND w.factor_id=f.id AND f.secret_reference='webauthn:v1:'||w.id::text
-        JOIN tenancy.tenant_memberships m ON m.id=$4 AND m.user_id=u.id AND m.tenant_id=$5 AND m.status='ACTIVE' AND m.suspended_at IS NULL AND m.revoked_at IS NULL
-        JOIN organization.companies co ON co.id=$6 AND co.tenant_id=m.tenant_id AND co.status='ACTIVE' AND co.name=$8
-        JOIN organization.branches b ON b.id=$7 AND b.company_id=co.id AND b.tenant_id=m.tenant_id AND b.status='ACTIVE' AND b.name=$9
-        WHERE u.id=$1 AND u.status='ACTIVE'`,[context.userId,context.factorId,context.materialId,context.membershipId,context.tenantId,context.companyId,context.branchId,LAB_ADMIN_POLICY.company,LAB_ADMIN_POLICY.branch]);
+      const human=await c.query(LAB_CURRENT_HUMAN_SCOPE_SQL,[context.userId,context.factorId,context.materialId,context.membershipId,context.tenantId,context.companyId,context.branchId,LAB_ADMIN_POLICY.company,LAB_ADMIN_POLICY.branch]);
       boundHuman=human.rows.length===1;
       const registry=(await c.query('SELECT installation_id::text,tenant_id::text,company_id::text,device_key_id,device_public_key,status FROM identity.device_registry WHERE device_id=$1',[identity.device_id])).rows[0];
       if(registry){

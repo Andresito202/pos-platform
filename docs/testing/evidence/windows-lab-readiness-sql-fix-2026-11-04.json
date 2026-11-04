@@ -1,0 +1,34 @@
+{
+  "schema": "CAMACHO_LAB_READINESS_SQL_FIX_EVIDENCE_V1",
+  "date": "2026-11-04",
+  "sourceBaseSha": "4c94e07a2a3759ec03c11855567088bb4e0429e7",
+  "sourceFileSha256": {
+    "tools/operators/windows-login-lab-commercial-readiness.mts": "d98ba49222afd1246d1f4830fcb8a4e94c487b9f27dedf665b1df2ff69844586",
+    "tools/operators/windows-login-lab-commercial-readiness.test.mts": "cd06215727d8b9b746e6617f98da6663bf4fd4770397af1fee30c2627eee285b"
+  },
+  "ownerObservedAuthorityRepair": {
+    "outcome": "PROTECTED_SAME_PERMISSIONS",
+    "backup": "authority-acl-before-ef12fda9712c48b6b4936bda68226963.sddl.txt"
+  },
+  "ownerObservedPostgresFailure": "42703",
+  "cause": "Operator referenced organization.companies.name instead of canonical trade_name",
+  "correction": "Column identifier only; no schema, data or authorization changes",
+  "checks": [
+    {
+      "failed": 0,
+      "command": "pnpm --filter @pos-platform/central-authority exec tsx --test ../../tools/operators/windows-login-lab-commercial-readiness.test.mts",
+      "newRegression": 1,
+      "exit": 0,
+      "passed": 6,
+      "scope": "Includes static qualified column references checked against migrations 001 and 010; not physical SQL execution"
+    },
+    {
+      "command": "pnpm --filter @pos-platform/central-authority exec tsc --ignoreConfig --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext --allowImportingTsExtensions ../../tools/operators/windows-login-lab-commercial-readiness.mts ../../tools/operators/windows-login-lab-commercial-readiness.test.mts",
+      "exit": 0
+    }
+  ],
+  "correctedQueryVmExecution": "PENDING",
+  "fullHumanLoginCertified": false,
+  "databaseMutations": 0,
+  "actionsDispatched": 0
+}
