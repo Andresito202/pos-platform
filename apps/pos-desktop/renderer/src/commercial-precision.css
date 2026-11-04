@@ -113,6 +113,29 @@ legend { padding: 0 6px; font-weight: 600; }
 .pos-payment-methods button:disabled .pos-payment-method-icon { opacity: .55; }
 .pos-payment-methods small { display: block; padding-left: 36px; line-height: 1.4; }
 .pos-calculator-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* Cash denominations: images are optional static assets, counts remain authoritative only in this view. */
+.pos-cash-calculator { min-width: 0; }
+.pos-cash-calculator > p { margin: 12px 0; color: var(--camacho-muted); font-size: 12px; line-height: 1.5; }
+.pos-denomination-section { margin-top: 18px; }
+.pos-denomination-section h4 { margin: 0 0 10px; font-size: 13px; color: var(--camacho-ink); }
+.pos-denomination-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pos-denomination-item { display: grid; grid-template-rows: 1fr auto; min-width: 0; overflow: hidden; border: 1px solid var(--camacho-border); border-radius: 9px; background: var(--camacho-card); }
+.pos-screen .pos-denomination-add { display: grid; justify-items: center; align-content: center; gap: 7px; min-width: 0; width: 100%; min-height: 90px; border: 0; border-radius: 0; padding: 10px 8px; background: transparent; color: var(--camacho-ink); font-size: 14px; font-weight: 700; }
+.pos-denomination-add img { display: block; max-width: 100%; width: 100%; height: 55px; object-fit: contain; }
+.pos-denomination-add img[hidden] { display: none; }
+.pos-denomination-section:has(h4) .pos-denomination-item:has(img[src*="/monedas/"]) img { width: 58px; height: 58px; }
+.pos-denomination-add span { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.pos-screen .pos-denomination-add:not(:disabled):hover { background: #eef6f3; }
+.pos-denomination-quantity { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 0 8px 0 12px; border-top: 1px solid var(--camacho-border); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pos-screen .pos-denomination-quantity button { min-height: 32px; min-width: 36px; padding: 0 10px; background: transparent; border: 0; border-left: 1px solid var(--camacho-border); border-radius: 0; font-size: 19px; }
+.pos-cash-keypad-label { padding-top: 12px; border-top: 1px solid var(--camacho-border); }
+.pos-cash-summary { display: grid; gap: 8px; margin-top: 16px; padding: 14px; border: 1px solid var(--camacho-border); border-radius: 8px; background: #f6f8f9; }
+.pos-cash-summary > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.pos-cash-summary span { font-size: 12px; color: var(--camacho-muted); }
+.pos-cash-summary strong { font-size: 15px; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.pos-cash-summary [data-testid="cash-change-estimate"] { padding-top: 9px; border-top: 1px solid var(--camacho-border); }
+.pos-cash-summary [data-testid="cash-change-estimate"] strong { color: var(--camacho-green); }
+@media (pointer: coarse) { .pos-screen .pos-denomination-add { min-height: 96px; } .pos-screen .pos-denomination-quantity button { min-height: 48px; min-width: 48px; } }
 .pos-result-success { background: var(--camacho-green-soft); border-color: #bedbcc; color: #17623c; border-radius: var(--camacho-radius); }
 .pos-result-pending { background: var(--camacho-warning-soft); border-color: #dcc68b; color: var(--camacho-warning); border-radius: var(--camacho-radius); }
 .pos-screen [role="alert"] { border-left: 3px solid var(--camacho-danger); padding: 12px; overflow-wrap: anywhere; }
