@@ -1,42 +1,54 @@
 /**
- * MANUAL VISUAL INSPECTION ONLY — not an application entrypoint or login.
- * Lives only in e2e/; never in the production desktop build.
- * Real compiled Electron/preload/React; isolated visual stub, no POS service.
- *
- * Operations, session activation and all writes are deliberately rejected.
- * A visible watermark prevents confusion with an authenticated POS.
+ * ISOLATED E2E VISUAL PREVIEW ONLY.
+ * This is NOT the commercial login and must never be imported into production.
+ * These named profiles are navigation examples, not actual RBAC role definitions.
+ * Every request except the mock capabilities read is explicitly rejected.
  */
 import { BrowserWindow } from "electron";
 import { bootstrap } from "../dist/main.js";
 
-// Capability list matches App.tsx's current visual-navigation gates,
-// exclusively for this test-only entry. No real authorization is conferred.
-const previewCapabilities = Object.freeze([
-  "AUDIT_EVENT_READ",
+const cashier = Object.freeze([
   "CASH_SHIFT_OPEN", "CASH_SHIFT_CLOSE",
-  "SALES_SALE_CREATE", "PAYMENTS_PAYMENT_REGISTER",
-  "PAYMENTS_TRANSFER_REPORT", "PAYMENTS_TRANSFER_CONFIRM",
-  "PAYMENTS_PAYMENT_READ", "PAYMENTS_PAYMENT_CANCEL",
+  "SALES_SALE_CREATE",
+  "PAYMENTS_PAYMENT_REGISTER", "PAYMENTS_TRANSFER_REPORT",
+  "PAYMENTS_TRANSFER_CONFIRM", "PAYMENTS_PAYMENT_READ",
+  "PAYMENTS_PAYMENT_CANCEL",
   "SALES_RECEIPT_READ", "FISCAL_DOCUMENT_ISSUE",
-  "CATALOG_PRODUCT_READ", "CATALOG_PRODUCT_REGISTER",
-  "INVENTORY_STOCK_RECEIVE", "INVENTORY_STOCK_READ",
-  "INVENTORY_STOCK_ADJUST", "HARDWARE_READ",
   "CUSTOMERS_CUSTOMER_READ", "CUSTOMERS_CUSTOMER_REGISTER",
 ]);
 
+const admin = Object.freeze([
+  ...cashier,
+  "AUDIT_EVENT_READ", "CATALOG_PRODUCT_READ", "CATALOG_PRODUCT_REGISTER",
+  "INVENTORY_STOCK_RECEIVE", "INVENTORY_STOCK_READ",
+  "INVENTORY_STOCK_ADJUST", "HARDWARE_READ",
+]);
+
+const profiles = Object.freeze({
+  cashier: Object.freeze({ label: "CAJERO", capabilities: cashier }),
+  admin: Object.freeze({ label: "ADMINISTRADOR", capabilities: admin }),
+  // No dedicated superadmin screen is exposed by the current React renderer.
+  // This profile intentionally reuses the admin navigation; it is NOT an
+  // implementation or a statement of real superadmin privileges.
+  superadmin: Object.freeze({ label: "SUPERADMINISTRADOR (VISTA ACTUAL COMPARTIDA)", capabilities: admin }),
+});
+
+const requested = (process.env.POS_VISUAL_ROLE ?? "admin").toLowerCase();
+if (!Object.hasOwn(profiles, requested)) {
+  throw new Error("Unknown POS_VISUAL_ROLE. Use cashier, admin or superadmin.");
+}
+const profile = profiles[requested];
+
 const visualOnlyChannel = {
   async request(envelope) {
-    if (envelope !== null && typeof envelope === "object"
-      && envelope.message_type === "authorization.capabilities.get") {
+    if (envelope !== null && typeof envelope === "object" &&
+        envelope.message_type === "authorization.capabilities.get") {
       return {
         status: "SUCCEEDED",
-        // The React capabilities parser requires AVAILABLE. This is only an
-        // isolated Electron e2e preview: the channel has no real backend.
         result_code: "AVAILABLE",
-        result: { outcome: "AVAILABLE", permissions: [...previewCapabilities] },
+        result: { outcome: "AVAILABLE", permissions: [...profile.capabilities] },
       };
     }
-    // No commercial data, fabricated session, payment or permission writes.
     return { status: "REJECTED", result_code: "VISUAL_PREVIEW_NO_BACKEND", result: null };
   },
   async close() {},
@@ -45,13 +57,15 @@ const visualOnlyChannel = {
 bootstrap(visualOnlyChannel).then(async () => {
   const window = BrowserWindow.getAllWindows()[0];
   if (!window) throw new Error("Visual preview window missing");
-  window.setTitle("VISTA VISUAL SIN AUTENTICACIÓN — Camacho POS Colombia");
+  window.setTitle("VISTA VISUAL " + profile.label + " — Camacho POS Colombia");
+  const caption = "VISTA VISUAL · " + profile.label +
+    " · PERMISOS DE EJEMPLO · SIN LOGIN NI SERVICIO LOCAL · OPERACIONES BLOQUEADAS";
   const bannerScript = [
     "(() => {",
     " if (document.getElementById('pos-visual-preview-banner')) return;",
     " const banner = document.createElement('div');",
     " banner.id = 'pos-visual-preview-banner';",
-    " banner.textContent = 'VISTA VISUAL · SIN LOGIN NI SERVICIO LOCAL · OPERACIONES DESHABILITADAS';",
+    " banner.textContent = " + JSON.stringify(caption) + ";",
     " banner.style.cssText = [",
     "  'position:fixed','left:0','right:0','top:0','z-index:2147483647',",
     "  'background:#20252d','color:#fff','font:600 12px Arial,sans-serif',",
