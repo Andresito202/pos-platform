@@ -111,3 +111,12 @@ Si el agente no puede determinar cuál es la línea activa, **no debe crear una 
 5. REVIEW: revisar diff, permisos, errores, regresiones y ausencia de duplicación.
 6. EVIDENCE: registrar SHA, entorno y nivel realmente observado.
 7. SHIP: publicar en la misma línea; integrar a main sólo mediante el flujo de gobernanza vigente.
+
+## Skill de ingeniería de diseño interoperable
+
+- Para tareas de diseño de UI, revisión visual, microinteracciones, componentes, accesibilidad de movimiento o animaciones, descubrir y consultar la skill versionada `.agents/skills/emil-design-eng/SKILL.md` (`$emil-design-eng`). Claude Code dispone del espejo exacto `.claude/skills/emil-design-eng/SKILL.md`.
+- Se usa junto con las skills personales `$frontend-design` y `$ui-ux-pro-max` cuando existan. No se supone que las skills personales estén instaladas en otros equipos.
+- Antes de retocar UI revisar la dirección visual B ya aprobada, `docs/testing/commercial-precision-2026-10-25.md`, componentes y contratos existentes. No imponer animaciones; respetar `prefers-reduced-motion`, rendimiento, foco y uso táctil.
+- Ninguna recomendación de diseño autoriza modificar autenticación, RBAC, cálculos, ventas, pagos, contratos, migraciones, Service, Electron IPC o seguridad fail-closed sin el proceso de gobernanza habitual.
+- Procedencia, cobertura por agente, actualización y verificación: `docs/design/agent-skill-emil.md`; control offline: `node tools/design/check-emil-skill.mjs`.
+- La skill es un recurso de instrucciones bajo demanda, no una dependencia runtime ni prueba de usabilidad final. La detección efectiva se debe comprobar con el agente y workspace donde se ejecute.
