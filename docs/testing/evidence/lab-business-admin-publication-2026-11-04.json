@@ -1,0 +1,101 @@
+{
+    "schema":  "CAMACHO_LAB_ADMIN_PUBLICATION_EVIDENCE_V1",
+    "date":  "2026-11-04",
+    "testedSnapshotBaseSha":  "05d81ac0bcbf35a7cb39e85d0b7173e3f06831ec",
+    "sourceFileSha256":  {
+                             "tools/operators/windows-login-lab-enrollment.mts":  "e17f4b5e0eae7f6189e03e28ade215ec3da499784e59041944a3f39a9cbb53f9",
+                             "tools/operators/windows-login-lab-enrollment.test.mts":  "439d940b9b6f36c3890b366ec9d8778e575ed5972d73b02f739faa7d345c97df",
+                             "tools/operators/windows-login-lab-business-context.mts":  "bfb2c3b4d6ee3ad0057953d889b629437b91befb6d88c1963ac21d914cc9701f",
+                             "tools/operators/windows-login-lab-business-context.test.mts":  "26b2cb89906273b7010c6b971f29566a9508929fa931535961f7b58cea17b7c9",
+                             "tools/operators/windows-login-lab-business-context.ps1":  "7a0e107e52f9ffa66ffd3515811de80bd778a7923e8a6b56c3938191d527926b",
+                             "tools/operators/windows-login-lab-update.ps1":  "8ecb4395566d3c5ca84d52ab0539dc97bede3886e71c4a07945e33f0c5c95c15",
+                             "tools/operators/windows-login-lab-update.test.mjs":  "3dbebc68ad9fe3791d578edcfc6a2bbb599b8629222195fa928172bbec489beb",
+                             "packages/contracts/src/permission-codes.ts":  "dabe4f620d91049c7d39929969ccc38ea5a403c19dff70b3677a192311325004",
+                             "packages/database-postgres/src/onboarding-repository.ts":  "94107fc32897b79150d53b7135f5e5fdc7113eb5286f72de15ff531b41ad3f95"
+                         },
+    "approval":  {
+                     "source":  "Owner explicit conversation approval",
+                     "company":  "Camacho POS Laboratorio",
+                     "branch":  "Principal",
+                     "role":  "GENERAL_ADMIN",
+                     "permissionCount":  17,
+                     "scope":  "ISOLATED_LAB_ONLY"
+                 },
+    "humanEnrollment":  {
+                            "evidence":  "Owner-supplied live console and filtered receipt",
+                            "status":  "PASS_REPORTED",
+                            "userVerification":  "required",
+                            "bootstrapSessionRevoked":  true,
+                            "bootstrapRoleRevoked":  true,
+                            "businessSessionIssued":  false,
+                            "completedAt":  "2026-11-04T05:39:37.856Z"
+                        },
+    "checks":  [
+                   {
+                       "command":  "pnpm --filter @pos-platform/central-authority exec tsx --test ../../tools/operators/windows-login-lab-business-context.test.mts ../../tools/operators/windows-login-lab-enrollment.test.mts",
+                       "exit":  0,
+                       "passed":  21,
+                       "failed":  0,
+                       "skipped":  0,
+                       "scope":  "14 transaction-double/operator tests + 7 enrollment renderer/source regressions; not physical PostgreSQL"
+                   },
+                   {
+                       "command":  "node --test tools/operators/windows-login-lab-update.test.mjs",
+                       "exit":  0,
+                       "passed":  1,
+                       "failed":  0,
+                       "skipped":  0,
+                       "scope":  "Real local Git fixture plus PowerShell helpers; not login"
+                   },
+                   {
+                       "command":  "pnpm --filter @pos-platform/central-authority exec tsc --ignoreConfig --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext --allowImportingTsExtensions ../../tools/operators/windows-login-lab-business-context.mts ../../tools/operators/windows-login-lab-business-context.test.mts ../../tools/operators/windows-login-lab-enrollment.mts ../../tools/operators/windows-login-lab-enrollment.test.mts",
+                       "exit":  0
+                   },
+                   {
+                       "command":  "PowerShell AST parser on both new .ps1 files",
+                       "exit":  0
+                   },
+                   {
+                       "command":  "pnpm architecture:check",
+                       "exit":  0,
+                       "passed":  16,
+                       "scope":  "Architecture validation, separate from 22 focused cases"
+                   },
+                   {
+                       "command":  "pnpm ci:repository-policy",
+                       "exit":  0,
+                       "trackedFiles":  1371
+                   },
+                   {
+                       "command":  "git diff --cached --check",
+                       "exit":  0
+                   }
+               ],
+    "observedFailuresCorrected":  [
+                                      {
+                                          "kind":  "TypeScript invocation",
+                                          "detail":  "TS5112 required --ignoreConfig for explicit files under TypeScript 6"
+                                      },
+                                      {
+                                          "kind":  "TypeScript types",
+                                          "detail":  "TS2322 operator SID narrowing, TS2339/TS7006 Object.assign union in test corrected"
+                                      },
+                                      {
+                                          "kind":  "Git helper test",
+                                          "detail":  "Initial failed/hung fixture caused by PowerShell Git function shadowing git; native git.exe used, bounded test timeouts added; final test PASS"
+                                      }
+                                  ],
+    "notExecuted":  {
+                        "postgresPhysical":  "BLOCKED_NO_AUTHORIZED_VM_EXECUTION_CHANNEL",
+                        "businessContextApplied":  false,
+                        "businessSessionIssued":  false,
+                        "ssaSasActivated":  false,
+                        "fullHumanLoginCertified":  false,
+                        "productionCertified":  false
+                    },
+    "actionsDispatched":  0,
+    "workflowFilesChanged":  0,
+    "scmOperations":  0,
+    "virtualAuthenticatorsCreated":  0,
+    "baseDataModifiedByAgent":  false
+}
