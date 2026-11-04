@@ -1,0 +1,42 @@
+{
+  "schema": "CAMACHO_LAB_AUTHORITY_INHERITANCE_EVIDENCE_V1",
+  "date": "2026-11-04",
+  "sourceBaseSha": "a3501ce8ab33fd78c8c8df032274ae5ae5bee2e8",
+  "sourceFileSha256": {
+    "tools/operators/windows-login-lab-authority-acl.ps1": "d6f797faa8c33bc1982208e26e85ffe6edc99b5e8ce968846bf7056eaa3ae41a",
+    "tools/operators/windows-login-lab-authority-acl.test.mjs": "bd694e3593faad826490b44342fad565bb4c6ad0cc8265a9159a70573ccff704"
+  },
+  "ownerProvidedVmObservation": {
+    "sessionId": 1,
+    "interactiveAdministrator": true,
+    "allowedPrincipals": [
+      "SYSTEM",
+      "BUILTIN Administrators",
+      "Current VM Administrator"
+    ],
+    "owner": "BUILTIN Administrators",
+    "authorityInheritanceProtected": false,
+    "rights": "FullControl"
+  },
+  "checks": [
+    {
+      "exit": 0,
+      "command": "node --test tools/operators/windows-login-lab-authority-acl.test.mjs",
+      "failed": 0,
+      "passed": 2,
+      "scope": "PowerShell AST, default no-action execution and wrong-scope denial; no host ACL changes"
+    },
+    {
+      "command": "pnpm ci:repository-policy",
+      "exit": 0,
+      "trackedFiles": 1384
+    }
+  ],
+  "actualVmAclRepair": "NOT_YET_EXECUTED",
+  "postRepairReadiness": "NOT_YET_EXECUTED",
+  "scmOperations": 0,
+  "privateKeyFilesReadOrWritten": 0,
+  "databaseMutations": 0,
+  "actionsDispatched": 0,
+  "humanLoginCertified": false
+}
