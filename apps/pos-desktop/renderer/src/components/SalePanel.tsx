@@ -20,6 +20,37 @@ function PaymentMethodContent({ icon, label }: { icon: string; label: string }):
 
 const calculatorKeys = ["1","2","3","4","5","6","7","8","9","0","00","Borrar"] as const;
 
+// Denomination selection only records what the cashier counted locally.
+// The authoritative amount and change are still calculated by the payments service.
+const cashDenominations = [
+  { value: 2000, kind: "billetes", label: "Billete de $2.000" },
+  { value: 5000, kind: "billetes", label: "Billete de $5.000" },
+  { value: 10000, kind: "billetes", label: "Billete de $10.000" },
+  { value: 20000, kind: "billetes", label: "Billete de $20.000" },
+  { value: 50000, kind: "billetes", label: "Billete de $50.000" },
+  { value: 100000, kind: "billetes", label: "Billete de $100.000" },
+  { value: 50, kind: "monedas", label: "Moneda de $50" },
+  { value: 200, kind: "monedas", label: "Moneda de $200" },
+  { value: 500, kind: "monedas", label: "Moneda de $500" },
+  { value: 1000, kind: "monedas", label: "Moneda de $1.000" },
+] as const;
+
+function parseCopMicros(value: string): bigint | null {
+  const match = /^(\d{1,12})(?:\.(\d{1,6}))?$/.exec(value.trim());
+  if (!match) return null;
+  return BigInt(match[1]!) * 1_000_000n + BigInt((match[2] ?? "").padEnd(6, "0"));
+}
+
+function formatCopMicros(value: bigint): string {
+  const pesos = (value / 1_000_000n).toLocaleString("es-CO");
+  const decimals = (value % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
+  return `${pesos}${decimals ? `,${decimals}` : ""}`;
+}
+
+function formatCopPesos(value: bigint): string {
+  return `${value.toLocaleString("es-CO")}`;
+}
+
 export function SalePanel({ permissions, onReceipt, onInvoice }: {
   permissions: ReadonlySet<string>;
   onReceipt?: ((saleId: string) => void) | undefined;
@@ -37,16 +68,38 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   const [catalogQuery, setCatalogQuery] = useState("");
   const [quantity, setQuantity] = useState("1.000000");
   const [counted, setCounted] = useState("");
-  const [tendered, setTendered] = useState("");
+  const [manualTendered, setManualTendered] = useState("");
+  const [denominationCounts, setDenominationCounts] = useState<Record<number, number>>({});
+  const selectedDenominationTotal = cashDenominations.reduce(
+    (total, denomination) => total + BigInt(denomination.value) * BigInt(denominationCounts[denomination.value] ?? 0),
+    0n,
+  );
+  const receivedTotal = BigInt(manualTendered || "0") + selectedDenominationTotal;
+  const tendered = manualTendered !== "" || selectedDenominationTotal > 0n ? receivedTotal.toString() : "";
+  const previewPayable = parseCopMicros(paymentAmount || sale.sale?.payableAmount || "");
+  const previewDelta = receivedTotal > 0n && previewPayable !== null
+    ? receivedTotal * 1_000_000n - previewPayable : null;
   const [paymentId, setPaymentId] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
 
   const appendTendered = (key: string): void => {
     if (key === "Borrar") {
-      setTendered("");
+      setManualTendered("");
+      setDenominationCounts({});
       return;
     }
-    setTendered((current) => `${current}${key}`.replace(/^0+(?=\d)/, ""));
+    setManualTendered((current) => {
+      const value = `${current}${key}`.replace(/^0+(?=\d)/, "");
+      return value.length <= 12 ? value : current;
+    });
+  };
+
+  const changeDenominationCount = (value: number, direction: 1 | -1): void => {
+    setDenominationCounts((counts) => {
+      const current = counts[value] ?? 0;
+      const updated = Math.max(0, Math.min(99, current + direction));
+      return { ...counts, [value]: updated };
+    });
   };
 
   return (
@@ -188,15 +241,62 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                 ))}
               </div>
 
-              <div className="pos-cash-calculator">
+              <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
                 <div><span>Efectivo recibido</span><strong data-testid="tendered-display">{tendered || "0"}</strong></div>
+                <p>Selecciona cada billete o moneda que recibiste. El número indica cuántas unidades llevas.</p>
+                {(["billetes", "monedas"] as const).map((kind) => (
+                  <div className="pos-denomination-section" key={kind}>
+                    <h4>{kind === "billetes" ? "Billetes" : "Monedas"}</h4>
+                    <div className="pos-denomination-grid" data-testid={`denominations-${kind}`}>
+                      {cashDenominations.filter((item) => item.kind === kind).map((denomination) => (
+                        <div className="pos-denomination-item" key={denomination.value}>
+                          <button
+                            type="button"
+                            className="pos-denomination-add"
+                            data-testid={`denomination-add-${denomination.value}`}
+                            aria-label={`Añadir ${denomination.label.toLowerCase()}`}
+                            onClick={() => changeDenominationCount(denomination.value, 1)}
+                            disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER) || (denominationCounts[denomination.value] ?? 0) >= 99}
+                          >
+                            <img
+                              src={`./payment-denominations/${kind}/${kind === "billetes" ? "billete" : "moneda"}_${denomination.value}_cop.png`}
+                              alt=""
+                              aria-hidden="true"
+                              onError={(event) => { event.currentTarget.hidden = true; }}
+                            />
+                            <span>{formatCopPesos(BigInt(denomination.value))}</span>
+                          </button>
+                          <div className="pos-denomination-quantity">
+                            <span data-testid={`denomination-count-${denomination.value}`}>× {denominationCounts[denomination.value] ?? 0}</span>
+                            <button type="button" aria-label={`Quitar ${denomination.label.toLowerCase()}`}
+                              data-testid={`denomination-remove-${denomination.value}`}
+                              onClick={() => changeDenominationCount(denomination.value, -1)}
+                              disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER) || (denominationCounts[denomination.value] ?? 0) === 0}>−</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <p className="pos-cash-keypad-label">Importe adicional o ingreso manual (COP)</p>
                 <div className="pos-calculator-grid">
                   {calculatorKeys.map((key) => (
-                    <button key={key} type="button" onClick={() => { appendTendered(key); }} disabled={sale.busy}>{key}</button>
+                    <button key={key} type="button" onClick={() => { appendTendered(key); }}
+                      disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}>{key}</button>
                   ))}
                 </div>
+                <div className="pos-cash-summary">
+                  <div><span>Dinero recibido</span><strong>{formatCopPesos(receivedTotal)}</strong></div>
+                  <div><span>A cobrar en este pago</span><strong>{previewPayable !== null ? formatCopMicros(previewPayable) : "No disponible"}</strong></div>
+                  {previewDelta !== null && !completed && (
+                    <div data-testid="cash-change-estimate" role="status">
+                      <span>{previewDelta >= 0n ? "Cambio estimado" : "Falta para cubrir"}</span>
+                      <strong>{formatCopMicros(previewDelta >= 0n ? previewDelta : -previewDelta)}</strong>
+                    </div>
+                  )}
+                </div>
               </div>
-              <p className="pos-payment-note">El cambio lo determina el servicio de pagos; la pantalla no inventa ni recalcula el valor.</p>
+              <p className="pos-payment-note">La selección solo cuenta efectivo. El cambio definitivo lo calcula el servicio al confirmar el cobro; no se registra un pago por tocar una denominación.</p>
             </div>
           )}
         </section>
@@ -256,7 +356,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
         El resultado de una operación sigue pendiente. El reintento conserva los datos y el importe originales. Resuélvala antes de iniciar otra.
         <button data-testid="retry-pending-operation" disabled={sale.busy} onClick={() => { void sale.retryPending(); }}>Reintentar operación pendiente</button>
       </div>}
-      <button data-testid="reset-button" onClick={() => { if (sale.reset()) { setTendered(""); setPaymentAmount(""); } }} disabled={sale.busy}>Nueva venta</button>
+      <button data-testid="reset-button" onClick={() => { if (sale.reset()) { setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); } }} disabled={sale.busy}>Nueva venta</button>
     </section>
   );
 }
