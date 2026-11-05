@@ -70,7 +70,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
           <option value=",">Coma</option><option value=";">Punto y coma</option>
         </select></label>
         <a download="camacho-catalogo.csv" href={`data:text/csv;charset=utf-8,${encodeURIComponent(catalogCsvTemplate(delimiter))}`}>Descargar plantilla CSV</a>
-        <input type="file" aria-label="Archivo de catálogo CSV" accept=".csv,text/csv" disabled={csvBusy || catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ)}
+        <input type="file" aria-label="Archivo de catálogo CSV" accept=".csv,text/csv" disabled={csvBusy || catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)}
           onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadCsv(file); event.target.value = ""; }} />
         {csv && <><p>{csv.rows.length} filas. Vista previa sin escrituras.</p>
           <div className="pos-table-scroll" tabIndex={0} role="region" aria-label="Vista previa CSV, tabla desplazable">
