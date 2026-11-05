@@ -54,6 +54,16 @@ jobs:
       - name: Build complete Electron shell
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/pos-desktop build
-      - name: Boot compiled Electron with Playwright
+      - name: Boot compiled Electron with Playwright and capture isolated visual evidence
         if: ${{ !cancelled() }}
+        env:
+          POS_E2E_AUDIT_DIRECTORY: ${{ github.workspace }}/artifacts/ci/desktop-role-ui
         run: xvfb-run -a pnpm --filter @pos-platform/pos-desktop test:e2e
+      - name: Upload isolated Electron screenshots and layout observations
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
+        with:
+          name: desktop-role-ui-evidence-${{ github.sha }}
+          path: artifacts/ci/desktop-role-ui/
+          if-no-files-found: warn
+          retention-days: 30
