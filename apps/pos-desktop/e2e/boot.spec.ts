@@ -42,10 +42,11 @@ test("el renderer compilado monta la aplicación", async () => {
   await expect(window.getByRole("heading", { name: "Camacho POS Colombia" })).toBeVisible();
 });
 
-test("la superficie comercial está montada en la ventana real", async () => {
+test("sin sesión comercial válida no expone operaciones de caja en la ventana real", async () => {
   const window = await app.firstWindow();
-  await expect(window.getByTestId("sale-panel")).toBeVisible();
-  await expect(window.getByTestId("open-shift-button")).toBeVisible();
+  await expect(window.getByTestId("authorization-error")).toBeVisible();
+  await expect(window.getByTestId("sale-panel")).toHaveCount(0);
+  await expect(window.getByTestId("open-shift-button")).toHaveCount(0);
 });
 
 test("el preload expone window.posService con la superficie completa", async () => {
