@@ -739,4 +739,20 @@ describe("SalePanel · transferencia", () => {
     expect(screen.queryByTestId("charge-cash-button")).toBeNull();
   });
 
+  it("does not show shift opening or sale creation to payment-read-only sessions", () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(["PAYMENTS_PAYMENT_READ"])} />);
+    expect(screen.queryByTestId("open-shift-button")).toBeNull();
+    expect(screen.queryByTestId("create-sale-button")).toBeNull();
+    expect(screen.getByTestId("transfer-lookup-button")).toBeTruthy();
+  });
+
+  it("shows shift opening only when the exact shift-open grant exists", () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(["CASH_SHIFT_OPEN"])} />);
+    expect(screen.getByTestId("open-shift-button")).toBeTruthy();
+    expect(screen.queryByTestId("create-sale-button")).toBeNull();
+    expect(screen.queryByTestId("transfer-lookup-button")).toBeNull();
+  });
+
 });
