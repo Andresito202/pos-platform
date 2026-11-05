@@ -276,10 +276,12 @@ export function App(): React.JSX.Element {
           )}
         </section>
 
-        <details className="pos-operation" aria-label="Herramientas técnicas">
-          <summary>Herramientas técnicas y diagnóstico</summary>
-          <OperationPanel />
-        </details>
+        {import.meta.env.DEV && (
+          <details className="pos-operation" aria-label="Herramientas técnicas">
+            <summary>Herramientas técnicas y diagnóstico (solo desarrollo)</summary>
+            <OperationPanel />
+          </details>
+        )}
       </div>
     </main>
   );
