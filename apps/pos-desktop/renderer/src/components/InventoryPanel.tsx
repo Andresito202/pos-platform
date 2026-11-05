@@ -71,6 +71,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
       />
       </label>
 
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && (<>
       <h3>Entrada</h3>
       <label className="pos-field">Tipo de entrada
       <select
@@ -116,6 +117,9 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         Recibir
       </button>
 
+      </>)}
+
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) && (<>
       <h3>Ajuste</h3>
       <label className="pos-field">Tipo de ajuste
       <select
@@ -161,6 +165,9 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         Ajustar
       </button>
 
+      </>)}
+
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_READ) && (<>
       <h3>Consulta</h3>
       <button
         data-testid="get-stock-button"
@@ -169,6 +176,8 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
       >
         Consultar
       </button>
+
+      </>)}
 
       {inventory.movement !== null && (
         <div data-testid="inventory-movement">
