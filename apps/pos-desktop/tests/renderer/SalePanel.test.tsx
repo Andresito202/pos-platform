@@ -724,7 +724,7 @@ describe("SalePanel · transferencia", () => {
     const request = calls.get("payment.cancel")![0];
     expect(PaymentCancelRequestSchema.safeParse(request).success).toBe(true);
     expect(request).toMatchObject({ payload: { payment_id: PAYMENT, expected_version: 4 } });
-    expect((screen.getByTestId("confirm-transfer-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("confirm-transfer-button")).toBeNull();
     expect((screen.getByTestId("cancel-transfer-button") as HTMLButtonElement).disabled).toBe(true);
     expect(chime).not.toHaveBeenCalled();
   });
@@ -735,8 +735,8 @@ describe("SalePanel · transferencia", () => {
     await openShift(); await addProduct(); await createSale(); await registerTransfer();
     expect(screen.getByTestId("transfer-payment-id").textContent).toBe(PAYMENT);
     expect(calls.get("payment.get")).toBeUndefined();
-    expect((screen.getByTestId("confirm-transfer-button") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("charge-cash-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("confirm-transfer-button")).toBeNull();
+    expect(screen.queryByTestId("charge-cash-button")).toBeNull();
   });
 
 });
