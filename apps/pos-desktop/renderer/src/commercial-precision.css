@@ -158,6 +158,15 @@ legend { padding: 0 6px; font-weight: 600; }
 .pos-data-table th { background: #edf2f6; color: #38536a; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .pos-data-table th, .pos-data-table td { padding: 13px 16px; border-top: 1px solid var(--camacho-border); vertical-align: top; }
 .pos-data-table tbody tr:hover { background: #f3f7fa; }
+/* Real-world product names, identifiers and reason codes must not force columns
+   wider than their scroll container. Preserve numeric column alignment. */
+.pos-data-table { table-layout: auto; }
+.pos-data-table th, .pos-data-table td { overflow-wrap: anywhere; }
+.pos-data-table th.pos-number, .pos-data-table td.pos-number { overflow-wrap: normal; }
+.pos-data-table td { min-width: 0; }
+.pos-table-scroll { min-width: 0; }
+.pos-admin-audit-toolbar > :is(input, select, label, button) { min-width: 0; }
+.pos-admin-audit-toolbar label :is(input, select) { max-width: 100%; width: 100%; box-sizing: border-box; }
 .pos-number { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pos-reference { font-size: 12px; overflow-wrap: anywhere; min-width: 180px; }
 .pos-catalog-tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-top: 18px; }
