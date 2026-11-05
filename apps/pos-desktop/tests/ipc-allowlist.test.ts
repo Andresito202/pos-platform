@@ -36,6 +36,7 @@ describe("ipc-allowlist", () => {
       "pos:sales.receipt.get",
       "pos:audit.event.list",
       "pos:admin.metrics.get",
+      "pos:license.offers.list",
     ]);
   });
 
