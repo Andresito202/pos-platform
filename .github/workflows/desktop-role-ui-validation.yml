@@ -40,7 +40,20 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck POS desktop
         run: pnpm --filter @pos-platform/pos-desktop typecheck
-      - name: Run all desktop unit tests
+      - name: Focused role and commercial UI regressions
+        run: >-
+          pnpm --filter @pos-platform/pos-desktop exec vitest run
+          --config vitest.config.ts
+          tests/renderer/SalePanel.test.tsx
+          tests/renderer/InventoryPanel.permissions.test.tsx
+          tests/renderer/CatalogPanel.permissions.test.tsx
+          tests/renderer/CustomerHardware.permissions.test.tsx
+          tests/renderer/AdminPanels.test.tsx
+      - name: Run all desktop unit tests (no skipped failures)
         run: pnpm --filter @pos-platform/pos-desktop test
-      - name: Build renderer
-        run: pnpm --filter @pos-platform/pos-desktop build:renderer
+      - name: Build complete Electron shell
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @pos-platform/pos-desktop build
+      - name: Boot compiled Electron with Playwright
+        if: ${{ !cancelled() }}
+        run: xvfb-run -a pnpm --filter @pos-platform/pos-desktop test:e2e
