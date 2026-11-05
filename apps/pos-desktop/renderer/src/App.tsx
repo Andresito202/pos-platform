@@ -164,7 +164,7 @@ export function App(): React.JSX.Element {
       });
     }
 
-    if (permissions.has(CanonicalPermission.HARDWARE_READ)) {
+    if (hasAny(permissions, [CanonicalPermission.HARDWARE_READ, CanonicalPermission.HARDWARE_CONFIGURE, CanonicalPermission.HARDWARE_PRINT, CanonicalPermission.HARDWARE_DRAWER_OPEN])) {
       result.push({ id: "hardware", label: "Impresora y cajón", section: "Administración", render: () => <HardwarePanel permissions={permissions} /> });
     }
 
