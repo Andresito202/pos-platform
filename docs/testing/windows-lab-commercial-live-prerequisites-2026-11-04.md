@@ -91,3 +91,52 @@ coincide, informa SCM_COMMERCIAL_BINDING_NOT_VERIFIED y mantiene el gate.
 No se solicitó la clave privada ni se tomó un DEVICE_KEY redactado del chat.
 La ejecución real V2 queda pendiente; todavía no se ha determinado el estado
 central del dispositivo v7. Se conservan los informes anteriores como evidencia.
+
+## Resultado físico V2 y preparación del vínculo comercial
+
+La salida de la VM aportada por el operador para d34f04d2 confirma la consulta
+PostgreSQL/TLS y el contexto humano activos. El registro del dispositivo v7
+está ausente, los manifiestos SCM no coinciden y falta provisión BUSINESS.
+No repite ni invalida el enrolamiento MFA humano ni la publicación ADMIN.
+Recibo: results/commercial-live-readiness-01a1a839-8ff3-75ed-9654-9ac4ec307dcd.json.
+
+windows-scm-commercial-binding.ps1 prepara un par separado de manifiestos
+para esos UUIDv7. Reutiliza el runtime aislado que corresponde exactamente al
+runner instalado y sus verificaciones de hashes/ACL. Antes de crear material,
+exige Server 2022 virtual, operador elevado e interactivo, WinSW firmado y
+fijado, cuenta virtual correcta, servicio detenido y árbol Git limpio.
+Sólo crea claves de propósito canal bajo SERVICE/DESKTOP reales; recupera
+las existentes de ese propósito sin rotación. No toca DeviceIdentity, raíces,
+certificados, SQL, el XML SCM ni los manifiestos/DPAPI del arnés v4.
+El runner temporal tiene respaldo exacto y restauración comprobada; un cambio
+concurrente se conserva y bloquea la restauración automática. Los resultados
+parciales se conservan. El recibo se publica bajo custodia del instalador,
+no como configuración confiable en el directorio de resultados modificable.
+
+Ejecución necesaria dentro de PowerShell elevado de la VM, en el repositorio:
+
+```powershell
+& .\tools\operators\windows-scm-commercial-binding.ps1 -Run -LabRoot C:\CamachoPosScmLab\608ba7092afe4a5b93ac14a7df23a046
+```
+
+El recibo contiene publication y las dos rutas. El inspector acepta
+--commercial-binding <publication> explícito; sigue usando el cargador
+canónico y NO transforma metadatos coincidentes en posesión o handshake.
+No se inicia automáticamente el servicio comercial ni una sesión BUSINESS.
+SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN permanece activo.
+
+Pruebas de este incremento: 10/10 del worker/publisher (puertos unitarios,
+CLI negativa real y regresión del publisher modificado), 9/9 del inspector
+afectado, TypeScript Central, sintaxis JavaScript/PowerShell, arquitectura y
+política PASS. El rechazo del host Windows 10 se ejecutó realmente antes de
+acceder al laboratorio. No se recompilaron binarios que no cambiaron.
+El controlador PowerShell sólo tiene validación sintáctica y de su rechazo
+en host: su rama operativa SCM/DPAPI queda SIN EJECUTAR, no certificada.
+
+La consola de Codex recibió Access denied de Get-VM; no tiene canal remoto
+autenticado a la VM. No se usó la interfaz gráfica para ejecutar comandos ni
+eludir permisos. La ejecución privilegiada en la VM es intervención necesaria.
+Tras ella siguen pendientes: prueba nativa del nuevo par, enrolamiento DEV-003
+con desafío fresco bajo custodia SERVICE, provisión BUSINESS validada y
+recorrido humano hasta dashboard/renovación/logout/revocación. Preparar el
+canal no certifica ninguno de esos pasos. No se ejecutaron GitHub Actions.

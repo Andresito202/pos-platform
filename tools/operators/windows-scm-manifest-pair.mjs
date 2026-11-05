@@ -46,19 +46,37 @@ export function writeManifestPair(desktopOutput, serviceOutput, desktop, service
       : "PAIRED_MANIFEST_OUTPUT_EXISTS_OR_WRITE_FAILED", { cause: err });
   }
 }
-function main() {
+export function commercialManifestPaths(lab, installationId, deviceId, publication) {
+  if (!/^[0-9a-f]{32}$/.test(publication) || !uuid(installationId) || !uuid(deviceId) ||
+      installationId[14] !== '7' || deviceId[14] !== '7') fail('COMMERCIAL_BINDING_REJECTED');
+  return {
+    desktopOutput: join(lab, 'desktop', `commercial-provision-${publication}.json`),
+    serviceOutput: join(lab, 'service', `commercial-provision-${publication}.json`),
+    receiverPrivate: join(lab, 'desktop', 'private', `receiver-commercial-${deviceId}.dpapi.json`),
+    signerPrivate: join(lab, 'service', 'private', `signer-commercial-${deviceId}.dpapi.json`),
+    capsule: join(lab, 'results', `commercial-capsule-${publication}.json`),
+  };
+}
+async function main() {
   if (process.platform !== "win32") fail("WINDOWS_REQUIRED");
   const args = process.argv.slice(2);
-  if (args.length !== 5) fail("USAGE: node tools/operators/windows-scm-manifest-pair.mjs <lab root> <receiver public> <signer public> <installation uuid> <device uuid>");
+  if (args.length !== 5 && (args.length !== 6 || !/^--commercial-binding=[0-9a-f]{32}$/.test(args[5]))) fail("PAIRED_MANIFEST_ARGUMENTS_REJECTED");
   const [lab, receiverPath, signerPath, installationId, deviceId] = args;
   if (!absoluteWindows(lab) || !/^C:\\CamachoPosScmLab\\[0-9a-f]{32}$/i.test(lab) || !uuid(installationId) || !uuid(deviceId)) fail("LAB_BINDING_REJECTED");
-  const desktopOutput = join(lab, "desktop", "desktop-provision.json");
-  const serviceOutput = join(lab, "service", "service-provision.json");
-  const receiverPrivate = join(lab, "desktop", "private", "receiver.dpapi.json");
-  const signerPrivate = join(lab, "service", "private", "signer.dpapi.json");
+  const commercial = args[5] ? commercialManifestPaths(lab, installationId, deviceId, args[5].split('=')[1]) : undefined;
+  const desktopOutput = commercial?.desktopOutput ?? join(lab, "desktop", "desktop-provision.json");
+  const serviceOutput = commercial?.serviceOutput ?? join(lab, "service", "service-provision.json");
+  const receiverPrivate = commercial?.receiverPrivate ?? join(lab, "desktop", "private", "receiver.dpapi.json");
+  const signerPrivate = commercial?.signerPrivate ?? join(lab, "service", "private", "signer.dpapi.json");
   const compiledAdapter = resolve("packages/local-channel/native/build/Release/camacho_windows_pipe.node");
   const adapter = join(lab, "service", "camacho_windows_pipe.node");
-  if (!within(compiledAdapter, resolve(".")) || !existsSync(compiledAdapter) || !statSync(compiledAdapter).isFile() ||
+  if (commercial) {
+    // Existing installer-managed provision supplies the independently pinned
+    // native binary. No rebuild, new trust root or public JSON pin is accepted.
+    const {readWindowsScmProvision} = await import('../../packages/local-channel/src/windows-native-pipe.ts');
+    const old = readWindowsScmProvision(join(lab, 'service', 'service-provision.json'), 'SERVICE');
+    if (old.adapter_file !== adapter || sha(readFileSync(adapter)) !== old.adapter_sha256) fail('PINNED_LAB_ADAPTER_MISSING_OR_MISMATCH');
+  } else if (!within(compiledAdapter, resolve(".")) || !existsSync(compiledAdapter) || !statSync(compiledAdapter).isFile() ||
       !existsSync(adapter) || sha(readFileSync(adapter)) !== sha(readFileSync(compiledAdapter))) fail("PINNED_LAB_ADAPTER_MISSING_OR_MISMATCH");
   if (!absoluteWindows(receiverPath) || !absoluteWindows(signerPath) ||
       !within(receiverPath, lab) || !within(signerPath, lab)) fail("PUBLIC_ENROLLMENT_OUTSIDE_LAB");
@@ -67,6 +85,7 @@ function main() {
   // Real Service custody must be attested by the separate service-side operator test.
   if (!existsSync(receiverPrivate)) fail("DESKTOP_DPAPI_CUSTODY_MISSING");
   const r = parse(receiverPath), s = parse(signerPath);
+  if (commercial && (s.installation_id !== installationId || s.device_id !== deviceId)) fail('COMMERCIAL_SIGNER_BINDING_REJECTED');
   if (r.installation_id !== installationId || r.device_id !== deviceId ||
       !sid(r.recipient_sid) || !logon(r.recipient_logon_sid) ||
       !Number.isInteger(r.recipient_session_id) || r.recipient_session_id <= 0 ||
@@ -92,7 +111,7 @@ function main() {
     recipient_session_id: r.recipient_session_id,
     recipient_public_key_pem: r.recipient_public_key_pem,
     recipient_key_sha256: r.recipient_key_sha256,
-    capsule_file: join(lab, "results", "capsule.json"),
+    capsule_file: commercial?.capsule ?? join(lab, "results", "capsule.json"),
     not_before: new Date(now.getTime() - 60_000).toISOString(),
     expires_at: new Date(now.getTime() + 30 * 60_000).toISOString(),
     revision: 1, poll_ms: 250, policy_reference: "SCM_VM_PHYSICAL_LAB_ONLY"
@@ -114,5 +133,5 @@ function main() {
 const invoked = process.argv[1] ? resolve(process.argv[1]) : "";
 const self = fileURLToPath(import.meta.url);
 if (process.platform === "win32" ? invoked.toLowerCase() === self.toLowerCase() : invoked === self) {
-  try { main(); } catch (e) { console.error("SCM_PAIRED_MANIFEST_REJECTED=" + e.message); process.exitCode = 2; }
+  main().catch(e => { console.error("SCM_PAIRED_MANIFEST_REJECTED=" + e.message); process.exitCode = 2; });
 }

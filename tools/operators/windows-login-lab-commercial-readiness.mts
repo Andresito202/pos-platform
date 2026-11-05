@@ -39,6 +39,13 @@ export function getLabServiceDeviceBinding(receipt:unknown){
 export function matchesLabScmDeviceBinding(bindings:readonly {installation_id:string;device_id:string}[],device:{installationId:string;deviceId:string}){
   return bindings.length===2&&bindings.every(b=>b.installation_id===device.installationId&&b.device_id===device.deviceId);
 }
+export function labScmProvisionFiles(root:string,publication?:string){
+  if(publication!==undefined&&!/^[a-f0-9]{32}$/.test(publication))fail('LAB_COMMERCIAL_PUBLICATION_REJECTED');
+  return {
+    service:join(root,'service',publication?`commercial-provision-${publication}.json`:'service-provision.json'),
+    desktop:join(root,'desktop',publication?`commercial-provision-${publication}.json`:'desktop-provision.json'),
+  };
+}
 export function inspectLabDeviceIdentifiers(identity:unknown,receipt:unknown){
   const a=identity as Record<string,unknown>|null;
   const legacyInstallation=UuidSchema.parse(a?.installation_id),legacyDevice=UuidSchema.parse(a?.device_id);
@@ -71,8 +78,9 @@ function managed(file:string){
 const json=(file:string):unknown=>JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(managed(file)));
 async function main(){
   const args=process.argv.slice(2);
-  if(args.length!==3||args[0]!=='--inspect'||args[1]!=='--lab-root')fail('LAB_READINESS_EXPLICIT_ARGUMENTS_REQUIRED');
+  if((args.length!==3&&(args.length!==5||args[3]!=='--commercial-binding'))||args[0]!=='--inspect'||args[1]!=='--lab-root')fail('LAB_READINESS_EXPLICIT_ARGUMENTS_REQUIRED');
   const root=args[2]!,directory=join(root,'central-lab'),authority=join(directory,'authority');
+  const provisions=labScmProvisionFiles(root,args[4]);
   parseLabCommercialArguments(['--validate','--lab-root',root,'--candidate',join(authority,'candidate.json')]);
   assertLabCommercialOperator(root);
   const identity=json(join(root,'scm-lab-identity.json')) as Record<string,string>;
@@ -81,8 +89,8 @@ async function main(){
   const identifiers=inspectLabDeviceIdentifiers(identity,device);
   let scmMetadataMatches=false,scmMetadataRead=false;
   try{
-    const service=readWindowsScmProvision(join(root,'service','service-provision.json'),'SERVICE');
-    const desktop=readWindowsScmProvision(join(root,'desktop','desktop-provision.json'),'DESKTOP');
+    const service=readWindowsScmProvision(provisions.service,'SERVICE');
+    const desktop=readWindowsScmProvision(provisions.desktop,'DESKTOP');
     scmMetadataMatches=matchesLabScmDeviceBinding([service.handoff,desktop.handoff],serviceDevice);
     scmMetadataRead=true;
   }catch{/* Missing/unreadable metadata stays unverified; never weakens custody. */}

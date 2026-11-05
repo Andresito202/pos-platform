@@ -3,12 +3,21 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {LAB_ADMIN_POLICY} from './windows-login-lab-business-context.mjs';
-import {choosePublishedLabContext,getLabServiceDeviceBinding,inspectLabDeviceIdentifiers,matchesLabScmDeviceBinding,LAB_CURRENT_HUMAN_SCOPE_SQL} from './windows-login-lab-commercial-readiness.mts';
+import {choosePublishedLabContext,getLabServiceDeviceBinding,inspectLabDeviceIdentifiers,matchesLabScmDeviceBinding,labScmProvisionFiles,LAB_CURRENT_HUMAN_SCOPE_SQL} from './windows-login-lab-commercial-readiness.mts';
 
 const v4='00000000-0000-4000-8000-000000000001',v7='01900000-0000-7000-8000-000000000001';
 const context={userId:v7,factorId:v7,materialId:v7,tenantId:v7,companyId:v7,branchId:v7,membershipId:v7,roleId:v7,assignmentId:v7};
 const receipt=(outcome='CREATED')=>({profile:'CAMACHO_LAB_APPROVED_BUSINESS_CONTEXT',outcome,
   policyChecksum:createHash('sha256').update(JSON.stringify(LAB_ADMIN_POLICY)).digest('hex'),context:{...context}});
+
+test('explicit commercial publication selects both versioned manifests without adopting paths from a receipt',()=>{
+  const root='C:\\CamachoPosScmLab\\608ba7092afe4a5b93ac14a7df23a046',publication='0123456789abcdef0123456789abcdef';
+  const paths=labScmProvisionFiles(root,publication);
+  assert.ok(paths.service.endsWith(`commercial-provision-${publication}.json`));
+  assert.ok(paths.desktop.endsWith(`commercial-provision-${publication}.json`));
+  assert.ok(labScmProvisionFiles(root).service.endsWith('service-provision.json'));
+  for(const bad of ['../service-provision.json','',publication+'\\other'])assert.throws(()=>labScmProvisionFiles(root,bad),/PUBLICATION_REJECTED/);
+});
 
 test('matching local UUID v4 metadata does not become a valid DEV-003 UUID v7',()=>{
   const r=inspectLabDeviceIdentifiers({installation_id:v4,device_id:v4},{binding:{installationId:v4,deviceId:v4},deviceRegistered:true});
