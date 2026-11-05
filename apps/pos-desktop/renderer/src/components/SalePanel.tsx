@@ -106,7 +106,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   return (
     <section data-testid="sale-panel">
       <h2>Caja</h2>
-      {sale.shift === null ? (
+      {sale.shift === null && permissions.has(CanonicalPermission.CASH_SHIFT_OPEN) ? (
         <div data-testid="shift-closed" className="pos-shift-card">
           <input data-testid="cash-register-input" aria-label="ID de la caja" value={registerId}
             onChange={(e) => { setRegisterId(e.target.value); }} placeholder="ID de la caja" disabled={sale.busy} />
@@ -115,15 +115,17 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
           <button data-testid="open-shift-button" onClick={() => { void sale.openShift(registerId.trim(), opening.trim()); }}
             disabled={sale.busy || !permissions.has(CanonicalPermission.CASH_SHIFT_OPEN) || registerId.trim() === ""}>Abrir turno</button>
         </div>
-      ) : (
+      ) : sale.shift !== null ? (
         <div data-testid="shift-open" className="pos-shift-bar">
           <span>Turno abierto · caja <strong data-testid="shift-register">{sale.shift.cashRegisterId}</strong></span>
+          {permissions.has(CanonicalPermission.CASH_SHIFT_CLOSE) && <>
           <input data-testid="counted-amount-input" aria-label="Efectivo contado" value={counted}
             onChange={(e) => { setCounted(e.target.value); }} placeholder="Efectivo contado" disabled={sale.busy} />
           <button data-testid="close-shift-button" onClick={() => { void sale.closeShift(counted.trim()); }}
-            disabled={sale.busy || !permissions.has(CanonicalPermission.CASH_SHIFT_CLOSE) || counted.trim() === ""}>Cerrar turno</button>
+            disabled={sale.busy || counted.trim() === ""}>Cerrar turno</button>
+          </>}
         </div>
-      )}
+      ) : null}
 
       <div className="pos-sale-layout">
         <section className="pos-sale-products" aria-label="Productos para venta">
@@ -226,23 +228,23 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                 value={paymentAmount} placeholder={sale.sale.payableAmount} onChange={(event) => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} /></label>
               <div className="pos-payment-methods">
                 {paymentButtons.map((method) => (
-                  method.id === "cash" ? (
+                  method.id === "cash" && permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER) ? (
                     <button key={method.id} type="button" data-testid="charge-cash-button"
                       onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
                       disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}><PaymentMethodContent icon={method.icon} label={method.label} /></button>
-                  ) : method.id === "transfer" ? (
+                  ) : method.id === "transfer" && permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) ? (
                     <button key={method.id} type="button" data-testid="register-transfer-button"
                       onClick={() => { void sale.registerTransfer(paymentAmount || undefined); }}
                       disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}><PaymentMethodContent icon={method.icon} label={method.label} /></button>
-                  ) : (
+                  ) : method.id !== "cash" && method.id !== "transfer" ? (
                     <button key={method.id} type="button" disabled title="Interfaz reservada; falta el contrato de pago integrado.">
                       <PaymentMethodContent icon={method.icon} label={method.label} /><small>En materialización</small>
                     </button>
-                  )
+                  ) : null
                 ))}
               </div>
 
-              <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
+              {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER) && <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
                 <div><span>Efectivo recibido</span><strong data-testid="tendered-display">{tendered || "0"}</strong></div>
                 <p>Selecciona cada billete o moneda que recibiste. El número indica cuántas unidades llevas.</p>
                 {(["billetes", "monedas"] as const).map((kind) => (
@@ -296,7 +298,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                     </div>
                   )}
                 </div>
-              </div>
+              </div>}
               <p className="pos-payment-note">La selección solo cuenta efectivo. El cambio definitivo lo calcula el servicio al confirmar el cobro; no se registra un pago por tocar una denominación.</p>
             </div>
           )}
@@ -323,9 +325,9 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
           Transferencia registrada · pago <span data-testid="transfer-payment-id">{sale.transfer.paymentId}</span> · estado <span data-testid="transfer-status">{sale.transfer.status}</span> · reportado <span data-testid="transfer-expected-amount">{sale.transfer.expectedAmount}</span>
           {sale.transfer.status === "CREATED" && sale.transferConfirmation === null && <div data-testid="transfer-pending">Pendiente de confirmación</div>}
           {sale.transfer.status === null && <p>El pago quedó registrado. Su estado y versión requieren consulta autorizada.</p>}
-          <button data-testid="confirm-transfer-button" onClick={() => { void sale.confirmTransfer(); }} disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM) || sale.transfer.version === null || sale.transfer.status !== "CREATED"}>Confirmar transferencia</button>
-          <button data-testid="cancel-transfer-button" onClick={() => { void sale.cancelTransfer(); }}
-            disabled={sale.busy || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_CANCEL) || sale.transfer.version === null || sale.transfer.status !== "CREATED"}>Cancelar transferencia no confirmada</button>
+          {permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM) && <button data-testid="confirm-transfer-button" onClick={() => { void sale.confirmTransfer(); }} disabled={sale.busy || completed || sale.transfer.version === null || sale.transfer.status !== "CREATED"}>Confirmar transferencia</button>}
+          {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_CANCEL) && <button data-testid="cancel-transfer-button" onClick={() => { void sale.cancelTransfer(); }}
+            disabled={sale.busy || sale.transfer.version === null || sale.transfer.status !== "CREATED"}>Cancelar transferencia no confirmada</button>}
           {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ) && <button disabled={sale.busy}
             onClick={() => { void sale.loadTransfer(sale.transfer!.paymentId); }}>Actualizar estado de la transferencia</button>}
         </div>
