@@ -64,6 +64,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
   return (
     <section data-testid="catalog-panel">
       <h2>Catálogo</h2>
+      {permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) && (
       <details><summary>Importar catálogo CSV</summary>
         <p>CSV UTF-8 exportado desde Excel u otra hoja. No carga stock, costos ni facturas. Cada fila se confirma por separado; reintentar el mismo archivo conserva sus claves.</p>
         <label>Separador<select aria-label="Separador CSV" value={delimiter} disabled={csvBusy} onChange={(event) => { setDelimiter(event.target.value as "," | ";"); setCsv(null); setCsvResults([]); }}>
@@ -82,6 +83,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         <ul>{csvResults.map((result) => <li key={result.row}>Fila {result.row}: {result.outcome}</li>)}</ul>
         {csvError && <p role="alert">{csvError}. Las filas ya confirmadas permanecen; reintente el mismo archivo para recuperar el resultado.</p>}
       </details>
+      )}
       <div>
         <div className="pos-catalog-tools">
         <label className="pos-field">Buscar en catálogo<input aria-label="Buscar en catálogo" value={query} onChange={(event) => setQuery(event.target.value)} disabled={catalog.busy} /></label>
