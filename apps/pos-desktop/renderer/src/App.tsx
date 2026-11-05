@@ -165,7 +165,7 @@ export function App(): React.JSX.Element {
     }
 
     if (permissions.has(CanonicalPermission.HARDWARE_READ)) {
-      result.push({ id: "hardware", label: "Impresora y cajón", section: "Administración", render: () => <HardwarePanel /> });
+      result.push({ id: "hardware", label: "Impresora y cajón", section: "Administración", render: () => <HardwarePanel permissions={permissions} /> });
     }
 
     for (const planned of plannedScreens) {
