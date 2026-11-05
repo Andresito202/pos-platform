@@ -59,6 +59,13 @@ describe("hardware capability boundaries in the renderer", () => {
     expect(screen.queryByRole("button", { name: "Encolar apertura autorizada" })).toBeNull();
   });
 
+  it("does not expose diagnosis to a print-only capability", () => {
+    render(<HardwarePanel permissions={new Set(["HARDWARE_PRINT"])} />);
+    expect(screen.getByRole("button", { name: "Encolar impresión de prueba" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Detectar y diagnosticar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Consultar asociaciones y trabajos" })).toBeNull();
+  });
+
   it("keeps drawer and print grants separate", () => {
     render(<HardwarePanel permissions={new Set(["HARDWARE_READ", "HARDWARE_PRINT"])} />);
     expect(screen.getByRole("button", { name: "Encolar impresión de prueba" })).toBeTruthy();
