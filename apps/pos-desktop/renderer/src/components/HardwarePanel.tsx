@@ -20,8 +20,8 @@ export function HardwarePanel({permissions}:{permissions:ReadonlySet<string>}):R
   return <section data-testid="hardware-panel">
     <h2>Impresora y cajón</h2>
     <p>Una cola instalada no confirma un modelo compatible. Un trabajo aceptado no confirma impresión ni apertura física.</p>
-    <button disabled={busy||!permitted(CanonicalPermission.HARDWARE_READ)} onClick={()=>void run({action:"diagnose"})}>Detectar y diagnosticar</button>
-    <button disabled={busy||!permitted(CanonicalPermission.HARDWARE_READ)} onClick={()=>void run({action:"list"})}>Consultar asociaciones y trabajos</button>
+    {permitted(CanonicalPermission.HARDWARE_READ) && <button disabled={busy} onClick={()=>void run({action:"diagnose"})}>Detectar y diagnosticar</button>}
+    {permitted(CanonicalPermission.HARDWARE_READ) && <button disabled={busy} onClick={()=>void run({action:"list"})}>Consultar asociaciones y trabajos</button>}
     {permitted(CanonicalPermission.HARDWARE_CONFIGURE) && <fieldset disabled={busy}><legend>Asociación autorizada</legend>
       <label>Caja <input value={register} onChange={e=>setRegister(e.target.value)}/></label>
       <label>Dispositivo detectado <input value={device} onChange={e=>setDevice(e.target.value)}/></label>
