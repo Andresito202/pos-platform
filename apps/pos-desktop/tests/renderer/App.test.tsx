@@ -17,6 +17,7 @@ function makeService() {
     "operation.confirm": vi.fn(),
     "catalog.item.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
     "admin.metrics.get": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
+    "license.offers.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
     "audit.event.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
   };
 }
@@ -171,6 +172,7 @@ describe("App", () => {
           "CATALOG_PRODUCT_READ",
           "INVENTORY_STOCK_READ",
           "CUSTOMERS_CUSTOMER_READ",
+          "CUSTOMERS_CUSTOMER_REGISTER",
           "SALES_RECEIPT_READ",
         ],
       },
