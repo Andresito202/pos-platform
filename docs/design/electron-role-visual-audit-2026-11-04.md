@@ -68,3 +68,10 @@ No se han abierto sesiones humanas, ejecutado Electron local ni inspeccionado p�
 - Estado de prueba al crear este informe: GitHub Actions indicó `success` para `126e403e` (CSV). El resultado de CSS y de este mismo documento deberá consultarse por SHA; no se ejecutó Electron real.
 
 **No declarar que la separación de roles, el inventario de botones o la alineación visual están certificados hasta ejecutar pruebas específicas.**
+
+## 7. Continuación incremental sin conflicto con PR #99
+
+- `CatalogPanel.tsx`: el bloque CSV existente se muestra solo con `CATALOG_PRODUCT_REGISTER`. No se cambió importación, parsing, confirmación, autorización backend ni contratos.
+- `CatalogPanel.permissions.test.tsx`: dos escenarios añadidos para usuario de solo lectura y usuario con registro; se conserva el test de `App.tsx` sin modificar porque PR #99 también toca `App.test.tsx`.
+- La ejecución GitHub Actions observada para `dbb0d5bb` figura como `success`, **pero su único job fue Strix AI penetration test con el paso “Report that the scan did not run”; instalación y ejecución Strix omitidas**. Por tanto ese estado verde **no acredita typecheck, Vitest, Playwright ni seguridad**. Las pruebas nuevas quedan como **NOT EXECUTED** hasta ver ejecución real de la suite en un entorno con dependencias.
+- No se ha cambiado el frontend de login ni archivos del PR #99.
