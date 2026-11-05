@@ -278,7 +278,7 @@ export function App(): React.JSX.Element {
 
         {import.meta.env.DEV && (
           <details className="pos-operation" aria-label="Herramientas técnicas">
-            <summary>Herramientas técnicas y diagnóstico (solo desarrollo)</summary>
+            <summary>Herramientas técnicas y diagnóstico</summary>
             <OperationPanel />
           </details>
         )}
