@@ -215,9 +215,9 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
               </li>
             ))}
           </ul>
-          <button data-testid="create-sale-button" className="pos-primary-action"
+          {permissions.has(CanonicalPermission.SALES_SALE_CREATE) && <button data-testid="create-sale-button" className="pos-primary-action"
             onClick={() => { void sale.createSale(); }}
-            disabled={sale.busy || !permissions.has(CanonicalPermission.SALES_SALE_CREATE) || sale.lines.length === 0 || sale.sale !== null}>Continuar al cobro</button>
+            disabled={sale.busy || sale.lines.length === 0 || sale.sale !== null}>Continuar al cobro</button>}
 
           {sale.sale !== null && (
             <div data-testid="sale-created" className="pos-payment-card">
@@ -299,7 +299,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                   )}
                 </div>
               </div>}
-              <p className="pos-payment-note">La selección solo cuenta efectivo. El cambio definitivo lo calcula el servicio al confirmar el cobro; no se registra un pago por tocar una denominación.</p>
+              {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER) && <p className="pos-payment-note">La selección solo cuenta efectivo. El cambio definitivo lo calcula el servicio al confirmar el cobro; no se registra un pago por tocar una denominación.</p>}
             </div>
           )}
         </section>
