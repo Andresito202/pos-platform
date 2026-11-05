@@ -20,7 +20,7 @@ export function componentMarkup(name: string): string {
     inventory: <InventoryPanel permissions={none} />,
     customers: <CustomerPanel permissions={none} />,
     admin: <AdministrativeControlPanel kind="admin" />,
-    hardware: <HardwarePanel />,
+    hardware: <HardwarePanel permissions={none} />,
     receipt: <ReceiptPanel />,
     fiscal: <FiscalPanel />,
   };
