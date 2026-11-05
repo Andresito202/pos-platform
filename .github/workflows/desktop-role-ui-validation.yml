@@ -59,6 +59,13 @@ jobs:
         env:
           POS_E2E_AUDIT_DIRECTORY: ${{ github.workspace }}/artifacts/ci/desktop-role-ui
         run: xvfb-run -a pnpm --filter @pos-platform/pos-desktop test:e2e
+      - name: Capture unauthenticated visual-only Electron screens
+        if: ${{ !cancelled() }}
+        env:
+          POS_E2E_AUDIT_DIRECTORY: ${{ github.workspace }}/artifacts/ci/desktop-role-ui
+        run: >-
+          xvfb-run -a pnpm --filter @pos-platform/pos-desktop exec playwright test
+          --config e2e/playwright.config.ts e2e/visual-preview.spec.ts
       - name: Upload isolated Electron screenshots and layout observations
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
