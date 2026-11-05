@@ -641,10 +641,10 @@ describe("permisos por acción y consultas conectadas", () => {
   it("does not enable stock mutations for an inventory reader", () => {
     install(null);
     render(<InventoryPanel permissions={new Set(["INVENTORY_STOCK_READ"])} initialPresentationId={PRESENTATION} />);
-    fireEvent.change(screen.getByTestId("receive-quantity-input"), { target: { value: "2" } });
-    fireEvent.change(screen.getByTestId("adjust-quantity-input"), { target: { value: "1" } });
-    expect((screen.getByTestId("receive-stock-button") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("adjust-stock-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("receive-quantity-input")).toBeNull();
+    expect(screen.queryByTestId("adjust-quantity-input")).toBeNull();
+    expect(screen.queryByTestId("receive-stock-button")).toBeNull();
+    expect(screen.queryByTestId("adjust-stock-button")).toBeNull();
     expect((screen.getByTestId("get-stock-button") as HTMLButtonElement).disabled).toBe(false);
   });
 
