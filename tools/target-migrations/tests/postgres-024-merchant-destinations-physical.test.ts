@@ -142,4 +142,75 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
    await expect(client.query("DELETE FROM payments.merchant_qr_assets")).rejects.toThrow();
   }finally{await client.query("RESET ROLE");client.release();}
  });
+ test("QR-002 migration 025 gates SMS evidence by tenant consent, active device, immutable status and revocation",async()=>{
+  // Migration 025 runs after every 024 test against the same disposable database.
+  await pool.query("SET ROLE pos_schema_owner");
+  try{
+   await pool.query(await readArtifact("postgres/025_merchant_payment_notifications.up.sql"));
+   await pool.query(`INSERT INTO identity.device_registry(installation_id,tenant_id,company_id,status)
+    VALUES('55555555-5555-4555-8555-555555555555',
+           '11111111-1111-4111-8111-111111111111',
+           '33333333-3333-4333-8333-333333333333','ACTIVE')`);
+  }finally{await pool.query("RESET ROLE");}
+  const r=await pool.query(`SELECT c.relname,c.relrowsecurity,c.relforcerowsecurity
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='payments' AND c.relname IN
+      ('merchant_notification_bridge_consents','merchant_payment_notification_inbox')`);
+  expect(r.rows).toHaveLength(2);
+  for(const row of r.rows){expect(row.relrowsecurity).toBe(true);expect(row.relforcerowsecurity).toBe(true);}
+  const privileges=await pool.query(`SELECT
+    has_table_privilege('pos_platform_app','payments.merchant_payment_notification_inbox','UPDATE') AS can_update,
+    has_table_privilege('pos_platform_app','payments.merchant_payment_notification_inbox','DELETE') AS can_delete,
+    has_table_privilege('pos_app','payments.merchant_payment_notification_inbox','SELECT') AS local_read`);
+  expect(privileges.rows[0]).toEqual({can_update:false,can_delete:false,local_read:false});
+  const client=await pool.connect();
+  const a="11111111-1111-4111-8111-111111111111";
+  const ca="33333333-3333-4333-8333-333333333333";
+  const b="22222222-2222-4222-8222-222222222222";
+  const cb="44444444-4444-4444-8444-444444444444";
+  const installation="55555555-5555-4555-8555-555555555555";
+  try{
+   await client.query("SET ROLE pos_platform_app");
+   await client.query("BEGIN");
+   await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[a,ca]);
+   await expect(client.query(`INSERT INTO payments.merchant_payment_notification_inbox
+      (id,tenant_id,company_id,source_installation_id,message_sha256,
+       observed_at,received_at,sender_label)
+      VALUES($1,$2,$3,$4,$5,now(),now(),'SMS Negocios')`,
+      ["01900000-0000-7000-8000-000000000031",a,ca,"66666666-6666-4666-8666-666666666666","a".repeat(64)]))
+     .rejects.toThrow();
+   await client.query("ROLLBACK");
+   await client.query("BEGIN");
+   await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[a,ca]);
+   await client.query(`INSERT INTO payments.merchant_notification_bridge_consents
+     (tenant_id,company_id,installation_id,granted_by)
+     VALUES($1,$2,$3,$4)`,[a,ca,installation,"77777777-7777-4777-8777-777777777777"]);
+   await client.query(`INSERT INTO payments.merchant_payment_notification_inbox
+      (id,tenant_id,company_id,source_installation_id,message_sha256,
+       observed_at,received_at,sender_label)
+      VALUES($1,$2,$3,$4,$5,now(),now(),'SMS Negocios')`,
+      ["01900000-0000-7000-8000-000000000032",a,ca,installation,"b".repeat(64)]);
+   expect((await client.query("SELECT count(*)::integer AS n FROM payments.merchant_payment_notification_inbox")).rows[0].n).toBe(1);
+   await client.query("COMMIT");
+   await client.query("BEGIN");
+   await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[b,cb]);
+   expect((await client.query("SELECT count(*)::integer AS n FROM payments.merchant_payment_notification_inbox")).rows[0].n).toBe(0);
+   await client.query("COMMIT");
+   await client.query("BEGIN");
+   await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[a,ca]);
+   await client.query(`UPDATE payments.merchant_notification_bridge_consents
+      SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND company_id=$2 AND installation_id=$3`,
+      [a,ca,installation]);
+   await client.query("COMMIT");
+   await client.query("BEGIN");
+   await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[a,ca]);
+   await expect(client.query(`INSERT INTO payments.merchant_payment_notification_inbox
+      (id,tenant_id,company_id,source_installation_id,message_sha256,
+       observed_at,received_at,sender_label)
+      VALUES($1,$2,$3,$4,$5,now(),now(),'SMS Negocios')`,
+      ["01900000-0000-7000-8000-000000000033",a,ca,installation,"c".repeat(64)])).rejects.toThrow();
+   await client.query("ROLLBACK");
+  }finally{await client.query("RESET ROLE").catch(()=>undefined);client.release();}
+ });
+
 });
