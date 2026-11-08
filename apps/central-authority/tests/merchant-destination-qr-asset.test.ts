@@ -38,7 +38,7 @@ describe("QR-001 official PNG ingress",()=>{
  it("rejects untrusted metadata, trailing bytes and corrupt CRC",()=>{
   expect(()=>validateOfficialQrPng(png(2,2,true))).toThrow("INVALID_OFFICIAL_QR_PNG");
   expect(()=>validateOfficialQrPng(Buffer.concat([png(),Buffer.from("extra")]))).toThrow();
-  const tampered=Buffer.from(png());tampered[30]^=1;
+  const tampered=Buffer.from(png());tampered[30]=(tampered[30] ?? 0) ^ 1;
   expect(()=>validateOfficialQrPng(tampered)).toThrow();
  });
  it("rejects oversized dimensions and decompression beyond declared dimensions",()=>{
