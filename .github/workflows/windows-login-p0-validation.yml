@@ -238,3 +238,44 @@ jobs:
         run: pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-handoff.test.ts -t "real Windows receiver:" --no-file-parallelism
       - name: Explicit independent-host certification boundary
         run: echo 'REAL_HOSTED_WINDOWS_DPAPI_ONLY_NOT_ORIGINAL_SCM_SERVICE_OR_CENTRAL_DEVICE'
+
+  commercial-certification-evidence:
+    name: Aggregate isolated P0 evidence (not commercial certification)
+    runs-on: ubuntu-latest
+    needs:
+      - login-p0
+      - commercial-binding-contracts
+      - device-business-contracts
+      - native-pkce-postgres
+      - hosted-native-dpapi-receiver
+    if: ${{ always() }}
+    permissions:
+      contents: read
+    steps:
+      - name: Fail closed if any isolated gate is missing or failed
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          names = (
+              'login-p0',
+              'commercial-binding-contracts',
+              'device-business-contracts',
+              'native-pkce-postgres',
+              'hosted-native-dpapi-receiver',
+          )
+          outcomes = json.loads(os.environ['NEEDS_JSON'])
+          observed = {key: outcomes.get(key, {}).get('result', 'missing') for key in names}
+          print('P0_ISOLATED_GATE_RESULTS=' + json.dumps(observed, sort_keys=True))
+          if any(value != 'success' for value in observed.values()):
+              print('P0_ISOLATED_CONTRACTS=FAIL')
+              sys.exit(1)
+          print('P0_ISOLATED_CONTRACTS=PASS')
+          print('G1_NATIVE_WINDOWS_HOSTED=SEPARATE_WORKFLOW')
+          print('G2_REAL_BUSINESS_SESSION=NOT_TESTED')
+          print('CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED')
+          print('HUMAN_MFA_LOGIN=NOT_TESTED')
+          print('COMMERCIAL_LOGIN_CERTIFIED=NO')
+          PY
