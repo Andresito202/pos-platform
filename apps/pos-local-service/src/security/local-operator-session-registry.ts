@@ -26,6 +26,8 @@ export class LocalOperatorSessionRegistry {
   private readonly sessions = new Map<string, ActiveOperator>();
   private readonly validForMs = 8 * 60 * 60 * 1000;
   private readonly pending = new Set<string>();
+  private readonly epochs = new Map<string, number>();
+  private nextEpoch = 0;
 
   constructor(
     private readonly gate: Pick<LocalOperatorPasswordGate, "authenticate">,
@@ -38,13 +40,14 @@ export class LocalOperatorSessionRegistry {
     password: string,
   ): Promise<LocalOperatorLoginResult> {
     if (!connectionId || this.pending.has(connectionId)) return { status: "DENIED" };
-    this.cancelled.delete(connectionId);
+    const epoch = ++this.nextEpoch;
+    this.epochs.set(connectionId, epoch);
     this.pending.add(connectionId);
     // Never preserve a previous user if a reauthentication fails.
     this.sessions.delete(connectionId);
     try {
       const result = await this.gate.authenticate(username, password);
-      if (this.cancelled.has(connectionId)) return { status: "DENIED" };
+      if (this.epochs.get(connectionId) !== epoch) return { status: "DENIED" };
       if (result.status !== "AUTHENTICATED") return { status: result.status };
       const expiresAtMs = this.now() + this.validForMs;
       const active: ActiveOperator = {
@@ -61,8 +64,10 @@ export class LocalOperatorSessionRegistry {
         expiresAt: new Date(expiresAtMs).toISOString(),
       };
     } finally {
-      this.pending.delete(connectionId);
-      this.cancelled.delete(connectionId);
+      if (this.epochs.get(connectionId) === epoch) {
+        this.pending.delete(connectionId);
+        this.epochs.delete(connectionId);
+      }
     }
   }
 
@@ -86,10 +91,9 @@ export class LocalOperatorSessionRegistry {
     // Revocation must not race an async scrypt in login(). A release during
     // pending login cancels its post-verification commit as well.
     this.sessions.delete(connectionId);
-    if (this.pending.has(connectionId)) this.cancelled.add(connectionId);
+    this.epochs.delete(connectionId);
+    this.pending.delete(connectionId);
   }
-
-  private readonly cancelled = new Set<string>();
 
   release(connectionId: string): void {
     this.logout(connectionId);
@@ -97,6 +101,7 @@ export class LocalOperatorSessionRegistry {
 
   clear(): void {
     this.sessions.clear();
-    for (const pending of this.pending) this.cancelled.add(pending);
+    this.pending.clear();
+    this.epochs.clear();
   }
 }
