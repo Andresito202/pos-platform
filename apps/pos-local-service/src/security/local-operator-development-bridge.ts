@@ -1,17 +1,19 @@
+import { createHash, randomUUID } from "node:crypto";
 import { CanonicalPermission, type AuthorizationSnapshotClaims } from "@pos-platform/contracts";
 import type { LocalOperator } from "./local-operator-password.js";
-import type { BoundSessionIdentity } from "../session/session-binding-registry.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { ServiceConfig } from "../config.js";
 
-const ROLE_USER_IDS: Record<LocalOperator["role"], string> = {
-  CAJERO: "00000000-0000-4000-8000-000000000001",
-  SUPERVISOR: "00000000-0000-4000-8000-000000000002",
-  ADMINISTRADOR: "00000000-0000-4000-8000-000000000003",
-  SUPERADMINISTRADOR: "00000000-0000-4000-8000-000000000004",
-};
-
-const CAJERO_PERMISSIONS: readonly string[] = [
+/**
+ * EXPLICITLY LOCAL authority. This is NOT an SSA, SAS, signature, enrollment,
+ * commercial permission grant, or replacement for Central.
+ *
+ * Only the Local Service creates this projection after password verification
+ * and associates it with a server-assigned connection ID. The existing
+ * use-case RBAC engine consumes its grants; the renderer cannot assert them.
+ * Nothing from this projection is persisted as a SignedAuthorizationSnapshot.
+ */
+const CASHIER = [
   CanonicalPermission.CASH_SHIFT_OPEN,
   CanonicalPermission.CASH_SHIFT_CLOSE,
   CanonicalPermission.SALES_SALE_CREATE,
@@ -21,12 +23,10 @@ const CAJERO_PERMISSIONS: readonly string[] = [
   CanonicalPermission.PAYMENTS_TRANSFER_REPORT,
   CanonicalPermission.CATALOG_PRODUCT_READ,
   CanonicalPermission.CUSTOMERS_CUSTOMER_READ,
-  CanonicalPermission.HARDWARE_READ,
-  CanonicalPermission.HARDWARE_PRINT,
-];
+] as const;
 
-const SUPERVISOR_PERMISSIONS: readonly string[] = [
-  ...CAJERO_PERMISSIONS,
+const SUPERVISOR = [
+  ...CASHIER,
   CanonicalPermission.INVENTORY_STOCK_READ,
   CanonicalPermission.INVENTORY_STOCK_RECEIVE,
   CanonicalPermission.INVENTORY_STOCK_ADJUST,
@@ -34,64 +34,71 @@ const SUPERVISOR_PERMISSIONS: readonly string[] = [
   CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER,
   CanonicalPermission.PAYMENTS_PAYMENT_CANCEL,
   CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM,
-  CanonicalPermission.HARDWARE_DRAWER_OPEN,
-];
+] as const;
 
-const ADMIN_PERMISSIONS: readonly string[] = [
-  ...SUPERVISOR_PERMISSIONS,
-  CanonicalPermission.FISCAL_DOCUMENT_ISSUE,
+const ADMINISTRATOR = [
+  ...SUPERVISOR,
   CanonicalPermission.AUDIT_EVENT_READ,
-  CanonicalPermission.HARDWARE_CONFIGURE,
-  CanonicalPermission.LICENSE_PLAN_MANAGE,
-];
+] as const;
 
-const ROLE_PERMISSIONS: Record<LocalOperator["role"], readonly string[]> = {
-  CAJERO: CAJERO_PERMISSIONS,
-  SUPERVISOR: SUPERVISOR_PERMISSIONS,
-  ADMINISTRADOR: ADMIN_PERMISSIONS,
-  SUPERADMINISTRADOR: ADMIN_PERMISSIONS,
-};
+// No local permission to provision commercial BUSINESS licences, issue fiscal
+// documents against FACTUS, or control hardware without physical certification.
+export const LOCAL_OPERATOR_PERMISSIONS: Readonly<Record<LocalOperator["role"], readonly string[]>> = Object.freeze({
+  CAJERO: CASHIER,
+  SUPERVISOR,
+  ADMINISTRADOR: ADMINISTRATOR,
+  SUPERADMINISTRADOR: [CanonicalPermission.AUDIT_EVENT_READ],
+});
 
-export function developmentIdentityFor(operator: LocalOperator, expiresAt: string): BoundSessionIdentity {
-  return {
-    userId: ROLE_USER_IDS[operator.role],
-    ssaSessionId: `dev-local-${operator.username}`,
-    tenantMembershipId: "dev-local-membership",
-    offlineValidUntil: expiresAt,
-  };
+function stableUserId(installationId: string, username: LocalOperator["username"]): string {
+  const hash = createHash("sha256").update(`camacho-local-operator-v1:${installationId}:${username}`).digest();
+  const bytes = Buffer.from(hash.subarray(0, 16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 }
 
-export function developmentSnapshotFor(
-  operator: LocalOperator,
+export type LocalAuthorizedSession = {
+  readonly username: LocalOperator["username"];
+  readonly role: LocalOperator["role"];
+  readonly sessionId: string;
+  readonly expiresAt: string;
+};
+
+/**
+ * This is a use-case RBAC projection, NOT a cryptographically signed
+ * authorization artifact. signature is deliberately empty and may NEVER be
+ * written to the signed-snapshot store or used in commercial native login.
+ */
+export function localOperatorAuthorization(
+  session: LocalAuthorizedSession,
   config: Pick<ServiceConfig, "tenant_id" | "company_id" | "branch_id" | "installation_id" | "device_id">,
-  now: Date = new Date(),
-): StoredAuthorizationSnapshot {
-  const issued = now.toISOString();
-  const expires = new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString();
-  const permissions = ROLE_PERMISSIONS[operator.role].map((code) => ({ code, status: "ACTIVE" as const }));
+  at: Date = new Date(),
+): { readonly userId: string; readonly snapshot: StoredAuthorizationSnapshot } {
+  if (at.getTime() >= Date.parse(session.expiresAt)) throw Error("LOCAL_OPERATOR_SESSION_EXPIRED");
+  const userId = stableUserId(config.installation_id, session.username);
+  const issuedAt = new Date(at.getTime() - 1000).toISOString();
+  const codes = [...new Set(LOCAL_OPERATOR_PERMISSIONS[session.role])];
   const claims: AuthorizationSnapshotClaims = {
-    snapshot_id: "00000000-0000-4000-8000-00000000dev1",
-    user_id: ROLE_USER_IDS[operator.role],
+    snapshot_id: randomUUID(),
+    user_id: userId,
     installation_id: config.installation_id,
     device_id: config.device_id,
     sequence: 1,
-    issued_at: issued,
-    expires_at: expires,
+    issued_at: issuedAt,
+    expires_at: session.expiresAt,
+    key_id: "LOCAL_DEVELOPMENT_INTERNAL",
     assignments: [{
       tenant_id: config.tenant_id,
       company_id: config.company_id,
       branch_id: config.branch_id,
       status: "ACTIVE",
-      valid_from: issued,
-      valid_until: null,
       role_status: "ACTIVE",
-      permissions,
+      valid_from: issuedAt,
+      valid_until: session.expiresAt,
+      permissions: codes.map(code => ({code, status:"ACTIVE" as const})),
     }],
-    key_id: "DEV-LOCAL-OPERATOR",
   };
-  return { claims, signature: "DEV-LOCAL-OPERATOR-NO-SIGNATURE", activatedAt: issued };
-}
-
-export function isDevelopmentLocalUser(userId: string): boolean {
-  return Object.values(ROLE_USER_IDS).includes(userId);
+  return { userId, snapshot: { claims, signature: "", activatedAt: issuedAt } };
 }
