@@ -211,6 +211,13 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
       ["01900000-0000-7000-8000-000000000033",a,ca,installation,"c".repeat(64)])).rejects.toThrow();
    await client.query("ROLLBACK");
   }finally{await client.query("RESET ROLE").catch(()=>undefined);client.release();}
+  // A full-schema-owner read must see existing evidence despite FORCE RLS.
+  // Otherwise the DOWN guard could destroy an invisible merchant's records.
+  await pool.query("SET ROLE pos_schema_owner");
+  try{
+   await expect(pool.query(await readArtifact("postgres/025_merchant_payment_notifications.down.sql")))
+     .rejects.toThrow("QR-002 cannot downgrade");
+  }finally{await pool.query("RESET ROLE");}
  });
 
 });
