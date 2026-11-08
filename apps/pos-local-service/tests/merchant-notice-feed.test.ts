@@ -48,6 +48,27 @@ describe("QR-002 near-live company feed on Windows",()=>{
    expect(sync.snapshot().outcome).toBe("UNAVAILABLE");
   }finally{await sync.stop();}
  });
+ it("accepts an exact numeric Content-Length and rejects a nonnumeric one",async()=>{
+  const run=async(contentLength:string)=>{
+   const errors:string[]=[];
+   globalThis.fetch=vi.fn(async()=>{
+    const res=response({notices:[item]});
+    res.headers.set("content-length",contentLength);
+    return res;
+   }) as typeof fetch;
+   const feed=new MerchantNoticeFeedSyncComponent("https://central.example.test",device,x=>errors.push(x));
+   await feed.start();
+   try{
+    await vi.waitFor(()=>expect(feed.snapshot().outcome==="AVAILABLE"||errors.length>0).toBe(true),{timeout:1500});
+    return {outcome:feed.snapshot().outcome,errors};
+   }finally{await feed.stop();}
+  };
+  const length=new TextEncoder().encode(JSON.stringify({notices:[item]})).byteLength;
+  expect((await run(String(length))).outcome).toBe("AVAILABLE");
+  const invalid=await run("12invalid");
+  expect(invalid.outcome).toBe("UNAVAILABLE");
+  expect(invalid.errors).toContain("QR002_FEED_TOO_LARGE");
+ });
  it("rejects insecure Central URL",()=>{
   expect(()=>new MerchantNoticeFeedSyncComponent("http://central.example.test",device,()=>{}))
     .toThrow("QR002_HTTPS_ORIGIN_REJECTED");
