@@ -1,9 +1,8 @@
-import {createPublicKey} from "node:crypto";
+import {randomUUID} from "node:crypto";
 import type {KeyObject} from "node:crypto";
 import type {RuntimeComponent} from "../lifecycle.js";
 import type {DeviceCredentialProvider} from "../sync/device-credential.js";
 import type {LocalDatabaseComponent} from "../local-database-component.js";
-import type {MerchantDestinationExpectedScope} from "../security/merchant-destination-snapshot-verifier.js";
 import {MerchantDestinationSnapshotVerifier,MERCHANT_DESTINATION_KEY_PURPOSE} from "../security/merchant-destination-snapshot-verifier.js";
 import {MerchantDestinationActivationService} from "./merchant-destination-activation.js";
 import {SqliteMerchantDestinationProjectionStore} from "./sqlite-merchant-destination-projection-store.js";
@@ -25,7 +24,7 @@ export class MerchantDestinationHttpsTransport {
  }
  async request(action:Action,body:Readonly<Record<string,unknown>>,signal:AbortSignal):Promise<unknown>{
    if(!["snapshot","floor","ack"].includes(action))throw Error("QR001_INVALID_OPERATION");
-   const path=prefix+action,raw=JSON.stringify(body),requestId=crypto.randomUUID(),correlationId=crypto.randomUUID();
+   const path=prefix+action,raw=JSON.stringify(body),requestId=randomUUID(),correlationId=crypto.randomUUID();
    if(Buffer.byteLength(raw)>1024)throw Error("QR001_REQUEST_TOO_LARGE");
    const authorization=await this.signer.authorization({method:"POST",path,requestId,correlationId,body:raw});
    const response=await fetch(new URL(path,this.origin),{
