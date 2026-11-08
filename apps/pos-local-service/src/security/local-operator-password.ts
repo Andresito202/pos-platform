@@ -1,8 +1,6 @@
 import { scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { lstat, readFile } from "node:fs/promises";
-import { promisify } from "node:util";
 
-const scrypt = promisify(scryptCallback);
 const roles = {
   "admin.local": "ADMINISTRADOR",
   "supervisor.local": "SUPERVISOR",
@@ -87,7 +85,12 @@ export async function verifyLocalOperatorPassword(
   const entry = accounts.find((a) => a.username === username);
   if (!entry) throw Error("LOCAL_OPERATOR_STORE_INVALID");
 
-  const computed = (await scrypt(password, Buffer.from(entry.salt, "hex"), 64, params)) as Buffer;
+  const computed = await new Promise<Buffer>((resolve, reject) => {
+    scryptCallback(password, Buffer.from(entry.salt, "hex"), 64, params, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(derivedKey);
+    });
+  });
   const correct = timingSafeEqual(computed, Buffer.from(entry.hash, "hex"));
   computed.fill(0);
   return correct ? Object.freeze({ username, role: roles[username] }) : null;
