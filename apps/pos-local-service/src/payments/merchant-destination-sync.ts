@@ -1,4 +1,3 @@
-import {randomUUID} from "node:crypto";
 import {uuidV7} from "@pos-platform/contracts";
 import type {KeyObject} from "node:crypto";
 import type {RuntimeComponent} from "../lifecycle.js";
@@ -25,7 +24,7 @@ export class MerchantDestinationHttpsTransport {
  }
  async request(action:Action,body:Readonly<Record<string,unknown>>,signal:AbortSignal):Promise<unknown>{
    if(!["snapshot","floor","ack"].includes(action))throw Error("QR001_INVALID_OPERATION");
-   const path=prefix+action,raw=JSON.stringify(body),requestId=randomUUID(),correlationId=crypto.randomUUID();
+   const path=prefix+action,raw=JSON.stringify(body),requestId=uuidV7(),correlationId=uuidV7();
    if(Buffer.byteLength(raw)>1024)throw Error("QR001_REQUEST_TOO_LARGE");
    const authorization=await this.signer.authorization({method:"POST",path,requestId,correlationId,body:raw});
    const response=await fetch(new URL(path,this.origin),{
@@ -37,7 +36,9 @@ export class MerchantDestinationHttpsTransport {
      response.headers.get("cache-control")!=="no-store"||response.headers.has("content-encoding")||
      response.headers.has("location"))throw Error("QR001_CENTRAL_RESPONSE_REJECTED");
    const declared=response.headers.get("content-length");
-   const limit=action==="snapshot"?1_600_000:1024;
+   // Three distinct official QR methods, each capped at 1 MiB PNG. Base64
+   // expands every image to ~1.4 MiB before JSON fields/signature.
+   const limit=action==="snapshot"?4_400_000:1024;
    if(declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>limit))throw Error("QR001_RESPONSE_TOO_LARGE");
    if(!response.body)throw Error("QR001_EMPTY_RESPONSE");
    const reader=response.body.getReader(),chunks:Buffer[]=[];let total=0;
