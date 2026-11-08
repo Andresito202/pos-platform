@@ -59,5 +59,12 @@ export function revokeDestination(record: MerchantDestinationRevision,access: Me
 export function readCashierDestination(record: MerchantDestinationRevision, access: MerchantDestinationAccess): CashierDestination|null {
   const current=checked(record);
   if(current.tenant_id!==access.tenantId || current.company_id!==access.companyId || current.status!=="PUBLISHED") return null;
-  return CashierDestinationSchema.parse(current);
+  return CashierDestinationSchema.parse({
+    kind: current.kind,
+    label: current.label,
+    destination_reference: current.destination_reference,
+    qr_asset_id: current.qr_asset_id,
+    qr_sha256: current.qr_sha256,
+    version: current.version,
+  });
 }
