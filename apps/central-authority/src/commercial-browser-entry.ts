@@ -174,6 +174,18 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
       ?"Consulta de avisos: se requiere conciliación bancaria independiente."
       :"No hay avisos registrados para esta empresa.";
   }
+  // Near-live polling only while this authorized BUSINESS session and
+  // screen remain active; no push promise, no use of a banking webhook.
+  let noticeRefreshBusy=false;
+  const noticeRefreshTimer=setInterval(()=>{
+    if(noticeRefreshBusy||noticePanel.hidden||!csrf||
+       !config.merchantNoticeReadEnabled||document.hidden)return;
+    noticeRefreshBusy=true;
+    void reloadNotices().catch(()=>{
+      noticeState.textContent="No se pudieron actualizar los avisos; verifica la conexión.";
+    }).finally(()=>{noticeRefreshBusy=false;});
+  },5000);
+  window.addEventListener("pagehide",()=>clearInterval(noticeRefreshTimer),{once:true});
   document.getElementById("qr002-refresh").addEventListener("click",()=>{
     void reloadNotices().catch(()=>{
       noticeList.replaceChildren();
