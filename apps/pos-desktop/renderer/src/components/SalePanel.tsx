@@ -8,7 +8,6 @@ const paymentButtons = [
   { id: "cash", label: "Efectivo", icon: new URL("../assets/payment-icons/banknote.svg", import.meta.url).href },
   { id: "transfer", label: "Transferencia / Nequi / Daviplata / QR manual", icon: new URL("../assets/payment-icons/landmark.svg", import.meta.url).href },
   { id: "card", label: "Tarjeta", icon: new URL("../assets/payment-icons/credit-card.svg", import.meta.url).href },
-  { id: "qr", label: "QR integrado", icon: new URL("../assets/payment-icons/qr-code.svg", import.meta.url).href },
   { id: "credit", label: "Fiado / crédito", icon: new URL("../assets/payment-icons/notebook-pen.svg", import.meta.url).href },
 ] as const;
 
@@ -245,7 +244,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                 ))}
               </div>
 
-              <MerchantPaymentMethods enabled={permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ)} amount={paymentAmount||sale.sale.payableAmount}/>
+              <MerchantPaymentMethods enabled={permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ)} amount={paymentAmount || sale.sale.payableAmount}/>
 
               {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER) && <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
                 <div><span>Efectivo recibido</span><strong data-testid="tendered-display">{tendered || "0"}</strong></div>
