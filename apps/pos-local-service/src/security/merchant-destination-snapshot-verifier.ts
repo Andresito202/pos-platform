@@ -86,7 +86,7 @@ export class MerchantDestinationSnapshotVerifier {
     if(snapshot.tenant_id!==scope.tenantId || snapshot.company_id!==scope.companyId)return failure("WRONG_SCOPE");
     for(const destination of snapshot.destinations??(snapshot.destination?[snapshot.destination]:[])){
       const encoded=destination.qr_png_base64;
-      if(destination.kind==="NEQUI_BUSINESS_QR" && encoded!==undefined){
+      if((destination.kind==="NEQUI_BUSINESS_QR"||destination.kind==="BREB_KEY") && encoded!==undefined){
         const png=Buffer.from(encoded,"base64");
         const pngMagic=Buffer.from([137,80,78,71,13,10,26,10]);
         if(png.length>1_048_576||png.length<57||!png.subarray(0,8).equals(pngMagic)||
@@ -94,7 +94,7 @@ export class MerchantDestinationSnapshotVerifier {
            createHash("sha256").update(png).digest("hex")!==destination.qr_sha256)
           return failure("INVALID_SCHEMA");
       }
-      if(destination.kind!=="NEQUI_BUSINESS_QR" && encoded!==undefined)
+      if(destination.kind==="NEQUI_NUMBER" && encoded!==undefined)
         return failure("INVALID_SCHEMA");
     }
     if(Date.parse(snapshot.issued_at)>date.getTime())return failure("NOT_YET_VALID");
