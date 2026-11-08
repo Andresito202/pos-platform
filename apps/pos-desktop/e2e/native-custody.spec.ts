@@ -13,7 +13,7 @@ test("Electron OS custody encrypts restores and destroys a test credential witho
   const application=await _electron.launch({args:[resolve("e2e/native-custody-entry.mjs")],executablePath,env});
   try{
     await expect.poll(()=>application.evaluate(()=>
-      (globalThis as unknown as {nativeCustodyResult?:unknown}).nativeCustodyResult),{timeout:15_000}).toEqual({platform:process.platform,restored:true,cleared:true});
+      (globalThis as unknown as {nativeCustodyResult?:unknown}).nativeCustodyResult),{timeout:15_000}).toEqual({platform:process.platform,restored:true,cleared:true,phase:"COMPLETE"});
   }finally{
     await application.close();
     if(dirname(resolve(directory))!==resolve(tmpdir())||!basename(directory).startsWith("camacho-electron-custody-"))throw Error("CUSTODY_CLEANUP_PATH_REJECTED");
