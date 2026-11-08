@@ -19,6 +19,7 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:payment.cancel",
   "pos:payment.get",
   "pos:payment.destination.get",
+  "pos:payment.notice.get",
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
