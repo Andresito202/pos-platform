@@ -69,8 +69,13 @@ export class MerchantDestinationSnapshotVerifier {
     if(!key) return failure("UNKNOWN_KEY");
     if(key.purpose!==MERCHANT_DESTINATION_KEY_PURPOSE) return failure("WRONG_KEY_PURPOSE");
     if(key.status==="REVOKED") return failure("REVOKED_KEY");
-    if((key.validFrom!==undefined && date.getTime()<Date.parse(key.validFrom)) ||
-       (key.validUntil!=null && date.getTime()>Date.parse(key.validUntil))) return failure("KEY_OUTSIDE_LIFECYCLE");
+    const from=key.validFrom===undefined?null:Date.parse(key.validFrom);
+    const until=key.validUntil==null?null:Date.parse(key.validUntil);
+    // A corrupted key lifecycle is not an unrestricted permission.
+    if ((from!==null && !Number.isFinite(from)) || (until!==null && !Number.isFinite(until)) ||
+        (from!==null && until!==null && until<from) ||
+        (from!==null && date.getTime()<from) ||
+        (until!==null && date.getTime()>until)) return failure("KEY_OUTSIDE_LIFECYCLE");
     let valid=false;
     try {
       valid=verify(null,unsignedMerchantDestinationBytes(claims),key.key,Buffer.from(parsed.data.signature,"base64url"));
