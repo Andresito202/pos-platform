@@ -56,6 +56,31 @@ export class PostgresMerchantDestinationAcknowledgements{
    return safeSequence(r.rows[0]?.sequence);
   });
  }
+ /**
+  * Small, authenticated status response for a registered terminal.
+  * Both fields use the same REPEATABLE READ snapshot. The current sequence
+  * changes on publish/revoke AND on each signed snapshot issuance, allowing
+  * a register to reuse an unexpired, already-ACKed company configuration.
+  */
+ async statusForPreauthorizedInstallation(scope:VerifiedMerchantInstallation):Promise<{
+   readonly floor:number|null;readonly current_sequence:number|null;
+ }> {
+   return this.withInstallation(scope,true,async c=>{
+     const r=await c.query(`SELECT
+       (SELECT sequence::text FROM payments.merchant_destination_acknowledgements
+        WHERE tenant_id=$1 AND company_id=$2 AND installation_id=$3) AS floor,
+       (SELECT sequence::text FROM payments.merchant_destination_sequences
+        WHERE tenant_id=$1 AND company_id=$2) AS current_sequence`,
+       [scope.tenantId,scope.companyId,scope.installationId]);
+     if(r.rowCount!==1)throw Error("QR001_SEQUENCE_STATUS_UNAVAILABLE");
+     const row=r.rows[0];
+     if(!row)throw Error("QR001_SEQUENCE_STATUS_UNAVAILABLE");
+     return {
+       floor:row.floor===null?null:safeSequence(row.floor),
+       current_sequence:row.current_sequence===null?null:safeSequence(row.current_sequence),
+     };
+   });
+ }
  async acknowledgePreauthorizedInstallation(scope:VerifiedMerchantInstallation,sequence:number):Promise<number>{
   const desired=safeSequence(sequence);
   return this.withInstallation(scope,false,async c=>{
