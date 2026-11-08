@@ -185,25 +185,32 @@ export async function prepareCommercialHttpHandler(input:{
         const merchantDeviceAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(snapshot|floor|ack)$/)?.[1] as
           "snapshot"|"floor"|"ack"|undefined;
         const qr002Ingest=req.url==="/v1/commercial/merchant-notifications/ingest";
+        const qr002Recent=req.url==="/v1/commercial/merchant-notifications/recent";
         const qrAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(list|upload|asset|create|publish|revoke|notices)$/)?.[1] as
           "list"|"upload"|"asset"|"create"|"publish"|"revoke"|"notices"|undefined;
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
-          (!qrAction && !merchantDeviceAction && !qr002Ingest && !/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
+          (!qrAction && !merchantDeviceAction && !qr002Ingest && !qr002Recent && !/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
             !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions",
               ...(native.codec instanceof CommercialBusinessAccessAuthority?["/v1/commercial/refresh","/v1/commercial/revoke"]:[]),
               ...(input.authorizationIssuer?["/v1/business-session/authorization"]:[])].includes(req.url))))throw new Rejection(400);
         const tokenRoute=req.url==="/v1/commercial/token";
-        const nativeRoute=Boolean(qr002Ingest)||Boolean(merchantDeviceAction)||tokenRoute||req.url==="/v1/commercial/refresh"||req.url==="/v1/commercial/revoke"||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
+        const nativeRoute=Boolean(qr002Ingest)||Boolean(qr002Recent)||Boolean(merchantDeviceAction)||tokenRoute||req.url==="/v1/commercial/refresh"||req.url==="/v1/commercial/revoke"||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
         if(nativeRoute){
           // Native back-channel: browser origins and ambient cookies are forbidden.
           if(req.headers.origin||req.headers.cookie||req.headers["sec-fetch-site"])throw new Rejection(403);
         }else if(req.headers.origin!==input.origin||req.headers["sec-fetch-site"]!=="same-origin")throw new Rejection(403);
-        const {object:o,raw}=await body(req,qr002Ingest?2048:qrAction==="upload"?Math.max(policy.maximumBodyBytes,1_420_000):policy.maximumBodyBytes);
+        const {object:o,raw}=await body(req,(qr002Ingest||qr002Recent)?2048:qrAction==="upload"?Math.max(policy.maximumBodyBytes,1_420_000):policy.maximumBodyBytes);
         const proof=()=>{
           if(!text(req.headers.authorization,8192)||!uuid(req.headers["x-request-id"])||!UuidV7Schema.safeParse(req.headers["x-correlation-id"]).success)throw new Rejection(400);
           const correlationId=req.headers["x-correlation-id"] as string;
           return {authorization:req.headers.authorization,requestId:req.headers["x-request-id"],correlationId,body:raw};
         };
+        if(qr002Recent){
+          if(!input.merchantNotificationIngest)throw new Rejection(404);
+          const result=await input.merchantNotificationIngest.recent(proof());
+          if(result===null)throw new Rejection(401);
+          send(res,200,result);return;
+        }
         if(qr002Ingest){
           if(!input.merchantNotificationIngest)throw new Rejection(404);
           let outcome:Awaited<ReturnType<MerchantNotificationIngestRoutes["handle"]>>;
