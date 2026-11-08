@@ -149,3 +149,51 @@ jobs:
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/business-login-coordinator.test.ts tests/central-session-assertion-issuer.test.ts tests/native-authorization-code-exchange.test.ts --no-file-parallelism
       - name: Do not claim device provisioned
         run: echo 'MOCKED_CONTRACTS_ONLY_NO_HUMAN_BUSINESS_LOGIN'
+
+  native-pkce-postgres:
+    name: Native PKCE single-use physical PostgreSQL (isolated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: pos_target_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:55433:5432
+        options: >-
+          --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,size=256m
+          --health-cmd "pg_isready -U postgres -d pos_target_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      POSTGRES_TEST_URL: postgresql://postgres@127.0.0.1:55433/pos_target_test
+    steps:
+      - name: Checkout reviewed SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify isolated fixture only
+        run: |
+          node -e "const u=new URL(process.env.POSTGRES_TEST_URL); if(u.hostname!=='127.0.0.1'||u.port!=='55433'||u.pathname!=='/pos_target_test')process.exit(2)"
+      - name: Run real PostgreSQL callback and PKCE one-use/concurrency tests
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/native-authorization-full-composition-physical.test.ts --no-file-parallelism
+      - name: Certification boundary
+        run: echo 'EPHEMERAL_POSTGRES_FIXTURE_NO_SCM_OR_REAL_BUSINESS_IDENTITY'
