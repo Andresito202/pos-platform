@@ -87,3 +87,20 @@ El inspector de servicio permanece fail-closed; no se ha eliminado `SCM_COMMERCI
 **NO está acreditado:** la cuenta virtual SCM de la VM original, sus claves DPAPI y DeviceIdentity UUIDv7 existentes, el handshake comercial real SERVICE↔DESKTOP con esa identidad, inscripción DEV-003 en Central autorizada, retiro del gate SCM, ni un recorrido BUSINESS humano hasta Caja, refresh, logout y revocación.
 
 **Alternativa para una futura certificación de artefacto sin PC:** aprovisionar automáticamente un laboratorio nuevo y desechable en Windows Server 2022 con wrapper WinSW aprobado, dos identidades OS reales, claves nuevas, Central aislada y pruebas E2E. Eso certificaría una instalación nueva, **no** la provisión privada preexistente del equipo. La implementación E2E del laboratorio nuevo sigue pendiente. Mantener el PR Draft y `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` activo.
+
+## 8. CI real de servicio SCM virtual y addon Windows — sin PC
+
+**Addon nativo:** [GitHub Actions #42459742604](https://github.com/Andresito202/pos-platform/actions/runs/42459742604), commit `0a9ddd4fbca7676b9e06e7edfdd4029e91fa0761`, **SUCCESS**. Compiló `camacho_windows_pipe.node` Windows x64 y superó carga y rechazo de suplantación de cuenta SCM en los procesos Node y Electron. No abrió una conexión comercial SERVICE↔DESKTOP.
+
+**Servicio real separado:** [GitHub Actions #42460107925](https://github.com/Andresito202/pos-platform/actions/runs/42460107925), commit `8b07579819be0c6ad28446cf69ca19c88f90d7b9`, **SUCCESS** sobre Windows Server 2022, con recibos:
+- `SCM_VIRTUAL_ACCOUNT_REAL=PASS`
+- `SCM_SERVICE_SESSION_0=PASS`
+- `SCM_SERVICE_DPAPI_CURRENTUSER=PASS`
+- `DESKTOP_DPAPI_CROSS_IDENTITY_DENIED=PASS`
+- `COMMERCIAL_SCM_ELECTRON_HANDSHAKE=NOT_TESTED`
+
+El servicio **es un probe separado compilado en la VM de Actions**, no el ejecutable comercial Camacho ni WinSW. Se instala de forma desechable y se solicita su eliminación al terminar. La prueba nunca usa claves, usuarios o archivos de la VM del propietario.
+
+**Certificación parcial acreditada:** capacidad de hospedar cuenta de servicio virtual real, control de sesión 0, custodia DPAPI y separación criptográfica de identidades; compilación nativa Windows con smoketests Node/Electron.
+
+**Pendientes para certificar una instalación comercial sin PC:** (1) probar canal nativo `WindowsScmChannelTransport` ↔ `connectWindowsScmClient` en el servicio real, con manifiestos y claves administradas por cada SID; (2) reemplazar el servicio probe por el envoltorio comercial WinSW firmado y verificado; (3) hacer DEV-003 en Central desechable con autenticación BUSINESS y evidencias de posesión; (4) comprobar el gate SCM, la sesión comercial, RBAC, refresh, logout y revoke. No está acreditado E2E ni autorización de producción, y PR #99 debe permanecer Draft hasta cumplirlos.
