@@ -15,7 +15,7 @@ describe("QR-002 migration 025: explicit consent-gated notification evidence",()
   const sql=await readArtifact(POSTGRES_025_DESCRIPTOR.upArtifact);
   expect(sql).toContain("FORCE ROW LEVEL SECURITY");
   expect(sql).toContain("merchant_notice_company_scope");
-  expect(sql).toContain("merchant_notice_guard_owner_read");
+  expect(sql).toContain("merchant_notice_owner_evidence_read");
   expect(sql).toContain("merchant_notice_intake_guard");
   expect(sql).toContain("FOR SHARE OF c,d");
   expect(sql).toContain("merchant_notice_inbox_immutable");
