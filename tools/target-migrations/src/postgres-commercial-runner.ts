@@ -43,8 +43,12 @@ export const POSTGRES_024_DESCRIPTOR=descriptor("024_merchant_payment_destinatio
   ["payments.merchant_qr_assets","payments.merchant_destinations","payments.merchant_destination_events",
    "payments.merchant_destination_outbox","payments.merchant_destination_sequences","payments.merchant_destination_acknowledgements"],"payments");
 export const MERCHANT_DESTINATION_MIGRATIONS=Object.freeze([...LICENSE_CATALOG_MIGRATIONS,POSTGRES_024_DESCRIPTOR]);
-type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG"|"MERCHANT_DESTINATIONS";
+export const POSTGRES_025_DESCRIPTOR=descriptor("025_merchant_payment_notifications",POSTGRES_024_DESCRIPTOR.migrationId,
+ ["payments.merchant_notification_bridge_consents","payments.merchant_payment_notification_inbox"],"payments");
+export const MERCHANT_NOTIFICATION_MIGRATIONS=Object.freeze([...MERCHANT_DESTINATION_MIGRATIONS,POSTGRES_025_DESCRIPTOR]);
+type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG"|"MERCHANT_DESTINATIONS"|"MERCHANT_NOTIFICATIONS";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="MERCHANT_NOTIFICATIONS")return MERCHANT_NOTIFICATION_MIGRATIONS;
   if(target==="MERCHANT_DESTINATIONS")return MERCHANT_DESTINATION_MIGRATIONS;
   if(target==="LICENSE_CATALOG")return LICENSE_CATALOG_MIGRATIONS;
   if(target==="LICENSE_ACTIVATIONS")return LICENSE_ACTIVATION_MIGRATIONS;
@@ -85,6 +89,28 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
         check(!(await c.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,table])).rows[0].allowed,"Factus Pay inbox exposed to tenant runtime");
       check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,"Factus Pay evidence must not be deletable");
     }
+  }
+  if(d===POSTGRES_025_DESCRIPTOR){
+    for(const table of d.ownedTables){
+      for(const role of ["pos_app","pos_worker","pos_reporting"])
+        check(!(await c.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,table])).rows[0].allowed,
+          "Merchant notification inbox exposed to local tenant runtime");
+      check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,
+        "Merchant notice evidence must not be deletable");
+      check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname='merchant_notice_no_truncate' AND tgenabled='O'",[table])).rowCount===1,
+        "Merchant notification truncation guard missing");
+    }
+    const guards=[
+      ["payments.merchant_notification_bridge_consents","merchant_notice_consent_guard"],
+      ["payments.merchant_notification_bridge_consents","merchant_notice_consent_no_delete"],
+      ["payments.merchant_payment_notification_inbox","merchant_notice_intake_guard"],
+      ["payments.merchant_payment_notification_inbox","merchant_notice_inbox_immutable"],
+    ] as const;
+    for(const [table,trigger] of guards)
+      check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname=$2 AND tgenabled='O'",[table,trigger])).rowCount===1,
+        "Merchant notification required trigger missing: "+trigger);
+    check(!(await c.query("SELECT has_table_privilege('pos_platform_app','payments.merchant_payment_notification_inbox','UPDATE') AS allowed")).rows[0].allowed,
+      "Unverified notification evidence must be append-only");
   }
   if(d===POSTGRES_024_DESCRIPTOR){
     for(const table of d.ownedTables){
