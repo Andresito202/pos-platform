@@ -26,7 +26,8 @@ describe("PG17.11 canonical full commercial chain",()=>{
       throw Error("EPHEMERAL_DATABASE_SCOPE_REJECTED");
     const database="camacho_chain_"+randomBytes(6).toString("hex");
     const root=mkdtempSync(join(tmpdir(),"camacho-pg17-chain-"));
-    const commit="20351dd17de12be02b2b3a97ebcb7ace05fd6aa6";
+    const commit=process.env.GITHUB_SHA;
+    if(!commit||!/^[0-9a-f]{40}$/.test(commit))throw Error("EXACT_CI_REPOSITORY_SHA_REQUIRED");
     const admin=new Pool({connectionString:source,max:1});
     let created=false;
     try{
