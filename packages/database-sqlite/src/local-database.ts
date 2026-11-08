@@ -1404,6 +1404,28 @@ CREATE TRIGGER hardware_events_no_delete BEFORE DELETE ON hardware_events BEGIN 
 CREATE INDEX hardware_jobs_pending_idx ON hardware_jobs(tenant_id,branch_id,state,created_at);
 `.trim();
 
+// QR-001: local read projection; Central Payments is the only writer of its
+// published source. Local service only activates a verified snapshot.
+const MIGRATION_019 = `
+CREATE TABLE local_merchant_payment_destination_snapshot (
+ tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+ company_id TEXT NOT NULL CHECK(length(company_id)=36),
+ sequence INTEGER NOT NULL CHECK(sequence>0),
+ issued_at TEXT NOT NULL,
+ expires_at TEXT NOT NULL CHECK(expires_at>issued_at),
+ received_at TEXT NOT NULL,
+ payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+ PRIMARY KEY(tenant_id,company_id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER local_merchant_payment_destination_snapshot_monotonic
+BEFORE UPDATE ON local_merchant_payment_destination_snapshot
+WHEN NEW.sequence<=OLD.sequence OR NEW.tenant_id<>OLD.tenant_id OR NEW.company_id<>OLD.company_id
+BEGIN SELECT RAISE(ABORT,'destination snapshot must advance within its company'); END;
+CREATE TRIGGER local_merchant_payment_destination_snapshot_no_delete
+BEFORE DELETE ON local_merchant_payment_destination_snapshot
+BEGIN SELECT RAISE(ABORT,'destination snapshot cannot be deleted; publish revocation'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1423,6 +1445,7 @@ const MIGRATIONS = [
   { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
   { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
   { version: 18, sql: MIGRATION_018, checksum: createHash("sha256").update(MIGRATION_018).digest("hex") },
+  { version: 19, sql: MIGRATION_019, checksum: createHash("sha256").update(MIGRATION_019).digest("hex") },
 ] as const;
 
 /**
