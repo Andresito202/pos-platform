@@ -62,7 +62,25 @@ try {
     Copy-Item -LiteralPath $addonSource -Destination $addon -ErrorAction Stop
     Copy-Item -LiteralPath $scriptSource -Destination $peerScript -ErrorAction Stop
     $ident=[Security.Principal.WindowsIdentity]::GetCurrent()
-    $logons=@($ident.Groups | ForEach-Object {$_.Value} | Where-Object {$_ -match '^S-1-5-5-[0-9]+-[0-9]+
+    $logons=@($ident.Groups | ForEach-Object {$_.Value} | Where-Object {$_ -match '^S-1-5-5-[0-9]+-[0-9]+$'})
+    Must ($logons.Count -eq 1) 'NATIVE_INTERACTIVE_LOGON_SID_REQUIRED'
+    $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+    Must ($session -gt 0 -and $ident.User.Value -match '^S-1-5-21-') 'NATIVE_DESKTOP_IDENTITY_INVALID'
+    $policyFile=Join-Path $results 'native-policy.json'
+    $policy=@{
+      profile='CAMACHO_EPHEMERAL_NATIVE_PIPE_G1_ONLY'
+      endpoint=('\\.\pipe\camacho-pos-'+[Guid]::NewGuid().ToString()+'-scm')
+      service=$serviceSid
+      recipient=$ident.User.Value
+      logon=$logons[0]
+      session=$session
+      addon=$addon
+      results=$results
+    }|ConvertTo-Json -Compress
+    [IO.File]::WriteAllText($policyFile,$policy,[Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllLines((Join-Path $results 'native-runner.txt'),
+      [string[]]@($node,$peerScript,$policyFile),[Text.UTF8Encoding]::new($false))
+  }
   $arguments=@('create',$serviceName,'binPath=',($exe+' '+$results),'start=','demand','obj=',('NT SERVICE\'+$serviceName),'type=','own')
   & sc.exe @arguments
   Must ($LASTEXITCODE -eq 0) 'SCM_VIRTUAL_ACCOUNT_CREATE_FAILED'
