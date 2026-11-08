@@ -20,6 +20,7 @@ const role=process.env.POS_E2E_ROLE;
 if(!role||!roles.includes(role as typeof roles[number]))throw Error("ROLE_E2E_MUST_SELECT_EXPLICIT_PROFILE");
 test.skip(process.platform!=="win32","Windows role E2E requires real DPAPI/named-pipe backend");
 test("role-scoped menus and server decisions follow signed authorization, not a renderer role switch",async()=>{
+  if(process.env.POS_E2E_INTERACTIVE==="1")test.setTimeout(0);
   const dir=mkdtempSync(join(tmpdir(),"camacho-e2e-role-"));
   const serviceRoot=join(here,"..","..","pos-local-service");
   let service:ChildProcessWithoutNullStreams|undefined;
@@ -97,6 +98,20 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
     if(role==="CAJERO")expect(has("Impresora y cajón")).toBe(false);
     if(role==="ADMINISTRADOR")expect(has("Impresora y cajón")).toBe(true);
     console.log("ROLE_E2E_ISOLATED="+role+":PASS");
+    if(process.env.POS_E2E_INTERACTIVE==="1"){
+      // Interactive UI preview is strictly test-only, without live Central
+      // identity or commercial payments. Visual banner is never shipped.
+      await page.evaluate(profile=>{
+        const banner=document.createElement("div");
+        banner.textContent="LABORATORIO LOCAL · "+profile+" · DATOS TEMPORALES · NO ES LOGIN COMERCIAL";
+        banner.setAttribute("role","status");
+        Object.assign(banner.style,{position:"fixed",left:"0",right:"0",bottom:"0",zIndex:"2147483647",
+          background:"#5b210a",color:"#fff",padding:"9px",fontSize:"13px",fontWeight:"bold",textAlign:"center"});
+        document.body.appendChild(banner);
+      },role);
+      console.log("ROLE_PREVIEW_OPEN="+role+" (close Electron window to remove temporary data)");
+      await new Promise<void>(resolve=>app!.once("close",()=>resolve()));
+    }
   }finally{
     await app?.close().catch(()=>undefined);
     if(service&&service.exitCode===null){
