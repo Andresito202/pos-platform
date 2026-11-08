@@ -77,3 +77,12 @@ Adoptar el contrato en el módulo Payments y en el migrador canónico, habilitar
 2. Exigir piso de secuencia reconocido por Central para evitar rollback a snapshot auténtico antiguo tras restauración de backup. Actualmente solo se compara la cota local.
 3. Materializar persistencia Central y autorización real, distribución autenticada a cuatro instalaciones, selección desde Administración y lectura segura desde Caja; tests CI y físicos.
 4. No afirmar recepción bancaria gratuita en tiempo real ni confirmación automática de fondos por SMS. La validación financiera permanece fuera de QR-001.
+
+## Avance de piso Central contra rollback — 2026-11-07
+
+- `MerchantDestinationActivationService.acceptSigned` es ahora asíncrono y requiere `MerchantDestinationAcknowledgedFloor` autenticado, con vínculo exacto `installationId / tenantId / companyId`.
+- Una caída/denegación de Central produce `CENTRAL_FLOOR_UNAVAILABLE`, sin activar snapshots nuevos. `null` como resultado autorizado solo significa que Central **no tiene acuse previo** para esa instalación/empresa.
+- Una cota central inválida, secuencia obsoleta o igual a la mayor cota local/central se rechaza; la verificación Ed25519 del artefacto continúa siendo obligatoria.
+- Se añadieron pruebas escritas para pérdida de conectividad, cota central antirrestauración, scope de instalación inválido y ciclo de vida corrupto de clave.
+- **Pendiente necesario**: implementar el origen Central de la cota durable y el protocolo de acuse tras activación. Hasta hacerlo no está permitido habilitar esta ruta en el arranque ni en IPC.
+- No se han ejecutado Vitest, TypeScript typecheck, CI del HEAD, ni operaciones físicas. Nivel de evidencia: `IMPLEMENTED` para componentes aislados, no `TESTED` ni `END_TO_END`.
