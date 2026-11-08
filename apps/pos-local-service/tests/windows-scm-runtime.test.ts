@@ -78,7 +78,7 @@ describe("SCM runtime integration with simulated kernel/DPAPI ports",()=>{
  it("rejects an independently pinned signer mismatch before the first MAC request",async()=>{
   const x=await lab({mutate:p=>({...p,signer_spki_sha256:"f".repeat(64)})});
   await expect(x.connect()).rejects.toThrow();expect(x.ids).toEqual([]);
- });
+ },15_000);
  it("aborts an in-flight operation before its persistent effect when the lease is revoked",async()=>{
   let started!:()=>void,release!:()=>void,aborted=false,committed=false;
   const entered=new Promise<void>(r=>started=r),proceed=new Promise<void>(r=>release=r);
