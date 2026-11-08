@@ -12,6 +12,8 @@ on:
       - 'apps/pos-local-service/src/main.ts'
       - 'apps/pos-local-service/src/config.ts'
       - 'apps/pos-local-service/src/channel/local-channel-component.ts'
+      - 'apps/pos-local-service/src/commercial/**'
+      - 'apps/pos-local-service/src/security/local-operator-development-bridge.ts'
       - 'apps/pos-desktop/src/**'
       - 'apps/pos-desktop/renderer/src/**'
       - 'packages/contracts/src/**'
@@ -43,7 +45,7 @@ jobs:
           pnpm --filter @pos-platform/pos-local-service typecheck
           pnpm --filter @pos-platform/pos-desktop typecheck
       - name: Verify password-gate constraints
-        run: pnpm --filter @pos-platform/pos-local-service exec vitest run src/security/local-operator-password.test.ts src/security/local-operator-password-gate.test.ts src/security/local-operator-session-registry.test.ts
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run src/security/local-operator-password.test.ts src/security/local-operator-password-gate.test.ts src/security/local-operator-session-registry.test.ts src/commercial/local-operator-authorization.test.ts
 
   windows-local-service-start:
     runs-on: windows-2022
