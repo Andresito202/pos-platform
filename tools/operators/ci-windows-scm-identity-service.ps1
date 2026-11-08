@@ -62,7 +62,9 @@ try {
     Copy-Item -LiteralPath $addonSource -Destination $addon -ErrorAction Stop
     Copy-Item -LiteralPath $scriptSource -Destination $peerScript -ErrorAction Stop
     $ident=[Security.Principal.WindowsIdentity]::GetCurrent()
-    $logons=@($ident.Groups | ForEach-Object {$_.Value} | Where-Object {$_ -match '^S-1-5-5-[0-9]+-[0-9]+$'})
+    $groupOutput=@(& whoami.exe /groups /fo csv /nh)
+    Must ($LASTEXITCODE -eq 0) 'NATIVE_LOGON_TOKEN_QUERY_FAILED'
+    $logons=@([regex]::Matches(($groupOutput -join [Environment]::NewLine),'S-1-5-5-[0-9]+-[0-9]+') | ForEach-Object {$_.Value} | Select-Object -Unique)
     Must ($logons.Count -eq 1) 'NATIVE_INTERACTIVE_LOGON_SID_REQUIRED'
     $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
     Must ($session -gt 0 -and $ident.User.Value -match '^S-1-5-21-') 'NATIVE_DESKTOP_IDENTITY_INVALID'
