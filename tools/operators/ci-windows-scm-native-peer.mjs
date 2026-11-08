@@ -48,6 +48,13 @@ if (config.profile !== "CAMACHO_EPHEMERAL_NATIVE_PIPE_G1_ONLY" ||
     !config.addon.match(/^[A-Za-z]:\\[^\r\n"]+\.node$/i))
   throw Error("LAB_POLICY_REJECTED");
 
+// Start-Process -Credential creates a new interactive user's environment, not
+// the Actions runner environment. The native addon only exposes a fixed failure
+// stage with both opt-in variables; no authentication decision uses these flags.
+if (mode === "desktop") {
+  process.env.GITHUB_ACTIONS = "true";
+  process.env.CAMACHO_NATIVE_G1_DIAGNOSTICS = "1";
+}
 const native = createRequire(import.meta.url)(resolve(config.addon));
 const args = [config.endpoint, config.service, config.recipient, config.logon, config.session];
 const stamp = (file, payload) => writeFileSync(resolve(config.results, file),
