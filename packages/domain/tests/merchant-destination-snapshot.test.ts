@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {applyVerifiedDestinationSnapshot,visibleCompanyDestination} from "../src/merchant-destination-snapshot.js";
+import {applyVerifiedDestinationSnapshot,visibleCompanyDestination,visibleCompanyDestinations,DestinationSnapshotSchema} from "../src/merchant-destination-snapshot.js";
 const A="11111111-1111-4111-8111-111111111111",B="22222222-2222-4222-8222-222222222222";
 const C="33333333-3333-4333-8333-333333333333",D="44444444-4444-4444-8444-444444444444";
 const scope={tenantId:A,companyId:C};
@@ -38,4 +38,18 @@ describe("QR-001 company projection",()=>{
  it("rejects a snapshot from the future",()=>{
   expect(()=>applyVerifiedDestinationSnapshot(null,{...snapshot(),issued_at:"2026-11-09T10:00:00.000Z",expires_at:"2026-11-10T10:00:00.000Z"},scope,at)).toThrow("FUTURE_SNAPSHOT");
  });
+});
+
+
+it("presents multiple independently configured methods to the same four registers",()=>{
+ const first={kind:"NEQUI_NUMBER" as const,label:"Nequi",destination_reference:"3001234567",
+   qr_asset_id:null,qr_sha256:null,version:1};
+ const second={kind:"BREB_KEY" as const,label:"Llave",destination_reference:"@comercio",
+   qr_asset_id:null,qr_sha256:null,version:1};
+ const proposed={...snapshot(4,first),destinations:[first,second]};
+ const state=applyVerifiedDestinationSnapshot(null,proposed,scope,at);
+ const all=Array.from({length:4},()=>visibleCompanyDestinations(state,scope,at));
+ expect(all.every(value=>JSON.stringify(value)===JSON.stringify(all[0]))).toBe(true);
+ expect(all[0]?.map(x=>x.kind)).toEqual(["NEQUI_NUMBER","BREB_KEY"]);
+ expect(DestinationSnapshotSchema.safeParse({...proposed,destinations:[first,first]}).success).toBe(false);
 });
