@@ -100,7 +100,10 @@ try {
   const nativeStage = mode === "desktop" && phase === "DESKTOP_CONNECT" &&
     e instanceof Error && [
       "DESKTOP_SELF_IDENTITY", "DESKTOP_PIPE_OPEN",
-      "DESKTOP_PREFACE", "DESKTOP_SERVER_ATTESTATION"
+      "DESKTOP_PREFACE", "DESKTOP_SERVER_ATTESTATION",
+      "ATTEST_SESSION", "ATTEST_SERVICE_SID_LOOKUP", "ATTEST_SCM_STATUS",
+      "ATTEST_PROCESS_SESSION", "ATTEST_PROCESS_BIRTH",
+      "ATTEST_PARENT_LOOKUP", "ATTEST_PARENT_BIRTH", "ATTEST_SCM_RECHECK"
     ].includes(e.message) ? e.message : "NOT_CLASSIFIED";
   let scmTokenQuery = "NOT_CHECKED";
   if (mode === "desktop" && phase === "DESKTOP_CONNECT") {
