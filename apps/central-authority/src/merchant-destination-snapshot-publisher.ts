@@ -2,6 +2,7 @@ import {sign,verify,createPublicKey,type KeyObject} from "node:crypto";
 import type {Pool,PoolClient} from "@pos-platform/database-postgres";
 import {CashierDestinationSchema,DestinationSnapshotSchema,type CashierDestination} from "@pos-platform/domain";
 import {canonicalJson} from "@pos-platform/local-channel";
+import {validateOfficialQrPng} from "./merchant-destination-qr-asset.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PURPOSE="MERCHANT_DESTINATION_SNAPSHOT" as const;
@@ -77,7 +78,7 @@ export class CentralMerchantDestinationPublisher {
    const until=Math.min(Date.parse(this.signing.validUntil),now.getTime()+this.signing.snapshotLifetimeMs);
    if(until<=now.getTime())throw Error("QR001_SIGNING_KEY_EXPIRED");
    const result=await client.query(`SELECT d.kind,d.label,d.destination_reference,d.qr_asset_id,
-       a.sha256 AS qr_sha256,d.version
+       a.sha256 AS qr_sha256,a.png_bytes AS qr_png_bytes,d.version
      FROM payments.merchant_destinations d
      LEFT JOIN payments.merchant_qr_assets a
        ON a.tenant_id=d.tenant_id AND a.company_id=d.company_id AND a.id=d.qr_asset_id
@@ -85,11 +86,21 @@ export class CentralMerchantDestinationPublisher {
      ORDER BY CASE d.kind WHEN 'NEQUI_BUSINESS_QR' THEN 0
       WHEN 'BREB_KEY' THEN 1 ELSE 2 END,d.id`,[scope.tenantId,scope.companyId]);
    if(result.rowCount===null||result.rowCount>3)throw Error("QR001_PUBLISHED_METHODS_INVALID");
-   const destinations:CashierDestination[]=result.rows.map((r:Record<string,unknown>)=>
-     CashierDestinationSchema.parse({
+   const destinations:CashierDestination[]=result.rows.map((r:Record<string,unknown>)=>{
+     let image:string|undefined;
+     if(r.kind==="NEQUI_BUSINESS_QR"){
+       if(!Buffer.isBuffer(r.qr_png_bytes)||typeof r.qr_sha256!=="string")
+         throw Error("QR001_QR_IMAGE_MISSING");
+       const validated=validateOfficialQrPng(r.qr_png_bytes);
+       if(validated.sha256!==r.qr_sha256)throw Error("QR001_QR_IMAGE_HASH_MISMATCH");
+       image=validated.bytes.toString("base64");
+     }
+     return CashierDestinationSchema.parse({
        kind:r.kind,label:r.label,destination_reference:r.destination_reference,
        qr_asset_id:r.qr_asset_id,qr_sha256:r.qr_sha256,version:Number(r.version),
-     }));
+       ...(image===undefined?{}:{qr_png_base64:image}),
+     });
+   });
    if(new Set(destinations.map(x=>x.kind)).size!==destinations.length)
      throw Error("QR001_PUBLISHED_METHODS_DUPLICATED");
    const snapshot=DestinationSnapshotSchema.parse({
