@@ -26,3 +26,12 @@ El registro es idempotente por `(tenant, company, installation, message_sha256)`
 
 ## Compatibilidad QR-001
 El QR propio Nequi P2P o Bre-B estático sigue siendo una opción de cobro **sin comisión de software**, pero no presupone que Nequi Negocios emita SMS de negocio por ese QR. La detección automatizada no debe activarse en Caja por el simple hecho de que Administración haya cargado una imagen.
+
+## Incremento de persistencia QR-002 — migración 025 (sin exposición remota)
+- El esquema `payments.merchant_notification_bridge_consents` registra consentimiento por empresa + instalación; exige dispositivo ACTIVE, conserva `granted_by` y permite solo revocación irreversible. Una instalación revocada no puede reactivar esa misma fila.
+- `payments.merchant_payment_notification_inbox` guarda como evidencia inmutable UUIDv7, empresa, instalación, digest SHA-256, tiempos y etiqueta del aviso. No contiene `amount`, `bank_transaction_id`, `sale_id`, `payment_id`, cuerpo SMS ni estados de crédito bancario. Las restricciones CHECK fuerzan siempre `UNVERIFIED`, `bank_confirmed=false` y `sale_confirmed=false`.
+- Ambas tablas usan FORCE RLS por tenant+empresa; los roles de caja y reporting no tienen acceso, y Central solo puede insertar/leer la evidencia, nunca modificarla o borrarla. El trigger exige consentimiento vigente y dispositivo activo; bloquea la inserción tras revocación del consentimiento.
+- El migrador canónico registra el sucesor `025_merchant_payment_notifications` de 024, **solo** con `--merchant-notifications`; ejecutar `--merchant-destinations` NO incluye QR-002.
+- El repositorio `PostgresUnverifiedMerchantNotificationInbox` requiere además un callback de autorización de puente enrolado dentro de la transacción SERIALIZABLE, rechaza previews del cuerpo SMS y exige idempotencia estricta por empresa+dispositivo+digest.
+- La tabla de consentimiento **no tiene todavía** una interfaz administrativa para conceder la autorización; tampoco existen endpoints de ingestión ni receptor Android. No ejecutar en Central comercial ni simular un bridge enrolado hasta completar esas fronteras.
+- Las pruebas comprueban los contratos, el registro de migración y PostgreSQL 16 físico en un contenedor descartable. Ninguna prueba utiliza datos bancarios, teléfonos o SMS personales reales.
