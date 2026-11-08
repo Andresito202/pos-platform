@@ -13,6 +13,8 @@ on:
       - 'apps/pos-local-service/tests/windows-handoff-lease-state.test.ts'
       - 'apps/pos-local-service/tests/windows-scm-runtime.test.ts'
       - 'apps/pos-local-service/tests/native-session-close-lifecycle.test.ts'
+      - 'apps/pos-desktop/e2e/**'
+      - 'apps/pos-desktop/src/**'
       - 'pnpm-lock.yaml'
   workflow_dispatch:
 
