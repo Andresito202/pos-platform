@@ -33,7 +33,11 @@ describe("QR-001 cashier read-only display",()=>{
    render(<MerchantPaymentMethods enabled amount="45000.000000"/>);
    await screen.findByTestId("destination-NEQUI_BUSINESS_QR");
    expect(screen.getByAltText("QR de cobro proporcionado por el comercio")).toBeTruthy();
-   expect(screen.getAllByTestId("merchant-destination-reference")).toHaveLength(2);
+   expect(screen.getAllByTestId("merchant-destination-reference")).toHaveLength(1);
+   expect(screen.getByAltText("QR de cobro proporcionado por el comercio").getAttribute("width")).toBe("320");
+   fireEvent.click(screen.getByTestId("choose-destination-NEQUI_NUMBER"));
+   expect(screen.getByTestId("destination-NEQUI_NUMBER")).toBeTruthy();
+   expect(screen.getAllByTestId("merchant-destination-reference")).toHaveLength(1);
    expect(screen.getByText(/pendiente de verificación/i)).toBeTruthy();
    const req=calls.get("payment.destination.get")?.[0];
    expect(()=>MerchantDestinationsGetRequestSchema.parse(req)).not.toThrow();
