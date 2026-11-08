@@ -6,6 +6,8 @@ on:
       - feat/android-commercial-runtime
     paths:
       - 'apps/central-authority/src/merchant-destination-*.ts'
+      - 'apps/central-authority/src/merchant-notification-inbox.ts'
+      - 'apps/central-authority/tests/merchant-notification-inbox.test.ts'
       - 'apps/central-authority/tests/merchant-destination-*.test.ts'
       - 'apps/central-authority/package.json'
       - 'apps/central-authority/src/isolated-commercial-https.ts'
@@ -32,6 +34,10 @@ on:
       - 'packages/domain/tests/merchant-payment-notification.test.ts'
       - 'packages/database-sqlite/src/local-database.ts'
       - 'tools/target-migrations/sql/postgres/024_merchant_payment_destinations.*.sql'
+      - 'tools/target-migrations/sql/postgres/025_merchant_payment_notifications.*.sql'
+      - 'tools/target-migrations/tests/postgres-025-merchant-notifications.test.ts'
+      - 'tools/target-migrations/src/postgres-commercial-cli.ts'
+      - 'tools/target-migrations/src/postgres-commercial-runner.ts'
       - 'tools/target-migrations/src/postgres-commercial-*.ts'
       - 'tools/target-migrations/tests/postgres-024-merchant-destinations.test.ts'
       - 'tools/target-migrations/tests/postgres-024-merchant-destinations-physical.test.ts'
@@ -104,7 +110,7 @@ jobs:
         run: pnpm --filter @pos-platform/domain exec vitest run tests/merchant-destination.test.ts tests/merchant-destination-commands.test.ts tests/merchant-destination-snapshot.test.ts tests/merchant-payment-notification.test.ts
       - name: QR-001 Central tests (QR PNG and transaction)
         if: ${{ !cancelled() }}
-        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-qr-asset-store.test.ts tests/merchant-destination-postgres-store.test.ts tests/merchant-destination-snapshot-publisher.test.ts tests/merchant-destination-acknowledgements.test.ts tests/merchant-destination-business-operations.test.ts tests/merchant-destination-admin-authorization.test.ts
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-qr-asset-store.test.ts tests/merchant-destination-postgres-store.test.ts tests/merchant-destination-snapshot-publisher.test.ts tests/merchant-destination-acknowledgements.test.ts tests/merchant-destination-business-operations.test.ts tests/merchant-destination-admin-authorization.test.ts tests/merchant-notification-inbox.test.ts
       - name: QR-001 SQLite and cryptographic tests
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-activation.test.ts tests/merchant-destination-projection.test.ts tests/merchant-destination-snapshot-verifier.test.ts tests/merchant-destination-sync.test.ts
@@ -113,4 +119,4 @@ jobs:
         run: pnpm --filter @pos-platform/pos-desktop exec vitest run --config vitest.config.ts tests/renderer/MerchantPaymentMethods.test.tsx
       - name: QR-001 central migration manifest and security gates
         if: ${{ !cancelled() }}
-        run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations.test.ts tests/postgres-024-merchant-destinations-physical.test.ts
+        run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations.test.ts tests/postgres-025-merchant-notifications.test.ts tests/postgres-024-merchant-destinations-physical.test.ts
