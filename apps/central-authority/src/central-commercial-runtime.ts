@@ -38,7 +38,7 @@ const publicMaterial=(key:KeyObject)=>key.export({type:"spki",format:"der"}).toS
 /** One composition on the existing Central listener. No constructor accepts
  * client-supplied approval flags, identities or a synthetic authenticated user. */
 export async function prepareCentralCommercialRuntime(input:{pool:Pool;provisionFile:string;origin:string;environment:"PREPRODUCTION"|"PRODUCTION";
-  tls:{key:Buffer;cert:Buffer};publishedSsaFile:string;publishedSasFile:string;merchantDestinationsEnabled?:boolean;merchantNotificationReadEnabled?:boolean;merchantNotificationIngestEnabled?:boolean;
+  tls:{key:Buffer;cert:Buffer};publishedSsaFile:string;publishedSasFile:string;merchantDestinationsEnabled?:boolean;merchantNotificationReadEnabled?:boolean;merchantNotificationIngestEnabled?:boolean;merchantConsentRevocationEnabled?:boolean;
   merchantQrSigning?:{keyPath:string;keyId:string;validFrom:string;validUntil:string}}){
   const p=CentralCommercialProvisionSchema.parse(json(input.provisionFile)),l=p.limits,d=p.recipient;
   validateCommercialHttpsOrigin(input.origin);validateWindowsCommercialRegistration(p.registration,p.rp_id,input.origin);
@@ -83,6 +83,8 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
       to_regclass('payments.merchant_destination_outbox') IS NOT NULL AS ready`);
     if(q.rows[0]?.ready!==true)throw Error("QR001_CENTRAL_MIGRATION_024_REQUIRED");
   }
+  if(input.merchantConsentRevocationEnabled&&!input.merchantNotificationReadEnabled)
+    throw Error("QR002_CONSENT_REVOCATION_REQUIRES_ADMIN_READ");
   if(input.merchantNotificationIngestEnabled&&!input.merchantNotificationReadEnabled)
     throw Error("QR002_INGEST_REQUIRES_READ_ONLY_ADMIN_GATE");
   if(input.merchantNotificationReadEnabled){
@@ -97,6 +99,13 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
         WHERE attrelid=to_regclass('payments.merchant_payment_notification_inbox')
           AND attname='payer_display' AND attnum>0 AND NOT attisdropped) AS ready`);
     if(qr002Ready.rows[0]?.ready!==true)throw Error("QR002_CENTRAL_MIGRATION_026_REQUIRED");
+  }
+  if(input.merchantConsentRevocationEnabled){
+    const migration=await input.pool.query<{ready:boolean}>(`SELECT EXISTS (
+      SELECT 1 FROM platform.target_migration_executions
+      WHERE migration_id='027_merchant_notice_revocation_guard' AND status='APPLIED'
+    ) AS ready`);
+    if(migration.rows[0]?.ready!==true)throw Error("QR002_CENTRAL_MIGRATION_027_REQUIRED");
   }
   const qrSigner=input.merchantQrSigning?createPrivateKey(managed(input.merchantQrSigning.keyPath,8192)):undefined;
   if(qrSigner && [publicMaterial(ssaPublic),publicMaterial(sasPublic),publicMaterial(createPublicKey(accessPublic))].includes(publicMaterial(createPublicKey(qrSigner))))
@@ -132,8 +141,9 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
       {mode:"DEPLOYMENT",lifetimeMs:l.sas_ms,maximumReauthenticationAgeMs:l.reauthentication_ms},
       {mode:"DEPLOYMENT",environment:p.environment,purpose:"AUTHORIZATION_SNAPSHOT",keyId:p.sas.key_id,status:"ACTIVE",privateKey:sasPrivate,publicKey:sasPublic,validFrom:sasFrom,validUntil:sasUntil},
       {mode:"REGISTERED_015",lockTimeoutMs:l.sql_lock_timeout_ms},deployment),
-    ...(input.merchantDestinationsEnabled?{merchantDestinations:new MerchantBusinessDestinationOperations(input.pool,Boolean(input.merchantNotificationReadEnabled))}:{}),
+    ...(input.merchantDestinationsEnabled?{merchantDestinations:new MerchantBusinessDestinationOperations(input.pool,Boolean(input.merchantNotificationReadEnabled),Boolean(input.merchantConsentRevocationEnabled))}:{}),
     merchantNotificationReadEnabled:Boolean(input.merchantNotificationReadEnabled),
+    merchantConsentRevocationEnabled:Boolean(input.merchantConsentRevocationEnabled),
     ...(input.merchantNotificationIngestEnabled?{merchantNotificationIngest:new MerchantNotificationIngestRoutes(input.pool)}:{}),
     ...(qrPublisher?{merchantDeviceRoutes:new MerchantDestinationDeviceRoutes(input.pool,qrPublisher)}:{}),
     browserEntry:{rpId:p.rp_id,factorId:p.factor_id,tenantId:d.tenant_id,membershipId:p.membership_id,logoPng:managed(fileURLToPath(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url)))},
