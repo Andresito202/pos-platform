@@ -59,7 +59,7 @@ jobs:
           $path='packages/local-channel/src/windows-handoff-native.ts'
           $source=[IO.File]::ReadAllText($path)
           $from='if(r.error||r.status!==0)throw Error("HANDOFF_NATIVE_REJECTED");'
-          $to='if(r.error||r.status!==0){const category=(r.stderr||"").match(/(?:HANDOFF|WINDOWS|INTERACTIVE|SCM|REPARSE|LOCAL)_[A-Z_]+|Access is denied|Exception calling|The requested operation requires elevation/i);throw Error("HANDOFF_NATIVE_REJECTED_DIAGNOSTIC:"+(category?.[0]??("EXIT_"+r.status)));}'
+          $to='if(r.error||r.status!==0){const raw=(r.stderr||String(r.error||"")).replace(/[A-Za-z]:\\\\[^\\s]+/g,"<PATH>").replace(/S-1-[0-9-]+/g,"<SID>"); const line=raw.split(/\\r?\\n/).filter(Boolean).slice(0,3).join(" ").slice(0,350);throw Error("HANDOFF_NATIVE_REJECTED_DIAGNOSTIC:"+("EXIT_"+r.status)+":"+line);}'
           if(-not $source.Contains($from)){throw 'DIAGNOSTIC_ANCHOR_NOT_FOUND'}
           [IO.File]::WriteAllText($path,$source.Replace($from,$to),[Text.UTF8Encoding]::new($false))
           Write-Output 'DIAGNOSTIC_INSTRUMENTATION_EPHEMERAL_ONLY'
