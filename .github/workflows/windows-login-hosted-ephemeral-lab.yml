@@ -15,6 +15,7 @@ on:
       - 'apps/pos-local-service/tests/native-session-close-lifecycle.test.ts'
       - 'apps/pos-local-service/tests/windows-scm-commercial-entry-process.test.ts'
       - 'apps/pos-desktop/e2e/**'
+      - 'apps/pos-local-service/e2e-host/**'
       - 'apps/pos-desktop/src/**'
       - 'pnpm-lock.yaml'
   workflow_dispatch:
