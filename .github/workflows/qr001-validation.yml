@@ -45,6 +45,7 @@ on:
       - 'tools/target-migrations/sql/postgres/024_merchant_payment_destinations.*.sql'
       - 'tools/target-migrations/sql/postgres/025_merchant_payment_notifications.*.sql'
       - 'tools/target-migrations/sql/postgres/026_merchant_payment_notice_reported_details.*.sql'
+      - 'tools/target-migrations/sql/postgres/027_merchant_notice_revocation_guard.*.sql'
       - 'tools/target-migrations/tests/postgres-025-merchant-notifications.test.ts'
       - 'tools/target-migrations/src/postgres-commercial-cli.ts'
       - 'tools/target-migrations/src/postgres-commercial-runner.ts'
