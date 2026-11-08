@@ -1,6 +1,7 @@
 import type * as z from "zod";
 import {
   NativeCommercialResponseSchema,
+  LocalOperatorResponseSchema,
   HardwareResponseSchema,
   LicenseOffersListResponseSchema,
   AdminMetricsGetResponseSchema,
@@ -46,6 +47,9 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "commercial.native.cancel":NativeCommercialResponseSchema,
   "commercial.native.commit":NativeCommercialResponseSchema,
   "commercial.native.logout":NativeCommercialResponseSchema,
+  "local.operator.login":LocalOperatorResponseSchema,
+  "local.operator.session":LocalOperatorResponseSchema,
+  "local.operator.logout":LocalOperatorResponseSchema,
   "hardware.command": HardwareResponseSchema,
   "runtime.handshake": RuntimeHandshakeResponseSchema,
   "runtime.status.get": RuntimeStatusResponseSchema,
