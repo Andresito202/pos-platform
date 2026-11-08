@@ -123,7 +123,8 @@ jobs:
           pnpm --filter @pos-platform/target-migrations typecheck
           pnpm --filter @pos-platform/pos-desktop typecheck
       - name: QR-002 Android laboratory manifest isolation
-        run: node --test --test-name-pattern='QR-002: laboratory Android manifests' apps/pos-android/operational-boundary.test.mjs
+        run: |
+          node --test --test-name-pattern='QR-002: laboratory Android manifests' apps/pos-android/operational-boundary.test.mjs
       - name: QR-001 domain unit tests
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/domain exec vitest run tests/merchant-destination.test.ts tests/merchant-destination-commands.test.ts tests/merchant-destination-snapshot.test.ts tests/merchant-payment-notification.test.ts
