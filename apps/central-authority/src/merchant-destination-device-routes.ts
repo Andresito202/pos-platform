@@ -24,7 +24,7 @@ export class MerchantDestinationDeviceRoutes {
     if(!verified)return null;
     const scope={tenantId:verified.tenantId,companyId:verified.companyId,installationId:verified.installationId};
     if(route==="snapshot")return {artifact:await this.publisher.issueForPreauthorizedInstallation(scope)};
-    if(route==="floor")return {floor:await this.acknowledgements.floorForPreauthorizedInstallation(scope)};
+    if(route==="floor")return this.acknowledgements.statusForPreauthorizedInstallation(scope);
     const sequence=await this.acknowledgements.acknowledgePreauthorizedInstallation(scope,Number(o.sequence));
     return {sequence};
   }
