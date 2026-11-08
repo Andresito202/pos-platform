@@ -43,9 +43,10 @@ function validSequence(value:unknown):number {
  * before invoking issueForPreauthorizedInstallation().
  *
  * This class does not expose HTTP, grant read/write permission or send funds.
- * Allocates a fresh monotonic signed issuance sequence on EVERY refresh.
- * A static QR cannot expire permanently merely because its admin config did
- * not change. SERIALIZABLE ensures issuer and admin outbox share one order.
+ * Rotates the company-wide sequence only on a configured publication or
+ * when the signed lease approaches expiry. Four registers must not increment
+ * the shared sequence merely by reading the same published QR. SERIALIZABLE
+ * orders issuance and company configuration changes atomically.
  */
 export class CentralMerchantDestinationPublisher {
  constructor(private readonly pool:Pool,private readonly signing:MerchantSigningConfiguration){
@@ -68,13 +69,20 @@ export class CentralMerchantDestinationPublisher {
    begun=true;
    await client.query("SELECT set_config('app.tenant_id',$1,true)",[scope.tenantId]);
    await client.query("SELECT set_config('app.company_id',$1,true)",[scope.companyId]);
-   // Increment on issuance as well as mutation. Otherwise the same static QR
-   // can never be refreshed after its signed snapshot expires.
+   // One company-wide generation for all terminals. Refresh at most once per
+   // (snapshot TTL - 15 minutes); every other request reuses that generation.
+   // The fifteen-minute margin agrees with POS Local's cache renewal policy.
+   // Admin mutations already increment sequence and reset updated_at.
    const cursor=await client.query(`UPDATE payments.merchant_destination_sequences
-       SET sequence=sequence+1,updated_at=clock_timestamp()
+       SET sequence=sequence+CASE
+           WHEN updated_at<=clock_timestamp()-($3::integer * interval '1 millisecond' - interval '15 minutes')
+             THEN 1 ELSE 0 END,
+           updated_at=CASE
+           WHEN updated_at<=clock_timestamp()-($3::integer * interval '1 millisecond' - interval '15 minutes')
+             THEN clock_timestamp() ELSE updated_at END
        WHERE tenant_id=$1 AND company_id=$2
        RETURNING sequence::text AS sequence,clock_timestamp() AS now`,
-       [scope.tenantId,scope.companyId]);
+       [scope.tenantId,scope.companyId,this.signing.snapshotLifetimeMs]);
    if(cursor.rowCount!==1)throw Error("QR001_NOT_PUBLISHED");
    const sequence=validSequence(cursor.rows[0]?.sequence);
    const now=cursor.rows[0]?.now as Date;
