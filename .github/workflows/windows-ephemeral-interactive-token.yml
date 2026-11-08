@@ -39,7 +39,7 @@ jobs:
           $logons=@([regex]::Matches($logonText,'S-1-5-5-[0-9]+-[0-9]+') | ForEach-Object {$_.Value} | Select-Object -Unique)
           $interact=($memberships -contains 'S-1-5-4')
           $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
-          [IO.File]::WriteAllText($args[0],('LOGON_COUNT='+$logons.Count+"\nINTERACTIVE="+$interact+"\nSESSION="+$session+"\n"))
+          [IO.File]::WriteAllLines($args[0],[string[]]@(('LOGON_COUNT='+$logons.Count),('INTERACTIVE='+$interact),('SESSION='+$session)))
           '@ | Set-Content -LiteralPath $probe -Encoding UTF8
             $credential=New-Object PSCredential(('.\\'+$name),$secret)
             $process=Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$probe+'"'),('"'+$proof+'"')) -PassThru -Wait -ErrorAction Stop
