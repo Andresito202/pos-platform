@@ -37,7 +37,7 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
         POS_E2E_INSTALLATION_ID:installation,POS_E2E_DEVICE_ID:device,
         POS_E2E_USER_ID:"018f0000-0000-7000-8000-0000000000a1",
         POS_E2E_REGISTER_ID:"018f0000-0000-7000-8000-00000000aa01"}
-    });
+    }) as ChildProcessWithoutNullStreams;
     const activeService=service;
     const ready=await new Promise<{endpoint:string;sessionAssertion:unknown}>((resolve,reject)=>{
       let buffer="";
