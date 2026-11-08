@@ -87,7 +87,66 @@ try {
     stamp("native-desktop-pass.json", {status:"PASS", peer_role:"SCM_SERVICE"});
   }
 } catch (e) {
-  try { stamp("native-"+mode+"-failure.json", {status:"FAIL", phase, code:"NATIVE_CHANNEL_REJECTED"}); } catch {}
+  // Disposable runner only: classify whether the unprivileged Desktop token
+  // can query the SCM process token. This is diagnosis, never an auth fallback.
+  // No PID, SID, token bytes, native error details or secrets are logged.
+  let scmTokenQuery = "NOT_CHECKED";
+  if (mode === "desktop" && phase === "DESKTOP_CONNECT") {
+    const probe = String.raw`
+$ErrorActionPreference='Stop'
+try {
+  $status=& sc.exe queryex CamachoPOSLocalService
+  $line=@($status | Where-Object {$_ -match '^\\s*PID\\s*:\\s*([0-9]+)\\s*
+} finally {
+  if (connection) native.release(connection.handle);
+  if (listener) native.stop(listener);
+}
+})
+  if($LASTEXITCODE -ne 0 -or $line.Count -ne 1){throw 'SCM_QUERY_FAILED'}
+  $pidNumber=[int]([regex]::Match($line[0],':\\s*([0-9]+)').Groups[1].Value)
+  if($pidNumber -le 0){throw 'SCM_NOT_RUNNING'}
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class CamachoCiTokenProbe {
+ [DllImport("kernel32.dll",SetLastError=true)]
+ public static extern IntPtr OpenProcess(uint access,bool inherit,uint processId);
+ [DllImport("advapi32.dll",SetLastError=true)]
+ [return:MarshalAs(UnmanagedType.Bool)]
+ public static extern bool OpenProcessToken(IntPtr process,uint access,out IntPtr token);
+ [DllImport("kernel32.dll",SetLastError=true)]
+ [return:MarshalAs(UnmanagedType.Bool)]
+ public static extern bool CloseHandle(IntPtr handle);
+}
+'@
+  $process=[CamachoCiTokenProbe]::OpenProcess(0x1000,$false,[uint32]$pidNumber)
+  if($process -eq [IntPtr]::Zero){ 'PROCESS_OPEN_DENIED';exit 0 }
+  try {
+    $token=[IntPtr]::Zero
+    if(-not [CamachoCiTokenProbe]::OpenProcessToken($process,0x0008,[ref]$token)){
+      'TOKEN_QUERY_DENIED';exit 0
+    }
+    try { 'TOKEN_QUERY_ALLOWED' }
+    finally { [void][CamachoCiTokenProbe]::CloseHandle($token) }
+  } finally { [void][CamachoCiTokenProbe]::CloseHandle($process) }
+} catch { 'TOKEN_PROBE_INCONCLUSIVE' }
+`;
+    try {
+      const result = spawnSync("powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", probe],
+        {encoding:"utf8", shell:false, timeout:10_000, windowsHide:true});
+      const classification=(result.stdout || "").trim();
+      if(result.status === 0 && [
+        "PROCESS_OPEN_DENIED", "TOKEN_QUERY_DENIED", "TOKEN_QUERY_ALLOWED",
+        "TOKEN_PROBE_INCONCLUSIVE"
+      ].includes(classification)) scmTokenQuery=classification;
+      else scmTokenQuery="TOKEN_PROBE_INCONCLUSIVE";
+    } catch { scmTokenQuery="TOKEN_PROBE_INCONCLUSIVE"; }
+  }
+  try { stamp("native-"+mode+"-failure.json", {
+    status:"FAIL", phase, code:"NATIVE_CHANNEL_REJECTED",
+    scm_token_query:scmTokenQuery
+  }); } catch {}
   throw Error("EPHEMERAL_NATIVE_G1_FAILED");
 } finally {
   if (connection) native.release(connection.handle);
