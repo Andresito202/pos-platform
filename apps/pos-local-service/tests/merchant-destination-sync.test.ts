@@ -1,9 +1,28 @@
 import {describe,expect,it,vi,afterEach} from "vitest";
-import {MerchantDestinationHttpsTransport} from "../src/payments/merchant-destination-sync.js";
+import {MerchantDestinationHttpsTransport,canReuseMerchantDestinationSnapshot} from "../src/payments/merchant-destination-sync.js";
 import type {DeviceCredentialProvider} from "../src/sync/device-credential.js";
 
 const original=globalThis.fetch;
 afterEach(()=>{globalThis.fetch=original;});
+describe("QR-001 low-bandwidth trusted company revision check",()=>{
+ const now=Date.parse("2026-11-07T12:00:00Z");
+ const state={snapshot:{sequence:12,expires_at:"2026-11-07T13:00:00Z"}};
+ it("reuses exact acknowledged company revision for all four registers",()=>{
+   expect(Array.from({length:4},()=>canReuseMerchantDestinationSnapshot(state,12,12,now)))
+     .toEqual([true,true,true,true]);
+ });
+ it("re-downloads on administrator publication, revocation or absent ACK",()=>{
+   expect(canReuseMerchantDestinationSnapshot(state,12,13,now)).toBe(false);
+   expect(canReuseMerchantDestinationSnapshot(state,null,12,now)).toBe(false);
+   expect(canReuseMerchantDestinationSnapshot(state,11,12,now)).toBe(false);
+ });
+ it("rejects local backup rollback or an expiring/stale image cache",()=>{
+   expect(canReuseMerchantDestinationSnapshot(state,13,13,now)).toBe(false);
+   expect(canReuseMerchantDestinationSnapshot(state,12,12,Date.parse("2026-11-07T12:45:00Z"))).toBe(false);
+   expect(canReuseMerchantDestinationSnapshot(null,12,12,now)).toBe(false);
+   expect(canReuseMerchantDestinationSnapshot({snapshot:{sequence:12,expires_at:"invalid"}},12,12,now)).toBe(false);
+ });
+});
 describe("QR-001 signed-device HTTPS client",()=>{
  it("signs exact requested path and body without tenant asserted by renderer",async()=>{
   const signed=vi.fn(async(_context:unknown)=> "DeviceProof signed");
