@@ -21,6 +21,9 @@ export const MerchantDestinationDraftSchema = z.strictObject({
   if ((draft.qr_asset_id === null) !== (draft.qr_sha256 === null)) {
     ctx.addIssue({code: "custom", message: "QR asset and digest must be present together"});
   }
+  if (draft.kind === "NEQUI_NUMBER" && draft.qr_asset_id !== null) {
+    ctx.addIssue({code: "custom", message: "A standalone Nequi number cannot contain a QR image"});
+  }
   if (draft.kind === "NEQUI_BUSINESS_QR" && draft.qr_asset_id === null) {
     ctx.addIssue({code: "custom", message: "Official QR asset required"});
   }
