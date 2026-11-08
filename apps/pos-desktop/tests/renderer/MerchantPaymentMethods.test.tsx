@@ -32,7 +32,7 @@ describe("QR-001 cashier read-only display",()=>{
    }});
    render(<MerchantPaymentMethods enabled amount="45000.000000"/>);
    await screen.findByTestId("destination-NEQUI_BUSINESS_QR");
-   expect(screen.getByAltText("QR oficial del comercio")).toBeTruthy();
+   expect(screen.getByAltText("QR de cobro proporcionado por el comercio")).toBeTruthy();
    expect(screen.getAllByTestId("merchant-destination-reference")).toHaveLength(2);
    expect(screen.getByText(/pendiente de verificación/i)).toBeTruthy();
    const req=calls.get("payment.destination.get")?.[0];
@@ -51,7 +51,7 @@ describe("QR-001 cashier read-only display",()=>{
    }});
    render(<MerchantPaymentMethods enabled amount="45000.000000"/>);
    await screen.findByTestId("destination-BREB_KEY");
-   expect(screen.getByAltText("QR oficial del comercio")).toBeTruthy();
+   expect(screen.getByAltText("QR de cobro proporcionado por el comercio")).toBeTruthy();
    expect(screen.getByTestId("merchant-destination-reference").textContent).toBe("@3001234567");
    expect(calls.has("payment.transfer.confirm")).toBe(false);
  });
@@ -67,7 +67,7 @@ describe("QR-001 cashier read-only display",()=>{
    }});
    render(<MerchantPaymentMethods enabled amount="6000.000000"/>);
    await screen.findByTestId("merchant-payment-unavailable");
-   expect(screen.queryByAltText("QR oficial del comercio")).toBeNull();
+   expect(screen.queryByAltText("QR de cobro proporcionado por el comercio")).toBeNull();
  });
  it("supports manual refresh without modifying destination",async()=>{
    install({status:"SUCCEEDED",result_code:"AVAILABLE",result:{
