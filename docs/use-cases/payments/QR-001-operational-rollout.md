@@ -37,6 +37,17 @@ Estado: código en PR #103 Draft. **No es una certificación productiva**. No al
 - Revocación desde Administrador: versiones posteriores sin método activo, no cobro con un QR no verificado.
 - Dos transferencias simultáneas al mismo QR por importes idénticos: ambas siguen PENDING hasta conciliación autorizada; **no** hay referencia bancaria unívoca garantizada por el QR estático.
 
+## Formatos reales Nequi P2P y Bre-B (validación con capturas privadas, sin pagos)
+- Se analizaron dos capturas privadas **JPEG de 744 × 1536 píxeles** entregadas por el propietario. Son ejemplos personales y **NO** se suben al repositorio ni a ninguna base comercial.
+- El código QR Nequi identifica el tipo `P2P.NEQUI`, distinto del producto `QR Negocios` descrito por Nequi. Internamente el contrato conserva el discriminante histórico `NEQUI_BUSINESS_QR`; **ese nombre técnico no acredita un registro Negocios**. El frontend lo presenta como QR Nequi original.
+- El QR Bre-B codifica una llave de pagos como parte del payload. Para la demostración se confirmó que coincide con la llave escrita por el propietario; los valores particulares no se reproducen en esta guía pública.
+- Ambos payloads cumplen la estructura TLV EMV, indicador `01=11` y CRC-16; no incorporan un campo de monto `54`. **Ninguno debe hacerse pasar por QR dinámico con valor precargado**.
+- En pruebas de lectura sobre estas capturas, el QR a 224 px no decodificó, pero a 280/320 px sí; Caja muestra **un solo método por vez** y reserva 320 px cuadrados para el QR denso, con ajuste responsivo.
+- Para imágenes provenientes de capturas grandes se preparan recortes PNG RGB 800 × 800 con margen blanco y se comprueba que escaneen igual; el sistema acepta exclusivamente un archivo PNG limpio <=1 MiB. **El frontend no hace recorte automático de JPEG todavía**, no afirmar lo contrario.
+- El servidor verifica estructura, tamaño y hash del PNG; **NO verifica la titularidad bancaria, vigencia de una llave ni el beneficiario de un QR**. El administrador debe comprobar esos datos en la app financiera antes de publicarlos.
+- Se admite una imagen oficial tanto con el método Nequi QR como con `BREB_KEY`, sin modificar los métodos o cuentas de otros comercios. El número Nequi sin QR se registra como método aparte.
+- Los QR personales se comparten entre bancos solo cuando la entidad y el producto concreto soportan ese flujo; no asumir interoperabilidad de un QR Nequi P2P con Bre-B Negocios.
+
 ## Segunda fase: notificación sin comisión de pasarela
 Nequi Negocios puede enviar SMS de pagos mediante Llave Nequi Negocios o QR Negocios a teléfonos registrados por el comercio. **No ofrece con esta funcionalidad un webhook libre documentado**. Automatizar la entrega de SMS o notificaciones a Camacho POS necesita consentimiento, un equipo Android autorizado, validación de permisos/políticas, filtrado, anti-duplicados y pruebas reales; ni el SMS ni una alerta visual acreditan un ingreso bancario. Este PR no habilita confirmación automática ni incluye un receptor SMS productivo.
 
