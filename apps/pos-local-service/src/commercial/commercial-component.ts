@@ -1,3 +1,4 @@
+import type {PublicLicenseCatalog} from "@pos-platform/contracts";
 import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
@@ -10,7 +11,14 @@ import { SessionAssertionVerifier } from "../security/session-assertion-verifier
 import { SqliteSessionAssertionStore } from "../session/sqlite-session-assertion-store.js";
 import { SessionActivationService } from "../session/session-activation.js";
 import { SessionBindingRegistry } from "../session/session-binding-registry.js";
+import {boundIdentityFromClaims} from "../session/session-binding-registry.js";
+import {SignedSessionAssertionSchema,SignedAuthorizationSnapshotSchema} from "@pos-platform/contracts";
 import { SqliteAuthorizationSnapshotStore } from "../authorization/sqlite-authorization-snapshot-store.js";
+import {AuthorizationSnapshotVerifier} from "../security/authorization-snapshot-verifier.js";
+import {assertAuthorizationTrustSeparated} from "../security/authorization-trust-separation.js";
+import {SnapshotAcquisitionService} from "../authorization/snapshot-acquisition.js";
+import type {SnapshotProvider} from "../authorization/snapshot-provider.js";
+import type {SnapshotBinding} from "../authorization/authorization-snapshot-store.js";
 import { SqliteMasterSnapshotStore } from "../master-data/sqlite-master-snapshot-store.js";
 import { SqliteCashShiftStore } from "../cash/sqlite-cash-shift-store.js";
 import { OpenCashShiftUseCase } from "../cash/open-cash-shift-use-case.js";
@@ -47,6 +55,7 @@ import { ListAuditEventsUseCase } from "../audit/list-audit-events-use-case.js";
 import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js";
 import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 import { HardwareService } from "../hardware/hardware-service.js";
+import type { CashRegisterLicenseGate } from "../security/license-capacity-gate.js";
 import { HardwareStore } from "../hardware/hardware-store.js";
 import { loadHardwareRegistry,loadAutomaticDrawerPolicy } from "../hardware/platform-transports.js";
 
@@ -126,6 +135,10 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly fiscalSecretStore: EncryptedFileSecretStore | undefined = undefined,
     /** Inyección para pruebas: sin ella, producción construye `FactusAdapter` real. */
     private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
+    /** Separately provisioned authorization trust. SSA keys never imply SAS trust. */
+    private readonly authorizationSigningKeys:ReadonlyMap<string,TrustedSigningKey>=new Map(),
+    private readonly licenseGate?: CashRegisterLicenseGate,
+    private readonly publicLicenseCatalog?:()=>Promise<PublicLicenseCatalog>,
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -138,6 +151,50 @@ export class CommercialComponent implements RuntimeComponent {
   get sessionStore(): SqliteSessionAssertionStore { return this.ready.sessionStore; }
   get sessionActivation(): SessionActivationService { return this.ready.sessionActivation; }
   get authorizationStore(): SqliteAuthorizationSnapshotStore { return this.ready.authorizationStore; }
+  verifyNativeAuthorization(assertion:unknown,snapshot:unknown){
+    assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);
+    const ssa=SignedSessionAssertionSchema.parse(assertion),sas=SignedAuthorizationSnapshotSchema.parse(snapshot);
+    if(this.sessionStore.isClosed(ssa.claims.session_id))throw Error("LOCAL_BUSINESS_SESSION_CLOSED");
+    const binding={...this.deviceBinding(),userId:ssa.claims.user_id};
+    const identity=new SessionAssertionVerifier(this.sessionSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now)
+      .verify(ssa,binding);
+    if(identity.decision!=="VALID")throw Error("NATIVE_SSA_REJECTED");
+    const checked=new AuthorizationSnapshotVerifier(this.authorizationSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now).verify(sas,binding);
+    if(checked.decision!=="VALID")throw Error("NATIVE_SAS_REJECTED");
+    return {ssa,sas,binding};
+  }
+  activateNativeAuthorization(assertion:unknown,snapshot:unknown,connectionId:string){
+    const {ssa,sas,binding}=this.verifyNativeAuthorization(assertion,snapshot);
+    this.localDatabase.database.native.transaction(()=>{
+      if(this.sessionActivation.activate(ssa,binding).kind!=="ACTIVATED")throw Error("NATIVE_SSA_REJECTED");
+      if(this.authorizationStore.activate(sas,binding).kind!=="ACTIVATED")throw Error("NATIVE_SAS_SEQUENCE_REJECTED");
+    })();
+    this.bindings.bind(connectionId,boundIdentityFromClaims(ssa.claims));
+  }
+  closeNativeSession(connectionId:string):string|null{
+    const bound=this.bindings.resolve(connectionId);if(!bound)return null;
+    this.sessionStore.close(bound.ssaSessionId);
+    this.bindings.releaseSession(bound.ssaSessionId);
+    return bound.ssaSessionId;
+  }
+  loadVerifiedAuthorization(binding:SnapshotBinding){
+    try{assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);}catch{return null;}
+    const stored=this.authorizationStore.loadActive(binding);if(!stored)return null;
+    const verified=new AuthorizationSnapshotVerifier(this.authorizationSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now)
+      .verify({claims:stored.claims,signature:stored.signature},binding);
+    return verified.decision==="VALID"?stored:null;
+  }
+  async refreshAuthorization(provider:SnapshotProvider){
+    assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);
+    const {installationId,deviceId}=this.deviceBinding();
+    const found=this.sessionStore.loadActiveByDevice(installationId,deviceId);
+    if(found.kind!=="FOUND")throw Error("AUTHORIZATION_ACTIVE_SESSION_REQUIRED");
+    const binding={installationId,deviceId,userId:found.session.claims.user_id};
+    const verifier=new SessionAssertionVerifier(this.sessionSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now);
+    if(verifier.verify({claims:found.session.claims,signature:found.session.signature},binding).decision!=="VALID")throw Error("AUTHORIZATION_VERIFIED_SESSION_REQUIRED");
+    return new SnapshotAcquisitionService(provider,new AuthorizationSnapshotVerifier(this.authorizationSigningKeys,
+      new TrustedClockGuard(this.localDatabase.database),this.now),this.authorizationStore).acquire(binding);
+  }
   get openCashShift(): OpenCashShiftUseCase { return this.ready.openCashShift; }
   get closeCashShift(): CloseCashShiftUseCase { return this.ready.closeCashShift; }
   get createSale(): CreateSaleUseCase { return this.ready.createSale; }
@@ -153,6 +210,8 @@ export class CommercialComponent implements RuntimeComponent {
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get listAuditEvents(): ListAuditEventsUseCase { return this.ready.listAuditEvents; }
+  readPublicLicenseCatalog(){if(!this.publicLicenseCatalog)throw Error("LICENSE_CATALOG_NOT_CONFIGURED");return this.publicLicenseCatalog();}
+
   get getAdminMetrics(): GetAdminMetricsUseCase { return this.ready.getAdminMetrics; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
@@ -222,7 +281,7 @@ export class CommercialComponent implements RuntimeComponent {
       sessionStore,
       sessionActivation: new SessionActivationService(verifier, sessionStore),
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),
-      openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
+      openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now, this.licenseGate),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
       createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now),
       receiveStock: new ReceiveStockUseCase(inventoryStore),

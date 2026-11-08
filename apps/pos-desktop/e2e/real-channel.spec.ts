@@ -214,7 +214,8 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.evaluate(() => ({ require: typeof (globalThis as { require?: unknown }).require, process: typeof (globalThis as { process?: unknown }).process })))
     .toEqual({ require: "undefined", process: "undefined" });
   await expect(page.getByTestId("status-connected")).toBeVisible();
-  await expect(page.getByTestId("authorization-error")).toBeVisible();
+  // The real channel has no bound commercial identity until the test-signed SSA is activated.
+  await expect(page.getByTestId("authorization-unauthenticated")).toBeVisible();
   if (auditDirectory) {
     mkdirSync(auditDirectory, { recursive: true });
     writeFileSync(join(auditDirectory, "electron-security.json"), JSON.stringify(security, null, 2));

@@ -8,6 +8,17 @@ Este contrato completa `PaymentGroup`, `Payment`, `PaymentAllocation`, `PaymentA
 
 ## Ubicación, autoridad y neutralidad
 
+Ampliación de propósito autorizada por el propietario, 2026-10-27:
+SUBSCRIPTION_QUOTE referencia la cotización inmutable de Subscriptions. Su cobro
+central usa los mismos agregados PaymentGroup/Payment/PaymentAttempt/Allocation,
+con scope del comercio receptor y sucursal configurada explícitamente por su
+operador. No usa una Sale ficticia ni una caja/dispositivo del comprador.
+origin_device_id es NULL para ese actor SYSTEM central; la idempotencia debe
+tratar NULL como identidad única, no como permiso de duplicación. El resultado
+del proveedor es EXTERNAL_PROVIDER_AUTHORITATIVE. Sólo API autenticada/correlacionada
+puede confirmar; el webhook no cambia Payment. No redefine los estados PAY-007,
+pagos SQLite de ventas, facturas o derechos de Licensing.
+
 | Agregado | PostgreSQL / SQLite | Autoridad |
 |---|---|---|
 | PaymentGroup, Payment, Allocation | `payments.*` / `payments_*` | por método y operación según `DEC-007` |

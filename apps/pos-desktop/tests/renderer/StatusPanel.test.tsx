@@ -33,14 +33,15 @@ describe("StatusPanel", () => {
     });
   });
 
-  it("shows error state when service call fails", async () => {
+  it("shows the sanitized error state when the service transport fails", async () => {
     (window.posService["runtime.status.get"] as ReturnType<typeof vi.fn>)
       .mockRejectedValue(new Error("connection refused"));
     render(<StatusPanel />);
     await waitFor(() => {
       expect(screen.getByTestId("status-error")).toBeTruthy();
     });
-    expect(screen.getByTestId("status-error").textContent).toContain("connection refused");
+    expect(screen.getByTestId("status-error").textContent).toContain("LOCAL_SERVICE_UNAVAILABLE");
+    expect(screen.getByTestId("status-error").textContent).not.toContain("connection refused");
   });
 
   it("calls runtime.status.get on mount", async () => {

@@ -213,6 +213,40 @@ function insertFixture(
 // UNIT: sale-calculation
 // ────────────────────────────────────────────────────────────────────────────
 
+describe("D-23 sold identifier provenance", () => {
+  it("freezes a verified scan and keeps it when catalog metadata changes", async () => {
+    const db = openTracked(await directory()); insertFixture(db);
+    const { useCase } = buildStores(db);
+    const request = { ...buildRequest(), lines: [{ productId: PRODUCT_ID, presentationId: PRESENTATION_ID, quantity: "1.000000", identifier: "7700000000001" }] };
+    expect(useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), request).kind).toBe("CREATED");
+    db.native.prepare("UPDATE catalog_presentation SET barcode='NEW-BARCODE' WHERE id=?").run(PRESENTATION_ID);
+    expect(db.native.prepare("SELECT identifier_snapshot FROM sales_sale_items").get()).toEqual({ identifier_snapshot: "7700000000001" });
+  });
+  it("distinguishes an explicitly selected internal code from an unknown legacy identifier", async () => {
+    const db = openTracked(await directory()); insertFixture(db); const { useCase } = buildStores(db);
+    expect(useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), { ...buildRequest(), lines: [{ productId: PRODUCT_ID, presentationId: PRESENTATION_ID, quantity: "1.000000", identifier: "CAFE-001" }] }).kind).toBe("CREATED");
+    expect(useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest({ idempotencyKey: "sale:legacy" })).kind).toBe("CREATED");
+    expect(db.native.prepare("SELECT identifier_snapshot FROM sales_sale_items").all()).toEqual(expect.arrayContaining([{ identifier_snapshot: "CAFE-001" }, { identifier_snapshot: null }]));
+  });
+  it("rejects an unrelated identifier without creating sale, operation or outbox", async () => {
+    const db = openTracked(await directory()); insertFixture(db); const { useCase } = buildStores(db);
+    const request = { ...buildRequest(), lines: [{ productId: PRODUCT_ID, presentationId: PRESENTATION_ID, quantity: "1.000000", identifier: "OTHER-ITEM" }] };
+    expect(useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), request).kind).toBe("IDENTIFIER_MISMATCH");
+    expect(db.native.prepare("SELECT count(*) AS n FROM sales_sales").get()).toEqual({ n: 0 });
+    expect(db.native.prepare("SELECT count(*) AS n FROM local_sync_outbox").get()).toEqual({ n: 0 });
+  });
+  it("includes supplied identifier in idempotency while preserving omitted legacy checksums", async () => {
+    const db = openTracked(await directory()); insertFixture(db); const { useCase } = buildStores(db);
+    const request = { ...buildRequest(), lines: [{ productId: PRODUCT_ID, presentationId: PRESENTATION_ID, quantity: "1.000000", identifier: "7700000000001" }] };
+    expect(useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), request).kind).toBe("CREATED");
+    expect(useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), request).kind).toBe("IDEMPOTENT");
+    expect(useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), { ...request, lines: [{ ...request.lines[0]!, identifier: "CAFE-001" }] }).kind).toBe("IDEMPOTENCY_CONFLICT");
+    const legacy = buildRequest({ idempotencyKey: "sale:legacy" });
+    expect(useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), legacy).kind).toBe("CREATED");
+    expect(useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), legacy).kind).toBe("IDEMPOTENT");
+  });
+});
+
 describe("scale6ToBigInt and bigIntToScale6", () => {
   it("converts correctly", () => {
     expect(scale6ToBigInt("1000.000000")).toBe(1_000_000_000n);

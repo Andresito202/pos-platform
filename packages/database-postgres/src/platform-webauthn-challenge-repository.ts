@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import { UtcDateTimeSchema, UuidSchema, UuidV7Schema, uuidV7 } from "@pos-platform/contracts";
 
 export type PlatformWebAuthnChallengePurpose =
-  | "ENROLL" | "AUTHENTICATE" | "REAUTHENTICATE" | "RECOVERY_APPROVAL";
+  | "ENROLL" | "AUTHENTICATE" | "GLOBAL_AUTHENTICATE" | "REAUTHENTICATE" | "RECOVERY_APPROVAL";
 
 export interface IssuePlatformWebAuthnChallenge {
   readonly userId: string;
@@ -49,7 +49,7 @@ export class PostgresPlatformWebAuthnChallengeRepository {
     const factorId = input.factorId === null ? null : UuidSchema.parse(input.factorId);
     const sessionId = input.sessionId === null ? null : UuidSchema.parse(input.sessionId);
     const correlationId = UuidV7Schema.parse(input.correlationId);
-    if (!["ENROLL", "AUTHENTICATE", "REAUTHENTICATE", "RECOVERY_APPROVAL"].includes(input.purpose)) {
+    if (!["ENROLL", "AUTHENTICATE", "GLOBAL_AUTHENTICATE", "REAUTHENTICATE", "RECOVERY_APPROVAL"].includes(input.purpose)) {
       throw new Error("PLATFORM_WEBAUTHN_PURPOSE_UNSUPPORTED");
     }
     if (typeof input.rpId !== "string" || !/^[a-z0-9.-]{1,253}$/.test(input.rpId) ||
@@ -70,6 +70,7 @@ export class PostgresPlatformWebAuthnChallengeRepository {
       sessionId === null) {
       throw new Error("PLATFORM_WEBAUTHN_SESSION_REQUIRED");
     }
+    if(input.purpose==="GLOBAL_AUTHENTICATE"&&sessionId!==null)throw Error("GLOBAL_INITIAL_SESSION_MUST_BE_NULL");
     const expiresAt = UtcDateTimeSchema.parse(input.expiresAt);
     if (Date.parse(expiresAt) <= Date.now()) throw new Error("PLATFORM_WEBAUTHN_EXPIRY_INVALID");
 

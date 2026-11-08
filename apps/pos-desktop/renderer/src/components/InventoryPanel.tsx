@@ -48,7 +48,9 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
   return (
     <section data-testid="inventory-panel">
       <h2>Existencia</h2>
+      <div className="pos-form-grid">
 
+      <label className="pos-field">ID de presentación
       <input
         data-testid="inventory-presentation-input"
         aria-label="ID de presentación"
@@ -57,6 +59,8 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         placeholder="ID de presentación"
         disabled={inventory.busy}
       />
+      </label>
+      <label className="pos-field">Fecha de negocio
       <input
         data-testid="inventory-business-date-input"
         aria-label="Fecha de negocio"
@@ -65,8 +69,11 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         placeholder="Fecha de negocio"
         disabled={inventory.busy}
       />
+      </label>
 
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && (<>
       <h3>Entrada</h3>
+      <label className="pos-field">Tipo de entrada
       <select
         data-testid="receive-movement-select"
         value={receiveType}
@@ -77,6 +84,8 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
           <option key={movement} value={movement}>{movement}</option>
         ))}
       </select>
+      </label>
+      <label className="pos-field">Cantidad de entrada
       <input
         data-testid="receive-quantity-input"
         aria-label="Cantidad de entrada"
@@ -85,6 +94,8 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         placeholder="Cantidad"
         disabled={inventory.busy}
       />
+      </label>
+      <label className="pos-field">Motivo de entrada
       <input
         data-testid="receive-reason-input"
         aria-label="Motivo de entrada"
@@ -93,6 +104,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         placeholder="Motivo"
         disabled={inventory.busy}
       />
+      </label>
       <button
         data-testid="receive-stock-button"
         onClick={() => {
@@ -105,7 +117,11 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         Recibir
       </button>
 
+      </>)}
+
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) && (<>
       <h3>Ajuste</h3>
+      <label className="pos-field">Tipo de ajuste
       <select
         data-testid="adjust-movement-select"
         value={adjustType}
@@ -116,6 +132,8 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
           <option key={movement} value={movement}>{movement}</option>
         ))}
       </select>
+      </label>
+      <label className="pos-field">Cantidad de ajuste
       <input
         data-testid="adjust-quantity-input"
         aria-label="Cantidad de ajuste"
@@ -124,6 +142,8 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         placeholder="Cantidad"
         disabled={inventory.busy}
       />
+      </label>
+      <label className="pos-field">Motivo del ajuste
       <input
         data-testid="adjust-reason-input"
         aria-label="Motivo del ajuste"
@@ -132,6 +152,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         placeholder="Motivo"
         disabled={inventory.busy}
       />
+      </label>
       <button
         data-testid="adjust-stock-button"
         onClick={() => {
@@ -144,6 +165,9 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         Ajustar
       </button>
 
+      </>)}
+
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_READ) && (<>
       <h3>Consulta</h3>
       <button
         data-testid="get-stock-button"
@@ -152,6 +176,8 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
       >
         Consultar
       </button>
+
+      </>)}
 
       {inventory.movement !== null && (
         <div data-testid="inventory-movement">
@@ -179,6 +205,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         <div data-testid="stock-unauthorized">{inventory.stock.outcome}</div>
       )}
       {inventory.error !== null && <div data-testid="inventory-error">{inventory.error}</div>}
+      </div>
     </section>
   );
 }

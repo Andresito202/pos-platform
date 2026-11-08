@@ -27,27 +27,39 @@ export class BusinessInitialMfaFlow {
     trustedPolicy: {
       readonly rpId: string; readonly origin: string;
       readonly challengeLifetimeMs: number; readonly rejectionVerifier: string;
+      readonly sessionScope?:"BUSINESS"|"GLOBAL";
     },
   ) {
     if (!Number.isSafeInteger(trustedPolicy.challengeLifetimeMs) || trustedPolicy.challengeLifetimeMs <= 0) {
       throw new Error("BUSINESS_INITIAL_MFA_CHALLENGE_POLICY_REQUIRED");
     }
     this.policy = Object.freeze({ ...trustedPolicy });
+    if(trustedPolicy.sessionScope!==undefined&&!["BUSINESS","GLOBAL"].includes(trustedPolicy.sessionScope))throw Error("INITIAL_MFA_SCOPE_REQUIRED");
   }
 
   async begin(input: {
     readonly email: string; readonly password: string;
-    readonly factorId: string; readonly correlationId: string;
+    readonly factorId?: string; readonly correlationId: string;
   }): Promise<{ challengeId: string; challenge: string; credentialId: string; userVerification: "required" } | null> {
     const match = await verifyStoredPlatformPassword(
       new PostgresPasswordCredentialVerificationRepository(this.pool), input, this.policy,
     );
     if (!match) return null;
+    let factorId=input.factorId;
+    // GLOBAL web entry has no client-trusted factor selector. Resolve only
+    // after the existing password verifier identifies the account. Choosing an
+    // enrolled factor does not satisfy MFA; its real signature/UV is mandatory.
+    if(factorId===undefined&&this.policy.sessionScope==="GLOBAL"){
+      factorId=(await this.pool.query(`SELECT f.id FROM identity.mfa_factors f JOIN identity.webauthn_credential_material m ON m.factor_id=f.id
+        AND f.secret_reference='webauthn:v1:'||m.id::text WHERE f.user_id=$1 AND f.factor_type='WEBAUTHN' AND f.status='ACTIVE'
+        AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL ORDER BY f.enrolled_at,f.id LIMIT 1`,[match.userId])).rows[0]?.id;
+    }
+    if(typeof factorId!=="string")return null;
     const material = await new PostgresPlatformWebAuthnMaterialRepository(this.pool)
-      .findVerifiedMaterial(match.userId, input.factorId);
+      .findVerifiedMaterial(match.userId, factorId);
     if (!material) return null;
     const challenge = await new PostgresPlatformWebAuthnChallengeRepository(this.pool).issue({
-      userId: match.userId, factorId: material.factorId, sessionId: null, purpose: "AUTHENTICATE",
+      userId: match.userId, factorId: material.factorId, sessionId: null, purpose: this.policy.sessionScope==="GLOBAL"?"GLOBAL_AUTHENTICATE":"AUTHENTICATE",
       rpId: this.policy.rpId, expectedOrigin: this.policy.origin,
       expiresAt: new Date(Date.now() + this.policy.challengeLifetimeMs).toISOString(),
       correlationId: input.correlationId,
@@ -63,7 +75,7 @@ export class BusinessInitialMfaFlow {
       new PostgresPasswordCredentialVerificationRepository(this.pool), input, this.policy,
     );
     if (!match) return null;
-    const evidence = await new PostgresBusinessInitialWebAuthnTransaction(this.pool).verifyAndCommit({
+    const evidence = await new PostgresBusinessInitialWebAuthnTransaction(this.pool,this.policy.sessionScope).verifyAndCommit({
       passwordMatch: match, challenge: input.challenge,
       rpId: this.policy.rpId, expectedOrigin: this.policy.origin,
     }, async context => {
@@ -90,9 +102,14 @@ export class BusinessInitialMfaFlow {
    * Process restart loses outstanding receipts; no bearer or durable token exists.
    */
   takeForBusinessSession(receipt: unknown): CommittedBusinessInitialMfa | null {
+    if(this.policy.sessionScope==="GLOBAL")return null;
     if (typeof receipt !== "object" || receipt === null) return null;
     const evidence = this.verified.get(receipt);
     this.verified.delete(receipt);
     return evidence ?? null;
+  }
+  takeForGlobalSession(receipt:unknown):CommittedBusinessInitialMfa|null{
+    if(this.policy.sessionScope!=="GLOBAL"||typeof receipt!=="object"||receipt===null)return null;
+    const evidence=this.verified.get(receipt);this.verified.delete(receipt);return evidence?.purpose==="GLOBAL_INITIAL_MFA"?evidence:null;
   }
 }

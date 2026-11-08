@@ -38,6 +38,7 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:sales.receipt.get",
   "pos:audit.event.list",
   "pos:admin.metrics.get",
+  "pos:license.offers.list",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

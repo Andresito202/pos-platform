@@ -1,3 +1,4 @@
+import {PublicLicenseCatalogSchema} from "./license-offer.js";
 import * as z from "zod";
 import { createRequestEnvelopeSchema, createResponseEnvelopeSchema } from "./envelope.js";
 import { SignedSessionAssertionSchema } from "./session-assertion.js";
@@ -312,6 +313,9 @@ export const SaleCreateLineSchema = z.strictObject({
   product_id: UuidSchema,
   presentation_id: UuidSchema,
   quantity: PositiveScale6Schema,
+  /** D-23: actual scanned/selected identifier; backend resolves it against catalog.
+   * Omitted by legacy callers, never synthesized as a barcode. */
+  identifier: z.string().min(1).max(128).optional(),
 });
 
 /**
@@ -370,6 +374,7 @@ export const SaleCreateOutcomeSchema = z.enum([
   "IDEMPOTENT",
   "UNAUTHORIZED",
   "CATALOG_NOT_FOUND",
+  "IDENTIFIER_MISMATCH",
   "PRICE_NOT_FOUND",
   "CURRENCY_MISMATCH",
   // La cantidad no cabe en la precisión que declara la unidad: media botella no
@@ -866,6 +871,15 @@ export const FiscalDocumentIssueResponseSchema = createResponseEnvelopeSchema(Fi
  */
 const BarcodeSchema = z.string().min(4).max(64).regex(/^[0-9A-Za-z-]+$/);
 
+/** Shape only. Verified fiscal code membership is enforced by Local Service. */
+export const CatalogFiscalAttributeSchema = z.strictObject({
+  code_reference: z.string().min(1).max(80),
+  unit_measure_code: z.string().min(1).max(8),
+  standard_code: z.string().min(1).max(8),
+  tax_code: z.string().min(1).max(8),
+  tax_rate: NonNegativeScale6Schema,
+});
+
 export const CatalogProductRegisterRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     code: z.string().min(1).max(64),
@@ -877,6 +891,7 @@ export const CatalogProductRegisterRequestSchema = createRequestEnvelopeSchema(
     barcode: BarcodeSchema.nullable(),
     price_amount: PositiveScale6Schema,
     currency_code: CurrencyCodeSchema,
+    fiscal_attributes: CatalogFiscalAttributeSchema.optional(),
   }),
 ).safeExtend({ message_type: z.literal("catalog.product.register") })
   .superRefine((request, context) => {
@@ -891,6 +906,7 @@ export const CatalogProductRegisterOutcomeSchema = z.enum([
   "IDEMPOTENCY_CONFLICT",
   "CODE_ALREADY_REGISTERED",
   "BARCODE_ALREADY_REGISTERED",
+  "INVALID_FISCAL_ATTRIBUTES",
 ]);
 
 /**
@@ -1148,6 +1164,9 @@ export const SalesReceiptGetResponseSchema =
 
 // ── admin.metrics.get ───────────────────────────────────────────────────────
 
+export const LicenseOffersListRequestSchema=createRequestEnvelopeSchema(z.strictObject({})).safeExtend({message_type:z.literal("license.offers.list")}).superRefine(forbidCallerAssertedIdentity);
+export const LicenseOffersListResultSchema=z.strictObject({outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),catalog:PublicLicenseCatalogSchema.nullable()});
+export const LicenseOffersListResponseSchema=createResponseEnvelopeSchema(LicenseOffersListResultSchema);
 export const AdminMetricsGetRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({}),
 ).safeExtend({ message_type: z.literal("admin.metrics.get") })
@@ -1255,6 +1274,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.stock.get",
   "audit.event.list",
   "admin.metrics.get",
+  "license.offers.list",
 ]);
 
 /**
@@ -1289,6 +1309,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.stock.get",
   "pos:audit.event.list",
   "pos:admin.metrics.get",
+  "pos:license.offers.list",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;

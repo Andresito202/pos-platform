@@ -1,0 +1,325 @@
+{
+  "mode": "REAL_COMPONENT_STATIC_REVIEW_NOT_AUTHENTICATED",
+  "renderer": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "font": "Bahnschrift, \"Segoe UI\", system-ui, sans-serif",
+      "background": "rgb(243, 246, 248)",
+      "buttonHeight": 38.5
+    },
+    {
+      "width": 1024,
+      "scrollWidth": 1024,
+      "font": "Bahnschrift, \"Segoe UI\", system-ui, sans-serif",
+      "background": "rgb(243, 246, 248)",
+      "buttonHeight": 48
+    },
+    {
+      "width": 768,
+      "scrollWidth": 768,
+      "font": "Bahnschrift, \"Segoe UI\", system-ui, sans-serif",
+      "background": "rgb(243, 246, 248)",
+      "buttonHeight": 48
+    },
+    {
+      "width": 390,
+      "scrollWidth": 390,
+      "font": "Bahnschrift, \"Segoe UI\", system-ui, sans-serif",
+      "background": "rgb(243, 246, 248)",
+      "buttonHeight": 48
+    }
+  ],
+  "components": [
+    {
+      "view": "sales",
+      "touch": false,
+      "width": 1440,
+      "scrollWidth": 1440,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "catalog",
+      "touch": false,
+      "width": 1440,
+      "scrollWidth": 1440,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "inventory",
+      "touch": false,
+      "width": 1440,
+      "scrollWidth": 1440,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "customers",
+      "touch": false,
+      "width": 1440,
+      "scrollWidth": 1440,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "admin",
+      "touch": false,
+      "width": 1440,
+      "scrollWidth": 1440,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "hardware",
+      "touch": false,
+      "width": 1440,
+      "scrollWidth": 1440,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "receipt",
+      "touch": false,
+      "width": 1440,
+      "scrollWidth": 1440,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "fiscal",
+      "touch": false,
+      "width": 1440,
+      "scrollWidth": 1440,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "sales",
+      "touch": true,
+      "width": 1024,
+      "scrollWidth": 1024,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "catalog",
+      "touch": true,
+      "width": 1024,
+      "scrollWidth": 1024,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "inventory",
+      "touch": true,
+      "width": 1024,
+      "scrollWidth": 1024,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "customers",
+      "touch": true,
+      "width": 1024,
+      "scrollWidth": 1024,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "admin",
+      "touch": true,
+      "width": 1024,
+      "scrollWidth": 1024,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "hardware",
+      "touch": true,
+      "width": 1024,
+      "scrollWidth": 1024,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "receipt",
+      "touch": true,
+      "width": 1024,
+      "scrollWidth": 1024,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "fiscal",
+      "touch": true,
+      "width": 1024,
+      "scrollWidth": 1024,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "sales",
+      "touch": true,
+      "width": 768,
+      "scrollWidth": 768,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "catalog",
+      "touch": true,
+      "width": 768,
+      "scrollWidth": 768,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "inventory",
+      "touch": true,
+      "width": 768,
+      "scrollWidth": 768,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "customers",
+      "touch": true,
+      "width": 768,
+      "scrollWidth": 768,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "admin",
+      "touch": true,
+      "width": 768,
+      "scrollWidth": 768,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "hardware",
+      "touch": true,
+      "width": 768,
+      "scrollWidth": 768,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "receipt",
+      "touch": true,
+      "width": 768,
+      "scrollWidth": 768,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "fiscal",
+      "touch": true,
+      "width": 768,
+      "scrollWidth": 768,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "sales",
+      "touch": true,
+      "width": 390,
+      "scrollWidth": 390,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "catalog",
+      "touch": true,
+      "width": 390,
+      "scrollWidth": 390,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "inventory",
+      "touch": true,
+      "width": 390,
+      "scrollWidth": 390,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "customers",
+      "touch": true,
+      "width": 390,
+      "scrollWidth": 390,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "admin",
+      "touch": true,
+      "width": 390,
+      "scrollWidth": 390,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "hardware",
+      "touch": true,
+      "width": 390,
+      "scrollWidth": 390,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "receipt",
+      "touch": true,
+      "width": 390,
+      "scrollWidth": 390,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    },
+    {
+      "view": "fiscal",
+      "touch": true,
+      "width": 390,
+      "scrollWidth": 390,
+      "inert": true,
+      "body": "rgb(243, 246, 248)",
+      "bridge": false
+    }
+  ],
+  "errors": [],
+  "runtimeBridgeInjected": false
+}

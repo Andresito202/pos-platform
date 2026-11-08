@@ -196,6 +196,7 @@ const COMMERCIAL_CASES = [
       payable_amount: "3500.000000", change_amount: "0.000000",
     },
   },
+  {messageType:"license.offers.list",payload:{},resultCode:"AVAILABLE",result:{outcome:"AVAILABLE",catalog:{profile:"CAMACHO_PUBLIC_LICENSE_CATALOG_V1",offers:[]}}},
 ] as const;
 
 const PAYLOAD_BY_MESSAGE_TYPE: Record<string, unknown> = {

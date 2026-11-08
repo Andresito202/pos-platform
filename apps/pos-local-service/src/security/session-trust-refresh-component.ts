@@ -17,7 +17,7 @@ export class SessionTrustRefreshComponent implements RuntimeComponent {
   constructor(
     private readonly fetchBundle: () => Promise<unknown>,
     private readonly resolveArtifact: (artifact: unknown) => SessionTrustKeyResolution,
-    private readonly activeKeys: Map<string, TrustedSigningKey>,
+    private readonly activeKeys: Map<string, TrustedSigningKey> | undefined,
     private readonly report: SessionTrustRefreshReport,
     private readonly intervalMs = 60_000,
   ) {
@@ -63,11 +63,13 @@ export class SessionTrustRefreshComponent implements RuntimeComponent {
       const artifact = await this.fetchBundle();
       if (this.stopped) return;
       const resolution = this.resolveArtifact(artifact);
-      this.activeKeys.clear();
-      for (const [keyId, key] of resolution.keys) this.activeKeys.set(keyId, key);
+      if(this.activeKeys){
+        this.activeKeys.clear();
+        for (const [keyId, key] of resolution.keys) this.activeKeys.set(keyId, key);
+      }
       this.report("UPDATED", {
         decision: resolution.decision,
-        key_count: this.activeKeys.size,
+        key_count: resolution.keys.size,
         ...(resolution.reason === undefined ? {} : { reason: resolution.reason }),
       });
     } catch (error) {

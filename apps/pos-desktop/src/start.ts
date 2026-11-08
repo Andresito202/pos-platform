@@ -2,6 +2,10 @@ import { LocalChannelAuthenticator } from "@pos-platform/local-channel";
 import type { ContractVersionRange } from "@pos-platform/contracts";
 import { connectLocalServiceChannel } from "./local-service-channel.js";
 import { bootstrap, type DesktopLogger } from "./main.js";
+import {DesktopCommercialAccount,readDesktopCommercialConfiguration} from "./commercial-account.js";
+import {createElectronBusinessCredentialVault} from "./electron-business-login.js";
+import {app,shell,session} from "electron";
+import {BrowserCacheMaintenance} from "./browser-cache-maintenance.js";
 
 /**
  * El arranque del POS de escritorio, **sin decidir de dónde vienen las claves**.
@@ -31,6 +35,7 @@ export interface PosDesktopStartOptions {
   readonly handshake: unknown;
   readonly logger?: DesktopLogger;
   readonly timeoutMs?: number;
+  readonly commercialFile?:string;
 }
 
 export async function startPosDesktop(options: PosDesktopStartOptions): Promise<void> {
@@ -51,5 +56,15 @@ export async function startPosDesktop(options: PosDesktopStartOptions): Promise<
     throw error;
   }
 
-  await bootstrap(channel, options.logger);
+  await app.whenReady();
+  const commercial=options.commercialFile?readDesktopCommercialConfiguration(options.commercialFile):undefined;
+  const account=commercial?new DesktopCommercialAccount(commercial,async()=>{
+    const nativeAuthenticator=new LocalChannelAuthenticator(options.channelSecret);
+    try{const connected=await connectLocalServiceChannel({endpoint:options.endpoint,authenticator:nativeAuthenticator,protocolRange:options.protocolRange,
+      handshake:options.handshake,timeoutMs:commercial.attempt_timeout_ms});
+      return {request:input=>connected.request(input),close:async()=>{try{await connected.close();}finally{nativeAuthenticator.destroy();}}};}
+    catch(error){nativeAuthenticator.destroy();throw error;}
+  },createElectronBusinessCredentialVault(),url=>shell.openExternal(url,{activate:true})):undefined;
+  const cache=commercial?.browser_cache?new BrowserCacheMaintenance(session.defaultSession,commercial.browser_cache):undefined;
+  await bootstrap(channel, options.logger,account,cache);
 }

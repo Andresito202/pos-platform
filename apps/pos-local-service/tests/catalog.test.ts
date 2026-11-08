@@ -86,6 +86,40 @@ const producto = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe("registrar un producto vendible", () => {
+  it("CSV retry never returns another company's product under the same tenant, actor and key", async () => {
+    const { register } = await buildEnv(); const request = producto();
+    expect(register.execute(SCOPE, SESSION, auth(), request, NOW).kind).toBe("REGISTERED");
+    const otherCompany = "018f0000-0000-7000-8000-000000000099";
+    const snapshot = auth(); snapshot.claims.assignments[0]!.company_id = otherCompany;
+    expect(register.execute({ ...SCOPE, companyId: otherCompany }, SESSION, snapshot, request, NOW).kind).toBe("IDEMPOTENCY_CONFLICT");
+  });
+  const fiscal = { codeReference: "CAFE-FISCAL", unitMeasureCode: "94", standardCode: "999", taxCode: "01", taxRate: "19.000000" };
+  it("D-19 persists explicitly validated fiscal attributes atomically and includes them in idempotency", async () => {
+    const { register, store, database } = await buildEnv(); const request = producto({ fiscalAttributes: fiscal });
+    const result = register.execute(SCOPE, SESSION, auth(), request, NOW);
+    expect(result.kind).toBe("REGISTERED"); if (result.kind !== "REGISTERED") throw new Error("registration missing");
+    expect(store.getFiscalAttribute(SCOPE, result.presentationId)).toEqual(fiscal);
+    expect(register.execute(SCOPE, SESSION, auth(), request, NOW).kind).toBe("IDEMPOTENT");
+    expect(register.execute(SCOPE, SESSION, auth(), { ...request, fiscalAttributes: { ...fiscal, taxRate: "5.000000" } }, NOW).kind).toBe("IDEMPOTENCY_CONFLICT");
+    expect(database.native.prepare("SELECT count(*) AS n FROM catalog_fiscal_attribute").get()).toEqual({ n: 1 });
+  });
+  it("D-19 rejects unverified fiscal codes, out-of-range and nonrepresentable tax rates without effects", async () => {
+    const { register, database } = await buildEnv();
+    for (const invalid of [{ ...fiscal, unitMeasureCode: "KGM" }, { ...fiscal, standardCode: "UNKNOWN" }, { ...fiscal, taxCode: "XX" }, { ...fiscal, taxRate: "101.000000" }, { ...fiscal, taxRate: "19.000001" }]) {
+      expect(register.execute(SCOPE, SESSION, auth(), producto({ fiscalAttributes: invalid }), NOW).kind).toBe("INVALID_FISCAL_ATTRIBUTES");
+    }
+    expect(database.native.prepare("SELECT count(*) AS n FROM catalog_product").get()).toEqual({ n: 0 });
+    expect(database.native.prepare("SELECT count(*) AS n FROM local_sync_outbox").get()).toEqual({ n: 0 });
+  });
+  it("D-19 permission denial precedes fiscal writes and an audit failure rolls back all catalog tables", async () => {
+    const { register, database } = await buildEnv();
+    expect(register.execute(SCOPE, SESSION, auth([]), producto({ fiscalAttributes: fiscal }), NOW).kind).toBe("UNAUTHORIZED");
+    database.native.exec("CREATE TRIGGER test_catalog_audit_failure BEFORE INSERT ON local_operation_audit BEGIN SELECT RAISE(ABORT,'test audit unavailable'); END");
+    expect(() => register.execute(SCOPE, SESSION, auth(), producto({ fiscalAttributes: fiscal }), NOW)).toThrow("test audit unavailable");
+    for (const table of ["catalog_product", "catalog_presentation", "catalog_price", "catalog_fiscal_attribute", "local_sync_outbox", "runtime_operations"]) {
+      expect(database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 });
+    }
+  });
   it("crea producto, presentación y precio en una sola operación", async () => {
     const { register, database } = await buildEnv();
     const result = register.execute(SCOPE, SESSION, auth(), producto(), NOW);

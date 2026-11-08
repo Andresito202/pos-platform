@@ -4,13 +4,109 @@
 
 ## Propósito y autoridad
 
+2026-10-28: decisión del propietario — Android exclusivamente operativo; contratación, precios, pagos y renovación de licencias y administración GLOBAL permanecen en la web. [Separación Android y estado informativo](../testing/android-operational-only-2026-10-28.md). No convierte el probe en APK comercial ni aprueba Play, SEC-004 o un login ficticio.
+
+2026-10-26: [cierre técnico Windows](../testing/windows-login-closure-2026-10-26.md).
+Montaje Central canónico, entrada Electron main y logout nativo materializados y
+probados localmente. Sustituye las menciones inferiores a esos huecos pendientes;
+no certifica producción ni una persona. SQL global/runner adoptado con timeout
+obligatorio y sin DDL productivo esta sesión. Restan infraestructura auténtica,
+DEV-003, valores operativos, instalación/certificación humana y CI restablecido.
+La nueva orden del propietario habilita continuar piezas independientes de
+licencias y después rendimiento; se conserva una caja incluida y precios bajo
+autoridad backend. No se activan grants o pagos ficticios.
+
+2026-10-26 desde `a2d858c9`: [montaje Service Windows y runner](../testing/windows-runtime-runner-2026-10-26.md).
+Decisión expresa: adoptar bloqueo global RBAC con timeout obligatorio, sin UPDATE
+general y sin DDL productivo en esta sesión. Artefactos 014/015/016 registrados
+como sucesores de 013 en el runner canónico, propuestas conservadas intactas.
+Service main monta coordinador V2/DPAPI mediante provisión explícita y lifecycle
+de renovación; falta composición Central productiva y logout/revocación nativa
+completa. No se reabren PKCE/MFA/DPAPI/SAS/V2 de laboratorio ya cerrados; nuevas
+pruebas sólo de fronteras modificadas. Login humano no certificado; licencias y
+caché siguen fuera de este incremento por instrucción vigente.
+
+Continuación desde `c24df8b1`: [V2 → SSA/SAS y custodia durable Windows](../testing/windows-v2-ssa-sas-2026-10-25.md).
+Los emisores existentes consumen posesión V2 y revalidan familia en su transacción;
+Service conserva y renueva credenciales bajo DPAPI con consumo local previo a red,
+sin reintento ambiguo. Electron real alcanza dashboard con RBAC SQL y renovación
+HTTPS en laboratorio. No es login humano certificado ni montaje productivo:
+runner/SQL, parámetros operativos, Central/DEV-003 auténticos y certificación
+humana/CI siguen siendo gates. Esta entrada sustituye las menciones históricas
+inferiores a custodia e integración V2 pendientes. Orden: login, licencias, caché.
+
+Continuación desde `a58be77f` (19 archivos WIP conservados íntegros):
+[provisión SAS HTTPS y transición de raíz](../testing/windows-sas-remote-rollover-2026-10-25.md)
+materializadas sobre el store DPAPI y lifecycle existentes. Doble firma, binding
+completo, historial monotónico, reemplazo atómico y recuperación desde el pin
+original; Service real con TLS verificado y Central con PostgreSQL temporal.
+El estado vigente sustituye las menciones inferiores a raíz/provisión pendientes.
+Falta implementación de montaje productivo access/refresh y custodia durable en
+Service; además adopción SQL/runner, parámetros operativos, Central/DEV-003
+auténticos y certificación humana/CI. Login humano no cerrado. Orden vigente:
+login, después licencias (una caja incluida), después rendimiento/caché.
+
+Access/refresh V2 2026-10-25 desde `42c79cd8`: [backend vinculado a familia/dispositivo](../testing/business-access-refresh-v2-2026-10-25.md), sobre owners de access, refresh, DeviceProof/012 y proveedor DPAPI existentes. Canje nativo y renovación con access/familia/auditoría atómicos; pruebas físicas temporales. No endpoints productivos ni migraciones comerciales aplicados. Pendiente montaje productivo/custodia durable Service, transición root y provisión remota SAS, aprobación SQL/runner, parámetros/infraestructura/DEV-003 auténticos y certificación humana. No volver a pedir la aprobación general SAS/access ya registrada; no declarar terminado el login.
+
+SAS/access-refresh Windows aprobados expresamente por el propietario el 2026-10-25 («si autorizado»), sin aprobar valores temporales, infraestructura inventada, SQL global o producción operativa. [Bootstrap SAS de despliegue](../testing/windows-sas-deployment-2026-10-25.md): contrato separado ligado al recipient completo, firmante offline, provisión administrada Service, store DPAPI/historial compartido y montaje en main. Access/refresh productivo sigue pendiente de implementación, ya autorizado; no repetir la petición general. Rotación automática de raíz, descarga HTTPS autenticada y provisión remota no están materializadas. Datos auténticos y certificación humana siguen pendientes.
+
+Continuación desde `a5f022b5`: [medición focalizada del bloqueo SQL global](../testing/windows-p0-continuity-2026-10-25.md#continuación-desde-a5f022b5-coste-sql-observado). Dos casos nuevos PASS en PostgreSQL temporal: bloqueo entre empresas confirmado y timeout con rollback/replay/reintento fresco. No autoriza adopción del lock ni registro productivo del runner; SAS/D3 e infraestructura auténtica siguen pendientes.
+
+Orden del propietario 2026-10-25 para el frente posterior de licencias, **sin implementarlo durante el bloqueo del login**: una sola caja incluida por licencia; cajas adicionales seleccionables y cobradas por backend. Planes mensual/anual/perpetuo, soporte y cajas con precios editables por superadministrador, persistidos/versionados y confirmados por backend, sin precios definitivos inventados. Confirmación backend de FACTUS Pay antes de activación Licensing; facturación y entrega de correo con estados y evidencias independientes. Esta orden corrige la referencia de tres cajas del adjunto; no altera derechos vigentes ni activa planes.
+
+Continuidad P0 Windows 2026-10-25 desde `ceb10463`: [arranque SAS, contador y posesión](../testing/windows-p0-continuity-2026-10-25.md). Puerto/lifecycle privilegiado de confianza integrado al bootstrap Service, contador propuesto usado por el emisor con bloqueo SQL fijo sin UPDATE RBAC y preparación/smoke del runner, vectores de posesión D3 LAB V2. 31 casos focalizados distintos y 16 de arquitectura aprobados; no se repite la suite anterior. La provisión administrativa/adapter SAS productivo, adopción SQL/runner, wire access/refresh/familias/políticas requieren la aprobación única precisada; entorno/DEV-003 auténticos y certificación humana pendientes. Sin cambios visuales, Android/hardware, activación productiva o merge a main.
+
+Continuidad DEC-011 2026-10-25 desde `7d92ea4c`: [confianza SAS completa candidata](../testing/sas-trust-candidate-2026-10-25.md). Sobre íntegro root-signed, generación/historial protegidos con DPAPI, resolución por uso y distribución HTTPS integrada con Service/Electron en laboratorio; 63 casos focalizados y 16 de arquitectura aprobados, con fallos iniciales conservados. Producción sigue pendiente de formato/raíz/bootstrap SAS, DDL/runner y serialización RBAC, D3 access/refresh/vigencias/abuso, Central/DEV-003 auténticos y certificación humana Windows. No modifica el diseño B ni convierte el candidato en protocolo aprobado.
+
+B aprobada y materializada 2026-10-25 desde `f6284749`: [Commercial Precision en el runtime existente](../testing/commercial-precision-2026-10-25.md). Tokens, shell/estados, tablas catálogo/auditoría, etiquetas/retículas y presentación HTTPS; mismos handlers, capacidades y contratos. 136 casos distintos aprobados, más QA visual y gates locales; Windows/Electron en laboratorio, no login humano o Android/Linux certificados. Funciones pendientes de backend y decisiones de provisión/seguridad siguen pendientes; sin merge a main.
+
+Estudio visual autorizado 2026-10-24 desde `781328ef`: [skills y tres propuestas de diseño](../design/pos-proposals-2026-10-24/README.md). Instalación personal, inventario de frontend y prototipos documentales A/B/C separados del runtime, con capturas reales sin datos/sesiones fabricados. No reemplazar pantallas antes de aprobación visual; no modifica contratos ni cambia el bloqueo/continuidad de autenticación. El futuro rediseño se ejecuta por módulos tras decisión, sin ramas paralelas ni mezclar commits de seguridad.
+
+Continuidad P0 2026-10-24 desde `9639c9f`: [confianza/provisión Windows](../testing/commercial-provisioning-continuity-2026-10-24.md). Se corrige revocación root-signed interpretada antes de autenticar y se exige material público Ed25519. Propuesta de contador Authorization ensayada sólo en PostgreSQL temporal, sin descriptor/montaje productivo ni UPDATE RBAC. Solicitud única precisa sobre SAS completo, access/refresh y privilegios/vigencias; no hay formato SAS de confianza activado ni aprobación nueva. El primer enrolamiento/login humano sigue bloqueado por entorno real y decisiones concretas.
+
 Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Platform: prioridad, dependencia, bloqueo, trabajo activo y orden inmediato.
+
+Orden vigente del propietario 2026-10-22: cerrar primero autenticación comercial: persistencia HTTP con procedencia MFA, transporte HTTPS, integración BUSINESS y clientes Windows/Android. No avanzar a inventario, compras ni cajón hasta cerrar este incremento o documentar bloqueos externos verificables. Autoridad central externa no confirmada; DEV-003, SEC-004, D3 y DEC-025 sin aprobación. La [propuesta conjunta](../testing/android-commercial-approval-proposal-2026-10-22.md) conserva los datos y decisiones requeridos, sin activarlos.
 
 No funciona como diario histórico exhaustivo. La cronología detallada permanece trazable en Git, commits, PRs y workflows. Un snapshot histórico no puede contradecir la cola actual.
 
-Última reconciliación operativa: 2026-10-18. Los cierres históricos conservan su fecha y SHA.
+Cambio de línea autorizado: 2026-10-21. La orden expresa del propietario mueve el trabajo activo a `feat/android-commercial-runtime@51d5feb`, continuación de `claude/pos-camacho-bloque-4c-ld43py@b907d20f`. No se elimina ni desarrolla en paralelo la rama de laboratorio y PR #92 sigue draft. La reconciliación de 2026-10-18 inferior y sus cierres conservan su fecha y SHA; sus referencias a la rama activa anterior describen aquel snapshot.
+
+Objetivo vigente: autenticación comercial integrada sobre Central Authority y los clientes existentes, conservando el runtime Android y la persistencia canónica. Continuidad sobre la única rama activa, sin declarar login real por pruebas de laboratorio. Cajón CD350 bloqueado: sin perfil eléctrico ni apertura automática.
+
+Continuidad 2026-10-22: [fundamento Service Android](../testing/android-service-lifecycle-2026-10-22.md), proceso Node propio con ciclo de vida y base canónica; acceso comercial cerrado, sin outbox antes de local-security (DEC-020). No se cambia el objetivo activo ni se declara POS Android completo.
+
+Continuidad de seguridad 2026-10-22: [composición Android local-security/enrolamiento](../testing/android-security-composition-2026-10-22.md), contrato interno con proveedor Keystore y verificador central explícitos; 16/16 pruebas focalizadas en SQLite temporal. Rechaza credencial de otra clave local y credencial sin auditoría completada. Implementado/probado en host de desarrollo, sin caller APK ni autoridad comercial real; dependencias SEC-004/DEV-003/D3/DEC-025 pendientes, sin elevar a E2E.
+
+Continuidad comercial independiente 2026-10-22: [D-23, identificador utilizado](../testing/sold-identifier-2026-10-22.md), snapshot validado por backend desde escaneo/selección compartidos, contrato opcional compatible y checksum sin cambiar callers anteriores. 4 nuevas SQLite/49 regresión de ventas, 1 contrato y 34 renderer; no venta real Android ni cierre de D-19/D-21/D-22.
 
 ## Jerarquía relacionada
+
+Reanudación P0 2026-10-23: [canje → access verificado → DeviceProof → reserva SSA](../testing/business-access-sequence-2026-10-23.md), [composición SSA canónica](../testing/business-ssa-composition-2026-10-23.md) y ahora [binding previo nativo y callback Windows](../testing/native-business-binding-2026-10-23.md), autorizado solo en laboratorio por el propietario en PR #96. Solicitud firmada, confirmación de destino tras Chromium/WebAuthn, código de un uso y canje con posesión fresca llegan a SSA ACTIVE en servicio real. 32/32 integración (26 nuevas + 6 regresiones directamente afectadas), 20/20 unitarias relacionadas. Sin snapshot/grants mantiene dashboard cerrado. Propuesta única pendiente de aprobación productiva; Windows no espera decisiones exclusivas de Android. Sin login humano ni producción aprobada.
+
+Segundo frente conservado por orden del propietario, **sin implementación durante el bloqueo del login**: venta en espera con recuperación durable; importación Excel/CSV y PDF asistido; traslados multisucursal/existencias en tránsito; conversiones; pagos mixtos con confirmación efectiva; cierre ciego; permisos, módulos por comercio y carga selectiva; offline/sincronización idempotente; compatibilidad posterior CPC Android v0.12. Se continúa esta misma línea después de resolver el acceso, sin ramas paralelas.
+
+P0-05 2026-10-24 sobre `076eff0b`: [infraestructura/aprovisionamiento](../testing/commercial-provisioning-2026-10-24.md), perfil explícito de Central con TLS/rol/schema/readiness/drain, registro Windows/RP comercial y proveedor SAS TLS con autenticador nativo obligatorio. Se corrige reuse de material SSA como SAS; fixtures afectados ahora usan claves distintas. Sin despliegue, migraciones/grants productivos ni protocolo de confianza/access inventado; decisiones y datos externos siguen pendientes, sin login humano certificado.
+
+P0-04 2026-10-24 sobre `9fa84766`: [canal privilegiado Windows](../testing/windows-privileged-native-channel-2026-10-24.md), cuatro operaciones cerradas, firma DPAPI en Service y activación SSA/SAS atómica tras commit explícito; main conserva PKCE/callback y no recibe tokens ni clave privada. Nuevo E2E real de laboratorio alcanza dashboard con grants SQL canónicos; catálogo denegado, regresión previa de revocación conservada. Sin montaje productivo, sin login humano y sin cambios Android/ventas/hardware. Actions pendiente por suspensión informada hasta el 1 de noviembre; no CI verde.
+
+Continuidad P0 Windows 2026-10-24 sobre `efe16803`: [adaptador de firma con custodia real y preparación de Central](../testing/windows-commercial-custody-2026-10-24.md). 16 nuevas DPAPI/SQLite + 11 regresiones de seguridad y 8 D3 (2 nuevas), aprobadas; inspección Windows independiente de Android. Adaptador interno sin RPC, configuración central vacía/procedimiento listo, ningún endpoint productivo nuevo. El propietario confirma que no hay entorno externo; faltan provisión/aprobaciones y montaje de transporte para P0-01–07. No login humano certificado.
+
+Continuidad P0 2026-10-24 sobre `09a370bc`: [productor central SAS y recepción Windows](../testing/central-authorization-snapshot-2026-10-24.md), fuentes RBAC canónicas, firma de propósito separado y secuencia durable en DB temporal. 22/22 PostgreSQL/Electron y 126/126 locales afectados (95 + 31). El recorrido aislado alcanza dashboard con AUDIT_EVENT_READ real del fixture central y lo cierra tras revocación; sin unión implícita de roles ni permisos. Quedan pendientes despliegue/provisión/custodia y políticas productivas, confianza SAS y migración revisada de su contador/privilegios; no login humano ni producción aprobada. El corte anterior sin productor/snapshot se conserva como histórico.
+
+Continuidad de acceso positivo 2026-10-22: [ceremonia HTTPS desde Electron](../testing/commercial-browser-ceremony-2026-10-22.md), formulario real → contraseña → WebAuthn de Chromium → BUSINESS persistida → logout confirmado, con PostgreSQL temporal y servicio Windows real. 12/12 focalizadas (una nueva E2E positiva), sin empleado humano, grants de arnés ni acceso operativo simulado. Callback/entrega al dispositivo/SSA siguen pendientes del binding aprobado; las decisiones exclusivas de Android no bloquean la línea Windows.
+
+Continuidad prioritaria Electron 2026-10-22: [recuperación local y arranque real](../testing/electron-session-recovery-2026-10-22.md), entrada productiva y servicio real sin identidad sembrada; 3/3 E2E y 75/75 focalizadas. Ausencia de sesión, pérdida de servicio y denegaciones verificadas; login humano/Android siguen pendientes de la propuesta conjunta. Requisito posterior registrado: app `co.camachopos.printmini` v0.12, observación física del propietario; futura configuración con descarga oficial, versión y guía, sin API ni adapter inventados. No cambia la prioridad de autenticación.
+
+Continuidad prioritaria de autenticación 2026-10-22: [custodia HTTP canónica y HTTPS](../testing/business-browser-https-2026-10-22.md), publicada en `114b8812`; [preparación nativa Windows/Android](../testing/native-business-auth-preparation-2026-10-22.md). Evidencia de laboratorio separada de activación: no se autentica una persona ni se concede sesión POS. La propuesta conjunta incorpora el binding navegador/dispositivo y refresh que necesitan aprobación; no se avanza al resto del backlog mientras este incremento siga pendiente.
+
+Continuidad catálogo fiscal 2026-10-22: [D-19, escritor inicial](../testing/catalog-fiscal-write-2026-10-22.md), atributos fiscales opcionales explícitos en el alta existente, validación fiscal canónica y transacción única, 20/20 catálogo, 6/6 renderer y nueva prueba por canal real. No edición fiscal de productos previos, documento productivo ni E2E Android; D-21/D-22 siguen abiertos.
+
+Continuidad importación 2026-10-22: [CSV de catálogo](../testing/catalog-csv-2026-10-22.md) en el panel existente, plantilla, validación/vista previa/coincidencias y confirmación backend por fila recuperable por idempotencia. 5 nuevas parser/orquestación, 7 renderer focalizadas y 1 SQLite de aislamiento de empresa. No XLSX/XML ni importación de stock/facturas/recepción física.
+
+Continuidad permisos 2026-10-22: [11 pruebas focalizadas de fronteras](../testing/commercial-role-boundaries-2026-10-22.md) del handler real sobre SQLite temporal; denegaciones por grant ausente, alcance, retiro y caducidad en catálogo/recepción/ajuste, sin grants centrales fabricados. No aprobación crítica, SaleReturn ni reserva de inventario materializados por estos tests.
+
+Continuidad recepción 2026-10-22: [cantidades y asignaciones exactas](../testing/receipt-quantity-preparation-2026-10-22.md), factor escala 10/cantidad escala 6 sin redondeo, 7/7 focalizadas. Recepción completa sigue pendiente de reconciliar maestros/políticas: el contrato de snapshot vigente solo autoriza CASH_REGISTER, no Supplier/InventoryLocation/InventoryPolicy. Sin tablas/protocolos paralelos ni cierre de D-21/D-22 por inferencia.
 
 - Estado y orden de trabajo: este backlog.
 - Arquitectura/decisiones: `docs/adr/`.

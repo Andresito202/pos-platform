@@ -1,4 +1,8 @@
 export * from "./sql.js";
+export * from "./subscription-payment-outbox.js";
+export * from "./subscription-license-outbox.js";
+export type {Pool,PoolClient} from "pg";
+export * from "./durable-browser-session-store.js";
 export * from "./onboarding-repository.js";
 export * from "./device-registry-repository.js";
 export * from "./platform-security-event-repository.js";
@@ -18,3 +22,8 @@ export * from "./password-credential-verification-repository.js";
 export * from "./business-initial-webauthn-transaction.js";
 export * from "./business-session-creation-transaction.js";
 export * from "./business-session-access-repository.js";
+export * from "./browser-session-handoff-writer.js";
+export * from "./business-session-revocation-transaction.js";
+export * from "./commercial-refresh-families.js";
+export * from "./commercial-deployment-context.js";
+export * from "./factus-pay-webhook-inbox-repository.js";

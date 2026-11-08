@@ -86,6 +86,9 @@ export class SessionBindingRegistry {
   release(connectionId: string): void {
     this.bindings.delete(connectionId);
   }
+  releaseSession(sessionId:string):void{
+    for(const [connection,identity] of this.bindings)if(identity.ssaSessionId===sessionId)this.bindings.delete(connection);
+  }
 
   /** Invalida todos los vínculos. Se usa al detener el componente. */
   clear(): void {

@@ -1,0 +1,158 @@
+﻿{
+    "base_head":  "076eff0bb07e41e3cc7949a6d101831db65a3cde",
+    "branch":  "feat/android-commercial-runtime",
+    "scope":  "PREPARATION_WITH_ISOLATED_VALIDATION",
+    "selected_distinct_cases":  {
+                                    "skipped":  189,
+                                    "failed":  0,
+                                    "passed":  144
+                                },
+    "contracts_execution":  {
+                                "output":  "Observed verbose console execution; no separate JSON report",
+                                "skipped":  0,
+                                "failed":  0,
+                                "passed":  12
+                            },
+    "reports":  [
+                    {
+                        "path":  "artifacts\\commercial-provisioning\\2026-10-24\\central-final-tests.json",
+                        "sha256":  "8ea135399a50c9fece2502ab161b468e150580177fad2cea5e4ce6457ed12f6a",
+                        "skipped":  0,
+                        "failed":  0,
+                        "passed":  29
+                    },
+                    {
+                        "path":  "artifacts\\commercial-provisioning\\2026-10-24\\local-final-tests.json",
+                        "sha256":  "6b0ea140452ce312a8a243558b70b0ecb032d453d14275d8674024000f5d9c5a",
+                        "skipped":  0,
+                        "failed":  0,
+                        "passed":  95
+                    },
+                    {
+                        "path":  "artifacts\\commercial-provisioning\\2026-10-24\\transport-final-tests.json",
+                        "sha256":  "2098c4f23ff9014cf1c02de40e923e5a54ed1e1ea0f5318f02e00a8375c02cb5",
+                        "skipped":  0,
+                        "failed":  0,
+                        "passed":  11
+                    },
+                    {
+                        "path":  "artifacts\\commercial-provisioning\\2026-10-24\\device-custody-tests.json",
+                        "sha256":  "b6dacf9097ab7716231ba6bf5582a2a7ffb3cf9060c3526ec2158fd97ce546df",
+                        "skipped":  23,
+                        "failed":  0,
+                        "passed":  5
+                    },
+                    {
+                        "path":  "artifacts\\commercial-provisioning\\2026-10-24\\postgres-electron-tests.json",
+                        "sha256":  "b59d80b88ca9f5f55d0cc8a1312379ffb4f58e759c485a4c734bcbb11a552990",
+                        "skipped":  166,
+                        "failed":  0,
+                        "passed":  3
+                    }
+                ],
+    "deduplication":  "transport-final-tests repeats 11 cases already included in local-final-tests",
+    "observed":  {
+                     "browserIntegration":  true,
+                     "scope":  "ISOLATED_VALIDATION",
+                     "serviceCustody":  true,
+                     "devicePrivateKeyInMain":  false,
+                     "dashboardAuthorized":  true,
+                     "wrongPasswordRejected":  true,
+                     "erased":  true,
+                     "observed":  {
+                                      "recovery":  {
+                                                       "protocol_version":  "1.0.0",
+                                                       "request_id":  "7f0ed445-ecef-467f-af1d-d151217c61a2",
+                                                       "correlation_id":  "0e83f419-ad9b-4b14-b266-941742fb19d3",
+                                                       "operation_id":  null,
+                                                       "status":  "SUCCEEDED",
+                                                       "result_code":  "ACTIVE",
+                                                       "result_schema_version":  "1.0.0",
+                                                       "error":  null,
+                                                       "server_time":  "2026-10-24T15:11:52.466Z",
+                                                       "result":  {
+                                                                      "outcome":  "ACTIVE",
+                                                                      "session_id":  "01a16e77-d97e-7753-a9b0-a22a657fa146",
+                                                                      "offline_valid_until":  "2026-10-24T15:12:21.418Z",
+                                                                      "decision":  null
+                                                                  }
+                                                   },
+                                      "capabilities":  {
+                                                           "protocol_version":  "1.0.0",
+                                                           "request_id":  "10f7023b-a33f-4050-9c15-87e1dd4a72b2",
+                                                           "correlation_id":  "450e0c5f-fbd6-401c-8ea1-0d086fe8a98f",
+                                                           "operation_id":  null,
+                                                           "status":  "SUCCEEDED",
+                                                           "result_code":  "AVAILABLE",
+                                                           "result_schema_version":  "1.0.0",
+                                                           "error":  null,
+                                                           "server_time":  "2026-10-24T15:11:52.493Z",
+                                                           "result":  {
+                                                                          "outcome":  "AVAILABLE",
+                                                                          "permissions":  [
+                                                                                              "AUDIT_EVENT_READ"
+                                                                                          ]
+                                                                      }
+                                                       },
+                                      "forbidden":  {
+                                                        "protocol_version":  "1.0.0",
+                                                        "request_id":  "f502c08d-d8dc-48b8-9d8e-8ef97ad13e11",
+                                                        "correlation_id":  "6c7ce1f6-0467-466c-af4c-200d039480db",
+                                                        "operation_id":  null,
+                                                        "status":  "REJECTED",
+                                                        "result_code":  "UNAUTHORIZED",
+                                                        "result_schema_version":  "1.0.0",
+                                                        "error":  {
+                                                                      "code":  "UNAUTHORIZED",
+                                                                      "category":  "AUTHORIZATION",
+                                                                      "retryable":  false,
+                                                                      "user_message_key":  "catalog.item.list.unauthorized",
+                                                                      "field_errors":  [
+
+                                                                                       ],
+                                                                      "current_version":  null,
+                                                                      "required_action":  null,
+                                                                      "diagnostic_id":  "f4023804-0399-47bc-99eb-43a5919bf21a"
+                                                                  },
+                                                        "server_time":  "2026-10-24T15:11:52.546Z",
+                                                        "result":  {
+                                                                       "outcome":  "UNAUTHORIZED",
+                                                                       "items":  [
+
+                                                                                 ],
+                                                                       "has_more":  false
+                                                                   }
+                                                    }
+                                  },
+                     "authenticator":  "CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"
+                 },
+    "initial_architecture_failure":  "Cross-project relative fixture import forbidden; removed without changing boundary rules",
+    "production_enabled":  false,
+    "human_authenticated":  false,
+    "remote_ci":  "PENDING_RESTORATION_OWNER_REPORT_2026-11-01",
+    "modified_files":  [
+                           "apps/central-authority/src/central-deployment-configuration.ts",
+                           "apps/central-authority/src/central-server-shutdown.ts",
+                           "apps/central-authority/src/d3-deployment-readiness.ts",
+                           "apps/central-authority/src/main.ts",
+                           "apps/central-authority/tests/business-access-preparation-physical.test.ts",
+                           "apps/central-authority/tests/central-deployment-configuration.test.ts",
+                           "apps/central-authority/tests/d3-deployment-readiness.test.ts",
+                           "apps/pos-local-service/e2e-host/real-service-host.ts",
+                           "apps/pos-local-service/src/authorization/isolated-https-snapshot-provider.ts",
+                           "apps/pos-local-service/src/commercial/commercial-component.ts",
+                           "apps/pos-local-service/src/security/authorization-trust-separation.ts",
+                           "apps/pos-local-service/tests/authorization-https-provider.test.ts",
+                           "apps/pos-local-service/tests/central-sas-reception.test.ts",
+                           "apps/pos-local-service/tests/channel-commercial-vertical.test.ts",
+                           "apps/pos-local-service/tests/commercial-ipc.test.ts",
+                           "docs/product/backlog.md",
+                           "docs/testing/android-commercial-approval-proposal-2026-10-22.md",
+                           "docs/testing/commercial-provisioning-2026-10-24.md",
+                           "docs/testing/commercial-provisioning-evidence-2026-10-24.json",
+                           "infra/central-authority/README.md",
+                           "infra/central-authority/runtime.env.example",
+                           "packages/contracts/src/native-client-registration.ts",
+                           "packages/contracts/tests/windows-commercial-registration.test.ts"
+                       ]
+}

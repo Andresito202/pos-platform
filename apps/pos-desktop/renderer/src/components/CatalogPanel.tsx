@@ -1,6 +1,7 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
+import { catalogCsvTemplate, previewCatalogCsv, matchCatalogCsv, confirmCatalogCsv, type CatalogCsvPlan, type CatalogCsvOutcome } from "../catalog-csv.js";
 
 /**
  * Alta de producto. Es la pantalla que faltaba para poder usar el POS el primer
@@ -26,6 +27,34 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
   const [stockControlled, setStockControlled] = useState(true);
   const [query, setQuery] = useState("");
   const [loadedQuery, setLoadedQuery] = useState("");
+  const [includeFiscal, setIncludeFiscal] = useState(false);
+  const [fiscal, setFiscal] = useState({ codeReference: "", unitMeasureCode: "", standardCode: "", taxCode: "", taxRate: "" });
+  const [csv, setCsv] = useState<CatalogCsvPlan | null>(null);
+  const [csvBusy, setCsvBusy] = useState(false);
+  const [csvError, setCsvError] = useState<string | null>(null);
+  const [csvMatched, setCsvMatched] = useState(false);
+  const [csvResults, setCsvResults] = useState<readonly CatalogCsvOutcome[]>([]);
+  const [delimiter, setDelimiter] = useState<"," | ";">(",");
+  const csvRunning = useRef(false);
+
+  async function loadCsv(file: File): Promise<void> {
+    if (csvRunning.current) return;
+    csvRunning.current = true; setCsvBusy(true); setCsv(null); setCsvMatched(false); setCsvError(null); setCsvResults([]);
+    try {
+      if (file.size > 1_048_576) throw new Error("CSV_SIZE_OR_CONTENT_REJECTED");
+      const source = new TextDecoder("utf-8", { fatal: true }).decode(await file.arrayBuffer());
+      const plan = await previewCatalogCsv(source, delimiter); setCsv(plan);
+      if (!plan.rows.some((row) => row.errors.length)) { setCsvResults(await matchCatalogCsv(plan)); setCsvMatched(true); }
+    } catch (error) { setCsvError(error instanceof Error ? error.message : String(error)); }
+    finally { csvRunning.current = false; setCsvBusy(false); }
+  }
+  async function confirmCsv(): Promise<void> {
+    if (csvRunning.current || !csv || !csvMatched) return;
+    csvRunning.current = true; setCsvBusy(true); setCsvError(null); setCsvResults([]);
+    try { await confirmCatalogCsv(csv, (outcome) => setCsvResults((current) => [...current, outcome])); }
+    catch (error) { setCsvError(error instanceof Error ? error.message : String(error)); }
+    finally { csvRunning.current = false; setCsvBusy(false); }
+  }
 
   const incomplete = code.trim() === ""
     || name.trim() === ""
@@ -35,17 +64,48 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
   return (
     <section data-testid="catalog-panel">
       <h2>Catálogo</h2>
+      {permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) && (
+      <details><summary>Importar catálogo CSV</summary>
+        <p>CSV UTF-8 exportado desde Excel u otra hoja. No carga stock, costos ni facturas. Cada fila se confirma por separado; reintentar el mismo archivo conserva sus claves.</p>
+        <label>Separador<select aria-label="Separador CSV" value={delimiter} disabled={csvBusy} onChange={(event) => { setDelimiter(event.target.value as "," | ";"); setCsv(null); setCsvResults([]); }}>
+          <option value=",">Coma</option><option value=";">Punto y coma</option>
+        </select></label>
+        <a download="camacho-catalogo.csv" href={`data:text/csv;charset=utf-8,${encodeURIComponent(catalogCsvTemplate(delimiter))}`}>Descargar plantilla CSV</a>
+        <input type="file" aria-label="Archivo de catálogo CSV" accept=".csv,text/csv" disabled={csvBusy || catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)}
+          onChange={(event) => { const file = event.target.files?.[0]; if (file) void loadCsv(file); event.target.value = ""; }} />
+        {csv && <><p>{csv.rows.length} filas. Vista previa sin escrituras.</p>
+          <div className="pos-table-scroll" tabIndex={0} role="region" aria-label="Vista previa CSV, tabla desplazable">
+          <table className="pos-data-table"><caption>Vista previa del archivo, sin escrituras</caption><thead><tr><th scope="col">Fila</th><th scope="col">Código</th><th scope="col">Producto</th><th scope="col">Precio</th><th scope="col">Validación</th></tr></thead>
+            <tbody>{csv.rows.map((row) => <tr key={row.row}><td>{row.row}</td><td>{row.payload?.code}</td><td>{row.payload?.name}</td><td>{row.payload?.price_amount}</td><td>{row.errors.join(", ") || "Forma válida; el backend revalidará"}</td></tr>)}</tbody></table>
+          </div>
+          <button disabled={csvBusy || catalog.busy || !csvMatched || csv.rows.length === 0 || csv.rows.some((row) => row.errors.length > 0) || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)}
+            onClick={() => { void confirmCsv(); }}>Confirmar o reanudar altas CSV</button></>}
+        <ul>{csvResults.map((result) => <li key={result.row}>Fila {result.row}: {result.outcome}</li>)}</ul>
+        {csvError && <p role="alert">{csvError}. Las filas ya confirmadas permanecen; reintente el mismo archivo para recuperar el resultado.</p>}
+      </details>
+      )}
       <div>
-        <input aria-label="Buscar en catálogo" value={query} onChange={(event) => setQuery(event.target.value)} disabled={catalog.busy} />
+        <div className="pos-catalog-tools">
+        <label className="pos-field">Buscar en catálogo<input aria-label="Buscar en catálogo" value={query} onChange={(event) => setQuery(event.target.value)} disabled={catalog.busy} /></label>
         <button data-testid="catalog-list-button" disabled={catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ)}
           onClick={() => { setLoadedQuery(query.trim()); void catalog.listItems(query.trim()); }}>Consultar catálogo</button>
-        <ul>{catalog.items.map((item) => (
-          <li key={item.presentation_id}>{item.name} · {item.presentation_name} · {item.price_amount} {item.currency_code} · {item.presentation_id}</li>
-        ))}</ul>
+        </div>
+        <div className="pos-table-scroll" tabIndex={0} role="region" aria-label="Catálogo, tabla desplazable">
+          <table className="pos-data-table">
+            <caption>Presentaciones del catálogo consultado</caption>
+            <thead><tr><th scope="col">Producto</th><th scope="col">Presentación</th><th scope="col" className="pos-number">Precio</th><th scope="col">ID de presentación</th></tr></thead>
+            <tbody>{catalog.items.map((item) => (
+              <tr key={item.presentation_id}><td>{item.name}</td><td>{item.presentation_name}</td><td className="pos-number">{item.price_amount} {item.currency_code}</td><td className="pos-reference">{item.presentation_id}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
         {catalog.hasMore && <button disabled={catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ)}
           onClick={() => { void catalog.listItems(loadedQuery, catalog.items.length); }}>Cargar más resultados</button>}
       </div>
 
+      <h3>Alta de producto</h3>
+      <div className="pos-form-grid">
+      <label className="pos-field">Código interno
       <input
         data-testid="product-code-input"
         aria-label="Código interno"
@@ -54,6 +114,8 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         placeholder="Código interno"
         disabled={catalog.busy}
       />
+      </label>
+      <label className="pos-field">Nombre del producto
       <input
         data-testid="product-name-input"
         aria-label="Nombre del producto"
@@ -62,6 +124,8 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         placeholder="Nombre del producto"
         disabled={catalog.busy}
       />
+      </label>
+      <label className="pos-field">Presentación
       <input
         data-testid="presentation-name-input"
         aria-label="Presentación"
@@ -70,6 +134,8 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         placeholder="Presentación"
         disabled={catalog.busy}
       />
+      </label>
+      <label className="pos-field">Unidad
       <input
         data-testid="unit-code-input"
         aria-label="Unidad"
@@ -78,8 +144,10 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         placeholder="Unidad"
         disabled={catalog.busy}
       />
+      </label>
       {/* La precisión de la unidad gobierna cuántos decimales admite una
           cantidad: 0 para unidades enteras, 3 para kilos. No es cosmética. */}
+      <label className="pos-field">Decimales de la unidad
       <input
         data-testid="unit-precision-input"
         aria-label="Decimales de la unidad"
@@ -88,6 +156,8 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         placeholder="Decimales de la unidad"
         disabled={catalog.busy}
       />
+      </label>
+      <label className="pos-field">Código de barras
       <input
         data-testid="product-barcode-input"
         aria-label="Código de barras"
@@ -96,6 +166,8 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         placeholder="Código de barras (opcional)"
         disabled={catalog.busy}
       />
+      </label>
+      <label className="pos-field">Precio
       <input
         data-testid="product-price-input"
         aria-label="Precio"
@@ -104,6 +176,8 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         placeholder="Precio"
         disabled={catalog.busy}
       />
+      </label>
+      <label className="pos-field">Moneda
       <input
         data-testid="product-currency-input"
         aria-label="Moneda"
@@ -112,6 +186,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         placeholder="Moneda"
         disabled={catalog.busy}
       />
+      </label>
       <label>
         <input
           data-testid="product-stock-controlled-input"
@@ -123,8 +198,21 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         Controla existencia
       </label>
 
+      <label><input type="checkbox" aria-label="Declarar atributos fiscales" checked={includeFiscal}
+        disabled={catalog.busy} onChange={(event) => setIncludeFiscal(event.target.checked)} />Declarar atributos fiscales</label>
+      {includeFiscal && <fieldset disabled={catalog.busy}>
+        <legend>Atributos fiscales de esta presentación</legend>
+        {([
+          ["codeReference", "Referencia fiscal"], ["unitMeasureCode", "Código DIAN de unidad"],
+          ["standardCode", "Estándar de producto"], ["taxCode", "Código de impuesto"], ["taxRate", "Tasa de impuesto (%)"],
+        ] as const).map(([key, label]) => <label key={key}>{label}<input aria-label={label} value={fiscal[key]}
+          onChange={(event) => setFiscal((current) => ({ ...current, [key]: event.target.value }))} /></label>)}
+        <p>Declare los códigos verificados y la tasa aplicable. Dejarlos sin declarar no significa exención.</p>
+      </fieldset>}
+
       <button
         data-testid="register-product-button"
+        className="pos-form-primary"
         onClick={() => {
           void catalog.registerProduct({
             code: code.trim(),
@@ -136,12 +224,14 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
             barcode,
             price,
             currencyCode: currency.trim(),
+            ...(includeFiscal ? { fiscalAttributes: fiscal } : {}),
           });
         }}
-        disabled={catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) || incomplete}
+        disabled={csvBusy || catalog.busy || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) || incomplete}
       >
         Dar de alta
       </button>
+      </div>
 
       {catalog.product !== null && (
         <div data-testid="product-registered">

@@ -1,0 +1,282 @@
+{
+  "date": "2026-10-24",
+  "installer": "Codex system skill-installer; immutable --ref; no community installer run",
+  "skills": [
+    {
+      "name": "frontend-design",
+      "origin": "https://github.com/dobromirdikov/codex-frontend-design-skill",
+      "commit": "983119775a936d123df9fbfbc3821bdee5bb58fd",
+      "source_path": "skills/frontend-design",
+      "location": "C:\\Users\\Usuario\\.codex\\skills\\frontend-design",
+      "license": "Apache-2.0",
+      "installed": true,
+      "verified_source_files": 2,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "27686536feaf97e3cf92ea538fe2006bbf7084cc8502fb0d61820f57b73ed53f"
+        },
+        {
+          "path": "agents\\openai.yaml",
+          "sha256": "456687098f05bb5c9c1eea66b3ded194f6703c8d65d001f8ed88235033a4bcfb"
+        }
+      ],
+      "discovery": "SKILL.md frontmatter verified; automatic catalog refresh on next turn",
+      "invocation": "$frontend-design"
+    },
+    {
+      "name": "ui-ux-pro-max",
+      "origin": "https://github.com/Rpeng666/ui-ux-pro-max-skill-codex",
+      "commit": "5c02e4c57e8dce4451f65c0dd50eab6b4a4ed3e6",
+      "source_path": ".claude/skills/ui-ux-pro-max",
+      "location": "C:\\Users\\Usuario\\.codex\\skills\\ui-ux-pro-max",
+      "license": "MIT",
+      "installed": true,
+      "verified_source_files": 33,
+      "files": [
+        {
+          "path": "SKILL.md",
+          "sha256": "360d09d9a3099c5e94fc725e8cb85753d210162e4c7822c9003d8c5f38899d15"
+        },
+        {
+          "path": "data\\app-interface.csv",
+          "sha256": "2a17ef810dab715ce1f339861817a8fbe3ccc38142b70517301e874803e838ac"
+        },
+        {
+          "path": "data\\charts.csv",
+          "sha256": "a70ef7460b0eaaea8614f86a0d09a4bc38b467804179762464b5ca45b491baac"
+        },
+        {
+          "path": "data\\colors.csv",
+          "sha256": "5a6cb6c5d6f19b5f5e51865ae1e643e4baa05d04304d0bab976f064632149a6a"
+        },
+        {
+          "path": "data\\google-fonts.csv",
+          "sha256": "3fd2898fb0fdd31ba758bf05cfcd2b58cd0f038a20cf08e417d09e5a8a4a509e"
+        },
+        {
+          "path": "data\\icons.csv",
+          "sha256": "f376c29fb4df37b4bdb366a5aa70cb211ba3dd8b435390aaa03152a64b07d2e8"
+        },
+        {
+          "path": "data\\landing.csv",
+          "sha256": "121a2cac7cf21050234b5f80e7b4e182f10123536032e0f9ad862ad3aec9677d"
+        },
+        {
+          "path": "data\\motion.csv",
+          "sha256": "528be03324785eb568c9570f5d60fc1644d5bc7ce2cbdd21b648cb90ce74e76e"
+        },
+        {
+          "path": "data\\products.csv",
+          "sha256": "9fd9e776ba847cf44c1ea78f95fe5e33b2c56bb7e186e3cfff9c49bc7fcb691b"
+        },
+        {
+          "path": "data\\react-performance.csv",
+          "sha256": "904c8afcda229629545912dde0e8ac37503757131f0169f80b016f1f58c4fd3f"
+        },
+        {
+          "path": "data\\stacks\\angular.csv",
+          "sha256": "dd7cc2a2b34cd8f0508bd05b067545e7a44f7724440c432d491d92a61a8fb6c1"
+        },
+        {
+          "path": "data\\stacks\\astro.csv",
+          "sha256": "ad18dae3ab6d148d37d144592df80dc1825b6c9e86d9d2d68fdda77434206a37"
+        },
+        {
+          "path": "data\\stacks\\flutter.csv",
+          "sha256": "fe36d404c799781e8ba6e9a8179b45799ed5126a545528550cd2eb0f2346e8c5"
+        },
+        {
+          "path": "data\\stacks\\html-tailwind.csv",
+          "sha256": "7aef38e75c53559470afcfa91580a9917ca8b7dbf8b92110389e23e93703ac52"
+        },
+        {
+          "path": "data\\stacks\\jetpack-compose.csv",
+          "sha256": "6c8fd4b0391c342c12b0af15610cd5becbeccaef0bbe8dcfc01d928c3195d93e"
+        },
+        {
+          "path": "data\\stacks\\laravel.csv",
+          "sha256": "50e11e60a64b30f329af25ae71f4b8bbdb43bafc1865451b74f9f540a88964d5"
+        },
+        {
+          "path": "data\\stacks\\nextjs.csv",
+          "sha256": "e828ccc04843742f52f545a068e8a9ab0d2b97c0e771f7e93bf0cef74da05554"
+        },
+        {
+          "path": "data\\stacks\\nuxt-ui.csv",
+          "sha256": "05d6e74501b2b6a636faed32450622759f49a5bcafad971f5f4e7eba0eb7be71"
+        },
+        {
+          "path": "data\\stacks\\nuxtjs.csv",
+          "sha256": "f7a3f2d9542856d00199f85c6c023b7c284cc698e2e6e12d61afce2edacb24d6"
+        },
+        {
+          "path": "data\\stacks\\react-native.csv",
+          "sha256": "077aefc81d194895ecf7936b3ed298b978e36961f183e3a275f8acda19b5f621"
+        },
+        {
+          "path": "data\\stacks\\react.csv",
+          "sha256": "e5624ab41d33427d88e41d07581ce4eca59b37b36ab72a6ad43a9c8e2d0a1c72"
+        },
+        {
+          "path": "data\\stacks\\shadcn.csv",
+          "sha256": "395c2e415ef6f48a474acccdc8eb2c7258a6ed751a5037ba171a2d8823e02ded"
+        },
+        {
+          "path": "data\\stacks\\svelte.csv",
+          "sha256": "71af52d64f266c88070b91dbbaa900c2f8074b6baae9f35eaea6ba9cec6fd803"
+        },
+        {
+          "path": "data\\stacks\\swiftui.csv",
+          "sha256": "c9c2d2510f8e66281a2514e8dd0125a6b653b9ef53a71281b5e7dfe003d5b569"
+        },
+        {
+          "path": "data\\stacks\\threejs.csv",
+          "sha256": "f1c05f8f269fc4784170c837f4ff43b50042f00bbd6ba7dbef2896081a052544"
+        },
+        {
+          "path": "data\\stacks\\vue.csv",
+          "sha256": "c2724915d3c11cd67263f25896cff721f787a0fdd8326002d31e9f5806dfd8f8"
+        },
+        {
+          "path": "data\\styles.csv",
+          "sha256": "f37eb20e7403a715d440efd45ce6952ea6a445d6143fd130c52e219a4bec9911"
+        },
+        {
+          "path": "data\\typography.csv",
+          "sha256": "dbea262a54e3bfa2e6c3b15989a365d5ef4c43349316aff46635e82ca825adce"
+        },
+        {
+          "path": "data\\ui-reasoning.csv",
+          "sha256": "06e4369445388ba9b7a57347510b125b7a2145bbf8546a327ba50292503b204a"
+        },
+        {
+          "path": "data\\ux-guidelines.csv",
+          "sha256": "e01943c433b2cad3040f19389b3b0455673758a569b7a927b5bedf65c989cb96"
+        },
+        {
+          "path": "scripts\\core.py",
+          "sha256": "ab9f398b493e34404448cefc766239ee86119c7a21d8581ba965cabdc698b0a8"
+        },
+        {
+          "path": "scripts\\design_system.py",
+          "sha256": "db272c6649322e383714c73305705101fe1d44c15bd64556d5a515b1c419c2d2"
+        },
+        {
+          "path": "scripts\\search.py",
+          "sha256": "d9983d2a21d330b6b696480940fd78029f7b34027814f2ac1cf17c5d0b042407"
+        }
+      ],
+      "discovery": "SKILL.md frontmatter verified; automatic catalog refresh on next turn",
+      "invocation": "$ui-ux-pro-max"
+    },
+    {
+      "name": "security-best-practices",
+      "origin": "https://github.com/openai/skills",
+      "commit": "49f948faa9258a0c61caceaf225e179651397431",
+      "source_path": "skills/.curated/security-best-practices",
+      "location": "C:\\Users\\Usuario\\.codex\\skills\\security-best-practices",
+      "license": "Apache-2.0",
+      "installed": true,
+      "verified_source_files": 13,
+      "files": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "7b3dae1ffc5434d890f3c65c8f552af52d0307fab3b35dec13013c9ca3844c4f"
+        },
+        {
+          "path": "agents\\openai.yaml",
+          "sha256": "6e9c6f2edce448eb2b589f81ad6e3f722665021785513bcbfd0bf7b86b529171"
+        },
+        {
+          "path": "references\\golang-general-backend-security.md",
+          "sha256": "a73c47c34497b120672d48411fe51dc90d426a571801a0b3f649e2ce4ec658b4"
+        },
+        {
+          "path": "references\\javascript-express-web-server-security.md",
+          "sha256": "427835cbb5be7ba96172ea6ca9af80ddd4419c833e9ebf870996740c80d8406c"
+        },
+        {
+          "path": "references\\javascript-general-web-frontend-security.md",
+          "sha256": "3a7bc7b3f6e7ff043db9dbaa8933894d7a19d987d0607e4ddae5d70184a63d63"
+        },
+        {
+          "path": "references\\javascript-jquery-web-frontend-security.md",
+          "sha256": "bcbad2fa6c2a02709e47e889e70102c76886bf36bc798624d27db570eccf40da"
+        },
+        {
+          "path": "references\\javascript-typescript-nextjs-web-server-security.md",
+          "sha256": "71c773f7a97ce60c853adfa100b3d88b3b7bc4c6b8acaef1432ffabd923ee182"
+        },
+        {
+          "path": "references\\javascript-typescript-react-web-frontend-security.md",
+          "sha256": "d3030c0f24bddb56b9bbb91bbec1ee49eb7778bce4d3e0297b2641b2fc6b0d9c"
+        },
+        {
+          "path": "references\\javascript-typescript-vue-web-frontend-security.md",
+          "sha256": "77c6a747f9f17e3df03aad0fcb20d99ac7898001b81aef8b80908e45ac14a688"
+        },
+        {
+          "path": "references\\python-django-web-server-security.md",
+          "sha256": "4fb69b5d45f10e588d1a8c35cdc5f59e18910f6b46a93e2d342d90f286f8dfd2"
+        },
+        {
+          "path": "references\\python-fastapi-web-server-security.md",
+          "sha256": "7383c7f4fc271190b05e562ada7e825982a2c76b6c79a9f95a1da7687b65a616"
+        },
+        {
+          "path": "references\\python-flask-web-server-security.md",
+          "sha256": "9606d69190c04c167fdeac57e61297547a57b0542fd89dede36f355970446929"
+        }
+      ],
+      "discovery": "SKILL.md frontmatter verified; automatic catalog refresh on next turn",
+      "invocation": "$security-best-practices"
+    },
+    {
+      "name": "security-threat-model",
+      "origin": "https://github.com/openai/skills",
+      "commit": "49f948faa9258a0c61caceaf225e179651397431",
+      "source_path": "skills/.curated/security-threat-model",
+      "location": "C:\\Users\\Usuario\\.codex\\skills\\security-threat-model",
+      "license": "Apache-2.0",
+      "installed": true,
+      "verified_source_files": 5,
+      "files": [
+        {
+          "path": "LICENSE.txt",
+          "sha256": "4dd13869245e356246a5b770723247bbb80a8f07a181d1d3d873a1734297cdb9"
+        },
+        {
+          "path": "SKILL.md",
+          "sha256": "1283c0dd62a8104d9edda4583569b5d8510b4ddaa45120687c999250fd96bad2"
+        },
+        {
+          "path": "agents\\openai.yaml",
+          "sha256": "3319b59736312abceca614e341c0e59cae47263e3b58a22b2b5ddf1e5fc8c227"
+        },
+        {
+          "path": "references\\prompt-template.md",
+          "sha256": "81a59aa3fb3ac3a739d6a26ab38e4015965f215581ee54becef21a2b121ec29b"
+        },
+        {
+          "path": "references\\security-controls-and-assets.md",
+          "sha256": "d536cfa9acad2523dc39134bcf33b9566c29dd9a57b407cbc9901637230c6b98"
+        }
+      ],
+      "discovery": "SKILL.md frontmatter verified; automatic catalog refresh on next turn",
+      "invocation": "$security-threat-model"
+    }
+  ],
+  "plugin": {
+    "name": "Codex Security",
+    "installed": false,
+    "available": true,
+    "status": "Installation requires completion in application; no scan executed",
+    "optional_github_dependency_already_installed": true
+  },
+  "production_dependencies_changed": false
+}

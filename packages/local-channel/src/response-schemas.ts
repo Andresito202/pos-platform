@@ -1,6 +1,8 @@
 import type * as z from "zod";
 import {
+  NativeCommercialResponseSchema,
   HardwareResponseSchema,
+  LicenseOffersListResponseSchema,
   AdminMetricsGetResponseSchema,
   AuditEventListResponseSchema,
   AuthorizationCapabilitiesGetResponseSchema,
@@ -39,6 +41,11 @@ import {
  * esquema; las demás conservan validación estricta en la frontera.
  */
 export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodType> = {
+  "commercial.native.begin":NativeCommercialResponseSchema,
+  "commercial.native.complete":NativeCommercialResponseSchema,
+  "commercial.native.cancel":NativeCommercialResponseSchema,
+  "commercial.native.commit":NativeCommercialResponseSchema,
+  "commercial.native.logout":NativeCommercialResponseSchema,
   "hardware.command": HardwareResponseSchema,
   "runtime.handshake": RuntimeHandshakeResponseSchema,
   "runtime.status.get": RuntimeStatusResponseSchema,
@@ -72,6 +79,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "sales.receipt.get": SalesReceiptGetResponseSchema,
   "audit.event.list": AuditEventListResponseSchema,
   "admin.metrics.get": AdminMetricsGetResponseSchema,
+  "license.offers.list": LicenseOffersListResponseSchema,
 };
 
 export function responseSchemaFor(messageType: IpcMessageType): z.ZodType {

@@ -43,6 +43,7 @@ export function issueJob({policy,privateKey,report,usbName,interfaceIndex,endpoi
   check(report.app_authority_sha256===digest(publicDer),"APK_AUTHORITY_MISMATCH");
   check(report.observed_at_ms<=now&&now-report.observed_at_ms<=policy.max_job_seconds*1000,"FRESH_DEVICE_REPORT_REQUIRED");
   const usb=report.devices.find(d=>d.usb_name===usbName);check(usb?.permission===true&&/^[a-f0-9]{64}$/.test(usb.descriptor_sha256),"USB_PERMISSION_AND_DESCRIPTOR_REQUIRED");
+  check(!(kind==="DRAWER_OPEN"&&usb.vendor===26728&&usb.product===1280),"M60WL_DRAWER_ELECTRICAL_PROFILE_UNVERIFIED");
   check(usb.endpoints.some(e=>e.interface_index===interfaceIndex&&e.address===endpoint&&e.bulk_out===true),"EXACT_USB_BULK_OUT_REQUIRED");
   check(profile.printer_model==="GP-L80160"&&profile.protocol==="ESC_POS","REVIEWED_PRINTER_MODEL_REQUIRED");
   // Explicit restricted state: unknown firmware is permitted ONLY for the fixed ASCII print test.

@@ -8,6 +8,7 @@ import {
 export type SessionTrustKeyDecision =
   | "VALID"
   | "ROOT_SIGNATURE_INVALID"
+  | "KEY_MATERIAL_INVALID"
   | "PURPOSE_MISMATCH"
   | "ENVIRONMENT_MISMATCH"
   | "REVOKED"
@@ -31,7 +32,11 @@ export class SessionTrustKeyVerifier {
     private readonly rootTrustAnchor: KeyObject,
     private readonly expectedEnvironment: string,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) {
+    if (rootTrustAnchor.type !== "public" || rootTrustAnchor.asymmetricKeyType !== "ed25519") {
+      throw new Error("SESSION_TRUST_PUBLIC_ED25519_ROOT_REQUIRED");
+    }
+  }
 
   verify(input: unknown): SessionTrustVerificationResult {
     const evaluatedAt = this.now();
@@ -45,10 +50,6 @@ export class SessionTrustKeyVerifier {
     if (claims.environment !== this.expectedEnvironment) {
       return this.result("ENVIRONMENT_MISMATCH", null, evaluatedAtIso);
     }
-    if (claims.status === "REVOKED") {
-      return this.result("REVOKED", null, evaluatedAtIso);
-    }
-
     let rootSignatureValid = false;
     try {
       rootSignatureValid = verify(
@@ -62,6 +63,17 @@ export class SessionTrustKeyVerifier {
     }
     if (!rootSignatureValid) {
       return this.result("ROOT_SIGNATURE_INVALID", null, evaluatedAtIso);
+    }
+
+    // Revocation is authority too: never let an unsigned status mutate trust.
+    // Tombstones remain effective after key expiry, but must authenticate first.
+    try {
+      this.publicOperationalKey(claims.public_key_pem);
+    } catch {
+      return this.result("KEY_MATERIAL_INVALID", null, evaluatedAtIso);
+    }
+    if (claims.status === "REVOKED") {
+      return this.result("REVOKED", null, evaluatedAtIso);
     }
 
     const time = evaluatedAt.getTime();
@@ -82,11 +94,19 @@ export class SessionTrustKeyVerifier {
     validUntil: string | null;
   } {
     return {
-      key: createPublicKey(claims.public_key_pem),
+      key: this.publicOperationalKey(claims.public_key_pem),
       status: claims.status,
       validFrom: claims.valid_from,
       validUntil: claims.valid_until,
     };
+  }
+
+  private publicOperationalKey(pem: string): KeyObject {
+    // createPublicKey also accepts private PEM; reject it before conversion.
+    if (!pem.startsWith("-----BEGIN PUBLIC KEY-----")) throw new Error("PUBLIC_KEY_REQUIRED");
+    const key = createPublicKey(pem);
+    if (key.type !== "public" || key.asymmetricKeyType !== "ed25519") throw new Error("ED25519_REQUIRED");
+    return key;
   }
 
   private result(

@@ -15,6 +15,7 @@ import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/l
 import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
+import type {NativeCommercialCoordinator} from "../security/native-commercial-coordinator.js";
 
 const LOCAL_SCHEMA_VERSION = "5";
 const RESULT_SCHEMA_VERSION = "1.0.0";
@@ -42,6 +43,7 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly runtimeState: () => RuntimeState,
     private readonly operationConfirmation: OperationConfirmationComponent,
     private readonly commercial: CommercialComponent,
+    private readonly nativeCommercial?:Pick<NativeCommercialCoordinator,"handle"|"release"|"stop"> & {recovered?:(connectionId:string)=>void},
   ) {
     this.commercialHandler = new CommercialRequestHandler(config, commercial);
     this.endpoint = localChannelEndpoint(config.installation_id);
@@ -70,7 +72,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       undefined,
       undefined,
       // El cierre de la conexión invalida su vínculo de sesión (`DEC-015` §5.6).
-      (connectionId) => this.commercial.bindings.release(connectionId),
+      (connectionId) => {this.commercial.bindings.release(connectionId);this.nativeCommercial?.release(connectionId);},
     );
 
     try {
@@ -84,6 +86,7 @@ export class LocalChannelComponent implements RuntimeComponent {
   }
 
   async stop(): Promise<void> {
+    this.nativeCommercial?.stop();
     const server = this.server;
     const authenticator = this.authenticator;
     this.server = undefined;
@@ -104,9 +107,19 @@ export class LocalChannelComponent implements RuntimeComponent {
     if (signal.aborted) throw new Error("local channel request aborted");
 
     switch (request.message_type) {
+      case "commercial.native.begin":
+      case "commercial.native.complete":
+      case "commercial.native.commit":
+      case "commercial.native.cancel":
+      case "commercial.native.logout":
+        if(this.nativeCommercial)return this.nativeCommercial.handle(request,context.connectionId,signal);
+        return {protocol_version:request.protocol_version,request_id:request.request_id,correlation_id:request.correlation_id,
+          operation_id:null,status:"REJECTED",result_code:"DENIED",result_schema_version:"1.0.0",server_time:new Date().toISOString(),
+          error:{code:"NATIVE_COMMERCIAL_UNPROVISIONED",category:"AUTHENTICATION",retryable:false,user_message_key:"native.commercial.unprovisioned",
+            field_errors:[],current_version:null,required_action:null,diagnostic_id:randomUUID()},
+          result:{outcome:"DENIED",attempt_id:null,authorization_url:null}};
       case "authorization.capabilities.get":
       case "session.activate":
-      case "session.recover":
       case "cash.shift.open":
       case "cash.shift.close":
       case "sale.create":
@@ -133,9 +146,15 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "hardware.command":
       case "audit.event.list":
       case "admin.metrics.get":
+      case "license.offers.list":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
         return this.commercialHandler.handle(request, context.connectionId, signal);
+      case "session.recover": {
+        const response=await this.commercialHandler.handle(request,context.connectionId,signal);
+        if(response&&typeof response==="object"&&"result_code" in response&&response.result_code==="ACTIVE")this.nativeCommercial?.recovered?.(context.connectionId);
+        return response;
+      }
 
       case "runtime.handshake": {
         const identityTrusted =

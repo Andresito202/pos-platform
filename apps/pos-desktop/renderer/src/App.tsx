@@ -1,6 +1,7 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
 import { useCallback, useMemo, useState } from "react";
 import "./App.css";
+import "./commercial-precision.css";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
@@ -163,8 +164,8 @@ export function App(): React.JSX.Element {
       });
     }
 
-    if (permissions.has(CanonicalPermission.HARDWARE_READ)) {
-      result.push({ id: "hardware", label: "Impresora y cajón", section: "Administración", render: () => <HardwarePanel /> });
+    if (hasAny(permissions, [CanonicalPermission.HARDWARE_READ, CanonicalPermission.HARDWARE_CONFIGURE, CanonicalPermission.HARDWARE_PRINT, CanonicalPermission.HARDWARE_DRAWER_OPEN])) {
+      result.push({ id: "hardware", label: "Impresora y cajón", section: "Administración", render: () => <HardwarePanel permissions={permissions} /> });
     }
 
     for (const planned of plannedScreens) {
@@ -173,7 +174,7 @@ export function App(): React.JSX.Element {
         id: planned.id,
         label: planned.label,
         section: planned.section,
-        planned: true,
+        planned: planned.id !== "dashboard" && planned.id !== "admin-audit",
         render: () => <PlannedScreen screen={planned} />,
       });
     }
@@ -181,8 +182,9 @@ export function App(): React.JSX.Element {
     return result;
   }, [authorization, receiptTarget, fiscalTarget, inventoryTarget, navigateTo]);
 
-  if (authorization.phase === "loading" || authorization.phase === "error") {
+  if (authorization.phase !== "ready") {
     const loading = authorization.phase === "loading";
+    const unauthenticated = authorization.phase === "unauthenticated";
     return (
       <main className="pos-entry" aria-busy={loading}>
         <section className="pos-entry-brand" aria-label="Camacho POS Colombia">
@@ -191,15 +193,22 @@ export function App(): React.JSX.Element {
         <section className="pos-entry-card" aria-label="Estado de acceso">
           <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
           <h1>Camacho POS Colombia</h1>
-          <h2>{loading ? "Validando sesión" : "Acceso no disponible"}</h2>
-          <p>{loading ? "Comprobando la sesión y los permisos efectivos." : "El POS no ha podido verificar una sesión autorizada."}</p>
+          <h2>{loading ? "Validando sesión" : unauthenticated ? "Sin sesión comercial" : authorization.phase === "denied" ? "Acceso denegado" : authorization.phase === "expired" ? "Sesión expirada" : "Acceso no disponible"}</h2>
+          <p>{loading ? "Comprobando la sesión y los permisos efectivos." : unauthenticated ? "Contacta al administrador para habilitar el acceso comercial." : "El POS no ha podido verificar una sesión autorizada."}</p>
           {loading ? (
             <div data-testid="authorization-loading" role="status">Cargando permisos…</div>
-          ) : (
+          ) : unauthenticated ? (
+            <div data-testid="authorization-unauthenticated" role="status">No hay una sesión comercial activa en este dispositivo.</div>
+          ) : authorization.phase === "denied" ? (
+            <div data-testid="authorization-denied" role="alert">La sesión no dispone de permisos efectivos para operar en este POS.</div>
+          ) : authorization.phase === "expired" ? (
+            <div data-testid="authorization-expired" role="alert">La verificación del backend indica que la sesión expiró. Es necesario autenticarse de nuevo.</div>
+          ) : authorization.phase === "error" ? (
             <div data-testid="authorization-error" role="alert">
               No se pudo cargar la autorización: {authorization.message}
             </div>
-          )}
+          ) : null}
+          <button type="button" onClick={authorization.retry} disabled={loading}>Comprobar sesión</button>
           <StatusPanel />
         </section>
       </main>
@@ -211,6 +220,7 @@ export function App(): React.JSX.Element {
   return (
     <main className="pos-shell" data-visual-area={selectedScreen?.section === "Plataforma" ? "platform" : selectedScreen?.section === "Administración" ? "administration" : "operation"}>
       <aside className="pos-sidebar" aria-label="Navegación principal">
+        <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">Acceso según permisos efectivos</p>
@@ -239,7 +249,7 @@ export function App(): React.JSX.Element {
         </nav>
       </aside>
 
-      <div className="pos-content">
+      <div className="pos-content" id="pos-workspace" tabIndex={-1}>
         <header className="pos-header">
           <div>
             <p className="pos-product-name">Camacho POS Colombia · {selectedScreen?.section ?? "Sesión autorizada"}</p>
@@ -266,10 +276,12 @@ export function App(): React.JSX.Element {
           )}
         </section>
 
-        <details className="pos-operation" aria-label="Herramientas técnicas">
-          <summary>Herramientas técnicas y diagnóstico</summary>
-          <OperationPanel />
-        </details>
+        {import.meta.env.DEV && (
+          <details className="pos-operation" aria-label="Herramientas técnicas">
+            <summary>Herramientas técnicas y diagnóstico</summary>
+            <OperationPanel />
+          </details>
+        )}
       </div>
     </main>
   );

@@ -40,6 +40,7 @@ describe("preload-api", () => {
       "sales.receipt.get",
       "audit.event.list",
       "admin.metrics.get",
+      "license.offers.list",
     ]);
   });
 

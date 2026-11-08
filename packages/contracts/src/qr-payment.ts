@@ -65,3 +65,26 @@ export const QrPaymentMatchSchema = z.strictObject({
 });
 
 export type QrPaymentMatch = z.infer<typeof QrPaymentMatchSchema>;
+const FactusPayPositiveLimit=z.number().int().positive().max(2_147_483_647);
+/** Installer-managed ingress policy, without a provider secret or implicit limits. */
+export const FactusPayIngressProvisionSchema=z.strictObject({
+  profile:z.literal("CAMACHO_FACTUS_PAY_INGRESS_V1"),policy_reference:z.string().min(1).max(256),
+  migration_checksum:z.string().regex(/^[a-f0-9]{64}$/),max_body_bytes:FactusPayPositiveLimit,
+  lock_timeout_ms:FactusPayPositiveLimit,statement_timeout_ms:FactusPayPositiveLimit,
+  rate_limit:z.strictObject({maximum:FactusPayPositiveLimit,buckets:FactusPayPositiveLimit,window_ms:FactusPayPositiveLimit}),
+}).refine(p=>p.statement_timeout_ms>p.lock_timeout_ms,"statement timeout must exceed lock timeout");
+
+/** Administrative provisioning only. No production defaults or HTTP input. */
+export const FactusPayCollectionsProvisionSchema=z.strictObject({
+  profile:z.literal("CAMACHO_FACTUS_PAY_COLLECTIONS_V1"),policy_reference:z.string().min(1).max(256),
+  environment:z.enum(["SANDBOX","PRODUCTION"]),
+  merchant:z.strictObject({tenantId:UuidSchema,companyId:UuidSchema,branchId:UuidSchema,integrationId:UuidSchema}),
+  approved_quote_policies:z.array(z.strictObject({policy_reference:z.string().min(1).max(256),
+    tax_policy_reference:z.string().min(1).max(256),support_policy_reference:z.string().min(1).max(256)})).min(1).max(64),
+  migrations:z.strictObject({"019_subscription_quotes":z.string().regex(/^[a-f0-9]{64}$/),"020_subscription_payments":z.string().regex(/^[a-f0-9]{64}$/)}),
+  credentials_file:z.string().min(1).max(4096),
+  poll_interval_ms:FactusPayPositiveLimit,batch_size:z.number().int().min(1).max(100),
+  collection_expiration_seconds:FactusPayPositiveLimit,
+  request_timeout_ms:FactusPayPositiveLimit,maximum_response_bytes:FactusPayPositiveLimit,evidence_lifetime_ms:FactusPayPositiveLimit,
+  lock_timeout_ms:FactusPayPositiveLimit,statement_timeout_ms:FactusPayPositiveLimit,
+}).refine(p=>p.statement_timeout_ms>p.lock_timeout_ms,"statement timeout must exceed lock timeout");

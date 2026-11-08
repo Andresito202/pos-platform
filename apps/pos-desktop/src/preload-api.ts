@@ -33,6 +33,7 @@ export const RENDERER_API_METHODS = [
   "sales.receipt.get",
   "audit.event.list",
   "admin.metrics.get",
+  "license.offers.list",
 ] as const;
 
 export type RendererApiMethod = (typeof RENDERER_API_METHODS)[number];

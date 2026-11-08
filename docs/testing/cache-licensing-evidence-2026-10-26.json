@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-26",
+  "base": "7da8d97e",
+  "reports": [
+    {
+      "file": "artifacts/windows-p0/2026-10-26/rate-cache-final.json",
+      "sha256": "53c240d7ffa29f433dd7f78d093aa10b7d6eaaffac0e944decfe8e9232bda7a3",
+      "passed": 6,
+      "failed": 0,
+      "filtered": 0
+    },
+    {
+      "file": "artifacts/windows-p0/2026-10-26/cache-main-final.json",
+      "sha256": "8eb440fac31168c563923a1ea3d7ccf6f813896d36c22b74ff133ff859c76637",
+      "passed": 20,
+      "failed": 0,
+      "filtered": 0
+    },
+    {
+      "file": "artifacts/windows-p0/2026-10-26/cache-http-regression.json",
+      "sha256": "a1a0106fc89e951e23ab4e0f471d48bcb859331d9deb75ee6b408ddfce2278ef",
+      "passed": 1,
+      "failed": 0,
+      "filtered": 3
+    },
+    {
+      "file": "artifacts/windows-p0/2026-10-26/license-offer-publication-final.json",
+      "sha256": "dc3919e16cdf296d5d470793585b0af0b97e9dcfa0f5c11e7404dbc138a47b13",
+      "passed": 1,
+      "failed": 0,
+      "filtered": 3
+    }
+  ],
+  "chromiumCache": {
+    "cleared": true,
+    "before_bytes": 2097408,
+    "after_bytes": 0,
+    "elapsed_ms": 52.83359999999993,
+    "cookiePreserved": true,
+    "scope": "TEMPORARY_CHROMIUM_HTTP_CACHE",
+    "platform": "win32"
+  },
+  "architecture": "16 PASS plus ARCH-003 PASS; direct command observed",
+  "typescript": "affected packages PASS",
+  "desktopBuild": "PASS",
+  "scope": "LOCAL_TEMPORARY_NOT_HUMAN_OR_PRODUCTION"
+}

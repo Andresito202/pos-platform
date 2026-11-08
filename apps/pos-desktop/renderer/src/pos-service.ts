@@ -84,15 +84,38 @@ export interface CommercialResponse<T> {
   readonly result: T | null;
 }
 
+export type AccessInvalidation = "SESSION_NOT_BOUND" | "AUTHORIZATION_SNAPSHOT_UNAVAILABLE" | "LOCAL_SERVICE_UNAVAILABLE";
+const accessObservers = new Set<(reason: AccessInvalidation) => void>();
+/** Advisory removal only. This surface cannot grant identity or permissions. */
+export function observeAccessInvalidation(observer: (reason: AccessInvalidation) => void): () => void {
+  accessObservers.add(observer);
+  return () => { accessObservers.delete(observer); };
+}
+function invalidateAccess(reason: AccessInvalidation): void {
+  for (const observer of accessObservers) observer(reason);
+}
+
 export async function callCommercial<T>(
   messageType: RendererApiMethod,
   payload: unknown,
   idempotencyKey?: string,
 ): Promise<CommercialResponse<T>> {
-  const response = await getPosService()[messageType](
-    buildEnvelope(messageType, payload, idempotencyKey),
-  );
-  return response as CommercialResponse<T>;
+  try {
+    const response = await getPosService()[messageType](
+      buildEnvelope(messageType, payload, idempotencyKey),
+    ) as CommercialResponse<T>;
+    // Recovery/capabilities coordinate their own strictly validated state.
+    // Other backend denials must invalidate capabilities already shown by React.
+    if (messageType !== "authorization.capabilities.get" && messageType !== "session.recover" &&
+        response.status === "REJECTED" &&
+        (response.result_code === "SESSION_NOT_BOUND" || response.result_code === "AUTHORIZATION_SNAPSHOT_UNAVAILABLE")) {
+      invalidateAccess(response.result_code);
+    }
+    return response;
+  } catch (error) {
+    invalidateAccess("LOCAL_SERVICE_UNAVAILABLE");
+    throw error;
+  }
 }
 
 export function newIdempotencyKey(): string {

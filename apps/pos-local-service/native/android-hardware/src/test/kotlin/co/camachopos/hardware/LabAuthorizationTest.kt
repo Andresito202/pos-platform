@@ -91,6 +91,13 @@ class LabAuthorizationTest {
         val altered=job();altered.getJSONObject("profile").put("drawer",JSONObject().put("model","CD350"))
         assertFails { LabAuthorization.verify(envelope(altered.put("kind","DRAWER_OPEN")),policy,binding,now) }
     }
+    @Test fun m60wlDrawerRemainsBlockedEvenWithASignedFixturePulse() {
+        val source=job().put("kind","DRAWER_OPEN")
+        source.getJSONObject("binding").put("vendor",26728).put("product",1280)
+        source.getJSONObject("profile").put("drawer",JSONObject().put("model","CD350").put("pin",1).put("on_byte",7).put("off_byte",9).put("time_unit_ms",2).put("voltage_v","12").put("electrical_evidence","SYNTHETIC TEST ONLY, NEVER AN APPROVED M60WL PROFILE"))
+        val failure=assertFails { LabAuthorization.verify(envelope(source),policy,binding.copy(vendor=26728,product=1280),now) }
+        assertEquals("M60WL_DRAWER_ELECTRICAL_PROFILE_UNVERIFIED",failure.message)
+    }
     @Test fun explicitFixtureElectricalProfileProducesOnlyTheSpecifiedPulse() {
         val source=job().put("kind","DRAWER_OPEN")
         val drawer=JSONObject().put("model","CD350").put("pin",1).put("on_byte",7).put("off_byte",9)

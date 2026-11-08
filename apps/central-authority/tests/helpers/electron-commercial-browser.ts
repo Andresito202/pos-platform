@@ -1,0 +1,105 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { createRequire } from "node:module";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve, dirname, basename } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createServer } from "node:net";
+import { randomUUID } from "node:crypto";
+
+/** Reuses the host with empty commercial storage. Optional device provisioning
+ * is Service-only; SSA/grants/user authorization are never seeded into SQLite.
+ * Central password/MFA/BUSINESS and the SQL SAS producer do the actual work. */
+export async function exerciseElectronCommercialBrowser(input: {
+  port: number; certificateFingerprint: string; email: string; password: string;
+  credentialId: string; privateKey: string; counter: number;
+  registration: { clientId: string; redirectUri: string; authorizationOrigin: string };
+  tenantId: string; companyId: string; branchId: string; installationId: string; deviceId: string;
+  issuedAssertion?:unknown;
+  ssaPublicTrust?:{rootPublicPem:string;artifact:unknown};
+  nativeBinding?:{deviceCredentialId:string;devicePrivatePem:string;ca:string};
+  serviceCustody?:{activation:unknown;result:unknown;rootPublicPem:string;operational:unknown;accessV2?:{audience:string;maximumRetentionMs:number}};
+  sasPublicTrust?:{mode:string;environment:string;purpose:string;keyId:string;status:string;publicPem:string;validFrom:string;validUntil:string};
+  sasTrustCandidate?:{issuer:string;authorityId:string;minimumGeneration:number;rootPublicPem:string;url:string;ca:string};
+  beforeAuthorizationRevocation?:()=>Promise<void>;
+}): Promise<Record<string, unknown>> {
+  const root = fileURLToPath(new URL("../../../", import.meta.url));
+  const desktop = join(root, "pos-desktop"), local = join(root, "pos-local-service");
+  const directory = await mkdtemp(join(tmpdir(), "camacho-browser-composition-"));
+  let service: ChildProcess | undefined, electron: ChildProcess | undefined;
+  const inputPipe = `\\\\.\\pipe\\camacho-browser-test-${randomUUID()}`;
+  let initial=true;
+  const inputServer = createServer(socket => {
+    if(initial){initial=false;socket.end(JSON.stringify(input.serviceCustody?{...input,nativeBinding:undefined,serviceCustody:undefined,privilegedService:true}:input));return;}
+    // Reuses the private integration-control pipe, never a product IPC or
+    // renderer bridge. Service pulls the signed projection over real HTTPS.
+    let data="";
+    socket.on("data",async chunk=>{
+      data+=chunk.toString();if(data.length>32768){socket.destroy();return;}
+      if(!data.endsWith("\n"))return;
+      const packet=JSON.parse(data) as Record<string,unknown>;data="";
+      if(packet.testPhase==="REVOKE"&&input.beforeAuthorizationRevocation)await input.beforeAuthorizationRevocation();
+      const id=randomUUID(),listener=(message:unknown)=>{
+        const result=message as {type?:string;id?:string;outcome?:unknown};
+        if(result.type!=="pos-e2e-sas-result"||result.id!==id)return;
+        service?.off("message",listener);clearTimeout(timer);socket.end(JSON.stringify(result.outcome));
+      };
+      const timer=setTimeout(()=>{service?.off("message",listener);socket.destroy();},10000);
+      service?.on("message",listener);service?.send({type:"pos-e2e-sas-acquire",id,input:packet});
+    });
+  });
+  const ready = (child: ChildProcess, predicate: (line: string) => boolean): Promise<string> => new Promise((done, reject) => {
+    let output = "", diagnostic = "", settled = false;
+    child.stderr!.on("data", (chunk: Buffer) => { diagnostic = (diagnostic + chunk.toString()).slice(-2000); });
+    const timeout = setTimeout(() => reject(Error("INTEGRATION_PROCESS_TIMEOUT: "+diagnostic)), 60_000);
+    child.stdout!.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+      const match = output.split("\n").find(predicate);
+      if (match) { settled = true; clearTimeout(timeout); done(match); }
+    });
+    child.once("error", error => { clearTimeout(timeout); reject(error); });
+    child.once("exit", () => { clearTimeout(timeout); if (!settled) reject(Error("INTEGRATION_PROCESS_FAILED: " + diagnostic)); });
+  });
+  try {
+    await new Promise<void>((done, reject) => { inputServer.once("error", reject); inputServer.listen(inputPipe, () => done()); });
+    service = spawn(process.execPath, [createRequire(join(local, "package.json")).resolve("tsx/cli"), join(local, "e2e-host/real-service-host.ts")], {
+      cwd: local, stdio: ["pipe", "pipe", "pipe", "ipc"], env: { ...process.env, NODE_ENV: "test", POS_E2E_SESSION_MODE: "NONE",
+        POS_E2E_DATA_DIR: directory, POS_E2E_TENANT_ID: input.tenantId, POS_E2E_COMPANY_ID: input.companyId,
+        POS_E2E_BRANCH_ID: input.branchId, POS_E2E_INSTALLATION_ID: input.installationId, POS_E2E_DEVICE_ID: input.deviceId,
+        POS_E2E_SSA_PUBLIC_TRUST:input.ssaPublicTrust?JSON.stringify(input.ssaPublicTrust):"",
+        POS_E2E_SAS_PUBLIC_TRUST:input.sasPublicTrust?JSON.stringify(input.sasPublicTrust):"",
+        POS_E2E_SAS_TRUST_CANDIDATE:input.sasTrustCandidate?JSON.stringify(input.sasTrustCandidate):"",
+        POS_E2E_NATIVE_CUSTODY:input.serviceCustody?"1":"0" },
+    });
+    if(input.serviceCustody)service.send!({type:"pos-e2e-native-provision",...input.serviceCustody,
+      binding:input.nativeBinding,registration:input.registration,port:input.port});
+    await ready(service, line => line.includes('"ready":true'));
+    const env = { ...process.env, POS_DATA_DIRECTORY: directory, POS_INSTALLATION_ID: input.installationId,
+      POS_DEVICE_ID: input.deviceId, CAMACHO_BROWSER_TEST_DIRECTORY: directory, CAMACHO_BROWSER_TEST_PORT: String(input.port),
+      CAMACHO_BROWSER_TEST_PIPE: inputPipe };
+    delete (env as NodeJS.ProcessEnv).ELECTRON_RUN_AS_NODE;
+    electron = spawn(createRequire(join(desktop, "package.json"))("electron") as string,
+      [join(desktop, "e2e/commercial-browser-entry.mjs")], { cwd: desktop, stdio: ["pipe", "pipe", "pipe"], env });
+    const result = ready(electron, line => line.includes('"browserIntegration":true'));
+    const observed = JSON.parse(await result) as Record<string, unknown>;
+    if (process.env.POS_E2E_AUDIT_DIRECTORY) {
+      await mkdir(process.env.POS_E2E_AUDIT_DIRECTORY, { recursive: true });
+      await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY, "browser-observations.json"), JSON.stringify(observed, null, 2));
+      if(input.sasTrustCandidate)await writeFile(join(process.env.POS_E2E_AUDIT_DIRECTORY,
+        `sas-trust-observations-custody-${Boolean(input.serviceCustody)}.json`),JSON.stringify(observed,null,2));
+    }
+    return observed;
+  } finally {
+    inputServer.close();
+    if (electron?.exitCode === null) {
+      const child = electron;
+      await new Promise<void>(done => { child.once("exit", () => done()); child.kill(); });
+    }
+    if (service?.exitCode === null) {
+      const child = service;
+      await new Promise<void>(done => { child.once("exit", () => done()); child.send!("pos-e2e-shutdown"); });
+    }
+    if (dirname(resolve(directory)) !== resolve(tmpdir()) || !basename(directory).startsWith("camacho-browser-composition-")) throw Error("BROWSER_CLEANUP_REJECTED");
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  }
+}

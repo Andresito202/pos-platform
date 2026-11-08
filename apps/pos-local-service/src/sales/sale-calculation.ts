@@ -39,11 +39,7 @@ const ROUNDING_HALF = 25n * SCALE;
  * contar decimales metería coma flotante en la única ruta que decide qué se
  * cobra.
  */
-export function quantityFitsUnitPrecision(quantityText: string, unitPrecision: number): boolean {
-  const fractional = quantityText.split(".")[1];
-  if (fractional === undefined) return true;
-  return /^0*$/.test(fractional.slice(unitPrecision));
-}
+export { quantityFitsUnitPrecision } from "../quantity.js";
 
 /** NEAREST_50_HALF_AWAY_FROM_ZERO_V1 (DEC-006). Entrada y salida en BigInt escala 6. */
 export function nearestFiftyHalfAwayFromZero(value: bigint): bigint {

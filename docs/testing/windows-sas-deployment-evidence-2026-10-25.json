@@ -1,0 +1,53 @@
+{
+  "initial_head": "78fd96298c7e3cbc5aed3cfa5307390764c279b8",
+  "branch": "feat/android-commercial-runtime",
+  "date": "2026-10-25",
+  "approval": "Owner replied si autorizado to SAS/access-refresh proposal; no invented deployment values or productive activation",
+  "scope": "SAS deployment contract and managed-file Service bootstrap; access/refresh production implementation remains pending",
+  "functional_distinct_passed": 65,
+  "functional_failed": 0,
+  "architecture_passed": 16,
+  "reports": [
+    {
+      "file": "artifacts/windows-p0/2026-10-25/sas-deployment-final.json",
+      "sha256": "5d472d86dd417cd257029e0241aea97a3b5969106bf29f9ae26181f9f57dcd5c",
+      "passed": 63,
+      "failed": 0,
+      "skipped": 0,
+      "breakdown": {"shared_candidate_store":35,"deployment":11,"config":15,"real_service_main":2}
+    },
+    {
+      "file": "artifacts/windows-p0/2026-10-25/sas-deployment-central-final.json",
+      "sha256": "1761eaa470977b28b4159d9ca100f650cab1b100187fb36b579ef7c9ea42275f",
+      "passed": 2,
+      "failed": 0,
+      "skipped_by_filter": 176,
+      "breakdown": {"offline_signer":1,"postgres_electron_service_custody":1}
+    }
+  ],
+  "commands": [
+    "pnpm --filter @pos-platform/pos-local-service exec vitest run tests/authorization-trust-deployment.test.ts tests/authorization-trust-candidate.test.ts tests/config.test.ts tests/session-bootstrap-main-runtime.test.ts --testTimeout=120000 --no-file-parallelism --reporter=json --outputFile=../../artifacts/windows-p0/2026-10-25/sas-deployment-final.json",
+    "$env:POSTGRES_TEST_URL='postgresql://postgres@127.0.0.1:55433/postgres'; pnpm --filter @pos-platform/central-authority exec vitest run tests/business-access-preparation-physical.test.ts tests/isolated-authorization-trust.test.ts -t 'central SAS: Electron.*custody=true|Central signs the entire' --no-file-parallelism --reporter=json --outputFile=../../artifacts/windows-p0/2026-10-25/sas-deployment-central-final.json",
+    "pnpm --filter @pos-platform/contracts --filter @pos-platform/pos-local-service --filter @pos-platform/central-authority run typecheck",
+    "pnpm --filter @pos-platform/pos-local-service build:artifact",
+    "pnpm --filter @pos-platform/pos-desktop build",
+    "pnpm architecture:check",
+    "pnpm ci:repository-policy",
+    "git diff --check"
+  ],
+  "typecheck": "PASS",
+  "desktop_build": "PASS",
+  "service_build": {
+    "status": "PASS",
+    "file": "apps/pos-local-service/dist/pos-local-service-0.0.0-win32-x64.tar.gz",
+    "sha256": "5cce68c3a9f9821838a0f5a8f13948cec069637c287635f4f82a90a6c1ebd6ea",
+    "bytes": 1238197
+  },
+  "environment": "Windows, real CurrentUser DPAPI, disposable SQLite, PostgreSQL tmpfs localhost:55433, Electron/Chromium virtual authenticator",
+  "failures_observed": [],
+  "production_data_changed": false,
+  "root_private_keys_provisioned": false,
+  "human_certified": false,
+  "production_certified": false,
+  "remote_ci": "PENDING; no Actions query, dispatch or workflow modification"
+}

@@ -20,11 +20,11 @@ export function useRuntimeStatus(pollIntervalMs = 5_000): RuntimeStatus {
             ? { phase: "connected", details: result.result }
             : { phase: "error", message: result.result_code });
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
           setStatus({
             phase: "error",
-            message: error instanceof Error ? error.message : String(error),
+            message: "LOCAL_SERVICE_UNAVAILABLE",
           });
         }
       }

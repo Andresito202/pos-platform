@@ -1,0 +1,219 @@
+﻿{
+    "base_head":  "09a370bcee8a16a24e15f205603fc9d5bad30cbd",
+    "branch":  "feat/android-commercial-runtime",
+    "environment":  "WINDOWS_ISOLATED_VALIDATION",
+    "reports":  [
+                    {
+                        "path":  "artifacts\\auth-sas\\2026-10-23\\central-sas-tests.json",
+                        "sha256":  "61e0ffe54fc3a79ec25631ea097d45b52f7867c4da8a00761a57a44dad08256f",
+                        "passed":  0,
+                        "failed":  0,
+                        "skipped":  165,
+                        "failures":  [
+
+                                     ]
+                    },
+                    {
+                        "path":  "artifacts\\auth-sas\\2026-10-23\\central-sas-retry-tests.json",
+                        "sha256":  "be5b4adc374cb82a7d086d18d98c2d5ef20a4d58d5f7b3019a5c9df28ac91c0a",
+                        "passed":  19,
+                        "failed":  1,
+                        "skipped":  145,
+                        "failures":  [
+                                         "BUSINESS access preparation - physical composition central SAS: ambiguous roles or grant versions require an explicit composition decision"
+                                     ]
+                    },
+                    {
+                        "path":  "artifacts\\auth-sas\\2026-10-23\\central-sas-final-tests.json",
+                        "sha256":  "36d99a81fe5a713d8a5e62367d5e55b73bfc17c16b7e256c0784e3d28b877011",
+                        "passed":  22,
+                        "failed":  0,
+                        "skipped":  145,
+                        "failures":  [
+
+                                     ]
+                    },
+                    {
+                        "path":  "artifacts\\auth-sas\\2026-10-23\\local-sas-tests.json",
+                        "sha256":  "0e56148ece291f54bb3c0b72fd08de567e1df81de3214ccaf445cdb246b0007a",
+                        "passed":  124,
+                        "failed":  2,
+                        "skipped":  0,
+                        "failures":  [
+                                         "central SAS reception: repeated or old sequence never replaces the current projection",
+                                         "ciclo de vida del vÃ­nculo dos conexiones mantienen vÃ­nculos independientes"
+                                     ]
+                    },
+                    {
+                        "path":  "artifacts\\auth-sas\\2026-10-23\\local-sas-final-tests.json",
+                        "sha256":  "5e119a92eddcc10b3a18174ed0ce7a011f9fbe94f2e117b59e083aa6d939af74",
+                        "passed":  95,
+                        "failed":  0,
+                        "skipped":  0,
+                        "failures":  [
+
+                                     ]
+                    },
+                    {
+                        "path":  "artifacts\\auth-sas\\2026-10-23\\sas-verifier-final-tests.json",
+                        "sha256":  "34a8a77572b4852d3c98300575a7db676144da7b245c830b5a4924851d64d424",
+                        "passed":  31,
+                        "failed":  0,
+                        "skipped":  0,
+                        "failures":  [
+
+                                     ]
+                    }
+                ],
+    "observed":  {
+                     "browserIntegration":  true,
+                     "scope":  "ISOLATED_VALIDATION",
+                     "boundNative":  true,
+                     "destinationConfirmed":  true,
+                     "wrongPasswordRejected":  true,
+                     "erased":  true,
+                     "custodyCleared":  true,
+                     "nativeSsa":  {
+                                       "invalid":  "REJECTED",
+                                       "activated":  "ACTIVATED",
+                                       "replay":  "REJECTED",
+                                       "recovered":  "ACTIVE",
+                                       "capabilities":  {
+                                                            "protocol_version":  "1.0.0",
+                                                            "request_id":  "d9a6d485-afd9-45c1-86dd-666511546004",
+                                                            "correlation_id":  "70e60c1c-5df5-471a-b3de-85a1507d1532",
+                                                            "operation_id":  null,
+                                                            "status":  "SUCCEEDED",
+                                                            "result_code":  "AVAILABLE",
+                                                            "result_schema_version":  "1.0.0",
+                                                            "error":  null,
+                                                            "server_time":  "2026-10-23T16:56:26.195Z",
+                                                            "result":  {
+                                                                           "outcome":  "AVAILABLE",
+                                                                           "permissions":  [
+                                                                                               "AUDIT_EVENT_READ"
+                                                                                           ]
+                                                                       }
+                                                        },
+                                       "audit":  {
+                                                     "protocol_version":  "1.0.0",
+                                                     "request_id":  "49b88627-4174-4717-9a72-992f3ce9c80c",
+                                                     "correlation_id":  "bcb8e47a-793b-4157-afc1-9fc329355a50",
+                                                     "operation_id":  null,
+                                                     "status":  "SUCCEEDED",
+                                                     "result_code":  "FOUND",
+                                                     "result_schema_version":  "1.0.0",
+                                                     "error":  null,
+                                                     "server_time":  "2026-10-23T16:56:26.239Z",
+                                                     "result":  {
+                                                                    "outcome":  "FOUND",
+                                                                    "events":  [
+
+                                                                               ],
+                                                                    "has_more":  false
+                                                                }
+                                                 },
+                                       "forbidden":  {
+                                                         "protocol_version":  "1.0.0",
+                                                         "request_id":  "f9b96521-629d-42e3-a81e-bad81ad81acb",
+                                                         "correlation_id":  "3eb3d3ac-3922-4412-8604-e6eec0b29efb",
+                                                         "operation_id":  null,
+                                                         "status":  "REJECTED",
+                                                         "result_code":  "UNAUTHORIZED",
+                                                         "result_schema_version":  "1.0.0",
+                                                         "error":  {
+                                                                       "code":  "UNAUTHORIZED",
+                                                                       "category":  "AUTHORIZATION",
+                                                                       "retryable":  false,
+                                                                       "user_message_key":  "catalog.item.list.unauthorized",
+                                                                       "field_errors":  [
+
+                                                                                        ],
+                                                                       "current_version":  null,
+                                                                       "required_action":  null,
+                                                                       "diagnostic_id":  "4cd6918d-2f0d-42d5-bdf9-0d4696b7538f"
+                                                                   },
+                                                         "server_time":  "2026-10-23T16:56:26.222Z",
+                                                         "result":  {
+                                                                        "outcome":  "UNAUTHORIZED",
+                                                                        "items":  [
+
+                                                                                  ],
+                                                                        "has_more":  false
+                                                                    }
+                                                     },
+                                       "channelLossRejected":  true
+                                   },
+                     "grantsFabricated":  false,
+                     "dashboardClosed":  true,
+                     "dashboardAuthorized":  true,
+                     "revocationDenied":  true,
+                     "revokedAuthorization":  {
+                                                  "invalid":  "REJECTED",
+                                                  "activated":  "REJECTED",
+                                                  "replay":  "REJECTED",
+                                                  "recovered":  "ACTIVE",
+                                                  "capabilities":  {
+                                                                       "protocol_version":  "1.0.0",
+                                                                       "request_id":  "bb620d24-769a-4f5c-9ccd-a824949a90a5",
+                                                                       "correlation_id":  "05d73d01-f441-4961-8e01-823709bce28f",
+                                                                       "operation_id":  null,
+                                                                       "status":  "SUCCEEDED",
+                                                                       "result_code":  "AVAILABLE",
+                                                                       "result_schema_version":  "1.0.0",
+                                                                       "error":  null,
+                                                                       "server_time":  "2026-10-23T16:56:27.143Z",
+                                                                       "result":  {
+                                                                                      "outcome":  "AVAILABLE",
+                                                                                      "permissions":  [
+
+                                                                                                      ]
+                                                                                  }
+                                                                   },
+                                                  "audit":  {
+                                                                "protocol_version":  "1.0.0",
+                                                                "request_id":  "a1bf72a5-915b-49e9-beb3-34cbfb7ee289",
+                                                                "correlation_id":  "8cb1cf03-7383-47d3-a59d-22ef64a1a3db",
+                                                                "operation_id":  null,
+                                                                "status":  "REJECTED",
+                                                                "result_code":  "UNAUTHORIZED",
+                                                                "result_schema_version":  "1.0.0",
+                                                                "error":  {
+                                                                              "code":  "UNAUTHORIZED",
+                                                                              "category":  "AUTHORIZATION",
+                                                                              "retryable":  false,
+                                                                              "user_message_key":  "audit.event.list.unauthorized",
+                                                                              "field_errors":  [
+
+                                                                                               ],
+                                                                              "current_version":  null,
+                                                                              "required_action":  null,
+                                                                              "diagnostic_id":  "ee1b2355-3782-4edd-8a32-dd9cafef13cd"
+                                                                          },
+                                                                "server_time":  "2026-10-23T16:56:27.150Z",
+                                                                "result":  {
+                                                                               "outcome":  "UNAUTHORIZED",
+                                                                               "events":  [
+
+                                                                                          ],
+                                                                               "has_more":  false
+                                                                           }
+                                                            },
+                                                  "channelLossRejected":  true
+                                              },
+                     "centralSas":  true,
+                     "authenticator":  "CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"
+                 },
+    "images":  [
+                   {
+                       "sha256":  "61ca3a975c92ebd51d029c9c4468d264efa6a957ada09b8622917bbb0b67f9b3",
+                       "path":  "artifacts/auth-sas/2026-10-23/final/central-sas-dashboard.png"
+                   },
+                   {
+                       "sha256":  "621b30178f68b9ffbff4481261d645a6963f12cf7aff299bfb8465fd5b73b03d",
+                       "path":  "artifacts/auth-sas/2026-10-23/final/central-sas-revoked.png"
+                   }
+               ],
+    "human_authenticated":  false,
+    "production_approved":  false
+}

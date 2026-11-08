@@ -10,13 +10,13 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 `Camacho POS Colombia` es la identidad comercial. `POS Platform`, `pos-platform` y `@pos-platform/*` son identificadores técnicos internos.
 
-## Estado y regla de continuidad — 2026-10-17
+## Estado y regla de continuidad — 2026-10-21
 
 > **UNA SOLA LÍNEA. UN SOLO OBJETIVO ACTIVO. SE CONSTRUYE SOBRE LO EXISTENTE.**
 
 La rama canónica del producto es `main`. La única línea activa de desarrollo es:
 
-[rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92)
+`feat/android-commercial-runtime`, desde `51d5feb`, por orden expresa del propietario. Continúa el laboratorio `b907d20f`; [PR #92](https://github.com/Andresito202/pos-platform/pull/92) permanece draft y se conserva su historia. El objetivo activo es ejecutar el motor comercial existente en Android y después integrar autorización y hardware, sin otro POS ni cambios de seguridad para facilitar el arranque.
 
 Cualquier IA o agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
 

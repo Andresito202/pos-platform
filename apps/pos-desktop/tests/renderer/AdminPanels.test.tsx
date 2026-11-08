@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { CANONICAL_PERMISSION_CODES } from "@pos-platform/contracts";
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { webcrypto } from "node:crypto";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   CatalogProductRegisterRequestSchema,
@@ -62,6 +63,40 @@ describe("CatalogPanel", () => {
     fireEvent.change(screen.getByTestId("product-price-input"), { target: { value: price } });
   }
 
+  it("CSV previews without writes and confirms only through existing backend registration", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    try {
+      install({ status: "SUCCEEDED", result_code: "REGISTERED", result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PRESENTATION } });
+      Object.defineProperty(window, "posService", { configurable: true, value: { ...window.posService,
+        "catalog.item.list": async () => ({ status: "SUCCEEDED", result_code: "FOUND", result: { outcome: "FOUND", items: [], has_more: false } }),
+      } });
+      render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+      const bytes = new TextEncoder().encode("code,name,stock_controlled,presentation_name,unit_code,unit_precision,barcode,price_amount,currency_code\r\nARZ,Arroz,true,Bolsa,UND,0,,1500,COP\r\n");
+      fireEvent.change(screen.getByLabelText("Archivo de catálogo CSV"), { target: { files: [{ size: bytes.length, arrayBuffer: async () => bytes.buffer }] } });
+      await screen.findByText("SIN_COINCIDENCIA_VISIBLE", { exact: false });
+      expect(calls.get("catalog.product.register")).toBeUndefined();
+      fireEvent.click(screen.getByText("Confirmar o reanudar altas CSV"));
+      await screen.findByText("Fila 2: REGISTERED");
+      const request = CatalogProductRegisterRequestSchema.parse(sent("catalog.product.register"));
+      expect(request.idempotency_key).toMatch(/^catalog-csv:[a-f0-9]{64}:2$/);
+      expect(request.payload.code).toBe("ARZ");
+      expect(calls.get("inventory.stock.receive")).toBeUndefined();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("D-19 sends only explicitly declared fiscal attributes, normalizing the tax rate", async () => {
+    install({ status: "SUCCEEDED", result_code: "REGISTERED", result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PRESENTATION } });
+    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />); fillProduct();
+    fireEvent.click(screen.getByLabelText("Declarar atributos fiscales"));
+    for (const [label, value] of [["Referencia fiscal", "ARZ-FISCAL"], ["Código DIAN de unidad", "94"], ["Estándar de producto", "999"], ["Código de impuesto", "01"], ["Tasa de impuesto (%)", "19"]]) {
+      fireEvent.change(screen.getByLabelText(label!), { target: { value } });
+    }
+    fireEvent.click(screen.getByTestId("register-product-button"));
+    await screen.findByTestId("product-registered");
+    const request = CatalogProductRegisterRequestSchema.parse(sent("catalog.product.register"));
+    expect(request.payload.fiscal_attributes).toEqual({ code_reference: "ARZ-FISCAL", unit_measure_code: "94", standard_code: "999", tax_code: "01", tax_rate: "19.000000" });
+  });
+
   it("construye un sobre que el esquema real del contrato acepta", async () => {
     install({
       status: "SUCCEEDED",
@@ -86,6 +121,7 @@ describe("CatalogPanel", () => {
     // la frontera.
     expect(payload["price_amount"]).toBe("1500.000000");
     expect(payload["barcode"]).toBe("7700000000017");
+    expect(payload["fiscal_attributes"]).toBeUndefined();
     // El sobre no lleva identidad: la operación la rechaza si la lleva.
     expect(envelope["tenant_id"]).toBeUndefined();
     expect(envelope["branch_id"]).toBeUndefined();
@@ -582,6 +618,9 @@ describe("AdministrativeControlPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
     await waitFor(() => { expect(screen.getByText("SALE_CREATED")).toBeTruthy(); });
     expect(screen.getByText("Auditoría administrativa")).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Eventos de auditoría" })).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Acción" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "SALE_CREATED" })).toBeTruthy();
     expect(screen.getByText("1 evento cargado")).toBeTruthy();
     expect(sent("audit.event.list")["payload"]).toBeDefined();
   });
@@ -602,10 +641,10 @@ describe("permisos por acción y consultas conectadas", () => {
   it("does not enable stock mutations for an inventory reader", () => {
     install(null);
     render(<InventoryPanel permissions={new Set(["INVENTORY_STOCK_READ"])} initialPresentationId={PRESENTATION} />);
-    fireEvent.change(screen.getByTestId("receive-quantity-input"), { target: { value: "2" } });
-    fireEvent.change(screen.getByTestId("adjust-quantity-input"), { target: { value: "1" } });
-    expect((screen.getByTestId("receive-stock-button") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("adjust-stock-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("receive-quantity-input")).toBeNull();
+    expect(screen.queryByTestId("adjust-quantity-input")).toBeNull();
+    expect(screen.queryByTestId("receive-stock-button")).toBeNull();
+    expect(screen.queryByTestId("adjust-stock-button")).toBeNull();
     expect((screen.getByTestId("get-stock-button") as HTMLButtonElement).disabled).toBe(false);
   });
 

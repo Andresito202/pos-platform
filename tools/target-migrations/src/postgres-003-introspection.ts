@@ -8,7 +8,7 @@ import {
   POSTGRES_001_TABLE_COLUMNS,
   TARGET_SCHEMAS,
 } from "./contract.js";
-import { MigrationInvariantError, sha256 } from "./shared.js";
+import { MigrationInvariantError, sha256, readArtifact } from "./shared.js";
 
 type GrantEntry={select:readonly string[];insert:readonly string[];update:readonly string[]};
 type GrantMatrix=Record<string,Record<string,GrantEntry>>;
@@ -58,7 +58,19 @@ async function validate001FoundationShape(db:SqlExecutor):Promise<void>{
       ORDER BY a.attnum
     `);
     const actualColumns=columns.map(row=>row.name);
-    invariant(same(actualColumns,[...expected]),`003 predecessor 001 columns diverge for ${qualified}: actual=${JSON.stringify(actualColumns)} expected=${JSON.stringify(expected)}`);
+    let expectedColumns:string[]=[...expected];
+    // Registered successor 014 legitimately extends this closed 001 table.
+    // Accept only its exact additive shape with an authentic APPLIED checksum;
+    // unknown columns or an unregistered/partial extension still fail closed.
+    if(qualified==="identity.session_refresh_tokens"&&actualColumns.length>expected.length){
+      const migration="014_commercial_refresh_binding",checksum=sha256(await readArtifact(`postgres/${migration}.up.sql`)).toString("hex");
+      const history=await queryRows<{checksum:string}>(db,`SELECT encode(checksum,'hex') AS checksum
+        FROM platform.target_migration_executions WHERE migration_id='${migration}' AND status='APPLIED'`);
+      invariant(history.length===1&&history[0]!.checksum===checksum,"003 refresh extension requires registered 014 checksum");
+      expectedColumns=[...expectedColumns,"client_id","credential_id","installation_id","device_id","tenant_id","issuer_origin","audience",
+        "family_expires_at","password_credential_id","password_credential_version"];
+    }
+    invariant(same(actualColumns,expectedColumns),`003 predecessor 001 columns diverge for ${qualified}: actual=${JSON.stringify(actualColumns)} expected=${JSON.stringify(expectedColumns)}`);
   }
 }
 
@@ -131,23 +143,23 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalo
     SELECT 'constraint' kind,n.nspname schema_name,c.relname table_name,x.conname name,
       x.contype::text||':'||pg_get_constraintdef(x.oid,true) definition
     FROM pg_constraint x JOIN pg_class c ON c.oid=x.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname='integrations'
+    WHERE n.nspname='integrations' AND c.relname NOT IN ('factus_pay_webhook_keys','factus_pay_webhook_inbox')
     UNION ALL
     SELECT 'index',n.nspname,c.relname,i.relname,
       pg_get_indexdef(i.oid,0,true)||':'||x.indisvalid::text||':'||x.indisready::text||':'||x.indislive::text
     FROM pg_index x JOIN pg_class c ON c.oid=x.indrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-    JOIN pg_class i ON i.oid=x.indexrelid WHERE n.nspname='integrations'
+    JOIN pg_class i ON i.oid=x.indexrelid WHERE n.nspname='integrations' AND c.relname NOT IN ('factus_pay_webhook_keys','factus_pay_webhook_inbox')
     UNION ALL
     SELECT 'trigger',n.nspname,c.relname,t.tgname,pg_get_triggerdef(t.oid,true)||':'||t.tgenabled::text
     FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname='integrations' AND NOT t.tgisinternal
+    WHERE n.nspname='integrations' AND NOT t.tgisinternal AND c.relname NOT IN ('factus_pay_webhook_keys','factus_pay_webhook_inbox')
     UNION ALL
     SELECT 'policy',n.nspname,c.relname,p.polname,
       concat_ws(':',p.polcmd::text,p.polpermissive,
         (SELECT string_agg(pg_get_userbyid(role_oid),',' ORDER BY pg_get_userbyid(role_oid)) FROM unnest(p.polroles) role_oid),
         coalesce(pg_get_expr(p.polqual,p.polrelid,true),''),coalesce(pg_get_expr(p.polwithcheck,p.polrelid,true),''))
     FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace
-    WHERE n.nspname='integrations'
+    WHERE n.nspname='integrations' AND c.relname NOT IN ('factus_pay_webhook_keys','factus_pay_webhook_inbox')
     UNION ALL
     SELECT 'function',n.nspname,'',p.proname||'('||pg_get_function_identity_arguments(p.oid)||')',pg_get_functiondef(p.oid)
     FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='integrations'
@@ -166,6 +178,12 @@ async function semanticCatalogFingerprint(db:SqlExecutor):Promise<SemanticCatalo
   return {sha:sha256(JSON.stringify(source)).toString('hex'),components:{...components,...columnTables}};
 }
 export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
+  const factusExtensionState=await queryRows<{present:boolean}>(db,"SELECT to_regclass('integrations.factus_pay_webhook_keys') IS NOT NULL OR to_regclass('integrations.factus_pay_webhook_inbox') IS NOT NULL AS present");
+  if(factusExtensionState[0]?.present){
+    const checksum=sha256(await readArtifact("postgres/018_factus_pay_webhook_inbox.up.sql")).toString("hex");
+    const history=await queryRows<{checksum:string}>(db,"SELECT encode(checksum,'hex') AS checksum FROM platform.target_migration_executions WHERE migration_id='018_factus_pay_webhook_inbox' AND status='APPLIED'");
+    invariant(history.length===1&&history[0]!.checksum===checksum,"003 Factus Pay extension requires registered 018 checksum");
+  }
   await validate001FoundationShape(db);
 
   const extension=(await queryRows<{present:boolean}>(db,"SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='btree_gist') present"))[0];
@@ -215,10 +233,13 @@ export async function validatePostgres003Catalog(db:SqlExecutor):Promise<void>{
     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='integrations' AND c.relkind='r' ORDER BY c.relname
   `);
-  invariant(same(integrationTables.map(row=>row.name),[...INTEGRATION_TABLES].sort()),"003 predecessor integration table set diverges");
+  const factusExtension=["factus_pay_webhook_inbox","factus_pay_webhook_keys"];
+  const actual=integrationTables.map(row=>row.name),present=factusExtension.filter(name=>actual.includes(name));
+  invariant(present.length===0||present.length===2,"003 integration schema has a partial Factus Pay 018 extension");
+  invariant(same(actual,[...INTEGRATION_TABLES,...present].sort()),"003 predecessor integration table set diverges");
   invariant(integrationTables.every(row=>row.owner==="pos_schema_owner"),"003 predecessor integration table owner diverges");
   invariant(integrationTables.every(row=>{
-    const expected=INTEGRATION_RLS_TABLES.includes(row.name);
+    const expected=INTEGRATION_RLS_TABLES.includes(row.name)||factusExtension.includes(row.name);
     return row.rls===expected&&row.forced===expected;
   }),"003 predecessor integration table RLS diverges");
 

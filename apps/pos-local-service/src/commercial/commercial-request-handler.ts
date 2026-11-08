@@ -32,7 +32,7 @@ type CommercialRequest = Extract<
       | "sales.receipt.get"
       | "hardware.command"
       | "audit.event.list"
-      | "admin.metrics.get";
+      | "admin.metrics.get" | "license.offers.list";
   }
 >;
 
@@ -55,6 +55,8 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   ALREADY_CLOSED: "CONFLICT",
   VERSION_CONFLICT: "CONFLICT",
   CATALOG_NOT_FOUND: "NOT_FOUND",
+  IDENTIFIER_MISMATCH: "VALIDATION",
+  INVALID_FISCAL_ATTRIBUTES: "VALIDATION",
   // La venta existe pero no esta cobrada: es un conflicto de estado, no una
   // ausencia. El cajero tiene que cobrarla, no buscarla en otra caja.
   NOT_COMPLETED: "CONFLICT",
@@ -175,7 +177,7 @@ export class CommercialRequestHandler {
     if (identity === null) return { rejection: SESSION_NOT_BOUND };
 
     const { installationId, deviceId } = this.commercial.deviceBinding();
-    const snapshot = this.commercial.authorizationStore.loadActive({
+    const snapshot = this.commercial.loadVerifiedAuthorization({
       userId: identity.userId,
       installationId,
       deviceId,
@@ -224,6 +226,7 @@ export class CommercialRequestHandler {
       case "hardware.command": return this.hardwareCommand(request,connectionId);
       case "audit.event.list": return this.listAuditEvents(request, connectionId);
       case "admin.metrics.get": return this.getAdminMetrics(request, connectionId);
+      case "license.offers.list": return this.listLicenseOffers(request,connectionId);
     }
   }
 
@@ -814,6 +817,10 @@ export class CommercialRequestHandler {
         unitCode: payload.unit_code,
         unitPrecision: payload.unit_precision,
         barcode: payload.barcode,
+        ...(payload.fiscal_attributes === undefined ? {} : { fiscalAttributes: {
+          codeReference: payload.fiscal_attributes.code_reference, unitMeasureCode: payload.fiscal_attributes.unit_measure_code,
+          standardCode: payload.fiscal_attributes.standard_code, taxCode: payload.fiscal_attributes.tax_code, taxRate: payload.fiscal_attributes.tax_rate,
+        } }),
         priceAmount: payload.price_amount,
         currencyCode: payload.currency_code,
         idempotencyKey: request.idempotency_key ?? "",
@@ -939,6 +946,16 @@ export class CommercialRequestHandler {
     });
   }
 
+  /** Public prices only; never account data or GLOBAL mutation authority. */
+  private async listLicenseOffers(request:Extract<CommercialRequest,{message_type:"license.offers.list"}>,connectionId:string){
+    const authenticated=this.authenticate(connectionId);
+    if("rejection" in authenticated)return rejected(request,authenticated.rejection,{outcome:"UNAUTHORIZED",catalog:null});
+    try{const catalog=await this.commercial.readPublicLicenseCatalog(),current=this.authenticate(connectionId);
+      if("rejection" in current||current.identity.ssaSessionId!==authenticated.identity.ssaSessionId)
+        return rejected(request,"UNAUTHORIZED",{outcome:"UNAUTHORIZED",catalog:null});
+      return succeeded(request,"AVAILABLE",{outcome:"AVAILABLE",catalog});
+    }catch{return rejected(request,"LICENSE_CATALOG_UNAVAILABLE",{outcome:"UNAVAILABLE",catalog:null});}
+  }
   private getAdminMetrics(
     request: Extract<CommercialRequest, { message_type: "admin.metrics.get" }>,
     connectionId: string,
@@ -1482,6 +1499,7 @@ export class CommercialRequestHandler {
           productId: line.product_id,
           presentationId: line.presentation_id,
           quantity: line.quantity,
+          ...(line.identifier === undefined ? {} : { identifier: line.identifier }),
         })),
       },
     );

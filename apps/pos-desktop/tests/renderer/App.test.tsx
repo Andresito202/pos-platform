@@ -10,10 +10,15 @@ function makeService() {
     "authorization.capabilities.get": vi.fn().mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
-      result: { outcome: "AVAILABLE", permissions: [] },
+      result: { outcome: "AVAILABLE", permissions: ["CATALOG_PRODUCT_READ"] },
     }),
+    "session.recover": vi.fn().mockResolvedValue({ status: "SUCCEEDED", result_code: "NONE", result: { outcome: "NONE", session_id: null, offline_valid_until: null, decision: null } }),
     "operation.result.get": vi.fn(),
     "operation.confirm": vi.fn(),
+    "catalog.item.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
+    "admin.metrics.get": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
+    "license.offers.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
+    "audit.event.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
   };
 }
 
@@ -26,6 +31,28 @@ beforeEach(() => {
 });
 
 describe("App", () => {
+  it("does not open the operational shell for a session with zero capabilities", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED", result_code: "AVAILABLE", result: { outcome: "AVAILABLE", permissions: [] },
+    });
+    const { container } = render(<App />);
+    await screen.findByTestId("authorization-denied");
+    expect(container.querySelector(".pos-shell")).toBeNull();
+    expect(screen.queryByTestId("operation-panel")).toBeNull();
+  });
+  it("shows expiration based on a canonical backend decision, without exposing operational screens", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "REJECTED", result_code: "SESSION_NOT_BOUND", result: { outcome: "UNAUTHORIZED", permissions: [] },
+    });
+    vi.mocked(window.posService["session.recover"]).mockResolvedValue({
+      status: "REJECTED", result_code: "UNVERIFIABLE", result: {
+        outcome: "UNVERIFIABLE", session_id: null, offline_valid_until: null, decision: "EXPIRED",
+      },
+    });
+    render(<App />);
+    await screen.findByTestId("authorization-expired");
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
+  });
   it("shows only navigation areas covered by effective permissions", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
@@ -145,6 +172,7 @@ describe("App", () => {
           "CATALOG_PRODUCT_READ",
           "INVENTORY_STOCK_READ",
           "CUSTOMERS_CUSTOMER_READ",
+          "CUSTOMERS_CUSTOMER_REGISTER",
           "SALES_RECEIPT_READ",
         ],
       },
@@ -234,7 +262,7 @@ describe("App", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("authorization-error")).toBeTruthy();
+      expect(screen.getByTestId("authorization-unauthenticated")).toBeTruthy();
     });
 
     expect(screen.queryByTestId("sale-panel")).toBeNull();
@@ -317,10 +345,10 @@ describe("App", () => {
 
   it("connects the paid sale to its receipt and fiscal form without retyping IDs", async () => {
     const id = "55555555-5555-4555-8555-555555555555";
-    const success = (result: unknown) => ({ status: "SUCCEEDED", result_code: "OK", result });
+    const success = (result: unknown, result_code = "OK") => ({ status: "SUCCEEDED", result_code, result });
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue(success({ outcome: "AVAILABLE", permissions: [
       "CASH_SHIFT_OPEN", "CATALOG_PRODUCT_READ", "SALES_SALE_CREATE", "PAYMENTS_PAYMENT_REGISTER", "SALES_RECEIPT_READ", "FISCAL_DOCUMENT_ISSUE",
-    ] }));
+    ] }, "AVAILABLE"));
     const receipt = vi.fn().mockReturnValue(new Promise<never>(() => undefined));
     const fiscal = vi.fn();
     const methods = {
@@ -354,28 +382,28 @@ describe("App", () => {
 });
 
 
-describe("Animated visual controls remain authorization-independent", () => {
-  it("toggles lamp and changes palette without changing the effective permissions", async () => {
+describe("Entry and navigation preserve authorization boundaries", () => {
+  it("retries canonical recovery without granting any permissions", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "REJECTED", result_code: "SESSION_NOT_BOUND", result: { outcome: "UNAUTHORIZED", permissions: [] },
+    });
     render(<App />);
-    const lamp = await screen.findByRole("button", { name: "Apagar lámpara decorativa" });
-    expect(lamp.getAttribute("aria-pressed")).toBe("true");
-    fireEvent.click(lamp);
-    expect(screen.getByRole("button", { name: "Encender lámpara decorativa" }).getAttribute("aria-pressed")).toBe("false");
-    const violet = screen.getByRole("button", { name: "Color violet" });
-    fireEvent.click(violet);
-    expect(violet.getAttribute("aria-pressed")).toBe("true");
-    expect(screen.queryByRole("button", { name: "Superadministrador" })).toBeNull();
-    expect(window.posService["authorization.capabilities.get"]).toHaveBeenCalledTimes(1);
+    await screen.findByTestId("authorization-unauthenticated");
+    fireEvent.click(screen.getByRole("button", { name: /Comprobar sesi/ }));
+    await screen.findByTestId("authorization-unauthenticated");
+    expect(window.posService["session.recover"]).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
   });
 
-  it("supports dragging the decorative lamp cord without changing authorization", async () => {
+  it("keeps unavailable recovery fail-closed", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "REJECTED", result_code: "SESSION_NOT_BOUND", result: { outcome: "UNAUTHORIZED", permissions: [] },
+    });
+    vi.mocked(window.posService["session.recover"]).mockResolvedValue({ status: "REJECTED", result_code: "UNVERIFIABLE",
+      result: { outcome: "UNVERIFIABLE", session_id: null, offline_valid_until: null, decision: "SESSION_EXPIRED" } });
     render(<App />);
-    const lamp = await screen.findByRole("button", { name: "Apagar lámpara decorativa" });
-    fireEvent.pointerDown(lamp, { pointerType: "mouse", button: 0, pointerId: 1, clientY: 100 });
-    fireEvent.pointerMove(lamp, { pointerId: 1, clientY: 145 });
-    fireEvent.pointerUp(lamp, { pointerId: 1, clientY: 145 });
-    expect(screen.getByRole("button", { name: "Encender lámpara decorativa" }).getAttribute("aria-pressed")).toBe("false");
-    expect(window.posService["authorization.capabilities.get"]).toHaveBeenCalledTimes(1);
+    await screen.findByTestId("authorization-error");
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
   });
 
   it("changes visual area only after an authorized navigation event", async () => {
@@ -407,7 +435,7 @@ describe("Animated visual controls remain authorization-independent", () => {
       result: { outcome: "UNAUTHORIZED", permissions: [] },
     });
     render(<App />);
-    await screen.findByTestId("authorization-error");
+    await screen.findByTestId("authorization-unauthenticated");
     expect(screen.queryByRole("button", { name: "Apagar lámpara decorativa" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
   });

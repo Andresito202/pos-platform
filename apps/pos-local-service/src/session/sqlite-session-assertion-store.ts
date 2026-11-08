@@ -48,11 +48,21 @@ export class SqliteSessionAssertionStore implements SessionAssertionStore {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  /** Denial-only durable tombstone in the existing append-only security audit.
+   * Retain SSA rows/watermarks; deleting them would permit sequence replay. */
+  isClosed(sessionId:string):boolean{
+    return this.database.native.prepare("SELECT 1 FROM local_security_audit WHERE event_type='BUSINESS_SESSION_CLOSED' AND subject_id=? LIMIT 1").get(sessionId)!==undefined;
+  }
+  close(sessionId:string):void{
+    if(!this.isClosed(sessionId))this.database.native.prepare("INSERT INTO local_security_audit(event_type,subject_id,details_json,created_at) VALUES('BUSINESS_SESSION_CLOSED',?,'{}',?)").run(sessionId,this.now().toISOString());
+  }
+
   activate(
     signed: SignedSessionAssertion,
     binding: SessionBinding,
   ): SessionActivationOutcome {
     const claims = SessionAssertionClaimsSchema.parse(signed.claims);
+    if(this.isClosed(claims.session_id))throw Error("LOCAL_BUSINESS_SESSION_CLOSED");
 
     // La SSA se archiva bajo su propio binding: activarla para otro sería
     // guardarla bajo una clave que no le corresponde.
@@ -135,6 +145,7 @@ export class SqliteSessionAssertionStore implements SessionAssertionStore {
     if (this.now().getTime() >= Date.parse(row.offline_valid_until)) return null;
 
     const claims = SessionAssertionClaimsSchema.parse(JSON.parse(row.claims_json));
+    if(this.isClosed(claims.session_id))return null;
     return { claims, signature: row.signature, activatedAt: row.activated_at };
   }
 
@@ -163,7 +174,11 @@ export class SqliteSessionAssertionStore implements SessionAssertionStore {
     ).all(installationId, deviceId) as SessionRow[];
 
     const nowMs = this.now().getTime();
-    const active = rows.filter((row) => nowMs < Date.parse(row.offline_valid_until));
+    const active = rows.filter((row) => {
+      if(nowMs>=Date.parse(row.offline_valid_until))return false;
+      if(createHash("sha256").update(row.claims_json).digest("hex")!==row.claims_checksum)throw Error("stored session assertion failed its integrity checksum");
+      return !this.isClosed(SessionAssertionClaimsSchema.parse(JSON.parse(row.claims_json)).session_id);
+    });
 
     if (active.length === 0) return { kind: "NONE" };
     if (active.length > 1) return { kind: "AMBIGUOUS" };

@@ -92,6 +92,7 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
           placeholder="Identificación"
           disabled={directory.busy}
         />
+        {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && (<>
         <input
           data-testid="customer-verification-digit-input"
           aria-label="Dígito de verificación"
@@ -160,8 +161,10 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
           placeholder="Teléfono (opcional)"
           disabled={directory.busy}
         />
+        </>)}
       </div>
 
+      {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && (<>
       <button
         data-testid="register-customer-button"
         type="button"
@@ -199,6 +202,9 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
         Autorizo recibir por correo novedades del POS y comunicaciones comerciales relacionadas con Camacho POS.
       </label>
 
+      </>)}
+
+      {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) && (<>
       <button
         data-testid="find-customer-button"
         type="button"
@@ -225,14 +231,16 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
         Consultar por ID
       </button>
 
-      {directory.registered !== null && directory.registered.customer_id !== null && (
+      </>)}
+
+      {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && directory.registered !== null && directory.registered.customer_id !== null && (
         <div data-testid="customer-registered">
           <span data-testid="customer-registered-id">{directory.registered.customer_id}</span>
           <span data-testid="customer-registered-outcome">{directory.registered.outcome}</span>
           <span data-testid="customer-registered-version">{directory.registered.version}</span>
         </div>
       )}
-      {directory.registered !== null && directory.registered.customer_id === null && (
+      {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && directory.registered !== null && directory.registered.customer_id === null && (
         <div data-testid="customer-rejected">
           <span data-testid="customer-rejected-outcome">{directory.registered.outcome}</span>
           {directory.registered.findings.map((finding, index) => (
@@ -243,18 +251,18 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
         </div>
       )}
 
-      {directory.found !== null && directory.found.outcome === "FOUND" && (
+      {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) && directory.found !== null && directory.found.outcome === "FOUND" && (
         <div data-testid="customer-found">
           <span data-testid="customer-found-id">{directory.found.customer_id}</span>
           <span data-testid="customer-found-identification">{directory.found.identification}</span>
           <span data-testid="customer-found-tribute">{directory.found.tribute_code}</span>
         </div>
       )}
-      {directory.found !== null && directory.found.outcome === "NOT_FOUND" && (
+      {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) && directory.found !== null && directory.found.outcome === "NOT_FOUND" && (
         <div data-testid="customer-not-found">no está registrado</div>
       )}
 
-      {directory.found !== null && directory.found.outcome === "FOUND" && (
+      {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) && directory.found !== null && directory.found.outcome === "FOUND" && (
         <section data-testid="customer-marketing">
           <h3>Novedades del POS</h3>
           <button
@@ -268,26 +276,26 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
           {directory.marketing?.status === "SUBSCRIBED" ? (
             <>
               <p data-testid="customer-marketing-status">Suscrito a novedades por correo.</p>
-              <button
+              {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && <button
                 data-testid="customer-marketing-unsubscribe-button"
                 type="button"
                 onClick={() => { void directory.unsubscribeMarketing(directory.found?.customer_id ?? ""); }}
                 disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) || directory.found.customer_id === null}
               >
                 Darse de baja
-              </button>
+              </button>}
             </>
           ) : (
             <>
               <p data-testid="customer-marketing-status">{directory.marketing === null ? "Preferencia pendiente de consulta." : "No suscrito a novedades."}</p>
-              <button
+              {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && <button
                 data-testid="customer-marketing-subscribe-button"
                 type="button"
                 onClick={() => { void directory.subscribeMarketing(directory.found?.customer_id ?? ""); }}
                 disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) || directory.found.customer_id === null || directory.found.email === null}
               >
                 Suscribirse
-              </button>
+              </button>}
             </>
           )}
         </section>

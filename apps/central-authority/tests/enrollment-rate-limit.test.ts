@@ -109,4 +109,12 @@ describe("device-enrollment rate limit through the production listener", () => {
     expect(health.status).toBe(200);
     await health.text();
   });
+  it("keeps all production commercial routes blocked before D3 without database access",async()=>{
+    for(const path of ["login","authorize","token","browser/session","browser/logout","browser/rotate"]){
+      const response=await fetch(`${baseUrl}/v1/commercial/${path}`,{method:"POST",headers:{"content-type":"application/json"},body:"{}"});
+      expect(response.status).toBe(503);expect(response.headers.get("cache-control")).toBe("no-store");
+      const body=await response.json() as {result_code:string};expect(body.result_code).toBe("COMMERCIAL_AUTH_NOT_ACTIVATED");
+    }
+    expect(runtime.databaseQueries).toBe(0);
+  });
 });

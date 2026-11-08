@@ -1,7 +1,8 @@
-import type { Pool } from "pg";
+import type { Pool,PoolClient } from "pg";
 import { PlatformSecurityEventCode, UtcDateTimeSchema, UuidSchema, uuidV7 } from "@pos-platform/contracts";
 import type { CommittedBusinessInitialMfa } from "./business-initial-webauthn-transaction.js";
 import { PostgresPlatformSecurityEventRepository } from "./platform-security-event-repository.js";
+import {assertCommercialDeployment,type PostgresCommercialDeploymentContext} from "./commercial-deployment-context.js";
 
 /** Trusted central configuration; no production defaults or token format. */
 export interface BusinessSessionValidationPolicy {
@@ -10,8 +11,8 @@ export interface BusinessSessionValidationPolicy {
   readonly sessionLifetimeMs: number;
   readonly maximumMfaAgeMs: number;
   readonly maximumReauthenticationAgeMs: number;
-  readonly accessProof: { readonly mode: "DISABLED_PENDING_D3"; readonly policyReference: string };
-  readonly abuse: { readonly mode: "ISOLATED_TEST_ONLY"; readonly policyReference: string };
+  readonly accessProof: { readonly mode: "DISABLED_PENDING_D3"|"COMMERCIAL_POSSESSION_V2"; readonly policyReference: string };
+  readonly abuse: { readonly mode: "ISOLATED_TEST_ONLY"|"DURABLE_NATIVE_REQUEST_V2"; readonly policyReference: string };
 }
 
 export interface PersistedBusinessSession {
@@ -26,16 +27,16 @@ export interface PersistedBusinessSession {
   readonly accessProof: null;
 }
 
-function snapshotPolicy(policy: BusinessSessionValidationPolicy): BusinessSessionValidationPolicy {
+function snapshotPolicy(policy: BusinessSessionValidationPolicy,deployment?:PostgresCommercialDeploymentContext): BusinessSessionValidationPolicy {
   // No purported approval supplied by JSON can unlock production. D3 is unresolved.
-  if (policy?.mode === "PRODUCTION") throw new Error("BUSINESS_SESSION_PRODUCTION_BLOCKED_PENDING_D3");
-  if (policy?.mode !== "ISOLATED_VALIDATION" || typeof policy.version !== "string" || !policy.version.trim()
+  if (policy?.mode === "PRODUCTION"&&!deployment) throw new Error("BUSINESS_SESSION_PRODUCTION_BLOCKED_PENDING_D3");
+  if (!["ISOLATED_VALIDATION","PRODUCTION"].includes(policy?.mode) || typeof policy.version !== "string" || !policy.version.trim()
     || ![policy.sessionLifetimeMs, policy.maximumMfaAgeMs, policy.maximumReauthenticationAgeMs]
       .every(value => Number.isSafeInteger(value) && value > 0)
     || policy.maximumMfaAgeMs > policy.sessionLifetimeMs
     || policy.maximumReauthenticationAgeMs > policy.sessionLifetimeMs
-    || policy.accessProof?.mode !== "DISABLED_PENDING_D3" || !policy.accessProof.policyReference?.trim()
-    || policy.abuse?.mode !== "ISOLATED_TEST_ONLY" || !policy.abuse.policyReference?.trim()) {
+    || policy.accessProof?.mode !== (deployment?"COMMERCIAL_POSSESSION_V2":"DISABLED_PENDING_D3") || !policy.accessProof.policyReference?.trim()
+    || policy.abuse?.mode !== (deployment?"DURABLE_NATIVE_REQUEST_V2":"ISOLATED_TEST_ONLY") || !policy.abuse.policyReference?.trim()) {
     throw new Error("BUSINESS_SESSION_EXPLICIT_POLICIES_REQUIRED");
   }
   return Object.freeze({ ...policy, accessProof: Object.freeze({ ...policy.accessProof }), abuse: Object.freeze({ ...policy.abuse }) });
@@ -44,13 +45,14 @@ function snapshotPolicy(policy: BusinessSessionValidationPolicy): BusinessSessio
 /** Persistence adapter, INTERNAL: evidence must come from the central one-use flow. */
 export class PostgresBusinessSessionCreationTransaction {
   private readonly policy;
-  constructor(private readonly pool: Pool, policy: BusinessSessionValidationPolicy) {
-    this.policy = snapshotPolicy(policy);
+  constructor(private readonly pool: Pool, policy: BusinessSessionValidationPolicy,private readonly deployment?:PostgresCommercialDeploymentContext) {
+    if(deployment){assertCommercialDeployment(pool,deployment);if(policy.mode!=="PRODUCTION")throw Error("BUSINESS_SESSION_DEPLOYMENT_POLICY_REQUIRED");}
+    this.policy = snapshotPolicy(policy,deployment);
   }
 
   async create(evidence: CommittedBusinessInitialMfa, selection: {
     readonly tenantId: string; readonly membershipId: string;
-  }): Promise<PersistedBusinessSession | null> {
+  },completion?: (client:PoolClient,session:PersistedBusinessSession,evidence:CommittedBusinessInitialMfa)=>Promise<void>): Promise<PersistedBusinessSession | null> {
     if (evidence.purpose !== "BUSINESS_INITIAL_MFA" || evidence.sessionId !== null) return null;
     const userId = UuidSchema.parse(evidence.userId);
     const tenantId = UuidSchema.parse(selection.tenantId);
@@ -67,13 +69,14 @@ export class PostgresBusinessSessionCreationTransaction {
       await client.query("BEGIN"); begun = true;
       // Hard runtime gate, independent of config labels. Only our disposable DBs
       // on the dedicated local fixture are eligible while D3 is unapproved.
-      const endpoint = new URL(this.pool.options.connectionString ?? "invalid:");
+      if(!this.deployment){const endpoint = new URL(this.pool.options.connectionString ?? "invalid:");
       if (!["127.0.0.1", "localhost"].includes(endpoint.hostname) || endpoint.port !== "55433") {
         throw new Error("BUSINESS_SESSION_REQUIRES_LOCAL_VALIDATION_SERVER");
       }
       const isolated = await client.query<{ allowed: boolean }>(`SELECT
         current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS allowed`);
       if (isolated.rows[0]?.allowed !== true) throw new Error("BUSINESS_SESSION_REQUIRES_ISOLATED_VALIDATION_DATABASE");
+      }
       // Selection is only a bounded lookup, NEVER a grant of tenant authority.
       // RLS narrows visibility; the locked membership below must also belong to
       // the server-authenticated user and the selected active tenant.
@@ -128,6 +131,10 @@ export class PostgresBusinessSessionCreationTransaction {
         event_code:PlatformSecurityEventCode.SESSION_ISSUED,result:"SUCCEEDED",reason_code:"BUSINESS_INITIAL_MFA",
         correlation_id:correlationId,occurred_at:clock.rows[0]!.at.toISOString(),
       },client);
+      const persisted:PersistedBusinessSession=Object.freeze({scope:"BUSINESS",sessionId,userId:row.user_id,tenantId:row.tenant_id,
+        tenantMembershipId:row.membership_id,authenticatedAt:session.authenticated_at.toISOString(),
+        expiresAt:session.expires_at.toISOString(),deviceId:null,accessProof:null});
+      if(completion)await completion(client,persisted,evidence);
       // Audit can itself wait for I/O/locks. Do not commit aged evidence or an
       // already expired session merely because it was fresh before INSERT.
       const fresh = await client.query<{ valid: boolean }>(`SELECT
@@ -136,9 +143,7 @@ export class PostgresBusinessSessionCreationTransaction {
       [verifiedAt,this.policy.maximumMfaAgeMs,this.policy.maximumReauthenticationAgeMs,session.expires_at]);
       if (fresh.rows[0]?.valid !== true) return await reject();
       await client.query("COMMIT"); begun = false;
-      return Object.freeze({ scope:"BUSINESS",sessionId,userId:row.user_id,tenantId:row.tenant_id,
-        tenantMembershipId:row.membership_id,authenticatedAt:session.authenticated_at.toISOString(),
-        expiresAt:session.expires_at.toISOString(),deviceId:null,accessProof:null });
+      return persisted;
     } catch (error) {
       if (begun) await client.query("ROLLBACK").catch(() => undefined);
       throw error;

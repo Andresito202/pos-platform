@@ -11,6 +11,7 @@
     "central-sync:start": "tsx src/central-sync-server.ts",
     "central-sync:gate": "tsx src/central-sync-gate.ts",
     "postgres:004:apply": "tsx src/postgres-004-cli.ts",
+    "postgres:commercial:apply": "tsx src/postgres-commercial-cli.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:preflight:003": "vitest run tests/postgres-003-preflight.test.ts",

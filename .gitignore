@@ -39,4 +39,5 @@ settings.json.*-bak
 test-results/
 playwright-report/
 .gradle/
+.kotlin/
 apps/pos-local-service/native/android-hardware/build/

@@ -4,6 +4,7 @@ import { UuidSchema } from "@pos-platform/contracts";
 import {
   parseDeviceRequestAuthorization,
   verifyDeviceRequestAuthorization,
+  parseCommercialPossession,verifyCommercialPossession,type CommercialPossessionContext,
 } from "@pos-platform/device-trust";
 
 /** Exact signed request target; this repository is NOT an HTTP endpoint. */
@@ -45,12 +46,17 @@ export class PostgresDeviceProofReplayVerifier {
   ) {}
 
   async verifyAndConsume(input: DeviceProofRequest): Promise<VerifiedDeviceProofBinding | null> {
+    return this.verifyTargetAndConsume(input, BUSINESS_SSA_DEVICE_PROOF_PATH);
+  }
+
+  /** Shared persistence/crypto only. Public SSA entry retains its exact target. */
+  protected async verifyTargetAndConsume(input:DeviceProofRequest,path:string,possession?:{context:CommercialPossessionContext;maximumSkewMs:number}):Promise<VerifiedDeviceProofBinding|null>{
     const requestId = UuidSchema.parse(input.requestId);
     const correlationId = UuidSchema.parse(input.correlationId);
     if (typeof input.body !== "string" ||
         Buffer.byteLength(input.body, "utf8") > 16 * 1024 ||
         typeof input.authorization !== "string") return null;
-    const parsed = parseDeviceRequestAuthorization(input.authorization);
+    const parsed = possession?parseCommercialPossession(input.authorization):parseDeviceRequestAuthorization(input.authorization);
     if (!parsed) return null;
     const nonceBytes = Buffer.from(parsed.nonce, "base64url");
     if (nonceBytes.length !== 32 || nonceBytes.toString("base64url") !== parsed.nonce) return null;
@@ -100,12 +106,17 @@ export class PostgresDeviceProofReplayVerifier {
       let valid = false;
       try {
         const publicKey = createPublicKey(row.device_public_key.toString("utf8"));
-        valid = publicKey.type === "public" && publicKey.asymmetricKeyType === "ed25519"
+        valid = possession?(
+          possession.context.tenantId===row.tenant_id&&possession.context.installationId===row.installation_id&&
+          possession.context.deviceId===row.device_id&&possession.context.credentialId===row.credential_id&&
+          possession.context.body===input.body&&possession.context.requestId===requestId&&possession.context.correlationId===correlationId&&
+          verifyCommercialPossession(input.authorization,possession.context,publicKey,this.now(),possession.maximumSkewMs)
+        ):publicKey.type === "public" && publicKey.asymmetricKeyType === "ed25519"
           && verifyDeviceRequestAuthorization(
             input.authorization,
             {
               method: "POST",
-              path: BUSINESS_SSA_DEVICE_PROOF_PATH,
+              path,
               requestId,
               correlationId,
               body: input.body,
@@ -162,5 +173,40 @@ export class PostgresDeviceProofReplayVerifier {
     } finally {
       client.release();
     }
+  }
+}
+
+/** Caller resolves context from a verified access token or persisted refresh
+ * family first. No caller-selected route; nonce storage is the existing 012. */
+export class PostgresCommercialPossessionVerifier extends PostgresDeviceProofReplayVerifier{
+  verifyAssertionAndConsume(input:DeviceProofRequest,context:CommercialPossessionContext,maximumSkewMs:number){
+    if(context.operation!=="SESSION_ASSERTION")return Promise.resolve(null);
+    return this.verifyTargetAndConsume(input,BUSINESS_SSA_DEVICE_PROOF_PATH,{context,maximumSkewMs});
+  }
+  verifyAuthorizationAndConsume(input:DeviceProofRequest,context:CommercialPossessionContext,maximumSkewMs:number){
+    if(context.operation!=="AUTHORIZATION_SNAPSHOT")return Promise.resolve(null);
+    return this.verifyTargetAndConsume(input,"/v1/business-session/authorization",{context,maximumSkewMs});
+  }
+  verifyRefreshAndConsume(input:DeviceProofRequest,context:CommercialPossessionContext,maximumSkewMs:number){
+    if(context.operation!=="REFRESH")return Promise.resolve(null);
+    return this.verifyTargetAndConsume(input,"/v1/commercial/refresh",{context,maximumSkewMs});
+  }
+  verifyRevokeAndConsume(input:DeviceProofRequest,context:CommercialPossessionContext,maximumSkewMs:number){
+    if(context.operation!=="REVOKE")return Promise.resolve(null);
+    return this.verifyTargetAndConsume(input,"/v1/commercial/revoke",{context,maximumSkewMs});
+  }
+}
+
+/** Dedicated native-login targets. Never accepts a caller-selected path or
+ * treats an assertion proof as proof for registration/token redemption. */
+export class PostgresNativeBusinessDeviceProofVerifier extends PostgresDeviceProofReplayVerifier {
+  verifyRegistrationAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,"/v1/commercial/native-requests");
+  }
+  verifyTokenAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,"/v1/commercial/token");
+  }
+  verifyAuthorizationAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,"/v1/business-session/authorization");
   }
 }

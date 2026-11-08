@@ -1,9 +1,11 @@
+import {fetchPublicLicenseCatalog} from "./security/license-offer-catalog.js";
 import { createPublicKey } from "node:crypto";
 import { Buffer } from "node:buffer";
 import { lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
+import { LicenseCapacityGate, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
 import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
 import { LocalChannelComponent } from "./channel/index.js";
@@ -14,6 +16,9 @@ import { SyncDispatcher } from "./sync/sync-dispatcher.js";
 import { EnrolledDeviceCredentialProvider, UnprovisionedDeviceCredentialProvider, type DeviceCredentialProvider } from "./sync/device-credential.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
+import {AuthorizationTrustLifecycle} from "./security/authorization-trust-lifecycle.js";
+import {prepareAuthorizationTrustProvisioning} from "./security/authorization-trust-provisioning.js";
+import {WindowsCommercialRuntime,readWindowsCommercialConfiguration} from "./security/windows-commercial-runtime.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
   EncryptedFileSecretStore,
@@ -219,16 +224,44 @@ try {
   // every activation, so runtime refresh can apply rotation/revocation in place.
   const liveSessionTrustKeys = new Map<string, TrustedSigningKey>(sessionTrustKeys.keys);
 
+  // Only installer-managed Service configuration can supply this root. Neither
+  // renderer nor Electron main has a provisioning operation. Missing configuration denies.
+  const sasProvisioning=config.authorization_trust_provision_file===undefined?undefined:prepareAuthorizationTrustProvisioning({
+    path:config.authorization_trust_provision_file,centralOrigin:config.central_base_url,
+    recipient:{tenant_id:config.tenant_id,company_id:config.company_id,branch_id:config.branch_id,installation_id:config.installation_id,device_id:config.device_id},
+    directory:securityDirectory,keyProvider,database:()=>localDatabase.database,sessionKeys:liveSessionTrustKeys,
+  });
+  const authorizationTrust=new AuthorizationTrustLifecycle(
+    {installationId:config.installation_id,deviceId:config.device_id},sasProvisioning,
+    (event,detail)=>logger.log(event==="FAILED"?"warn":"info",`authorization_trust.${event.toLowerCase()}`,detail),
+  );
+  const commercialProvision=config.windows_commercial_provision_file;
+  const nativeConfiguration=commercialProvision===undefined?undefined:readWindowsCommercialConfiguration(commercialProvision,config.central_base_url);
   const commercial = new CommercialComponent(
     config, localDatabase, durableSync, liveSessionTrustKeys, () => new Date(), fiscalSecretStore,
+    undefined,authorizationTrust.keys,
+    (scope, registerId) => {
+      const path = config.license_capacity_provision_file;
+      if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
+      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path)).authorize(scope, registerId);
+    },
+    nativeConfiguration?()=>fetchPublicLicenseCatalog(nativeConfiguration.registration.authorizationOrigin,nativeConfiguration.request_timeout_ms):undefined,
   );
+  const nativeCommercial=commercialProvision===undefined?undefined:new WindowsCommercialRuntime(
+    nativeConfiguration!,{database:localDatabase,security,commercial,
+      credentials:deviceTrustCredentialStore,directory:securityDirectory,keyProvider,
+      ...(config.license_capacity_provision_file?{licenseProvisionFile:config.license_capacity_provision_file}:{}),
+      onLicenseError:code=>logger.log("warn","license.download",{code}),
+      binding:{tenantId:config.tenant_id,companyId:config.company_id,installationId:config.installation_id,deviceId:config.device_id}});
   let localChannel: LocalChannelComponent | undefined;
   const components: RuntimeComponent[] = [
     localDatabase,
     security,
+    authorizationTrust,
     durableSync,
     operationConfirmation,
     commercial,
+    ...(nativeCommercial?[nativeCommercial]:[]),
   ];
 
   if (
@@ -290,6 +323,7 @@ try {
       () => lifecycle?.state ?? "STARTING",
       operationConfirmation,
       commercial,
+      nativeCommercial,
     );
     components.push(localChannel);
   }
@@ -302,6 +336,7 @@ try {
     device_key_id: security.deviceKeyId,
     key_protection: security.protection,
     central_sync: config.central_base_url === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
+    native_commercial: nativeCommercial===undefined?"NOT_CONFIGURED":"MOUNTED",
     session_trust: sessionTrustKeys.decision,
     fiscal_issuance: config.fiscal_environment === undefined ? "NOT_CONFIGURED" : "CONFIGURED",
     ...(localChannel === undefined ? {} : { local_channel_endpoint: localChannel.endpoint }),

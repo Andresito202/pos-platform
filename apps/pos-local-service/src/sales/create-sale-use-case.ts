@@ -25,6 +25,7 @@ export interface CreateSaleRequestLine {
   readonly presentationId: string;
   /** TEXT a escala 6, e.g. "1.000000" */
   readonly quantity: string;
+  readonly identifier?: string;
 }
 
 export interface CreateSaleRequest {
@@ -59,6 +60,7 @@ export type CreateSaleResult =
     }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string }
   | { readonly kind: "CATALOG_NOT_FOUND"; readonly productId: string; readonly presentationId: string }
+  | { readonly kind: "IDENTIFIER_MISMATCH"; readonly presentationId: string }
   | { readonly kind: "PRICE_NOT_FOUND"; readonly presentationId: string }
   | { readonly kind: "CURRENCY_MISMATCH"; readonly presentationId: string }
   | {
@@ -86,6 +88,7 @@ function requestChecksum(request: CreateSaleRequest, operatorUserId: string): st
         product_id: line.productId,
         presentation_id: line.presentationId,
         quantity: line.quantity,
+        ...(line.identifier === undefined ? {} : { identifier: line.identifier }),
       })),
       operator_user_id: operatorUserId,
     }))
@@ -150,6 +153,7 @@ export class CreateSaleUseCase {
       priceAmount: string;
       quantity: string;
       fiscal: CatalogFiscalAttribute | null;
+      identifier: string | null;
     }> = [];
 
     // El catálogo es de la compañía, no de la sucursal: un producto no cambia
@@ -175,6 +179,13 @@ export class CreateSaleUseCase {
       const presentation = this.catalogStore.findActivePresentation(catalogScope, line.presentationId);
       if (!presentation || presentation.productId !== line.productId) {
         return { kind: "CATALOG_NOT_FOUND", productId: line.productId, presentationId: line.presentationId };
+      }
+
+      // Identification is provenance, never price or authority. The caller may
+      // report what was used, but cannot freeze another product's identifier.
+      if (line.identifier !== undefined && (!line.identifier || line.identifier.length > 128
+        || (line.identifier !== presentation.barcode && line.identifier !== product.code))) {
+        return { kind: "IDENTIFIER_MISMATCH", presentationId: line.presentationId };
       }
 
       // La cantidad tiene que caber en la precisión de la unidad. Se comprueba
@@ -232,6 +243,7 @@ export class CreateSaleUseCase {
         priceAmount: price.amount,
         quantity: line.quantity,
         fiscal: this.catalogStore.getFiscalAttribute(catalogScope, line.presentationId),
+        identifier: line.identifier ?? null,
       });
     }
 
@@ -352,7 +364,7 @@ export class CreateSaleUseCase {
         unitId: resolved.unitId,
         unitCode: resolved.unitCode,
         unitPrecision: resolved.unitPrecision,
-        identifierSnapshot: null,
+        identifierSnapshot: resolved.identifier,
         calculation: calculatedLines[index]!.calculation,
         pricingResolutionSnapshot: {
           schema_version: 1,

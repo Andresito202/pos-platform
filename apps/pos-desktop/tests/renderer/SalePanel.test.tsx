@@ -169,6 +169,7 @@ describe("SalePanel — vertical comercial", () => {
 
     const request = calls.get("sale.create")![0] as { payload: Record<string, unknown> };
     expect(request.payload["cash_register_id"]).toBe(REGISTER);
+    expect(request.payload["lines"]).toEqual([{ product_id: PRODUCT, presentation_id: PRESENTATION, quantity: "1.000000", identifier: "7701234567890" }]);
     expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
     expect(screen.getByTestId("payable-amount").textContent).toBe("3500.000000");
   });
@@ -215,6 +216,79 @@ describe("SalePanel — vertical comercial", () => {
     expect(() => PaymentRegisterCashRequestSchema.parse(request)).not.toThrow();
   });
 
+
+  it("cuenta billetes y monedas uno por uno sin registrar pagos al seleccionar", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+
+    fireEvent.click(screen.getByTestId("denomination-add-5000"));
+    fireEvent.click(screen.getByTestId("denomination-add-2000"));
+    fireEvent.click(screen.getByTestId("denomination-add-500"));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("7500");
+    expect(screen.getByTestId("denomination-count-5000").textContent).toContain("1");
+    expect(screen.getByTestId("denomination-count-2000").textContent).toContain("1");
+    expect(screen.getByTestId("denomination-count-500").textContent).toContain("1");
+    expect(screen.getByTestId("cash-change-estimate").textContent).toContain("4.000");
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+
+    fireEvent.click(screen.getByTestId("denomination-remove-2000"));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("5500");
+    expect(screen.getByTestId("cash-change-estimate").textContent).toContain("2.000");
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("sale-completed");
+    const request = calls.get("payment.register.cash")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["amount"]).toBe("3500.000000");
+    expect(request.payload["tendered_amount"]).toBe("5500.000000");
+    expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("incluye la moneda de 100 COP y la cuenta sin registrar una venta", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    fireEvent.click(screen.getByTestId("denomination-add-100"));
+    fireEvent.click(screen.getByTestId("denomination-add-100"));
+    expect(screen.getByTestId("denomination-count-100").textContent).toContain("2");
+    expect(screen.getByTestId("tendered-display").textContent).toBe("200");
+    expect(screen.getByTestId("cash-change-estimate").textContent).toContain("3.300");
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+    fireEvent.click(screen.getByTestId("denomination-remove-100"));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("100");
+  });
+
+  it("combina denominaciones y teclado conservando el importe de pago parcial", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", false) });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.change(screen.getByTestId("payment-amount-input"), { target: { value: "2000" } });
+    fireEvent.click(screen.getByTestId("denomination-add-2000"));
+    fireEvent.click(screen.getByRole("button", { name: "5" }));
+    fireEvent.click(screen.getByRole("button", { name: "00" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("2500");
+    expect(screen.getByTestId("cash-change-estimate").textContent).toContain("500");
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("payment-partial");
+    const request = calls.get("payment.register.cash")![0] as { payload: Record<string, unknown> };
+    expect(request.payload["amount"]).toBe("2000.000000");
+    expect(request.payload["tendered_amount"]).toBe("2500.000000");
+  });
+
+  it("el borrado elimina tanto el importe manual como el desglose físico", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByTestId("denomination-add-50000"));
+    fireEvent.click(screen.getByRole("button", { name: "2" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("50002");
+    fireEvent.click(screen.getByRole("button", { name: "Borrar" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("0");
+    expect(screen.getByTestId("denomination-count-50000").textContent).toContain("0");
+    expect(screen.queryByTestId("cash-change-estimate")).toBeNull();
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+  });
 
   it("normalizes typed cash before sending the payment contract", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
@@ -650,7 +724,7 @@ describe("SalePanel · transferencia", () => {
     const request = calls.get("payment.cancel")![0];
     expect(PaymentCancelRequestSchema.safeParse(request).success).toBe(true);
     expect(request).toMatchObject({ payload: { payment_id: PAYMENT, expected_version: 4 } });
-    expect((screen.getByTestId("confirm-transfer-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("confirm-transfer-button")).toBeNull();
     expect((screen.getByTestId("cancel-transfer-button") as HTMLButtonElement).disabled).toBe(true);
     expect(chime).not.toHaveBeenCalled();
   });
@@ -661,8 +735,24 @@ describe("SalePanel · transferencia", () => {
     await openShift(); await addProduct(); await createSale(); await registerTransfer();
     expect(screen.getByTestId("transfer-payment-id").textContent).toBe(PAYMENT);
     expect(calls.get("payment.get")).toBeUndefined();
-    expect((screen.getByTestId("confirm-transfer-button") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("charge-cash-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("confirm-transfer-button")).toBeNull();
+    expect(screen.queryByTestId("charge-cash-button")).toBeNull();
+  });
+
+  it("does not show shift opening or sale creation to payment-read-only sessions", () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(["PAYMENTS_PAYMENT_READ"])} />);
+    expect(screen.queryByTestId("open-shift-button")).toBeNull();
+    expect(screen.queryByTestId("create-sale-button")).toBeNull();
+    expect(screen.getByTestId("transfer-lookup-button")).toBeTruthy();
+  });
+
+  it("shows shift opening only when the exact shift-open grant exists", () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(["CASH_SHIFT_OPEN"])} />);
+    expect(screen.getByTestId("open-shift-button")).toBeTruthy();
+    expect(screen.queryByTestId("create-sale-button")).toBeNull();
+    expect(screen.queryByTestId("transfer-lookup-button")).toBeNull();
   });
 
 });

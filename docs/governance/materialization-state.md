@@ -1,5 +1,7 @@
 # Estado de materialización — fuente única
 
+> Continuidad de rama 2026-10-22: D-23 tiene [snapshot validado](../testing/sold-identifier-2026-10-22.md) y D-19 tiene [escritor inicial validado](../testing/catalog-fiscal-write-2026-10-22.md) en `feat/android-commercial-runtime`, con pruebas focalizadas. Las filas históricas inferiores conservan su SHA; no describen esas dos capacidades actuales ni acreditan E2E Android o facturación productiva. D-21/D-22 siguen abiertos.
+
 > Alcance de lectura — 2026-10-17. Este archivo mezcla evidencias de varios cortes y ramas. Cada afirmación conserva el alcance del SHA/entorno que la respalda; no se traslada automáticamente al main ni al HEAD actuales. Las referencias antiguas a packages vacíos, credenciales ausentes o capacidades no alcanzables requieren leer el código actual antes de repetirlas. Consultar [reconciliación operativa](../product/backlog.md) para la cola actual. Esta nota no elimina evidencia histórica ni certifica tests nuevos.
 
 ## Propósito

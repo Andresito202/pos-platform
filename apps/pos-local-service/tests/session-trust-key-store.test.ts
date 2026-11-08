@@ -34,6 +34,21 @@ function signedKey(
 }
 
 describe("SessionTrustKeyStore", () => {
+  it("does not persist an unauthenticated revocation over previously verified trust", () => {
+    const root = generateKeyPairSync("ed25519");
+    const temp = mkdtempSync(join(process.cwd(), ".session-trust-store-test-"));
+    try {
+      const encrypted = new EncryptedFileSecretStore(temp, new InsecureDerivedKeyProvider(temp), "revocation-test");
+      const store = new SessionTrustKeyStore(encrypted);
+      const verifier = new SessionTrustKeyVerifier(root.publicKey, "production", () => NOW);
+      const active = signedKey(root, "ssa-valid", "ACTIVE");
+      store.install({ version: 1, keys: [active] }, verifier);
+      expect(() => store.install({ version: 2, keys: [{ ...active, claims: { ...active.claims, status: "REVOKED" } }] }, verifier))
+        .toThrow("ROOT_SIGNATURE_INVALID");
+      expect(store.load()).toEqual({ version: 1, keys: [active] });
+      expect(new SessionTrustKeyStore(encrypted).load().keys[0]?.claims.status).toBe("ACTIVE");
+    } finally { rmSync(temp, { recursive: true, force: true }); }
+  });
   it("accepts newer bundles, preserves older local state and rejects same-version conflicts", () => {
     const root = generateKeyPairSync("ed25519");
     const temp = mkdtempSync(join(process.cwd(), ".session-trust-store-test-"));

@@ -18,7 +18,7 @@ export type ActivePlatformPermissionSessionCandidate = ActivePlatformAdministrat
 };
 
 export class PostgresPlatformAdministrationSessionRepository {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Pick<Pool,"query">) {}
 
   /**
    * Identity/session check only. Deliberately does not assert platform authority.

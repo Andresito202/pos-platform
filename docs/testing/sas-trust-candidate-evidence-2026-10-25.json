@@ -1,0 +1,789 @@
+{
+  "date": "2026-10-25",
+  "initial_head": "7d92ea4c313ac4d708100e47e3a3f686cf073c67",
+  "branch": "feat/android-commercial-runtime",
+  "scope": "ISOLATED_VALIDATION, DEC011_LAB_CANDIDATE_1; not production or human certification",
+  "environment": {
+    "os": "Windows",
+    "node": "22.19.0",
+    "postgres": "16 temporary tmpfs on 127.0.0.1:55433",
+    "sqlite": "temporary canonical LocalDatabase",
+    "custody": "real CurrentUser DPAPI"
+  },
+  "final_functional_cases": 63,
+  "architecture_cases": 16,
+  "final": [
+    {
+      "source": "artifacts/sas-trust/2026-10-25/local.json",
+      "sha256": "c9a31430e107a05e0f21f50aaef849db8329e0bc96d0071a767ba99645354c7e",
+      "passed": 52,
+      "failed": 0,
+      "omitted": 0,
+      "tests": [
+        {
+          "name": "SAS candidate: real DPAPI survives provider/store restart and revalidates on every read",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: separate Node process recovers protected generation and rejects downgrade",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated root without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated generation without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated set without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated key-id without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated revocation without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated issuer without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated environment without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated purpose without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated authority without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated incomplete without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed issuer cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed authority cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed SSA alias cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed private key cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed trailing private key cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed EC key cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects omission with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects same-id material with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects version rollback with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects same-version mutation with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects revived with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects revoked alias with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects generation rollback with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects generation conflict with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: atomic rename failure retains generation and keys across recovery",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: concurrent same-owner rotations retain highest generation and terminal revocation",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: offline expiry denies cached map, accepts fresh renewal preserving tombstones",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: authenticated rotation adds a distinct key and retained VERIFY_ONLY key still verifies",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: expired fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: future fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: bootstrap floor fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: missing policy fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: real HTTPS rejects tampering redirects oversized bodies deadline and offline without replacing durable trust",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: verified projection persists, permissions are scoped and direct forbidden operation is denied",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered signature",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered key",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered user",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered device",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered installation",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: authentic other company scope grants no capability",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: authentic other branch scope grants no capability",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: authentic other tenant scope grants no capability",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: repeated or old sequence never replaces the current projection",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: updated revocation and signing-key revocation deny subsequent backend operations",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: central outage preserves only a still-valid snapshot with no expiry grace",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: local write failure rolls back and keeps the previous signed sequence",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: a corrupt on-disk signature cannot become authorization through its checksum",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: invalid or expired authorization key window fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: an SSA key aliased as SAS cannot authorize despite a valid signature",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: key rotation that reuses SSA material blocks an already stored SAS",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/sas-trust/2026-10-25/issuer.json",
+      "sha256": "d36949a9cf01ac4f213ff502ac58f60553427e5da8921307dbd281eb08482bf6",
+      "passed": 1,
+      "failed": 0,
+      "omitted": 0,
+      "tests": [
+        {
+          "name": "Central signs the entire DEC-011 laboratory candidate and refuses a production profile or public signer",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/sas-trust/2026-10-25/electron.json",
+      "sha256": "8fc2f11c3a577f8e835e2f680adb32ce1445112881b096d7a09c659f8ebd85fb",
+      "passed": 4,
+      "failed": 0,
+      "omitted": 165,
+      "tests": [
+        {
+          "name": "BUSINESS access preparation - physical composition central SAS: a user without assigned role receives an empty projection",
+          "status": "passed"
+        },
+        {
+          "name": "BUSINESS access preparation - physical composition central SAS: revoked session cannot obtain a projection",
+          "status": "passed"
+        },
+        {
+          "name": "BUSINESS access preparation - physical composition central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=false",
+          "status": "passed"
+        },
+        {
+          "name": "BUSINESS access preparation - physical composition central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=true",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/sas-trust/2026-10-25/counter.json",
+      "sha256": "57643e8246f4c9132c9df138f89405f48b269643d9bb84552ca18d1e88f9d02b",
+      "passed": 6,
+      "failed": 0,
+      "omitted": 3,
+      "tests": [
+        {
+          "name": "SAS proposal — disposable PostgreSQL rolls back DDL and ledger together on failure; retries and repeated apply are safe",
+          "status": "passed"
+        },
+        {
+          "name": "SAS proposal — disposable PostgreSQL serializes concurrent reservations without duplicate sequence values",
+          "status": "passed"
+        },
+        {
+          "name": "SAS proposal — disposable PostgreSQL counter advance rolls back with an audit failure",
+          "status": "passed"
+        },
+        {
+          "name": "SAS proposal — disposable PostgreSQL rejects replay, jumps, mutable binding, deletion and destructive rollback",
+          "status": "passed"
+        },
+        {
+          "name": "SAS proposal — disposable PostgreSQL forces RLS, excludes local roles and adds no write authority over RBAC sources",
+          "status": "passed"
+        },
+        {
+          "name": "SAS proposal — disposable PostgreSQL retains the watermark across connection restart and cannot reset it by reapplying",
+          "status": "passed"
+        }
+      ]
+    }
+  ],
+  "initial_failures": [
+    {
+      "source": "artifacts/sas-trust/2026-10-25/electron-driver-failure.json",
+      "sha256": "e6626efa2b6626326b04e602936603fbadf6c2dcc2361186fae669d89da0020f",
+      "passed": 1,
+      "failed": 1,
+      "omitted": 167,
+      "tests": [
+        {
+          "name": "BUSINESS access preparation - physical composition central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=false",
+          "status": "failed",
+          "first_error": "AssertionError: expected { browserIntegration: true, …(13) } to match object { centralSas: true, …(4) }"
+        },
+        {
+          "name": "BUSINESS access preparation - physical composition central SAS: Electron HTTPS WebAuthn BUSINESS SSA central grants and authorized dashboard custody=true",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/sas-trust/2026-10-25/counter-filter-failure.json",
+      "sha256": "f8e6ed596392de251f4f9ce0e083ae18664e5f28841c04ee0c1786ff7f506195",
+      "passed": 0,
+      "failed": 4,
+      "omitted": 5,
+      "tests": [
+        {
+          "name": "SAS proposal — disposable PostgreSQL serializes concurrent reservations without duplicate sequence values",
+          "status": "failed",
+          "first_error": "error: relation \"authorization.snapshot_sequences\" does not exist"
+        },
+        {
+          "name": "SAS proposal — disposable PostgreSQL counter advance rolls back with an audit failure",
+          "status": "failed",
+          "first_error": "error: relation \"authorization.snapshot_sequences\" does not exist"
+        },
+        {
+          "name": "SAS proposal — disposable PostgreSQL rejects replay, jumps, mutable binding, deletion and destructive rollback",
+          "status": "failed",
+          "first_error": "Error: expected [Function] to throw error including 'SAS requires exact +1 and immutable b…' but got 'relation \"authorization.snapshot_sequ…'"
+        },
+        {
+          "name": "SAS proposal — disposable PostgreSQL forces RLS, excludes local roles and adds no write authority over RBAC sources",
+          "status": "failed",
+          "first_error": "error: relation \"authorization.snapshot_sequences\" does not exist"
+        }
+      ]
+    },
+    {
+      "source": "artifacts/sas-trust/2026-10-25/restart-initial-failure.json",
+      "sha256": "d39f3730be3581cada1fd96ed837e505adbd1f0ad9d6a38e5b9c5468f7f2c49a",
+      "passed": 49,
+      "failed": 2,
+      "omitted": 0,
+      "tests": [
+        {
+          "name": "SAS candidate: real DPAPI survives provider/store restart and revalidates on every read",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: separate Node process recovers protected generation and rejects downgrade",
+          "status": "failed",
+          "first_error": "Error: Command failed: C:\\Program Files\\nodejs\\node.exe --import tsx --input-type=module -e "
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated root without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated generation without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated set without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated key-id without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated revocation without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated issuer without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated environment without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated purpose without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated authority without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: rejects unauthenticated incomplete without replacing trusted state",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed issuer cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed authority cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed SSA alias cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed private key cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: even root-signed EC key cannot grant trust",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects omission with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects same-id material with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects version rollback with history retained",
+          "status": "failed",
+          "first_error": "Error: STACK_TRACE_ERROR"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects same-version mutation with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects revived with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects revoked alias with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects generation rollback with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: signed rotation rejects generation conflict with history retained",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: atomic rename failure retains generation and keys across recovery",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: concurrent same-owner rotations retain highest generation and terminal revocation",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: offline expiry denies cached map, accepts fresh renewal preserving tombstones",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: authenticated rotation adds a distinct key and retained VERIFY_ONLY key still verifies",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: expired fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: future fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: bootstrap floor fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: missing policy fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "SAS candidate: real HTTPS rejects tampering redirects oversized bodies deadline and offline without replacing durable trust",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: verified projection persists, permissions are scoped and direct forbidden operation is denied",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered signature",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered key",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered user",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered device",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: rejects altered installation",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: authentic other company scope grants no capability",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: authentic other branch scope grants no capability",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: authentic other tenant scope grants no capability",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: repeated or old sequence never replaces the current projection",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: updated revocation and signing-key revocation deny subsequent backend operations",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: central outage preserves only a still-valid snapshot with no expiry grace",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: local write failure rolls back and keeps the previous signed sequence",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: a corrupt on-disk signature cannot become authorization through its checksum",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: invalid or expired authorization key window fails closed",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: an SSA key aliased as SAS cannot authorize despite a valid signature",
+          "status": "passed"
+        },
+        {
+          "name": "central SAS reception: key rotation that reuses SSA material blocks an already stored SAS",
+          "status": "passed"
+        }
+      ]
+    }
+  ],
+  "electron_observations": [
+    {
+      "source": "artifacts/sas-trust/2026-10-25/electron/sas-trust-observations-custody-false.json",
+      "sha256": "4e762e3a2eec8bbf00858eb16eaca167c7a0fed0d4397a6aac199ec14cbf6968",
+      "observed": {
+        "browserIntegration": true,
+        "scope": "ISOLATED_VALIDATION",
+        "boundNative": true,
+        "destinationConfirmed": true,
+        "wrongPasswordRejected": true,
+        "erased": true,
+        "custodyCleared": true,
+        "nativeSsa": {
+          "invalid": "REJECTED",
+          "activated": "ACTIVATED",
+          "replay": "REJECTED",
+          "recovered": "ACTIVE",
+          "capabilities": {
+            "protocol_version": "1.0.0",
+            "request_id": "6d025082-c17b-406d-9720-1924d6afbfb8",
+            "correlation_id": "69e21ddc-bde0-460e-85f1-0fa57a464004",
+            "operation_id": null,
+            "status": "SUCCEEDED",
+            "result_code": "AVAILABLE",
+            "result_schema_version": "1.0.0",
+            "error": null,
+            "server_time": "2026-10-25T15:43:32.654Z",
+            "result": {
+              "outcome": "AVAILABLE",
+              "permissions": [
+                "AUDIT_EVENT_READ"
+              ]
+            }
+          },
+          "audit": {
+            "protocol_version": "1.0.0",
+            "request_id": "9b370f78-e064-4146-a9d3-af75fd491f92",
+            "correlation_id": "228e5de6-94e9-4a49-82bd-c1f71e68da46",
+            "operation_id": null,
+            "status": "SUCCEEDED",
+            "result_code": "FOUND",
+            "result_schema_version": "1.0.0",
+            "error": null,
+            "server_time": "2026-10-25T15:43:32.717Z",
+            "result": {
+              "outcome": "FOUND",
+              "events": [],
+              "has_more": false
+            }
+          },
+          "forbidden": {
+            "protocol_version": "1.0.0",
+            "request_id": "0ba4cdf4-2312-4cde-a446-b327d22610e6",
+            "correlation_id": "173c17f9-2623-470b-966a-19a1371bdb52",
+            "operation_id": null,
+            "status": "REJECTED",
+            "result_code": "UNAUTHORIZED",
+            "result_schema_version": "1.0.0",
+            "error": {
+              "code": "UNAUTHORIZED",
+              "category": "AUTHORIZATION",
+              "retryable": false,
+              "user_message_key": "catalog.item.list.unauthorized",
+              "field_errors": [],
+              "current_version": null,
+              "required_action": null,
+              "diagnostic_id": "ca5a0cab-28d6-4056-b2b2-61fdad54c62a"
+            },
+            "server_time": "2026-10-25T15:43:32.694Z",
+            "result": {
+              "outcome": "UNAUTHORIZED",
+              "items": [],
+              "has_more": false
+            }
+          },
+          "channelLossRejected": true
+        },
+        "grantsFabricated": false,
+        "dashboardClosed": true,
+        "dashboardAuthorized": true,
+        "revocationDenied": true,
+        "revokedAuthorization": {
+          "invalid": "REJECTED",
+          "activated": "REJECTED",
+          "replay": "REJECTED",
+          "recovered": "ACTIVE",
+          "capabilities": {
+            "protocol_version": "1.0.0",
+            "request_id": "e89e9191-e04f-4e27-9960-1b1f5f9b02d9",
+            "correlation_id": "0302d240-1afb-4a3e-8622-48f840c13987",
+            "operation_id": null,
+            "status": "SUCCEEDED",
+            "result_code": "AVAILABLE",
+            "result_schema_version": "1.0.0",
+            "error": null,
+            "server_time": "2026-10-25T15:43:33.832Z",
+            "result": {
+              "outcome": "AVAILABLE",
+              "permissions": []
+            }
+          },
+          "audit": {
+            "protocol_version": "1.0.0",
+            "request_id": "80eeaaf4-07f5-4f6c-ba3f-5da9b77a16c5",
+            "correlation_id": "f4c9bbe4-4d67-4e8b-9123-d5820e57c25f",
+            "operation_id": null,
+            "status": "REJECTED",
+            "result_code": "UNAUTHORIZED",
+            "result_schema_version": "1.0.0",
+            "error": {
+              "code": "UNAUTHORIZED",
+              "category": "AUTHORIZATION",
+              "retryable": false,
+              "user_message_key": "audit.event.list.unauthorized",
+              "field_errors": [],
+              "current_version": null,
+              "required_action": null,
+              "diagnostic_id": "d1409be7-0ec0-4a19-b3d5-6012fe69da3d"
+            },
+            "server_time": "2026-10-25T15:43:33.850Z",
+            "result": {
+              "outcome": "UNAUTHORIZED",
+              "events": [],
+              "has_more": false
+            }
+          },
+          "channelLossRejected": true
+        },
+        "centralSas": true,
+        "authenticator": "CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"
+      }
+    },
+    {
+      "source": "artifacts/sas-trust/2026-10-25/electron/sas-trust-observations-custody-true.json",
+      "sha256": "348902ef842f2544c2e6094e841b8fbf01ee33d5f91ec990fa92e0a7d25fee5b",
+      "observed": {
+        "browserIntegration": true,
+        "scope": "ISOLATED_VALIDATION",
+        "serviceCustody": true,
+        "devicePrivateKeyInMain": false,
+        "dashboardAuthorized": true,
+        "wrongPasswordRejected": true,
+        "erased": true,
+        "observed": {
+          "recovery": {
+            "protocol_version": "1.0.0",
+            "request_id": "7fb1a94a-14bb-49d4-8188-1b1ac622f976",
+            "correlation_id": "c1070dcd-81b5-45c2-b5ed-3cc34a9c4404",
+            "operation_id": null,
+            "status": "SUCCEEDED",
+            "result_code": "ACTIVE",
+            "result_schema_version": "1.0.0",
+            "error": null,
+            "server_time": "2026-10-25T15:43:44.563Z",
+            "result": {
+              "outcome": "ACTIVE",
+              "session_id": "01a173bb-6555-7f4a-a25b-de7e36e8dcb2",
+              "offline_valid_until": "2026-10-25T15:44:13.931Z",
+              "decision": null
+            }
+          },
+          "capabilities": {
+            "protocol_version": "1.0.0",
+            "request_id": "1ccfec0a-c846-49d9-8630-6d7a38bd26c1",
+            "correlation_id": "fe6a8dbd-64d9-451a-9f85-f2fc89da185c",
+            "operation_id": null,
+            "status": "SUCCEEDED",
+            "result_code": "AVAILABLE",
+            "result_schema_version": "1.0.0",
+            "error": null,
+            "server_time": "2026-10-25T15:43:44.578Z",
+            "result": {
+              "outcome": "AVAILABLE",
+              "permissions": [
+                "AUDIT_EVENT_READ"
+              ]
+            }
+          },
+          "forbidden": {
+            "protocol_version": "1.0.0",
+            "request_id": "bf3c87c2-9029-402a-aa48-06fe0b06f52f",
+            "correlation_id": "2b302684-87af-4bd1-ab79-2406b907e1e1",
+            "operation_id": null,
+            "status": "REJECTED",
+            "result_code": "UNAUTHORIZED",
+            "result_schema_version": "1.0.0",
+            "error": {
+              "code": "UNAUTHORIZED",
+              "category": "AUTHORIZATION",
+              "retryable": false,
+              "user_message_key": "catalog.item.list.unauthorized",
+              "field_errors": [],
+              "current_version": null,
+              "required_action": null,
+              "diagnostic_id": "82bcb534-e0c5-4322-8731-1194276577e6"
+            },
+            "server_time": "2026-10-25T15:43:44.613Z",
+            "result": {
+              "outcome": "UNAUTHORIZED",
+              "items": [],
+              "has_more": false
+            }
+          }
+        },
+        "authenticator": "CHROMIUM_VIRTUAL_CTAP2_NOT_HUMAN"
+      }
+    }
+  ],
+  "local_gates": {
+    "contracts_typecheck": "PASS",
+    "central_typecheck": "PASS",
+    "service_typecheck": "PASS",
+    "electron_build": "PASS",
+    "ARCH_003": "PASS, 16 tests",
+    "repository_policy": "PASS, 1087 tracked files scanned including staged additions",
+    "desktop_typecheck": "PASS, main and renderer"
+  },
+  "remote_ci": "PENDING - billing suspension reported by owner; not polled or bypassed",
+  "production_activated": false,
+  "human_authenticated": false
+}

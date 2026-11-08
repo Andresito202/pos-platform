@@ -58,7 +58,7 @@ export async function verifyPlatformWebAuthnAssertion(input: {
   const { response, challenge, factor, material, rp } = input;
   if (!challenge.factorId || challenge.factorId !== factor.factorId ||
       challenge.userId !== factor.userId ||
-      !["AUTHENTICATE", "REAUTHENTICATE", "RECOVERY_APPROVAL"].includes(challenge.purpose) ||
+      !["AUTHENTICATE", "GLOBAL_AUTHENTICATE", "REAUTHENTICATE", "RECOVERY_APPROVAL"].includes(challenge.purpose) ||
       !isPlatformWebAuthnCredentialReference(factor.secretReference) ||
       material.schemaVersion !== 1 ||
       material.secretReference !== factor.secretReference ||
