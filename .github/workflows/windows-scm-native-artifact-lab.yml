@@ -71,6 +71,11 @@ jobs:
           $addon='packages/local-channel/native/build/Release/camacho_windows_pipe.node'
           if(-not (Test-Path -LiteralPath $addon -PathType Leaf)){throw 'NATIVE_BINARY_NOT_BUILT'}
           Write-Host ('NATIVE_SHA256='+(Get-FileHash -LiteralPath $addon -Algorithm SHA256).Hash)
+      - name: Verify real Windows kernel process birth reader and PID reuse rejection
+        shell: pwsh
+        run: |
+          node --test tools/operators/windows-native-process-birth.test.mjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
       - name: Native API, actual service SID and Node/Electron fail-closed smoke
         shell: pwsh
         run: |
