@@ -1,4 +1,4 @@
-param([switch]$SkipBuild)
+param([switch]$SkipBuild,[switch]$ServiceOnly)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -35,7 +35,8 @@ if (-not (Test-Path -LiteralPath $installationPath)) {
 }
 $installation = Get-Content -LiteralPath $installationPath -Raw | ConvertFrom-Json
 foreach ($key in @('installation_id','device_id','tenant_id','company_id','branch_id')) {
-  if ($null -eq $installation.$key -or -not [guid]::TryParse([string]$installation.$key, [ref]([guid]::Empty))) {
+  $parsedGuid = [guid]::Empty
+  if ($null -eq $installation.$key -or -not [guid]::TryParse([string]$installation.$key, [ref]$parsedGuid)) {
     throw 'LOCAL_INSTALLATION_METADATA_INVALID'
   }
 }
@@ -99,6 +100,7 @@ try {
   Write-Host "SQLite persistente: $database"
   Write-Host 'LOGIN_LOCAL_REAL: servicio y Electron, sin Playwright'
   Write-Host 'AVISO: identidad local no equivale a sesión comercial BUSINESS ni habilita ventas sin autorización.'
+  if ($ServiceOnly) { Write-Host 'POS_LOCAL_SERVICE_SMOKE_PASS'; return }
   Push-Location $repo
   try {
     & pnpm --filter @pos-platform/pos-desktop start:production
