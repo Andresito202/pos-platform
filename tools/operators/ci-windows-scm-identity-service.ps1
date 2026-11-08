@@ -160,6 +160,13 @@ try {
         if(Test-Path -LiteralPath $failurePath -PathType Leaf){
           $detail=Get-Content -LiteralPath $failurePath -Raw | ConvertFrom-Json
           Write-Host ('G1_NATIVE_'+$role.ToUpperInvariant()+'_FAIL_PHASE='+$detail.phase)
+          if($role -eq 'desktop' -and $detail.phase -eq 'DESKTOP_CONNECT'){
+            $classification=[string]$detail.scm_token_query
+            if($classification -notin @('PROCESS_OPEN_DENIED','TOKEN_QUERY_DENIED','TOKEN_QUERY_ALLOWED','TOKEN_PROBE_INCONCLUSIVE')){
+              $classification='TOKEN_PROBE_INCONCLUSIVE'
+            }
+            Write-Host ('G1_NATIVE_SCM_TOKEN_QUERY='+$classification)
+          }
         }
       }
     }
