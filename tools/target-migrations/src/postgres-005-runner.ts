@@ -1,3 +1,4 @@
+import {isSupportedMigrationPostgresVersion} from "./postgres-compatibility.js";
 import { Pool } from "pg";
 import { readArtifact, sha256, uuidV7, MigrationInvariantError, POSTGRES_MIGRATION_LOCK_RESOURCE, RUNNER_VERSION } from "./shared.js";
 import { POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_003_DESCRIPTOR } from "./contract.js";
@@ -23,7 +24,7 @@ export async function applyPostgres005(config: Postgres005RunnerConfig): Promise
       "SELECT current_database() database,current_setting('server_version_num') version,session_user,current_user",
     );
     const runtime = target.rows[0];
-    invariant(runtime?.database === config.expectedDatabase && runtime.version === "160014", "005 target mismatch");
+    invariant(runtime?.database === config.expectedDatabase && isSupportedMigrationPostgresVersion(runtime.version), "005 target mismatch");
     invariant(runtime.session_user === "pos_migrator" && runtime.current_user === "pos_migrator", "005 connection role mismatch");
 
     await client.query("SET ROLE pos_schema_owner");
