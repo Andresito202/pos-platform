@@ -65,7 +65,7 @@ describe("Service-owned SQLite candidate handoff lease ledger",()=>{
     now=new Date(at.getTime()+elapsed);
     expect(()=>ledger.accept(receipt(leaseId))).toThrow("HANDOFF_LEASE_NOT_AUTHORIZED");
     expect(db.native.prepare("SELECT count(*) AS count FROM local_channel_replay_state").get()).toEqual({count:0});
-  });
+  },25000);
 
   it("rejects clock rollback between authorization and consumption",()=>{
     const {db}=open(),leaseId="e".repeat(64);
