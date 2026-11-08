@@ -1237,6 +1237,29 @@ export const AuditEventListResultSchema = z.strictObject({
 export const AuditEventListResponseSchema =
   createResponseEnvelopeSchema(AuditEventListResultSchema);
 
+// ── payment.destination.get — QR-001 ─────────────────────────────────────────
+// A strictly read-only authenticated projection. The renderer cannot supply
+// any tenant, company, image URL, account or authorization context.
+export const MerchantDestinationsGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({message_type:z.literal("payment.destination.get")})
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const MerchantDestinationsGetResultSchema = z.strictObject({
+  outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),
+  sequence:z.number().int().positive().nullable(),
+  destinations:z.array(z.strictObject({
+    kind:z.enum(["NEQUI_NUMBER","BREB_KEY","NEQUI_BUSINESS_QR"]),
+    label:z.string().min(1).max(80),
+    destination_reference:z.string().min(4).max(160),
+    qr_asset_id:z.string().uuid().nullable(),
+    qr_sha256:z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+    version:z.number().int().positive(),
+  })).max(3),
+});
+export const MerchantDestinationsGetResponseSchema=createResponseEnvelopeSchema(MerchantDestinationsGetResultSchema);
+export type MerchantDestinationsGetResult=z.infer<typeof MerchantDestinationsGetResultSchema>;
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -1260,6 +1283,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "payment.transfer.confirm",
   "payment.cancel",
   "payment.get",
+  "payment.destination.get",
   "customer.register",
   "customer.get",
   "customer.find",
@@ -1295,6 +1319,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:payment.transfer.confirm",
   "pos:payment.cancel",
   "pos:payment.get",
+  "pos:payment.destination.get",
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
