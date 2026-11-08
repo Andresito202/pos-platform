@@ -127,7 +127,7 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
      if(this.stopping||this.inFlight)return;
      const controller=new AbortController();
      this.inFlightAbort=controller;
-     this.inFlight=this.tick(controller.signal)
+     this.inFlight=this.tick(signal)
        .catch(error=>this.report(error instanceof Error?error.message:"QR001_SYNC_FAILURE"))
        .finally(()=>{
          if(this.inFlightAbort===controller)this.inFlightAbort=undefined;
@@ -157,7 +157,7 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
    try{
      // Low-bandwidth authenticated status check. A full signed PNG bundle is
      // fetched only on a new company publication or before snapshot expiry.
-     const status=await this.transport.request("floor",{},controller.signal) as
+     const status=await this.transport.request("floor",{},signal) as
        {floor?:unknown;current_sequence?:unknown};
      const sequence=(value:unknown):number|null=>{
        if(value===null)return null;
@@ -179,7 +179,7 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
      const floor={
        floorFor:async()=>acknowledged,
      };
-     const response=await this.transport.request("snapshot",{},controller.signal) as {artifact?:unknown};
+     const response=await this.transport.request("snapshot",{},signal) as {artifact?:unknown};
      if(!response||typeof response!=="object"||!response.artifact)
        throw Error("QR001_INVALID_SNAPSHOT_RESPONSE");
      // If Central did not receive the last ACK, a crash may leave a durable,
@@ -191,8 +191,7 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
        const fresh=verifier.verify(response.artifact,scope);
        if(fresh.decision==="VALID"&&canRecoverMerchantDestinationAcknowledgement(
          local,fresh.snapshot,acknowledged,current,Date.now())){
-         const ackRecovered=await this.transport.request("ack",{sequence:current},controller.signal)
-           as {sequence?:unknown};
+         const ackRecovered=await this.transport.request("ack",{sequence:current},signal) as {sequence?:unknown};
          if(typeof ackRecovered?.sequence!=="number"||
             !Number.isSafeInteger(ackRecovered.sequence)||ackRecovered.sequence<current)
            throw Error("QR001_ACK_RECOVERY_REJECTED");
@@ -203,7 +202,7 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
      const activated=await new MerchantDestinationActivationService(verifier,store,floor)
        .acceptSigned(response.artifact,scope);
      if(activated.kind!=="ACTIVATED"){this.report(activated.reason);return;}
-     const ack=await this.transport.request("ack",{sequence:activated.sequence},controller.signal) as {sequence?:unknown};
+     const ack=await this.transport.request("ack",{sequence:activated.sequence},signal) as {sequence?:unknown};
      if(typeof ack?.sequence!=="number"||!Number.isSafeInteger(ack.sequence)||
        ack.sequence<activated.sequence)throw Error("QR001_ACK_REJECTED");
      this.report("ACTIVATED_AND_ACKNOWLEDGED");
