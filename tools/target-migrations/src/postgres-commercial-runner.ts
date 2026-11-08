@@ -39,8 +39,13 @@ export const POSTGRES_022_DESCRIPTOR=descriptor("022_license_activations",POSTGR
 export const LICENSE_ACTIVATION_MIGRATIONS=Object.freeze([...GLOBAL_ADMINISTRATION_MIGRATIONS,POSTGRES_022_DESCRIPTOR]);
 export const POSTGRES_023_DESCRIPTOR=descriptor("023_license_offer_terms",POSTGRES_022_DESCRIPTOR.migrationId,["licensing.plans"],"licensing");
 export const LICENSE_CATALOG_MIGRATIONS=Object.freeze([...LICENSE_ACTIVATION_MIGRATIONS,POSTGRES_023_DESCRIPTOR]);
-type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
+export const POSTGRES_024_DESCRIPTOR=descriptor("024_merchant_payment_destinations",POSTGRES_023_DESCRIPTOR.migrationId,
+  ["payments.merchant_qr_assets","payments.merchant_destinations","payments.merchant_destination_events",
+   "payments.merchant_destination_outbox","payments.merchant_destination_sequences","payments.merchant_destination_acknowledgements"],"payments");
+export const MERCHANT_DESTINATION_MIGRATIONS=Object.freeze([...LICENSE_CATALOG_MIGRATIONS,POSTGRES_024_DESCRIPTOR]);
+type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG"|"MERCHANT_DESTINATIONS";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="MERCHANT_DESTINATIONS")return MERCHANT_DESTINATION_MIGRATIONS;
   if(target==="LICENSE_CATALOG")return LICENSE_CATALOG_MIGRATIONS;
   if(target==="LICENSE_ACTIVATIONS")return LICENSE_ACTIVATION_MIGRATIONS;
   if(target==="AUTHENTICATION")return COMMERCIAL_MIGRATIONS;
@@ -80,6 +85,31 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
         check(!(await c.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,table])).rows[0].allowed,"Factus Pay inbox exposed to tenant runtime");
       check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,"Factus Pay evidence must not be deletable");
     }
+  }
+  if(d===POSTGRES_024_DESCRIPTOR){
+    for(const table of d.ownedTables){
+      for(const role of ["pos_app","pos_worker","pos_reporting"])
+        check(!(await c.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,table])).rows[0].allowed,
+          "Merchant destinations exposed to local tenant role");
+      check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,
+        "Merchant destination evidence deletable");
+      check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname='merchant_no_truncate' AND tgenabled='O'",[table])).rowCount===1,
+        "Merchant destination truncation guard missing");
+    }
+    const checks=[
+      ["payments.merchant_destinations","merchant_destination_transition"],
+      ["payments.merchant_destinations","merchant_destination_insert"],
+      ["payments.merchant_destinations","merchant_destination_no_delete"],
+      ["payments.merchant_qr_assets","merchant_asset_immutable"],
+      ["payments.merchant_destination_events","merchant_event_immutable"],
+      ["payments.merchant_destination_outbox","merchant_outbox_immutable"],
+      ["payments.merchant_destination_sequences","merchant_sequence_monotonic"],
+      ["payments.merchant_destination_acknowledgements","merchant_ack_monotonic"],
+      ["payments.merchant_destination_acknowledgements","merchant_ack_identity"],
+    ] as const;
+    for(const [table,trigger] of checks)
+      check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname=$2 AND tgenabled='O'",[table,trigger])).rowCount===1,
+        "Merchant destination required trigger missing: "+trigger);
   }
   if(d===POSTGRES_020_DESCRIPTOR){
     check(!(await c.query("SELECT has_column_privilege('pos_platform_app','payments.payments','expected_amount','UPDATE') AS allowed")).rows[0].allowed,"Subscription payment amount must be immutable to runtime");
