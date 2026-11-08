@@ -119,7 +119,7 @@ export class MerchantBusinessDestinationOperations {
       await client.query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
       await client.query("SELECT set_config('app.company_id',$1,true)",[companyId]);
       await client.query("SET LOCAL statement_timeout='5s'");
-      const result=await client.query(`SELECT id,received_at,sender_label,status,
+      const result=await client.query(`SELECT id,received_at,sender_label,reported_amount_cop::text AS reported_amount_cop,payer_display,status,
         bank_confirmed,sale_confirmed,requires_independent_reconciliation
         FROM payments.merchant_payment_notification_inbox
         WHERE tenant_id=$1 AND company_id=$2
