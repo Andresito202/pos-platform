@@ -148,6 +148,7 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
   try{
    await pool.query(await readArtifact("postgres/025_merchant_payment_notifications.up.sql"));
    await pool.query(await readArtifact("postgres/026_merchant_payment_notice_reported_details.up.sql"));
+   await pool.query(await readArtifact("postgres/027_merchant_notice_revocation_guard.up.sql"));
    await pool.query(`INSERT INTO identity.device_registry(installation_id,tenant_id,company_id,status)
     VALUES('55555555-5555-4555-8555-555555555555',
            '11111111-1111-4111-8111-111111111111',
@@ -214,10 +215,23 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
    await client.query("COMMIT");
    await client.query("BEGIN");
    await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[a,ca]);
+   // Simulate disabling a device BEFORE consent revocation. The old 025
+   // guard rejected this security cleanup because status was no longer ACTIVE.
+   await client.query("RESET ROLE");
+   await client.query("SET ROLE pos_schema_owner");
+   await client.query("UPDATE identity.device_registry SET status='REVOKED' WHERE installation_id=$1",[installation]);
+   await client.query("RESET ROLE");
+   await client.query("SET ROLE pos_platform_app");
    await client.query(`UPDATE payments.merchant_notification_bridge_consents
       SET revoked_at=clock_timestamp() WHERE tenant_id=$1 AND company_id=$2 AND installation_id=$3`,
       [a,ca,installation]);
    await client.query("COMMIT");
+   await client.query("BEGIN");
+   await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[a,ca]);
+   await expect(client.query(`UPDATE payments.merchant_notification_bridge_consents
+     SET revoked_at=NULL WHERE tenant_id=$1 AND company_id=$2 AND installation_id=$3`,
+     [a,ca,installation])).rejects.toThrow();
+   await client.query("ROLLBACK");
    await client.query("BEGIN");
    await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[a,ca]);
    await expect(client.query(`INSERT INTO payments.merchant_payment_notification_inbox
