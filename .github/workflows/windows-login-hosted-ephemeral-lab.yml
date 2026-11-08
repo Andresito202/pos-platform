@@ -164,6 +164,18 @@ jobs:
           pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/boot.spec.ts e2e/native-custody.spec.ts e2e/real-channel.spec.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Write-Host 'ELECTRON_LOCAL_SERVICE_E2E_ISOLATED=PASS'
+      - name: Verify isolated Windows UI and backend permissions for each development role
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($role in @('CAJERO','SUPERVISOR','ADMINISTRADOR','SUPERADMINISTRADOR')) {
+            $env:POS_E2E_ROLE=$role
+            pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/role-isolation.spec.ts --retries=0
+            if ($LASTEXITCODE -ne 0) { throw "ISOLATED_ROLE_E2E_FAILED:$role" }
+            Write-Host "ISOLATED_ROLE_E2E_PASS:$role"
+          }
+          Remove-Item Env:POS_E2E_ROLE -ErrorAction SilentlyContinue
+          Write-Host 'ISOLATED_ROLE_PERMISSION_MATRIX=PASS'
       - name: Prohibit certification by fixture results
         if: ${{ always() }}
         shell: pwsh
