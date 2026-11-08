@@ -99,8 +99,11 @@ static void scmServerLineage(const Identity& peer,const std::wstring& sid,const 
  const DWORD service=scmPid();
  DWORD pid=peer.pid;uint64_t child=peer.born;bool found=false;
  for(unsigned i=0;i<16;i++){
-  DWORD session=0;
-  mark("ATTEST_PROCESS_SESSION");require(ProcessIdToSessionId(pid,&session)&&session==0);
+  // The connected pipe's server session was verified by
+  // GetNamedPipeServerSessionId before this walk. ProcessIdToSessionId on
+  // SCM-owned ancestors can require a cross-account process handle and return
+  // ACCESS_DENIED even for a legitimate peer. Preserve the SCM PID, creation
+  // time and parent-chain checks; do not skip attestation in CI or production.
   mark("ATTEST_PROCESS_BIRTH");uint64_t born=kernelProcessBirth(pid);
   require(born!=0&&born==child);
   if(pid==service){found=true;break;}
