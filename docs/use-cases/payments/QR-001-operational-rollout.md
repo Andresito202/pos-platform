@@ -59,3 +59,10 @@ El PR incluye pruebas de esquema PostgreSQL 16.14 en contenedor descartable, dom
 - Un solo método puede contener una imagen PNG <=1 MiB y su Base64; tres imágenes consumen aproximadamente 4.2 MB sin contar metadatos y firma. El transporte de snapshots admite hasta **4,400,000 bytes** de respuesta y corta la lectura por longitud real (no solo Content-Length). Floor/ACK conservan un máximo de 1024 bytes.
 - El cambio no aumenta el tamaño permitido por archivo QR, no autoriza contenido desconocido y no despliega automáticamente el servicio.
 - Tests nuevos verifican los identificadores de la prueba firmada y la aceptación/rechazo de cargas dentro/fuera del límite. El valor de cada imagen siempre llega firmado por Central y ligado a empresa e instalación.
+
+## Optimización de sincronización y revocación (incremento posterior)
+- La petición autenticada `floor` devuelve ahora dos enteros de Central: `floor` (secuencia ya acusada por esa instalación) y `current_sequence` (última emisión o cambio publicado en la empresa). No incluye números, llaves ni imágenes bancarias.
+- Cada caja solo reutiliza la caché si ambas secuencias **coinciden exactamente** con su snapshot local y le quedan más de 15 minutos de vigencia. Un cambio publicado/revocado, falta de acuse, restauración de backup o caducidad cercana obligan a descargar y verificar un snapshot firmado completo.
+- El PNG denso del primer método ya no se duplica en `destination` (campo de compatibilidad): se incluye una sola vez en `destinations[]`, manteniendo idénticos beneficiario, referencia, hash y versión. La validación rechaza diferencias y evita sustituciones.
+- El chequeo ligero sigue siendo cada 30 s por dispositivo; no promete propagación instantánea si alguna caja no tiene red. Cuando Central está inaccesible, no se publica una configuración nueva y solo se muestran snapshots locales todavía vigentes.
+- Las reducciones de transferencia son de diseño y pruebas unitarias. **El consumo real de red de cuatro cajas y la recuperación después de cortes deben medirse con Central HTTPS desplegada y equipos físicos**, no inferirse de tests de mocks.
