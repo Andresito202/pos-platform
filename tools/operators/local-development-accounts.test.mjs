@@ -35,7 +35,7 @@ test("local role account creation, scrypt verifier, no overwrite and negative pa
     const foreign=run(["verify","root"],"anything\n");
     assert.notEqual(foreign.status,0);
   }finally{
-    assert.ok(resolve(directory).startsWith(resolve(homedir())+"\n")===false);
+    assert.ok(resolve(directory).startsWith(resolve(homedir())+ (process.platform==="win32"?"\\":"/")));
     rmSync(directory,{recursive:true,force:true});
   }
 });
