@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useState} from "react";
 import {MerchantDestinationsGetResultSchema,type MerchantDestinationsGetResult} from "@pos-platform/contracts";
 import {callCommercial} from "../pos-service.js";
+import {MerchantPaymentNoticePanel} from "./MerchantPaymentNoticePanel.js";
 
 /**
  * QR-001: cashier-only company destination, never a banking success signal.
@@ -63,6 +64,7 @@ export function MerchantPaymentMethods({enabled,amount}:{
      <p>Importe de esta venta: {amount}. El QR original puede no incorporar el valor de la venta.</p>
    </article>}
    {value&&value.destinations.length===0&&<p>El administrador no ha publicado un destino de cobro.</p>}
+   <MerchantPaymentNoticePanel enabled={enabled&&value?.outcome==="AVAILABLE"} amount={amount}/>
    <p><strong>Estado del dinero: pendiente de verificación.</strong> No se confirma ninguna venta desde este panel.</p>
  </section>;
 }
