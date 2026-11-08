@@ -30,7 +30,7 @@ const folders:string[]=[];
 function setup(keyPurpose:string=MERCHANT_DESTINATION_KEY_PURPOSE,status:"ACTIVE"|"VERIFY_ONLY"|"REVOKED"="ACTIVE",clock=now,validFrom?:string){
  const folder=mkdtempSync(join(tmpdir(),"qr001-signed-")); folders.push(folder);
  const db=LocalDatabase.open({dataDirectory:folder});
- const keys=new Map([["merchant-key-1",{key:publicKey,purpose:keyPurpose,status,validFrom}]]);
+ const keys=new Map([["merchant-key-1",{key:publicKey,purpose:keyPurpose,status,...(validFrom===undefined?{}:{validFrom})}]]);
  const verifier=new MerchantDestinationSnapshotVerifier(keys,new TrustedClockGuard(db),()=>new Date(clock));
  return {db,verifier};
 }
