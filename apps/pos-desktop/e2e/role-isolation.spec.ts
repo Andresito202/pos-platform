@@ -76,7 +76,18 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
       env:{...launchEnv,POS_E2E_CHANNEL_ENDPOINT:ready.endpoint,POS_E2E_CHANNEL_SECRET:secret,
         POS_E2E_INSTALLATION_ID:installation,POS_E2E_DEVICE_ID:device}});
     const page=await app.firstWindow();
-    await expect(page.getByTestId("authorization-unauthenticated")).toBeVisible();
+    if(durable&&smoke&&process.env.POS_E2E_PERSISTENCE_EXPECT_EXISTING==="1"){
+      // SQLite contains an earlier signed session, but its ephemeral public
+      // trust key is intentionally gone after process restart. It MUST fail
+      // closed, not silently recover as another authenticated principal.
+      await expect(page.getByTestId("authorization-unauthenticated")
+        .or(page.getByTestId("authorization-error"))
+        .or(page.getByTestId("authorization-expired"))).toBeVisible();
+      await expect(page.locator(".pos-nav button")).toHaveCount(0);
+      console.log("DEV_STALE_SESSION_RESTART_REJECTED=PASS");
+    }else{
+      await expect(page.getByTestId("authorization-unauthenticated")).toBeVisible();
+    }
     const activated=await page.evaluate(async assertion=>{
       const api=(globalThis as unknown as {posService:Record<string,(request:unknown)=>Promise<unknown>>}).posService;
       return api["session.activate"]!({protocol_version:"1.0.0",message_type:"session.activate",
