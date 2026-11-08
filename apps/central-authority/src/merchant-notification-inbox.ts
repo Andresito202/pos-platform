@@ -33,17 +33,18 @@ export class PostgresUnverifiedMerchantNotificationInbox{
    await this.authorizeEnrolledBridge(client,scope);
    const args=[uuidV7(),notice.tenant_id,notice.company_id,
     notice.source_installation_id,notice.message_sha256,
-    notice.observed_at,notice.received_at,notice.sender_label];
+    notice.observed_at,notice.received_at,notice.sender_label,
+    notice.reported_amount_cop,notice.payer_display];
    const inserted=await client.query(`INSERT INTO payments.merchant_payment_notification_inbox
      (id,tenant_id,company_id,source_installation_id,message_sha256,
-      observed_at,received_at,sender_label)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+      observed_at,received_at,sender_label,reported_amount_cop,payer_display)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      ON CONFLICT(tenant_id,company_id,source_installation_id,message_sha256) DO NOTHING
      RETURNING id`,args);
    if(inserted.rowCount!==0&&inserted.rowCount!==1)
      throw Error("QR002_UNEXPECTED_INSERT_RESULT");
    if(inserted.rowCount===0){
-    const existing=await client.query(`SELECT source,observed_at,received_at,sender_label
+    const existing=await client.query(`SELECT source,observed_at,received_at,sender_label,reported_amount_cop,payer_display
       FROM payments.merchant_payment_notification_inbox
       WHERE tenant_id=$1 AND company_id=$2 AND source_installation_id=$3
         AND message_sha256=$4`,[notice.tenant_id,notice.company_id,
@@ -52,7 +53,9 @@ export class PostgresUnverifiedMerchantNotificationInbox{
        existing.rows[0].source!==notice.source||
        new Date(existing.rows[0].observed_at).toISOString()!==new Date(notice.observed_at).toISOString()||
        new Date(existing.rows[0].received_at).toISOString()!==new Date(notice.received_at).toISOString()||
-       existing.rows[0].sender_label!==notice.sender_label)
+       existing.rows[0].sender_label!==notice.sender_label||
+       (existing.rows[0].reported_amount_cop===null?null:Number(existing.rows[0].reported_amount_cop))!==notice.reported_amount_cop||
+       existing.rows[0].payer_display!==notice.payer_display)
       throw Error("QR002_NOTIFICATION_IDEMPOTENCY_CONFLICT");
    }
    await client.query("COMMIT");started=false;
