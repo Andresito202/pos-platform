@@ -191,6 +191,11 @@ export async function prepareCommercialHttpHandler(input:{
           if(req.headers.origin||req.headers.cookie||req.headers["sec-fetch-site"])throw new Rejection(403);
         }else if(req.headers.origin!==input.origin||req.headers["sec-fetch-site"]!=="same-origin")throw new Rejection(403);
         const {object:o,raw}=await body(req,qrAction==="upload"?Math.max(policy.maximumBodyBytes,1_420_000):policy.maximumBodyBytes);
+        const proof=()=>{
+          if(!text(req.headers.authorization,8192)||!uuid(req.headers["x-request-id"])||!UuidV7Schema.safeParse(req.headers["x-correlation-id"]).success)throw new Rejection(400);
+          const correlationId=req.headers["x-correlation-id"] as string;
+          return {authorization:req.headers.authorization,requestId:req.headers["x-request-id"],correlationId,body:raw};
+        };
         if(merchantDeviceAction){
           if(!input.merchantDeviceRoutes)throw new Rejection(404);
           const result=await input.merchantDeviceRoutes.handle(merchantDeviceAction,proof());
@@ -212,11 +217,6 @@ export async function prepareCommercialHttpHandler(input:{
             throw error;
           }
         }
-        const proof=()=>{
-          if(!text(req.headers.authorization,8192)||!uuid(req.headers["x-request-id"])||!UuidV7Schema.safeParse(req.headers["x-correlation-id"]).success)throw new Rejection(400);
-          const correlationId=req.headers["x-correlation-id"] as string;
-          return {authorization:req.headers.authorization,requestId:req.headers["x-request-id"],correlationId,body:raw};
-        };
         if(native&&req.url==="/v1/commercial/native-request-challenges"){
           const registration=clients.requireExact(o.client_id,o.redirect_uri);
           if(!registration||registration.authorizationOrigin!==input.origin)throw new Rejection(403);
