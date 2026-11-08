@@ -7,6 +7,8 @@
 #include <mutex>
 #include <vector>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #ifdef _WIN32
 // libuv brings Winsock2. Load it before windows.h, which otherwise pulls
 // legacy winsock.h and causes duplicate sockaddr/WSA declarations with MSVC.
@@ -149,7 +151,7 @@ static napi_value Listen(napi_env e,napi_callback_info info){try{
  size_t n=5;napi_value a[5];check(napi_get_cb_info(e,info,&n,a,nullptr,nullptr));require(n==5);auto l=std::make_unique<Listener>();l->p=policy(e,a);serviceIdentity(identity(GetCurrentProcessId()),l->p.service);
  l->stop=CreateEventW(nullptr,TRUE,FALSE,nullptr);require(l->stop!=nullptr);l->pending=makePipe(l->p,true);napi_value out,handle;check(napi_create_object(e,&out));check(napi_create_external(e,l.get(),[](napi_env,void* p,void*){delete static_cast<Listener*>(p);},nullptr,&handle));l.release();prop(e,out,"handle",handle);return out;
  }catch(...){return reject(e);}}
-struct Work{napi_env env=nullptr;napi_deferred deferred;napi_async_work work=nullptr;napi_ref ref=nullptr;Listener* listener=nullptr;Policy p;DWORD timeout=0;bool failed=false,claimed=false,queued=false;std::unique_ptr<Connection> result;
+struct Work{napi_env env=nullptr;napi_deferred deferred;napi_async_work work=nullptr;napi_ref ref=nullptr;Listener* listener=nullptr;Policy p;DWORD timeout=0;bool failed=false,claimed=false,queued=false;const char* stage="INITIAL";std::unique_ptr<Connection> result;
  ~Work(){if(listener&&claimed&&!queued){std::lock_guard<std::mutex>lock(listener->mutex);listener->busy=false;}if(ref)napi_delete_reference(env,ref);if(work)napi_delete_async_work(env,work);}
 };
 // Native protocol v1 preface establishes the client's pipe security context
@@ -187,13 +189,14 @@ static void execute(napi_env,void* data){auto w=static_cast<Work*>(data);HANDLE 
   {std::lock_guard<std::mutex> lock(l->mutex);require(!l->closed);l->pending=next.h;next.h=INVALID_HANDLE_VALUE;}
   w->result=connection(pipe,true,l->p);pipe=INVALID_HANDLE_VALUE;
  }else{
-  Identity self=identity(GetCurrentProcessId());require(self.sid==w->p.recipient&&self.logon==w->p.logon&&self.session==w->p.session);
+  w->stage="DESKTOP_SELF_IDENTITY";Identity self=identity(GetCurrentProcessId());require(self.sid==w->p.recipient&&self.logon==w->p.logon&&self.session==w->p.session);
   ULONGLONG until=GetTickCount64()+w->timeout;
+  w->stage="DESKTOP_PIPE_OPEN";
   do{pipe=CreateFileW(w->p.endpoint.c_str(),FILE_READ_DATA|FILE_WRITE_DATA|FILE_READ_ATTRIBUTES|FILE_WRITE_ATTRIBUTES|READ_CONTROL|SYNCHRONIZE,0,nullptr,OPEN_EXISTING,FILE_FLAG_OVERLAPPED|SECURITY_SQOS_PRESENT|SECURITY_IDENTIFICATION,nullptr);
    if(pipe!=INVALID_HANDLE_VALUE)break;require(GetLastError()==ERROR_PIPE_BUSY&&GetTickCount64()<until);WaitNamedPipeW(w->p.endpoint.c_str(),100);
   }while(true);
-  pipePreface(pipe,false,w->timeout);
-  w->result=connection(pipe,false,w->p);pipe=INVALID_HANDLE_VALUE;
+  w->stage="DESKTOP_PREFACE";pipePreface(pipe,false,w->timeout);
+  w->stage="DESKTOP_SERVER_ATTESTATION";w->result=connection(pipe,false,w->p);pipe=INVALID_HANDLE_VALUE;
  }
  }catch(...){w->failed=true;if(pipe!=INVALID_HANDLE_VALUE){if(w->listener&&w->listener->pending==pipe)DisconnectNamedPipe(pipe);else CloseHandle(pipe);}}
  if(w->listener){auto l=w->listener;std::lock_guard<std::mutex>lock(l->mutex);l->busy=false;if(l->closed&&l->pending!=INVALID_HANDLE_VALUE){CloseHandle(l->pending);l->pending=INVALID_HANDLE_VALUE;}}
@@ -201,7 +204,7 @@ static void execute(napi_env,void* data){auto w=static_cast<Work*>(data);HANDLE 
 static void complete(napi_env e,napi_status status,void* data){std::unique_ptr<Work>w(static_cast<Work*>(data));try{
  if(status!=napi_ok||w->failed||!w->result)throw std::runtime_error("WINDOWS_NATIVE_PIPE_REJECTED");
  check(napi_resolve_deferred(e,w->deferred,wrap(e,std::move(w->result))));
- }catch(...){napi_value message,error;napi_create_string_utf8(e,"WINDOWS_NATIVE_PIPE_REJECTED",NAPI_AUTO_LENGTH,&message);napi_create_error(e,nullptr,message,&error);napi_reject_deferred(e,w->deferred,error);}
+ }catch(...){napi_value message,error;napi_create_string_utf8(e,(((std::getenv("GITHUB_ACTIONS")&&std::strcmp(std::getenv("GITHUB_ACTIONS"),"true")==0)&&(std::getenv("CAMACHO_NATIVE_G1_DIAGNOSTICS")&&std::strcmp(std::getenv("CAMACHO_NATIVE_G1_DIAGNOSTICS"),"1")==0))?w->stage:"WINDOWS_NATIVE_PIPE_REJECTED"),NAPI_AUTO_LENGTH,&message);napi_create_error(e,nullptr,message,&error);napi_reject_deferred(e,w->deferred,error);}
 
 }
 static napi_value async(napi_env e,std::unique_ptr<Work>w){napi_value promise,name;check(napi_create_promise(e,&w->deferred,&promise));check(napi_create_string_utf8(e,"windows-pipe",NAPI_AUTO_LENGTH,&name));check(napi_create_async_work(e,nullptr,name,execute,complete,w.get(),&w->work));check(napi_queue_async_work(e,w->work));w->queued=true;w.release();return promise;}
