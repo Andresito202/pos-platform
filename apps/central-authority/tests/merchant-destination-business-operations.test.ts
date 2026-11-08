@@ -33,7 +33,7 @@ function setup(companies:string[]=[company],enableNotices=false){
   }),
  };
  const pool={connect:async()=>client} as unknown as Pool;
- return {service:new MerchantBusinessDestinationOperations(pool,enableNotices),statements,client};
+ return {service:new MerchantBusinessDestinationOperations(pool,enableNotices),pool,statements,client};
 }
 describe("QR-001 BUSINESS administrative scope",()=>{
  it("allows read only for one active explicit admin company derived from the session",async()=>{
@@ -121,8 +121,8 @@ describe("QR-001 BUSINESS administrative scope",()=>{
  });
 
  it("revokes only an explicit installation with fresh role/session recheck inside SERIALIZABLE",async()=>{
-   const {service,statements}=setup([company],true);
-   const enabled=new MerchantBusinessDestinationOperations((service as unknown as {pool:Pool}).pool,true,true);
+   const {pool,statements}=setup([company],true);
+   const enabled=new MerchantBusinessDestinationOperations(pool,true,true);
    const result=await enabled.dispatch({session,action:"notice-consent-revoke",
      payload:{installation_id:"66666666-6666-4666-8666-666666666666"}});
    expect(result).toEqual({revoked:true});
@@ -137,11 +137,11 @@ describe("QR-001 BUSINESS administrative scope",()=>{
    expect(statements.at(-1)?.sql).toBe("COMMIT");
  });
  it("blocks revocation by default and rejects injected company or invalid installation",async()=>{
-   const {service,statements}=setup([company],true);
+   const {service,pool,statements}=setup([company],true);
    await expect(service.dispatch({session,action:"notice-consent-revoke",
      payload:{installation_id:"66666666-6666-4666-8666-666666666666"}}))
      .rejects.toThrow("QR002_CONSENT_REVOCATION_NOT_ENABLED");
-   const enabled=new MerchantBusinessDestinationOperations((service as unknown as {pool:Pool}).pool,true,true);
+   const enabled=new MerchantBusinessDestinationOperations(pool,true,true);
    for(const payload of [
      {installation_id:"66666666-6666-4666-8666-666666666666",company_id:company},
      {installation_id:"invalid"},
@@ -149,8 +149,8 @@ describe("QR-001 BUSINESS administrative scope",()=>{
    expect(statements.some(s=>s.sql.includes("UPDATE payments.merchant_notification_bridge_consents"))).toBe(false);
  });
  it("refuses revoked administrative grants before writing consent",async()=>{
-   const {service,statements}=setup([],true);
-   const enabled=new MerchantBusinessDestinationOperations((service as unknown as {pool:Pool}).pool,true,true);
+   const {pool,statements}=setup([],true);
+   const enabled=new MerchantBusinessDestinationOperations(pool,true,true);
    await expect(enabled.dispatch({session,action:"notice-consent-revoke",
      payload:{installation_id:"66666666-6666-4666-8666-666666666666"}}))
      .rejects.toThrow("QR001_ADMIN_DENIED_OR_AMBIGUOUS_COMPANY");
