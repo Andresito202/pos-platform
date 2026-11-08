@@ -53,3 +53,20 @@ it("presents multiple independently configured methods to the same four register
  expect(all[0]?.map(x=>x.kind)).toEqual(["NEQUI_NUMBER","BREB_KEY"]);
  expect(DestinationSnapshotSchema.safeParse({...proposed,destinations:[first,first]}).success).toBe(false);
 });
+
+it("accepts a lightweight primary with image only in the signed method array",()=>{
+ const core={kind:"NEQUI_BUSINESS_QR" as const,label:"QR Nequi",destination_reference:"@commerce",
+   qr_asset_id:"77777777-7777-4777-8777-777777777777",qr_sha256:"a".repeat(64),version:2};
+ const image=Buffer.alloc(60).toString("base64");
+ const proposed={...snapshot(9,core),destinations:[{...core,qr_png_base64:image}]};
+ expect(DestinationSnapshotSchema.safeParse(proposed).success).toBe(true);
+ const state=applyVerifiedDestinationSnapshot(null,proposed,scope,at);
+ expect(visibleCompanyDestinations(state,scope,at)[0]?.qr_png_base64).toBe(image);
+ expect(visibleCompanyDestination(state,scope,at)?.qr_png_base64).toBeUndefined();
+ expect(DestinationSnapshotSchema.safeParse({
+   ...proposed,destination:{...core,destination_reference:"@attacker"},
+ }).success).toBe(false);
+ expect(DestinationSnapshotSchema.safeParse({
+   ...proposed,destination:{...core,qr_png_base64:Buffer.alloc(60,1).toString("base64")},
+ }).success).toBe(false);
+});
