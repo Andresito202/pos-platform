@@ -50,7 +50,7 @@ describe("local password gate",()=>{
   });
 
   it("fails closed under a shared global budget even when principals rotate",async()=>{
-    const {store}=await fixture();
+    const {store,password}=await fixture();
     let now=200000;
     const db=new Database(":memory:");
     try{
@@ -58,8 +58,8 @@ describe("local password gate",()=>{
       for(let i=0;i<40;i++){
         // Successful principals reset their own bucket; the global charge remains.
         const result=await gate.authenticate(["admin.local","cajero.local","supervisor.local","superadmin.local"][i%4]!,
-          "wrong");
-        if (i<20)expect(result.status).toBe("DENIED");
+          password);
+        expect(result.status).toBe("AUTHENTICATED");
       }
       expect((await gate.authenticate("admin.local","wrong")).status).toBe("RATE_LIMITED");
       now+=15*60*1000;
