@@ -47,6 +47,11 @@ jobs:
           Write-Output ('ADMIN_TOKEN='+$admin)
           Write-Output ('SESSION='+[Diagnostics.Process]::GetCurrentProcess().SessionId)
           Write-Output ('SCM_AVAILABLE='+([bool](Get-Service -Name 'EventLog' -ErrorAction SilentlyContinue)))
+          $groups=@([Security.Principal.WindowsIdentity]::GetCurrent().Groups | ForEach-Object { $_.Value })
+          Write-Output ('INTERACTIVE_TOKEN='+($groups -contains 'S-1-5-4'))
+          Write-Output ('REMOTE_INTERACTIVE_TOKEN='+($groups -contains 'S-1-5-14'))
+          Write-Output ('BATCH_TOKEN='+($groups -contains 'S-1-5-3'))
+          Write-Output ('SERVICE_TOKEN='+($groups -contains 'S-1-5-6'))
           if($os.BuildNumber -ne '20348') { throw 'HOSTED_NOT_WINDOWS_SERVER_2022' }
       - name: Real Windows DPAPI receiver with proper owner ACL and tampering regressions
         shell: pwsh
