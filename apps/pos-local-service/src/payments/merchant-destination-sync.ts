@@ -108,6 +108,7 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
  readonly name="merchant-destination-sync";
  private timer:NodeJS.Timeout|undefined;
  private inFlight:Promise<void>|undefined;
+ private inFlightAbort:AbortController|undefined;
  private readonly transport:MerchantDestinationHttpsTransport;
  private stopping=false;
  constructor(private readonly db:LocalDatabaseComponent,private readonly signer:DeviceCredentialProvider,
@@ -120,20 +121,32 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
  }
  async start():Promise<void>{
    this.stopping=false;
-   await this.tick();
-   const timer=setInterval(()=>{if(this.stopping||this.inFlight)return;this.inFlight=this.tick().finally(()=>{this.inFlight=undefined;});},
-      this.provision.intervalMs);
+   // The POS is local-first. Network outages must NEVER block service startup
+   // or prevent a cashier from opening a locally authorized offline shift.
+   const launch=()=>{
+     if(this.stopping||this.inFlight)return;
+     const controller=new AbortController();
+     this.inFlightAbort=controller;
+     this.inFlight=this.tick(controller.signal)
+       .catch(error=>this.report(error instanceof Error?error.message:"QR001_SYNC_FAILURE"))
+       .finally(()=>{
+         if(this.inFlightAbort===controller)this.inFlightAbort=undefined;
+         this.inFlight=undefined;
+       });
+   };
+   launch();
+   const timer=setInterval(launch,this.provision.intervalMs);
    timer.unref?.();this.timer=timer;
  }
  async stop():Promise<void>{
    this.stopping=true;
    if(this.timer)clearInterval(this.timer);
    this.timer=undefined;
+   this.inFlightAbort?.abort();
    await this.inFlight;
  }
- private async tick():Promise<void>{
+ private async tick(signal:AbortSignal):Promise<void>{
    if(!this.signer.isProvisioned?.()){this.report("DEVICE_NOT_PROVISIONED");return;}
-   const controller=new AbortController();
    const scope={tenantId:this.provision.tenantId,companyId:this.provision.companyId,
      installationId:this.provision.installationId,environment:this.provision.environment};
    const store=new SqliteMerchantDestinationProjectionStore(this.db.database);
