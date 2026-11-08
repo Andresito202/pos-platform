@@ -92,6 +92,14 @@ jobs:
           node -e "const u=new URL(process.env.POSTGRES_TEST_URL);if(u.hostname!=='127.0.0.1'||u.port!=='55433'||u.pathname!=='/postgres')process.exit(2)"
           pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-commercial-runner-physical.test.ts --no-file-parallelism
           echo 'PG17_COMMERCIAL_MIGRATIONS_PHYSICAL=PASS'
+      - name: Execute uninterrupted 001 to 016 chain with physical RLS and no fixture ledger
+        shell: bash
+        env:
+          POSTGRES_TEST_URL: postgresql://postgres@127.0.0.1:55433/postgres
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-17-full-commercial-chain.test.ts --no-file-parallelism
+          echo 'PG17_UNINTERRUPTED_001_016_CHAIN=PASS'
       - name: Do not claim preproduction schema or BUSINESS enrollment
         if: ${{ always() }}
         shell: bash
