@@ -25,7 +25,7 @@ async function requestOperator(
  * channel. It does not claim a central BUSINESS session or unlock commercial
  * functions until those independent permissions have been granted by the service.
  */
-export function LocalOperatorLoginPanel(): React.JSX.Element {
+export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=>void}): React.JSX.Element {
   const [username,setUsername]=useState("admin.local");
   const [password,setPassword]=useState("");
   const [operator,setOperator]=useState<Operator|null>(null);
@@ -60,6 +60,7 @@ export function LocalOperatorLoginPanel(): React.JSX.Element {
       const response=await requestOperator("local.operator.login",{username,password:submittedPassword});
       if(response.outcome==="AUTHENTICATED"&&response.username&&response.role){
         setOperator({username:response.username,role:response.role,expiresAt:response.expires_at});
+        onAuthenticated?.();
       }else if(response.outcome==="RATE_LIMITED"){
         setMessage("Demasiados intentos. El bloqueo temporal se aplica desde el servicio.");
       }else if(response.outcome==="UNAVAILABLE"){
@@ -90,7 +91,7 @@ export function LocalOperatorLoginPanel(): React.JSX.Element {
         <>
           <h3>Sesión local activa</h3>
           <p><strong>{operator.username}</strong> · {operator.role}</p>
-          <p>Contraseña verificada por el servicio local. Esta identidad no reemplaza la autorización comercial firmada.</p>
+          <p>Autenticación local confirmada. Los permisos operativos se verifican en el backend.</p>
           <button type="button" disabled={busy} onClick={()=>void logout()}>Cerrar sesión local</button>
         </>
       ) : (
@@ -109,7 +110,7 @@ export function LocalOperatorLoginPanel(): React.JSX.Element {
         </form>
       )}
       {message && <p role="status" className="pos-local-login-message">{message}</p>}
-      <small>Acceso local de desarrollo. Ventas e inventario requieren permisos efectivos del backend.</small>
+      <small>Instalación local de desarrollo. No acredita certificación comercial, fiscal ni SCM.</small>
     </section>
   );
 }
