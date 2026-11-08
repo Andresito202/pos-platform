@@ -10,6 +10,7 @@ const now=new Date().toISOString();
 const signal={
  source:"NEQUI_NEGOCIOS_SHARED_SMS",message_sha256:"f".repeat(64),
  observed_at:now,received_at:now,sender_label:"SMS compartido",
+ reported_amount_cop:4500,payer_display:"Juan Pérez",
 };
 function setup(opts:{deny?:boolean;duplicate?:boolean;conflict?:boolean}={}){
  const calls:Array<{sql:string;values?:unknown[]}>=[],release=vi.fn();
@@ -23,6 +24,7 @@ function setup(opts:{deny?:boolean;duplicate?:boolean;conflict?:boolean}={}){
      return {rowCount:1,rows:[{
        source:signal.source,observed_at:signal.observed_at,
        received_at:signal.received_at,sender_label:opts.conflict?"forged":signal.sender_label,
+       reported_amount_cop:String(signal.reported_amount_cop),payer_display:signal.payer_display,
      }]};
    return {rowCount:0,rows:[]};
   }),
@@ -47,6 +49,8 @@ describe("QR-002 isolated Central non-financial inbox",()=>{
   expect(insert?.values?.[1]).toBe(scope.tenantId);
   expect(insert?.values?.[2]).toBe(scope.companyId);
   expect(insert?.values?.[3]).toBe(scope.installationId);
+  expect(insert?.values?.[8]).toBe(4500);
+  expect(insert?.values?.[9]).toBe("Juan Pérez");
   expect(insert?.sql).not.toContain("payments.payments");
   expect(x.calls.at(-1)?.sql).toBe("COMMIT");
   expect(x.release).toHaveBeenCalledOnce();
