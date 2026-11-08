@@ -49,6 +49,9 @@ describe("QR-001 Central Ed25519 company issuer",()=>{
   const rows=[
     {kind:"NEQUI_BUSINESS_QR",label:"QR Negocios",destination_reference:"@tienda",
      qr_asset_id:qrId,qr_sha256:createHash("sha256").update(png).digest("hex"),qr_png_bytes:png,version:"4"},
+    {kind:"BREB_KEY",label:"Llave Bre-B",destination_reference:"@3001234567",
+     qr_asset_id:"88888888-8888-4888-8888-888888888888",
+     qr_sha256:createHash("sha256").update(png).digest("hex"),qr_png_bytes:png,version:"3"},
     {kind:"NEQUI_NUMBER",label:"Nequi",destination_reference:"3001234567",
      qr_asset_id:null,qr_sha256:null,version:"1"},
   ];
@@ -56,7 +59,8 @@ describe("QR-001 Central Ed25519 company issuer",()=>{
   const signed=await issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C});
   expect(signed.claims.snapshot.destination?.kind).toBe("NEQUI_BUSINESS_QR");
   expect(signed.claims.snapshot.destination?.qr_png_base64).toBe(png.toString("base64"));
-  expect(signed.claims.snapshot.destinations?.map(x=>x.kind)).toEqual(["NEQUI_BUSINESS_QR","NEQUI_NUMBER"]);
+  expect(signed.claims.snapshot.destinations?.[1]?.qr_png_base64).toBe(png.toString("base64"));
+  expect(signed.claims.snapshot.destinations?.map(x=>x.kind)).toEqual(["NEQUI_BUSINESS_QR","BREB_KEY","NEQUI_NUMBER"]);
   expect(DestinationSnapshotSchema.safeParse(signed.claims.snapshot).success).toBe(true);
   expect(verify(null,Buffer.from(canonicalJson(signed.claims)),publicKey,Buffer.from(signed.signature,"base64url"))).toBe(true);
   expect(queries.some(x=>x.sql.includes("app.company_id")&&x.params?.[0]===C)).toBe(true);
