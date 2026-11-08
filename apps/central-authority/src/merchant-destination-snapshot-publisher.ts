@@ -73,15 +73,18 @@ export class CentralMerchantDestinationPublisher {
    // (snapshot TTL - 15 minutes); every other request reuses that generation.
    // The fifteen-minute margin agrees with POS Local's cache renewal policy.
    // Admin mutations already increment sequence and reset updated_at.
-   const cursor=await client.query(`UPDATE payments.merchant_destination_sequences
-       SET sequence=sequence+CASE
-           WHEN updated_at<=clock_timestamp()-($3::integer * interval '1 millisecond' - interval '15 minutes')
-             THEN 1 ELSE 0 END,
-           updated_at=CASE
-           WHEN updated_at<=clock_timestamp()-($3::integer * interval '1 millisecond' - interval '15 minutes')
-             THEN clock_timestamp() ELSE updated_at END
+   const cursor=await client.query(`WITH renewed AS (
+       UPDATE payments.merchant_destination_sequences
+       SET sequence=sequence+1,updated_at=clock_timestamp()
        WHERE tenant_id=$1 AND company_id=$2
-       RETURNING sequence::text AS sequence,clock_timestamp() AS now`,
+         AND updated_at<=clock_timestamp()-(($3::integer-900000)*interval '1 millisecond')
+       RETURNING sequence::text AS sequence
+     )
+     SELECT sequence,clock_timestamp() AS now FROM renewed
+     UNION ALL
+     SELECT sequence::text AS sequence,clock_timestamp() AS now
+       FROM payments.merchant_destination_sequences
+       WHERE tenant_id=$1 AND company_id=$2 AND NOT EXISTS(SELECT 1 FROM renewed)`,
        [scope.tenantId,scope.companyId,this.signing.snapshotLifetimeMs]);
    if(cursor.rowCount!==1)throw Error("QR001_NOT_PUBLISHED");
    const sequence=validSequence(cursor.rows[0]?.sequence);
