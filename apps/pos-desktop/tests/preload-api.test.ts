@@ -24,6 +24,7 @@ describe("preload-api", () => {
       "payment.cancel",
       "payment.get",
       "payment.destination.get",
+      "payment.notice.get",
       "customer.register",
       "customer.get",
       "customer.find",
