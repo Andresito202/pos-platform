@@ -2,6 +2,11 @@
 name: QR-001 Nequi Bre-B validation
 
 on:
+  # Scoped branch validation also runs when PR #103 is not mergeable.
+  # No privileged PR-target checkout, secrets or write permissions.
+  push:
+    branches:
+      - feat/nequi-breb-static-qr-phase1
   pull_request:
     branches:
       - feat/android-commercial-runtime
