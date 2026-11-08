@@ -2,14 +2,42 @@
 // Ephemeral CI-only native named-pipe identity exchange. No payload, no Central,
 // no production provision or private key. Never permitted outside the GitHub lab.
 import { createRequire } from "node:module";
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { dirname, join, resolve } from "node:path";
 
 const [, , mode, configFile] = process.argv;
 if (!["service", "desktop"].includes(mode) || !configFile ||
     process.platform !== "win32" || process.arch !== "x64" ||
     !configFile.match(/^[A-Za-z]:\\[^\r\n"]+\\native-policy\.json$/i))
   throw Error("LAB_MODE_OR_PATH_REJECTED");
+// Hosted runner has no logon SID. Use the real SID of a disposable
+// Windows local user's ONE persistent interactive logon process instead.
+if (mode === "desktop") {
+  const query = (args) => {
+    const result = spawnSync("whoami.exe", args, {
+      encoding: "utf8", shell: false, timeout: 10_000, windowsHide: true,
+    });
+    if (result.status !== 0 || result.error) throw Error("NATIVE_CI_IDENTITY_QUERY_FAILED");
+    return result.stdout;
+  };
+  const userSid = [...query(["/user"]).matchAll(/S-1-5-21-(?:[0-9]+-){3,}[0-9]+/g)].map(x => x[0]);
+  const logonSid = [...query(["/logonid"]).matchAll(/S-1-5-5-[0-9]+-[0-9]+/g)].map(x => x[0]);
+  const sessionResult = spawnSync("powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", "(Get-Process -Id " + process.pid + ").SessionId"],
+    { encoding:"utf8", timeout:10_000, shell:false, windowsHide:true });
+  const session = Number((sessionResult.stdout ?? "").trim());
+  if (userSid.length !== 1 || logonSid.length !== 1 ||
+      sessionResult.status !== 0 || !Number.isInteger(session) || session < 1)
+    throw Error("NATIVE_CI_REAL_INTERACTIVE_TOKEN_REQUIRED");
+  writeFileSync(join(dirname(configFile), "native-client-identity.json"),
+    JSON.stringify({user_sid:userSid[0],logon_sid:logonSid[0],session}) + "\n",
+    { flag:"wx" });
+  const deadline = Date.now() + 35_000;
+  while (!existsSync(configFile) && Date.now() < deadline)
+    await new Promise(resolve => setTimeout(resolve, 100));
+  if (!existsSync(configFile)) throw Error("NATIVE_CI_POLICY_NOT_PROVISIONED");
+}
 const config = JSON.parse(readFileSync(configFile, "utf8"));
 if (config.profile !== "CAMACHO_EPHEMERAL_NATIVE_PIPE_G1_ONLY" ||
     !config.endpoint.match(/^\\\\\.\\pipe\\camacho-pos-[0-9a-f-]{36}-scm$/i) ||
@@ -39,6 +67,11 @@ try {
       throw Error("NATIVE_SERVICE_PEER_MISMATCH");
     stamp("native-service-pass.json", {status:"PASS", peer_role:"DESKTOP"});
   } else {
+    const deadline = Date.now() + 25_000;
+    while (!existsSync(join(config.results, "native-ready.json")) && Date.now() < deadline)
+      await new Promise(resolve => setTimeout(resolve, 100));
+    if (!existsSync(join(config.results, "native-ready.json")))
+      throw Error("NATIVE_CI_SERVICE_NOT_LISTENING");
     connection = await native.connect(...args, 5000); // Actual SCM process-tree attestation.
     native.recheck(connection.handle);
     if (connection.peer.sid !== config.service || connection.peer.sessionId !== 0)
