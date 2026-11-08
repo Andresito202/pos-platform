@@ -38,7 +38,7 @@ export class PostgresMerchantDestinationAcknowledgements{
    await c.query("SELECT set_config('app.company_id',$1,true)",[scope.companyId]);
    const valid=await c.query(`SELECT 1 FROM identity.device_registry
     WHERE installation_id=$1 AND tenant_id=$2 AND company_id=$3 AND status='ACTIVE'
-    FOR SHARE`,[scope.installationId,scope.tenantId,scope.companyId]);
+    ${readonlyTransaction?'':'FOR SHARE'}`,[scope.installationId,scope.tenantId,scope.companyId]);
    if(valid.rowCount!==1)throw Error("QR001_INSTALLATION_NOT_ACTIVE_IN_COMPANY");
    const result=await work(c);
    await c.query("COMMIT");begun=false;return result;
