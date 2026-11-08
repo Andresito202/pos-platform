@@ -30,6 +30,7 @@ export function LocalOperatorLoginPanel(): React.JSX.Element {
   const [password,setPassword]=useState("");
   const [operator,setOperator]=useState<Operator|null>(null);
   const [loading,setLoading]=useState(true);
+  const [supported,setSupported]=useState(false);
   const [busy,setBusy]=useState(false);
   const [message,setMessage]=useState("");
 
@@ -37,6 +38,7 @@ export function LocalOperatorLoginPanel(): React.JSX.Element {
     let active=true;
     void requestOperator("local.operator.session",{}).then(result=>{
       if(!active)return;
+      setSupported(result.outcome!=="UNAVAILABLE");
       if(result.outcome==="AUTHENTICATED" && result.username && result.role){
         setOperator({username:result.username,role:result.role,expiresAt:result.expires_at});
       }
@@ -82,7 +84,9 @@ export function LocalOperatorLoginPanel(): React.JSX.Element {
 
   return (
     <section className="pos-local-login" aria-label="Acceso de operador local">
-      {loading ? <p role="status">Consultando sesión local…</p> : operator ? (
+      {loading ? <p role="status">Consultando sesión local…</p> : !supported ? (
+        <p role="status">Acceso local no habilitado para este servicio.</p>
+      ) : operator ? (
         <>
           <h3>Sesión local activa</h3>
           <p><strong>{operator.username}</strong> · {operator.role}</p>
