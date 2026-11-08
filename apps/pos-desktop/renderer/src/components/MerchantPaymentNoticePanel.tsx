@@ -7,7 +7,7 @@ const money=(cop:number)=>new Intl.NumberFormat("es-CO",{
 }).format(cop);
 
 function requestedCop(value:string):number|null{
- if(!/^[1-9][0-9]{0,8}\\.0{6}$/.test(value))return null;
+ if(!/^[1-9][0-9]{0,8}\.0{6}$/.test(value))return null;
  const parsed=Number(value);
  return Number.isSafeInteger(parsed)&&parsed<=100_000_000?parsed:null;
 }
