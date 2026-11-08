@@ -28,6 +28,13 @@ function fakePool(consented:boolean){
       sql.push(q);
       if(q.includes("FROM payments.merchant_notification_bridge_consents c"))
         return {rowCount:consented?1:0,rows:consented?[{ok:true}]:[]};
+      if(q.includes("FROM payments.merchant_payment_notification_inbox n"))
+        return {rowCount:1,rows:[{
+          id:"01900000-0000-7000-8000-000000000031",
+          received_at:new Date("2026-11-07T12:00:00Z"),
+          reported_amount_cop:"4500",payer_display:"Juan Pérez",
+          status:"UNVERIFIED",bank_confirmed:false,sale_confirmed:false,
+        }]};
       if(q.includes("INSERT INTO payments.merchant_payment_notification_inbox"))
         return {rowCount:1,rows:[{id:"test"}]};
       return {rowCount:0,rows:[]};
@@ -87,4 +94,32 @@ describe("QR-002 authenticated, consent-gated notification ingestion boundary",(
     expect(x.sql.some(q=>/payment.transfer.confirm|UPDATE payments.sales|UPDATE payments.payments/.test(q))).toBe(false);
     expect(x.sql.at(-1)).toBe("COMMIT");
   });
+  it("returns company-scoped SMS-asserted value to a signed register, never a bank-confirmed payment",async()=>{
+    const x=fakePool(true);
+    vi.spyOn(PostgresMerchantNotificationDeviceProofVerifier.prototype,
+      "verifyRecentAndConsume").mockResolvedValue(scope);
+    const route=new MerchantNotificationIngestRoutes(x.pool);
+    const result=await route.recent(proof({}));
+    expect(result).toEqual({notices:[{
+      id:"01900000-0000-7000-8000-000000000031",
+      received_at:"2026-11-07T12:00:00.000Z",
+      reported_amount_cop:4500,payer_display:"Juan Pérez",status:"UNVERIFIED",
+      bank_confirmed:false,sale_confirmed:false,
+    }]});
+    const sql=x.sql.find(q=>q.includes("FROM payments.merchant_payment_notification_inbox n"));
+    expect(sql).toContain("LIMIT 25");
+    expect(sql).toContain("n.tenant_id=$1 AND n.company_id=$2");
+    expect(sql).toContain("c.revoked_at IS NULL");
+    expect(x.sql.at(-1)).toBe("COMMIT");
+  });
+  it("rejects client selected company and unsigned register read before tenant SQL",async()=>{
+    const x=fakePool(true);
+    const route=new MerchantNotificationIngestRoutes(x.pool);
+    expect(await route.recent(proof({company_id:scope.companyId}))).toBeNull();
+    vi.spyOn(PostgresMerchantNotificationDeviceProofVerifier.prototype,
+      "verifyRecentAndConsume").mockResolvedValue(null);
+    expect(await route.recent(proof({}))).toBeNull();
+    expect(x.sql).toHaveLength(0);
+  });
+
 });
