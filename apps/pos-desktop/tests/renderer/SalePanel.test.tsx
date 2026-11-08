@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { CANONICAL_PERMISSION_CODES } from "@pos-platform/contracts";
+import { CANONICAL_PERMISSION_CODES, CanonicalPermission, MerchantDestinationsGetRequestSchema } from "@pos-platform/contracts";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
@@ -190,7 +190,9 @@ describe("SalePanel — vertical comercial", () => {
     expect(screen.getByTestId("merchant-destination-reference").textContent).toBe("@negocio");
     expect(screen.getByAltText("QR de cobro proporcionado por el comercio").getAttribute("width")).toBe("320");
     expect(panel.textContent).toContain("3500.000000");
-    expect(calls.get("payment.destination.get")).toEqual([{}]);
+    const requests=calls.get("payment.destination.get") ?? [];
+    expect(requests).toHaveLength(1);
+    expect(()=>MerchantDestinationsGetRequestSchema.parse(requests[0])).not.toThrow();
     expect(calls.get("payment.transfer.confirm")).toBeUndefined();
     expect(calls.get("payment.register.cash")).toBeUndefined();
     expect(screen.queryByRole("button",{name:/QR integrado/i})).toBeNull();
@@ -199,7 +201,7 @@ describe("SalePanel — vertical comercial", () => {
   it("no consulta QR ni expone información bancaria sin PAYMENTS_PAYMENT_READ", async () => {
     install(BASE_OVERRIDES);
     const permissions=new Set(CANONICAL_PERMISSION_CODES);
-    permissions.delete("payments.payment.read");
+    permissions.delete(CanonicalPermission.PAYMENTS_PAYMENT_READ);
     // The canonical constant is used by SalePanel, not a UI-only feature flag.
     render(<SalePanel permissions={permissions} />);
     await openShift();await addProduct();await createSale();
