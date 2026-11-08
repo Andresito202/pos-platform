@@ -1,3 +1,4 @@
+import { LocalOperatorLoginRequestSchema, LocalOperatorSessionRequestSchema, LocalOperatorLogoutRequestSchema, LocalOperatorResponseSchema } from "./ipc-local-operator.js";
 import * as z from "zod";
 import {NativeCommercialBeginRequestSchema,NativeCommercialCompleteRequestSchema,NativeCommercialCancelRequestSchema,NativeCommercialCommitRequestSchema,NativeCommercialLogoutRequestSchema,NativeCommercialResponseSchema} from "./ipc-native-commercial.js";
 import { HardwareRequestSchema,HardwareResponseSchema } from "./hardware.js";
@@ -71,6 +72,7 @@ import {
 export const IpcMessageTypeSchema = z.enum([
   "commercial.native.begin","commercial.native.complete","commercial.native.cancel","commercial.native.commit",
   "commercial.native.logout",
+  "local.operator.login","local.operator.session","local.operator.logout",
   "hardware.command",
   "runtime.handshake",
   "runtime.status.get",
@@ -180,6 +182,7 @@ export type OperationConfirmation = z.infer<typeof OperationConfirmationSchema>;
 export const IpcRequestSchema = z.union([
   NativeCommercialBeginRequestSchema,NativeCommercialCompleteRequestSchema,NativeCommercialCancelRequestSchema,NativeCommercialCommitRequestSchema,
   NativeCommercialLogoutRequestSchema,
+  LocalOperatorLoginRequestSchema,LocalOperatorSessionRequestSchema,LocalOperatorLogoutRequestSchema,
   HardwareRequestSchema,
   RuntimeHandshakeRequestSchema,
   RuntimeStatusRequestSchema,
@@ -218,6 +221,7 @@ export const IpcRequestSchema = z.union([
 
 export const IpcResponseSchema = z.union([
   NativeCommercialResponseSchema,
+  LocalOperatorResponseSchema,
   HardwareResponseSchema,
   RuntimeHandshakeResponseSchema,
   RuntimeStatusResponseSchema,
