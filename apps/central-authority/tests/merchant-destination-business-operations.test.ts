@@ -19,7 +19,8 @@ function setup(companies:string[]=[company],enableNotices=false){
    if(sql.includes("FROM payments.merchant_destinations d"))return {rowCount:0,rows:[]};
    if(sql.includes("FROM payments.merchant_payment_notification_inbox"))return {rowCount:1,rows:[{
      id:"77777777-7777-4777-8777-777777777777",received_at:new Date("2026-11-07T12:00:00Z"),
-     sender_label:"SMS compartido",status:"UNVERIFIED",bank_confirmed:false,
+     sender_label:"SMS compartido",reported_amount_cop:"4500",payer_display:"Juan Pérez",
+     status:"UNVERIFIED",bank_confirmed:false,
      sale_confirmed:false,requires_independent_reconciliation:true,
    }]};
    return {rowCount:1,rows:[]};
@@ -72,6 +73,8 @@ describe("QR-001 BUSINESS administrative scope",()=>{
   expect(response.notices).toHaveLength(1);
   expect(response.notices[0]?.bank_confirmed).toBe(false);
   expect(response.notices[0]?.sale_confirmed).toBe(false);
+  expect(response.notices[0]?.reported_amount_cop).toBe("4500");
+  expect(response.notices[0]?.payer_display).toBe("Juan Pérez");
   const query=statements.find(x=>x.sql.includes("FROM payments.merchant_payment_notification_inbox"));
   expect(query?.sql).toContain("LIMIT 25");
   expect(query?.sql).not.toMatch(/payments\.payments|payment_id|sale_id|message_sha256/);
