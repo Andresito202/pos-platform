@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { LocalOperatorSessionRegistry } from "../security/local-operator-session-registry.js";
-import { developmentIdentityFor, developmentSnapshotFor } from "../security/local-operator-development-bridge.js";
 import {
   compareContractVersions,
   negotiateProtocolVersion,
@@ -63,7 +62,8 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly scmProvision?:WindowsScmHandoffProvision,
     private readonly localOperatorSessions?: () => LocalOperatorSessionRegistry,
   ) {
-    this.commercialHandler = new CommercialRequestHandler(config, commercial);
+    this.commercialHandler = new CommercialRequestHandler(config, commercial,
+      connectionId => this.getLocalOperatorRegistry()?.resolve(connectionId) ?? null);
     this.endpoint = localChannelEndpoint(config.installation_id);
   }
 
