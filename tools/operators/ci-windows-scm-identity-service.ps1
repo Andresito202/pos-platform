@@ -22,6 +22,7 @@ $exe=Join-Path $bin 'CamachoHostedScmProbe.exe'
 $repo=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
 $source=Join-Path $PSScriptRoot 'ci-windows-scm-identity-service.cs'
 $created=$false;$cleanupOk=$true;$validated=$false
+$labUser=$null;$labProcess=$null;$labSecret=$null
 function Ace([string]$sid,[Security.AccessControl.FileSystemRights]$rights){
   return [Security.AccessControl.FileSystemAccessRule]::new(
     [Security.Principal.SecurityIdentifier]::new($sid),$rights,
@@ -61,21 +62,49 @@ try {
     $peerScript=Join-Path $bin 'ci-windows-scm-native-peer.mjs'
     Copy-Item -LiteralPath $addonSource -Destination $addon -ErrorAction Stop
     Copy-Item -LiteralPath $scriptSource -Destination $peerScript -ErrorAction Stop
-    $ident=[Security.Principal.WindowsIdentity]::GetCurrent()
-    $groupOutput=@(& whoami.exe /groups /fo csv /nh)
-    Must ($LASTEXITCODE -eq 0) 'NATIVE_LOGON_TOKEN_QUERY_FAILED'
-    $logons=@([regex]::Matches(($groupOutput -join [Environment]::NewLine),'S-1-5-5-[0-9]+-[0-9]+') | ForEach-Object {$_.Value} | Select-Object -Unique)
-    Must ($logons.Count -eq 1) 'NATIVE_INTERACTIVE_LOGON_SID_REQUIRED'
-    $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
-    Must ($session -gt 0 -and $ident.User.Value -match '^S-1-5-21-') 'NATIVE_DESKTOP_IDENTITY_INVALID'
+    # The hosted runner token has no logon SID. Create a disposable, low
+    # privilege *interactive logon*, rather than claiming a fabricated SID.
+    $labUser='camachog1'+([Guid]::NewGuid().ToString('N').Substring(0,9))
+    $password=[Guid]::NewGuid().ToString('N')+'!Aa9'+[Guid]::NewGuid().ToString('N')
+    $labSecret=ConvertTo-SecureString $password -AsPlainText -Force
+    $password=$null
+    New-LocalUser -Name $labUser -Password $labSecret -AccountNeverExpires -UserMayNotChangePassword -ErrorAction Stop | Out-Null
+    Add-LocalGroupMember -Group 'Users' -Member $labUser -ErrorAction Stop
+    $userSid=(Get-LocalUser -Name $labUser).SID.Value
+    Must ($userSid -match '^S-1-5-21-') 'EPHEMERAL_DESKTOP_ACCOUNT_SID_INVALID'
+    foreach($entry in @(
+      @{p=$lab; rights=[Security.AccessControl.FileSystemRights]::ReadAndExecute},
+      @{p=$bin; rights=[Security.AccessControl.FileSystemRights]::ReadAndExecute},
+      @{p=$results; rights=[Security.AccessControl.FileSystemRights]::Modify}
+    )){
+      $acl=Get-Acl -LiteralPath $entry.p
+      $acl.AddAccessRule((Ace $userSid $entry.rights))
+      Set-Acl -LiteralPath $entry.p -AclObject $acl -ErrorAction Stop
+      Must ((Get-Acl -LiteralPath $entry.p).AreAccessRulesProtected) 'LAB_DESKTOP_ACL_NOT_PROTECTED'
+    }
     $policyFile=Join-Path $results 'native-policy.json'
+    $credential=[PSCredential]::new(('.\'+$labUser),$labSecret)
+    $labProcess=Start-Process -FilePath $node -Credential $credential -ArgumentList @(
+      ('"'+$peerScript+'"'),'desktop',('"'+$policyFile+'"')
+    ) -PassThru -ErrorAction Stop
+    $credential=$null
+    $identityFile=Join-Path $results 'native-client-identity.json'
+    $until=[DateTime]::UtcNow.AddSeconds(40)
+    while(-not (Test-Path -LiteralPath $identityFile -PathType Leaf) -and [DateTime]::UtcNow -lt $until){
+      if($labProcess.HasExited){throw 'EPHEMERAL_DESKTOP_PEER_EXITED_DURING_IDENTITY'}
+      Start-Sleep -Milliseconds 100
+    }
+    Must (Test-Path -LiteralPath $identityFile -PathType Leaf) 'EPHEMERAL_DESKTOP_TOKEN_PROOF_MISSING'
+    $peer=Get-Content -LiteralPath $identityFile -Raw | ConvertFrom-Json
+    Must ($peer.user_sid -eq $userSid -and $peer.logon_sid -match '^S-1-5-5-[0-9]+-[0-9]+$' -and
+      [int]$peer.session -gt 0) 'EPHEMERAL_DESKTOP_TOKEN_PROOF_REJECTED'
     $policy=@{
       profile='CAMACHO_EPHEMERAL_NATIVE_PIPE_G1_ONLY'
       endpoint=('\\.\pipe\camacho-pos-'+[Guid]::NewGuid().ToString()+'-scm')
       service=$serviceSid
-      recipient=$ident.User.Value
-      logon=$logons[0]
-      session=$session
+      recipient=$userSid
+      logon=$peer.logon_sid
+      session=[int]$peer.session
       addon=$addon
       results=$results
     }|ConvertTo-Json -Compress
@@ -119,8 +148,13 @@ try {
     $until=[DateTime]::UtcNow.AddSeconds(30)
     while(-not (Test-Path -LiteralPath $ready -PathType Leaf) -and [DateTime]::UtcNow -lt $until){Start-Sleep -Milliseconds 100}
     Must (Test-Path -LiteralPath $ready -PathType Leaf) 'NATIVE_SERVICE_PIPE_NOT_LISTENING'
-    & $node $peerScript 'desktop' $policyFile
-    Must ($LASTEXITCODE -eq 0) 'NATIVE_DESKTOP_CONNECT_FAILED'
+    $desktopProof=Join-Path $results 'native-desktop-pass.json'
+    $until=[DateTime]::UtcNow.AddSeconds(30)
+    while(-not (Test-Path -LiteralPath $desktopProof -PathType Leaf) -and [DateTime]::UtcNow -lt $until){
+      if($labProcess.HasExited){break}
+      Start-Sleep -Milliseconds 100
+    }
+    Must (Test-Path -LiteralPath $desktopProof -PathType Leaf) 'NATIVE_DESKTOP_CONNECT_FAILED'
     $serviceProof=Join-Path $results 'native-service-pass.json'
     $desktopProof=Join-Path $results 'native-desktop-pass.json'
     $until=[DateTime]::UtcNow.AddSeconds(10)
@@ -139,6 +173,13 @@ try {
   Write-Host 'COMMERCIAL_SCM_ELECTRON_HANDSHAKE=NOT_TESTED'
   $validated=$true
 } finally {
+  if($labProcess -ne $null){
+    try{if(-not $labProcess.HasExited){$labProcess.Kill()}; $labProcess.WaitForExit(5000) | Out-Null; $labProcess.Dispose()}catch{$cleanupOk=$false}
+  }
+  if($labUser -ne $null){
+    try{Remove-LocalUser -Name $labUser -ErrorAction Stop}catch{$cleanupOk=$false}
+  }
+  $labSecret=$null;
   if($created){
     try {& sc.exe stop $serviceName 2>&1 | Out-Null}catch{}
     Start-Sleep -Milliseconds 800
