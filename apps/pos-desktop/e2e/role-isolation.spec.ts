@@ -2,10 +2,10 @@ import {test,expect} from "@playwright/test";
 import {_electron,type ElectronApplication} from "playwright";
 import {spawn,type ChildProcessWithoutNullStreams} from "node:child_process";
 import {randomBytes,randomUUID} from "node:crypto";
-import {mkdtempSync,rmSync} from "node:fs";
+import {mkdtempSync,rmSync,mkdirSync,lstatSync,openSync,closeSync,unlinkSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {createRequire} from "node:module";
-import {dirname,join} from "node:path";
+import {dirname,join,resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {loadOrCreateWindowsLocalChannelSecret} from "@pos-platform/local-channel";
 
@@ -22,7 +22,22 @@ test.skip(role===undefined,"Explicit POS_E2E_ROLE required for this laboratory t
 test.skip(process.platform!=="win32","Windows role E2E requires real DPAPI/named-pipe backend");
 test("role-scoped menus and server decisions follow signed authorization, not a renderer role switch",async()=>{
   if(process.env.POS_E2E_INTERACTIVE==="1")test.setTimeout(0);
-  const dir=mkdtempSync(join(tmpdir(),"camacho-e2e-role-"));
+  const durable=process.env.POS_E2E_PERSISTENT_DEV==="1";
+  if(durable&&(process.platform!=="win32"||!process.env.POS_E2E_INTERACTIVE||
+     process.env.CI||!process.env.LOCALAPPDATA))throw Error("PERSISTENT_PREVIEW_REQUIRES_LOCAL_WINDOWS_INTERACTIVE");
+  const workspace=join(process.env.LOCALAPPDATA??tmpdir(),"CamachoPOS","development","role-data");
+  if(durable){
+    let path=resolve(process.env.LOCALAPPDATA!);
+    for(const part of ["CamachoPOS","development","role-data",role!]){
+      path=join(path,part);
+      mkdirSync(path,{recursive:false});
+      if(lstatSync(path).isSymbolicLink())throw Error("DEV_DATA_SYMLINK_REJECTED");
+    }
+  }
+  const dir=durable?join(workspace,role!):mkdtempSync(join(tmpdir(),"camacho-e2e-role-"));
+  let lockFd:number|undefined;
+  const lock=join(dir,".camacho-preview.lock");
+  if(durable)lockFd=openSync(lock,"wx",0o600);
   const serviceRoot=join(here,"..","..","pos-local-service");
   let service:ChildProcessWithoutNullStreams|undefined;
   let app:ElectronApplication|undefined;
@@ -30,7 +45,7 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
     const secret=(process.platform==="win32"?loadOrCreateWindowsLocalChannelSecret(dir,installation):randomBytes(32)).toString("hex");
     service=spawn(process.execPath,[createRequire(join(serviceRoot,"package.json")).resolve("tsx/cli"),join(serviceRoot,"e2e-host","real-service-host.ts")],{
       cwd:serviceRoot,stdio:["pipe","pipe","pipe","ipc"],
-      env:{...process.env,NODE_ENV:"test",POS_E2E_ROLE:role,POS_E2E_DATA_DIR:dir,POS_E2E_CHANNEL_SECRET:secret,
+      env:{...process.env,NODE_ENV:"test",POS_E2E_ROLE:role,POS_E2E_DATA_DIR:dir,POS_E2E_CHANNEL_SECRET:secret,POS_E2E_PERSISTENT_DEV:durable?"1":"0",
         POS_E2E_TENANT_ID:"018f0000-0000-7000-8000-0000000000a4",
         POS_E2E_COMPANY_ID:"018f0000-0000-7000-8000-0000000000a5",
         POS_E2E_BRANCH_ID:"018f0000-0000-7000-8000-0000000000a6",
@@ -102,15 +117,15 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
     if(process.env.POS_E2E_INTERACTIVE==="1"){
       // Interactive UI preview is strictly test-only, without live Central
       // identity or commercial payments. Visual banner is never shipped.
-      await page.evaluate(profile=>{
+      await page.evaluate(({profile,durable})=>{
         const banner=document.createElement("div");
-        banner.textContent="LABORATORIO LOCAL · "+profile+" · DATOS TEMPORALES · NO ES LOGIN COMERCIAL";
+        banner.textContent="LABORATORIO LOCAL · "+profile+" · "+(durable?"DATOS DE DESARROLLO PERSISTENTES":"DATOS TEMPORALES")+" · NO ES LOGIN COMERCIAL";
         banner.setAttribute("role","status");
         Object.assign(banner.style,{position:"fixed",left:"0",right:"0",bottom:"0",zIndex:"2147483647",
           background:"#5b210a",color:"#fff",padding:"9px",fontSize:"13px",fontWeight:"bold",textAlign:"center"});
         document.body.appendChild(banner);
-      },role);
-      console.log("ROLE_PREVIEW_OPEN="+role+" (close Electron window to remove temporary data)");
+      },{profile:role,durable});
+      console.log("ROLE_PREVIEW_OPEN="+role+(durable?" (profile-scoped development SQLite retained)":" (temporary data deleted on close)"));
       await new Promise<void>(resolve=>app!.once("close",()=>resolve()));
     }
   }finally{
@@ -123,6 +138,11 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
         child.send?.("pos-e2e-shutdown");
       });
     }
-    rmSync(dir,{recursive:true,force:true,maxRetries:5,retryDelay:200});
+    if(durable){
+      if(lockFd!==undefined)closeSync(lockFd);
+      // Only the lease marker is released. Local SQLite is never erased by
+      // this preview and must not be mistaken for an enrolled commercial DB.
+      if(lockFd!==undefined)unlinkSync(lock);
+    }else rmSync(dir,{recursive:true,force:true,maxRetries:5,retryDelay:200});
   }
 });
