@@ -49,7 +49,7 @@ describe("QR-001 signed snapshot to real SQLite projection",()=>{
  it("never writes a forged or replayed configuration",async()=>{
    const {db,store,service}=create();
    try{
-     expect(await service.acceptSigned(signed(2),scope).kind).toBe("ACTIVATED");
+     expect((await service.acceptSigned(signed(2),scope)).kind).toBe("ACTIVATED");
      const forged={...signed(3),signature:signed(2).signature};
      expect(await service.acceptSigned(forged,scope)).toEqual({kind:"REJECTED",reason:"INVALID_SIGNATURE"});
      expect(await service.acceptSigned(signed(2),scope)).toEqual({kind:"REJECTED",reason:"OBSOLETE_OR_REPLAYED_SEQUENCE"});
@@ -59,8 +59,8 @@ describe("QR-001 signed snapshot to real SQLite projection",()=>{
  it("accepts signed company revocation and hides QR on every register",async()=>{
    const {db,store,service}=create();
    try{
-     expect(await service.acceptSigned(signed(1),scope).kind).toBe("ACTIVATED");
-     expect(await service.acceptSigned(signed(2,null),scope).kind).toBe("ACTIVATED");
+     expect((await service.acceptSigned(signed(1),scope)).kind).toBe("ACTIVATED");
+     expect((await service.acceptSigned(signed(2,null),scope)).kind).toBe("ACTIVATED");
      for(let i=0;i<4;i++)expect(store.display(scope,now)).toBeNull();
    }finally{db.close();}
  });
