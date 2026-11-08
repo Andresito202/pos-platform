@@ -1,0 +1,96 @@
+name: Windows login hosted ephemeral SCM lab
+
+on:
+  push:
+    branches:
+      - feat/p0-windows-login-install-readiness
+    paths:
+      - '.github/workflows/windows-login-hosted-ephemeral-lab.yml'
+      - 'tools/operators/ci-windows-scm-identity-service.ps1'
+      - 'tools/operators/ci-windows-scm-identity-service.cs'
+      - 'tools/operators/ci-windows-scm-native-peer.mjs'
+      - 'packages/local-channel/native/**'
+      - 'apps/pos-local-service/tests/windows-handoff-lease-state.test.ts'
+      - 'apps/pos-local-service/tests/windows-scm-runtime.test.ts'
+      - 'apps/pos-local-service/tests/native-session-close-lifecycle.test.ts'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-ephemeral-scm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hosted-scm-service-desktop:
+    name: Real ephemeral SCM virtual account and native desktop peer
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      CAMACHO_NATIVE_G1_DIAGNOSTICS: '1'
+    steps:
+      - name: Checkout immutable commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install locked dependencies
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile production Windows native pipe
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/local-channel native:build:win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $addon='packages/local-channel/native/build/Release/camacho_windows_pipe.node'
+          if (-not (Test-Path -LiteralPath $addon -PathType Leaf)) { throw 'NATIVE_ADDON_MISSING' }
+          Write-Host ('NATIVE_SHA256=' + (Get-FileHash -LiteralPath $addon -Algorithm SHA256).Hash)
+      - name: Validate native operator and peer scripts
+        shell: powershell
+        run: |
+          $tokens=$null
+          $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath 'tools/operators/ci-windows-scm-identity-service.ps1').Path,
+            [ref]$tokens,[ref]$errors)
+          if (@($errors).Count -ne 0) { throw 'HOSTED_SCM_OPERATOR_SYNTAX_FAILED' }
+          node --check tools/operators/ci-windows-scm-native-peer.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Execute real Windows SCM plus real interactive peer and DPAPI
+        shell: powershell
+        run: |
+          & ./tools/operators/ci-windows-scm-identity-service.ps1 -Run -NativePipe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'HOSTED_SCM_NATIVE_OS_IDENTITY=PASS'
+      - name: Verify G2 lease and revocation logic on same Windows runner
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-handoff-lease-state.test.ts tests/windows-scm-runtime.test.ts tests/native-session-close-lifecycle.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'HOSTED_SCM_G2_REGRESSIONS=PASS'
+      - name: Fail closed on commercial login claim
+        shell: pwsh
+        run: |
+          $guard=Get-Content -LiteralPath 'apps/pos-local-service/src/security/windows-commercial-host-identity.ts' -Raw
+          if (-not $guard.Contains('SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN')) { throw 'COMMERCIAL_FAIL_CLOSED_GUARD_REMOVED' }
+          Write-Host 'SCM_VIRTUAL_ACCOUNT_NATIVE_PEER=TESTED'
+          Write-Host 'ELECTRON_COMMERCIAL_RUNTIME=NOT_TESTED'
+          Write-Host 'CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED'
+          Write-Host 'BUSINESS_REAL_SESSION=NOT_TESTED'
+          Write-Host 'HUMAN_MFA=NOT_TESTED'
+          Write-Host 'COMMERCIAL_LOGIN_CERTIFIED=NO'
