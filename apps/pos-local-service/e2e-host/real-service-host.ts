@@ -76,7 +76,7 @@ if(WITHOUT_SESSION&&process.platform!=="win32")throw Error("UNAUTHENTICATED_PROD
 const PERSISTENT_DEV=process.env.POS_E2E_PERSISTENT_DEV==="1";
 if(PERSISTENT_DEV&&(
   process.platform!=="win32"||process.env.NODE_ENV!=="test"||
-  process.env.CI||process.env.POS_E2E_ROLE===undefined||
+  (process.env.CI&&!process.env.POS_E2E_PERSISTENCE_SMOKE)||process.env.POS_E2E_ROLE===undefined||
   process.env.POS_E2E_SESSION_MODE==="NONE"||
   !process.env.POS_E2E_DATA_DIR?.includes("CamachoPOS")
 ))throw Error("PERSISTENT_DEV_PROFILE_SCOPE_REJECTED");
