@@ -197,3 +197,44 @@ jobs:
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/native-authorization-full-composition-physical.test.ts --no-file-parallelism
       - name: Certification boundary
         run: echo 'EPHEMERAL_POSTGRES_FIXTURE_NO_SCM_OR_REAL_BUSINESS_IDENTITY'
+
+  hosted-native-dpapi-receiver:
+    name: Windows native DPAPI receiver, real OS identity (hosted)
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Locked install
+        run: pnpm install --frozen-lockfile
+      - name: Validate real hosted Windows token and native PowerShell ACL support
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $os=Get-CimInstance Win32_OperatingSystem
+          if($os.BuildNumber -ne '20348' -or $os.ProductType -eq 1){throw 'WINDOWS_SERVER_2022_REQUIRED'}
+          $groups=@([Security.Principal.WindowsIdentity]::GetCurrent().Groups | ForEach-Object {$_.Value})
+          if($groups -notcontains 'S-1-5-4' -and $groups -notcontains 'S-1-5-14'){throw 'HOSTED_INTERACTIVE_TOKEN_REQUIRED'}
+          $env:PSModulePath=((Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'))
+          & powershell.exe -NoProfile -NonInteractive -Command "Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; Get-Acl -LiteralPath '$env:WINDIR' | Out-Null"
+          if($LASTEXITCODE -ne 0){throw 'WINPS_ACL_UNAVAILABLE'}
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PSModulePath='+$env:PSModulePath)
+      - name: Physical DPAPI and owner ACL positive/negative tests (not original VM)
+        shell: powershell
+        run: pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-handoff.test.ts -t "real Windows receiver:" --no-file-parallelism
+      - name: Explicit independent-host certification boundary
+        run: echo 'REAL_HOSTED_WINDOWS_DPAPI_ONLY_NOT_ORIGINAL_SCM_SERVICE_OR_CENTRAL_DEVICE'
