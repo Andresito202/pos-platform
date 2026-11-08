@@ -230,6 +230,9 @@ export class PostgresMerchantDestinationDeviceProofVerifier extends PostgresDevi
  * endpoint: the Ed25519 proof binds method, URL, body and one-use nonce. */
 export const MERCHANT_NOTIFICATION_INGEST_PATH="/v1/commercial/merchant-notifications/ingest";
 export class PostgresMerchantNotificationDeviceProofVerifier extends PostgresDeviceProofReplayVerifier{
+  verifyRecentAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,"/v1/commercial/merchant-notifications/recent");
+  }
   verifyIngestAndConsume(input:DeviceProofRequest){
     return this.verifyTargetAndConsume(input,MERCHANT_NOTIFICATION_INGEST_PATH);
   }
