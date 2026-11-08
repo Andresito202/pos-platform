@@ -56,6 +56,8 @@ import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js"
 import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 import { HardwareService } from "../hardware/hardware-service.js";
 import type { CashRegisterLicenseGate } from "../security/license-capacity-gate.js";
+import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
+import { isDevelopmentLocalUser } from "../security/local-operator-development-bridge.js";
 import { HardwareStore } from "../hardware/hardware-store.js";
 import { loadHardwareRegistry,loadAutomaticDrawerPolicy } from "../hardware/platform-transports.js";
 
@@ -117,6 +119,8 @@ export class CommercialComponent implements RuntimeComponent {
     | undefined;
 
   readonly bindings: SessionBindingRegistry;
+  /** Development-only authorizations for local operator sessions. */
+  private readonly developmentAuthorizations = new Map<string, StoredAuthorizationSnapshot>();
   private nativeSessionCloser:((connections:readonly string[],initiator:string)=>void)|undefined;
 
   registerNativeSessionCloser(close:(connections:readonly string[],initiator:string)=>void):()=>void{
@@ -148,6 +152,14 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly publicLicenseCatalog?:()=>Promise<PublicLicenseCatalog>,
   ) {
     this.bindings = new SessionBindingRegistry(now);
+  }
+  setDevelopmentAuthorization(userId: string, snapshot: StoredAuthorizationSnapshot): void {
+    if (!isDevelopmentLocalUser(userId)) throw new Error("DEVELOPMENT_AUTHORIZATION_REJECTED");
+    this.developmentAuthorizations.set(userId, snapshot);
+  }
+
+  clearDevelopmentAuthorization(userId: string): void {
+    this.developmentAuthorizations.delete(userId);
   }
 
   private get ready(): NonNullable<CommercialComponent["state"]> {

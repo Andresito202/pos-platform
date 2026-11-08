@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { LocalOperatorSessionRegistry } from "../security/local-operator-session-registry.js";
+import { developmentIdentityFor, developmentSnapshotFor } from "../security/local-operator-development-bridge.js";
 import {
   compareContractVersions,
   negotiateProtocolVersion,
