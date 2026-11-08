@@ -17,7 +17,19 @@ export const DestinationSnapshotSchema = z.strictObject({
   expires_at: z.string().datetime({ offset: true }),
   /** null is a signed revocation/empty published configuration. */
   destination: CashierDestinationSchema.nullable(),
+  /** Optional multi-method projection: one company can publish up to three distinct kinds. */
+  destinations: z.array(CashierDestinationSchema).max(3).optional(),
 }).superRefine((s, ctx) => {
+  if (s.destinations !== undefined) {
+    const kinds = new Set(s.destinations.map(item => item.kind));
+    if (kinds.size !== s.destinations.length) ctx.addIssue({code:"custom",path:["destinations"],message:"methods must have unique kinds"});
+    if ((s.destination === null) !== (s.destinations.length === 0)) {
+      ctx.addIssue({code:"custom",path:["destination"],message:"primary destination must match active methods"});
+    }
+    if (s.destination !== null && s.destinations.length > 0 && JSON.stringify(s.destination) !== JSON.stringify(s.destinations[0])) {
+      ctx.addIssue({code:"custom",path:["destination"],message:"primary destination must be first method"});
+    }
+  }
   if (Date.parse(s.expires_at) <= Date.parse(s.issued_at)) {
     ctx.addIssue({code:"custom",path:["expires_at"],message:"expiry must follow issuance"});
   }
@@ -79,4 +91,22 @@ export function visibleCompanyDestination(
   if(!parsed.success || parsed.data.tenant_id!==scope.tenantId || parsed.data.company_id!==scope.companyId) return null;
   if(clock < Date.parse(parsed.data.issued_at) || clock >= Date.parse(parsed.data.expires_at)) return null;
   return parsed.data.destination;
+}
+
+/**
+ * Multi-method display for a company's four registers. Existing signed
+ * snapshot consumers remain compatible with the singular primary destination.
+ * All values here have already passed scope, time and schema checks.
+ */
+export function visibleCompanyDestinations(
+  state: DestinationProjectionState | null,
+  scope: DestinationProjectionScope,
+  now: string,
+): readonly import("./merchant-destination.js").CashierDestination[] {
+  if (state === null) return [];
+  const primary=visibleCompanyDestination(state,scope,now);
+  if(primary === null) return [];
+  const parsed=DestinationSnapshotSchema.safeParse(state.snapshot);
+  if(!parsed.success) return [];
+  return parsed.data.destinations ?? [primary];
 }
