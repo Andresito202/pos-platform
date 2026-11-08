@@ -77,3 +77,10 @@ El QR propio Nequi P2P o Bre-B estático sigue siendo una opción de cobro **sin
 - El trigger independiente `merchant_notice_intake_guard` y el bloqueo del consentimiento siguen impidiendo ingestión después de revocar; el esquema de evidencia y RLS no cambian.
 - El DOWN de 027 rechaza retroceder cuando hay registros de consentimiento para no restaurar el problema sobre evidencia existente.
 - Las pruebas de PostgreSQL descartable incluyen el caso del dispositivo desactivado antes de revocar, rechazo de reactivación y rechazo de nueva ingestión. **No implica autorización de la ruta de revocación ni funcionamiento comercial probado**. Hasta certificar estas pruebas y el endpoint BUSINESS transaccional, solo se permite consulta de consentimientos.
+
+
+## Revocación administrativa con sesión BUSINESS (apagada por defecto)
+- Ruta `POST /v1/commercial/merchant-destinations/notice-consent-revoke`, JSON exacto `{"installation_id":"<UUID>"}`; la empresa y el tenant se derivan de la sesión, nunca del JSON. Exige origen de navegador, cookie/CSRF, rol OWNER o GENERAL_ADMIN de empresa única, MFA y reautenticación.
+- La bandera separada `CENTRAL_MERCHANT_QR002_CONSENT_REVOKE_ENABLED=true` exige `CENTRAL_MERCHANT_QR002_ADMIN_READ_ENABLED=true` y evidencia en el ledger de la migración 027 aplicada. **Por defecto es false**; habilitar solo tras certificación física del migrador y una Central con autorización comercial real.
+- La escritura ocurre en transacción `SERIALIZABLE` con RLS, `assertMerchantAdminDuringWrite` (bloqueo de sesión y asignaciones vigentes), `UPDATE ... WHERE revoked_at IS NULL` y respuesta `{revoked:boolean}`. Una autorización revocada nunca se reactiva. `revoked:false` significa que no se alteró ninguna fila de esa empresa, no certifica el estado de otra empresa ni de un banco.
+- La autorización para **conceder** consentimientos y el receptor Android real continúan pendientes. No hay botón agregado a la pantalla comercial ni activación en producción. Estas rutas no verifican abonos bancarios y no deben afectar pagos o ventas.
