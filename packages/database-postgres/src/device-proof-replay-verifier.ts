@@ -225,3 +225,12 @@ export class PostgresMerchantDestinationDeviceProofVerifier extends PostgresDevi
   return this.verifyTargetAndConsume(input,MERCHANT_DEVICE_PATHS[operation]);
  }
 }
+
+/** QR-002 dedicated intake proof. A QR001 proof cannot be replayed at this
+ * endpoint: the Ed25519 proof binds method, URL, body and one-use nonce. */
+export const MERCHANT_NOTIFICATION_INGEST_PATH="/v1/commercial/merchant-notifications/ingest";
+export class PostgresMerchantNotificationDeviceProofVerifier extends PostgresDeviceProofReplayVerifier{
+  verifyIngestAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,MERCHANT_NOTIFICATION_INGEST_PATH);
+  }
+}
