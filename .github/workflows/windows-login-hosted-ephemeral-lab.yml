@@ -167,3 +167,33 @@ jobs:
           Write-Host 'BUSINESS_REAL_SESSION=NOT_TESTED'
           Write-Host 'HUMAN_MFA=NOT_TESTED'
           Write-Host 'COMMERCIAL_LOGIN_CERTIFIED=NO'
+
+  isolated-hosted-p0-evidence:
+    name: Aggregate hosted Windows G1 and Electron E2E (not BUSINESS)
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - hosted-scm-service-desktop
+      - hosted-electron-service-integration
+    permissions:
+      contents: read
+    steps:
+      - name: Reject missing, failed or cancelled host-side evidence
+        shell: bash
+        env:
+          SCM_RESULT: ${{ needs.hosted-scm-service-desktop.result }}
+          ELECTRON_RESULT: ${{ needs.hosted-electron-service-integration.result }}
+        run: |
+          set -euo pipefail
+          printf 'P0_HOSTED_SCM_RESULT=%s\n' "$SCM_RESULT"
+          printf 'P0_HOSTED_ELECTRON_RESULT=%s\n' "$ELECTRON_RESULT"
+          if [[ "$SCM_RESULT" != success || "$ELECTRON_RESULT" != success ]]; then
+            echo 'P0_HOSTED_ISOLATED_EVIDENCE=FAIL'
+            exit 1
+          fi
+          echo 'P0_HOSTED_ISOLATED_EVIDENCE=PASS'
+          echo 'SCM_PRODUCTION_RUNTIME_PLUS_ELECTRON=NOT_TESTED'
+          echo 'CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED'
+          echo 'BUSINESS_REAL_SESSION=NOT_TESTED'
+          echo 'HUMAN_MFA=NOT_TESTED'
+          echo 'COMMERCIAL_LOGIN_CERTIFIED=NO'
