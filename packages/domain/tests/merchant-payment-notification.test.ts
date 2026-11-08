@@ -87,7 +87,7 @@ describe("QR-002 external business SMS is ALWAYS unverified",()=>{
   for(const amount of [0,-1,3.25,100000001,Number.MAX_SAFE_INTEGER,"4500"]){
    expect(()=>projectUnverifiedMerchantNotice(companyA,{...signal,reported_amount_cop:amount})).toThrow();
   }
-  for(const payer of ["","X","<script>","A".repeat(81)]){
+  for(const payer of ["","X","<script>","A".repeat(81),"3227506213"]){
    expect(()=>projectUnverifiedMerchantNotice(companyA,{...signal,payer_display:payer})).toThrow();
   }
  });
