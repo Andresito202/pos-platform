@@ -9,7 +9,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 export type MerchantBusinessSession={sessionId:string;userId:string;tenantId:string;tenantMembershipId:string};
 export interface MerchantBusinessRequest{
   readonly session:MerchantBusinessSession;
-  readonly action:"list"|"upload"|"create"|"publish"|"revoke"|"asset";
+  readonly action:"list"|"upload"|"create"|"publish"|"revoke"|"asset"|"notices";
   readonly payload:unknown;
 }
 function object(value:unknown):Record<string,unknown>{
@@ -37,7 +37,7 @@ function expectedVersion(value:unknown):number{
  * frontend roles, foreign company ids, or tenant-wide implicit assignment.
  */
 export class MerchantBusinessDestinationOperations {
- constructor(private readonly pool:Pool){}
+ constructor(private readonly pool:Pool,private readonly notificationReadEnabled=false){}
  private async adminCompany(session:MerchantBusinessSession):Promise<string>{
   for(const value of [session.sessionId,session.userId,session.tenantId,session.tenantMembershipId])id(value);
   const client=await this.pool.connect();
@@ -109,6 +109,26 @@ export class MerchantBusinessDestinationOperations {
     return request.action==="publish"
       ?commands.publish(access,identifier,version,new Date().toISOString())
       :commands.revoke(access,identifier,version,new Date().toISOString());
+  }
+  if(request.action==="notices"){
+    if(!this.notificationReadEnabled)throw Error("QR002_NOTIFICATIONS_NOT_ENABLED");
+    only(input,[]);
+    const client=await this.pool.connect();let started=false;
+    try{
+      await client.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");started=true;
+      await client.query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
+      await client.query("SELECT set_config('app.company_id',$1,true)",[companyId]);
+      await client.query("SET LOCAL statement_timeout='5s'");
+      const result=await client.query(`SELECT id,received_at,sender_label,status,
+        bank_confirmed,sale_confirmed,requires_independent_reconciliation
+        FROM payments.merchant_payment_notification_inbox
+        WHERE tenant_id=$1 AND company_id=$2
+        ORDER BY received_at DESC,id DESC LIMIT 25`,[tenantId,companyId]);
+      await client.query("COMMIT");started=false;
+      return {notices:result.rows};
+    }catch(error){
+      if(started)await client.query("ROLLBACK").catch(()=>undefined);throw error;
+    }finally{client.release();}
   }
   if(request.action==="list"){
     only(input,[]);
