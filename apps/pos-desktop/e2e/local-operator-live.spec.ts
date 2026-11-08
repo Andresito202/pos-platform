@@ -68,7 +68,7 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     electron=await _electron.launch({executablePath:requireDesktop("electron") as string,
       args:[join(desktop,"dist","start.bundle.mjs")],env});
     const page=await electron.firstWindow();
-    await expect(page.getByRole("heading",{name:"Ingresar al POS"})).toBeVisible({timeout:20000});
+    await expect(page.getByRole("heading",{name:"Ingresar al POS",level:3})).toBeVisible({timeout:20000});
     await page.locator("#pos-local-username").selectOption("admin.local");
     await page.locator("#pos-local-password").fill(passwords.get("admin.local")!);
     await page.getByRole("button",{name:"Ingresar",exact:true}).click();
@@ -97,7 +97,7 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     console.log("REAL_LOCAL_SQLITE_CATALOG_WRITE=PASS");
 
     await page.getByRole("button",{name:"Cerrar sesión",exact:true}).click();
-    await expect(page.getByRole("heading",{name:"Ingresar al POS"})).toBeVisible({timeout:20000});
+    await expect(page.getByRole("heading",{name:"Ingresar al POS",level:3})).toBeVisible({timeout:20000});
     const denied=await call("inventory.stock.get",{presentation_id:randomUUID()});
     expect(denied.status).toBe("REJECTED");
     expect(denied.result_code).toBe("SESSION_NOT_BOUND");
