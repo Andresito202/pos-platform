@@ -40,6 +40,21 @@ describe("QR-001 cashier read-only display",()=>{
    expect(calls.has("payment.transfer.confirm")).toBe(false);
    expect(calls.has("payment.register.cash")).toBe(false);
  });
+ it("shows Bre-B bank QR alongside its key without generating payment intent",async()=>{
+   const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(52)]).toString("base64");
+   install({status:"SUCCEEDED",result_code:"AVAILABLE",result:{
+     outcome:"AVAILABLE",sequence:8,destinations:[{
+       kind:"BREB_KEY",label:"Bre-B negocio",destination_reference:"@3001234567",
+       qr_asset_id:"88888888-8888-4888-8888-888888888888",
+       qr_sha256:"b".repeat(64),qr_png_base64:png,version:1,
+     }],
+   }});
+   render(<MerchantPaymentMethods enabled amount="45000.000000"/>);
+   await screen.findByTestId("destination-BREB_KEY");
+   expect(screen.getByAltText("QR oficial del comercio")).toBeTruthy();
+   expect(screen.getByTestId("merchant-destination-reference").textContent).toBe("@3001234567");
+   expect(calls.has("payment.transfer.confirm")).toBe(false);
+ });
  it("does not access customer financial info without read permission",()=>{
    install({status:"SUCCEEDED",result_code:"AVAILABLE",result:null});
    const view=render(<MerchantPaymentMethods enabled={false} amount="1"/>);
