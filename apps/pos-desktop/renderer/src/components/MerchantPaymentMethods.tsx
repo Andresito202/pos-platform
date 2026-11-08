@@ -14,6 +14,8 @@ export function MerchantPaymentMethods({enabled,amount}:{
  const [value,setValue]=useState<MerchantDestinationsGetResult|null>(null);
  const [loading,setLoading]=useState(false);
  const [error,setError]=useState<string|null>(null);
+ const [selectedKind,setSelectedKind]=useState<string|null>(null);
+ const selected=value?.destinations.find(item=>item.kind===selectedKind)??value?.destinations[0];
  const read=useCallback(async()=>{
    if(!enabled)return;
    setLoading(true);setError(null);
@@ -40,18 +42,26 @@ export function MerchantPaymentMethods({enabled,amount}:{
      {loading?"Consultando…":"Actualizar datos del comercio"}
    </button>
    {error&&<p role="status" data-testid="merchant-payment-unavailable">{error}</p>}
-   {value?.destinations.map(item=><article key={item.kind} className="pos-payment-destination" data-testid={"destination-"+item.kind}>
-     <h4>{item.label}</h4>
-     {(item.kind==="NEQUI_BUSINESS_QR"||item.kind==="BREB_KEY")&&item.qr_png_base64
-       ? <img src={"data:image/png;base64,"+item.qr_png_base64} alt="QR de cobro proporcionado por el comercio"
-           width={224} height={224} style={{maxWidth:"100%",height:"auto",imageRendering:"auto"}} />
-        : item.kind==="NEQUI_BUSINESS_QR"||item.kind==="BREB_KEY"
-       ? <p>El QR oficial no está disponible en esta caja. Solicita sincronización al administrador.</p>
+   {value&&value.destinations.length>1&&<div role="group" aria-label="Elegir método de transferencia" className="pos-merchant-method-selector">
+     {value.destinations.map(item=><button key={item.kind} type="button" onClick={()=>setSelectedKind(item.kind)}
+       aria-pressed={selected?.kind===item.kind}
+       data-testid={"choose-destination-"+item.kind}>
+         {item.kind==="NEQUI_BUSINESS_QR"?"QR Nequi":item.kind==="BREB_KEY"?"Bre-B":"Número Nequi"}
+     </button>)}
+   </div>}
+   {selected&&<article key={selected.kind} className="pos-payment-destination" data-testid={"destination-"+selected.kind}>
+     <h4>{selected.label}</h4>
+     {selected.qr_png_base64
+       ? <img src={"data:image/png;base64,"+selected.qr_png_base64}
+           alt="QR de cobro proporcionado por el comercio"
+           width={320} height={320} style={{maxWidth:"100%",height:"auto",imageRendering:"auto",background:"#fff"}} />
+       : selected.kind==="NEQUI_BUSINESS_QR"
+       ? <p>El QR no está disponible en esta caja. Solicita sincronización al administrador.</p>
        : null}
-     <p>{item.kind==="NEQUI_NUMBER"?"Nequi":item.kind==="BREB_KEY"?"Llave Bre-B":"Referencia del QR Nequi"}</p>
-     <strong data-testid="merchant-destination-reference">{item.destination_reference}</strong>
-     <p>Importe de esta venta: {amount}. No garantiza que el QR tenga el importe precargado.</p>
-   </article>)}
+     <p>{selected.kind==="NEQUI_NUMBER"?"Número Nequi":selected.kind==="BREB_KEY"?"Llave Bre-B":"Referencia del QR Nequi"}</p>
+     <strong data-testid="merchant-destination-reference">{selected.destination_reference}</strong>
+     <p>Importe de esta venta: {amount}. El QR original puede no incorporar el valor de la venta.</p>
+   </article>}
    {value&&value.destinations.length===0&&<p>El administrador no ha publicado un destino de cobro.</p>}
    <p><strong>Estado del dinero: pendiente de verificación.</strong> No se confirma ninguna venta desde este panel.</p>
  </section>;
