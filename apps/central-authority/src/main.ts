@@ -130,6 +130,11 @@ const collectionsProvision=process.env.CENTRAL_FACTUS_PAY_COLLECTIONS_PROVISION_
 if(collectionsProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("COLLECTIONS_REAL_DEPLOYMENT_REQUIRED");
 const collectionsRuntime=collectionsProvision?await prepareSubscriptionCollectionRuntime({pool,provisionFile:collectionsProvision,
   onError:code=>process.stderr.write(JSON.stringify({service:"subscription-collections",code})+"\n")}):undefined;
+const qr002RevokeOption=process.env.CENTRAL_MERCHANT_QR002_CONSENT_REVOKE_ENABLED;
+if(qr002RevokeOption!==undefined&&!["true","false"].includes(qr002RevokeOption))
+  throw Error("QR002_INVALID_CONSENT_REVOKE_FLAG");
+if(qr002RevokeOption==="true"&&process.env.CENTRAL_MERCHANT_QR002_ADMIN_READ_ENABLED!=="true")
+  throw Error("QR002_CONSENT_REVOCATION_REQUIRES_ADMIN_READ");
 const qr002IngestOption=process.env.CENTRAL_MERCHANT_QR002_INGEST_ENABLED;
 if(qr002IngestOption!==undefined&&!["true","false"].includes(qr002IngestOption))
   throw Error("QR002_INVALID_INGEST_FLAG");
@@ -151,6 +156,7 @@ const commercialHandler=commercialProvision?await prepareCentralCommercialRuntim
   merchantDestinationsEnabled:qr001Option==="true",
   merchantNotificationReadEnabled:qr002Option==="true",
   merchantNotificationIngestEnabled:qr002IngestOption==="true",
+  merchantConsentRevocationEnabled:qr002RevokeOption==="true",
   ...(qr001Option==="true"?{merchantQrSigning:{
     keyPath:required("CENTRAL_QR001_PRIVATE_KEY_FILE"),
     keyId:required("CENTRAL_QR001_KEY_ID"),
