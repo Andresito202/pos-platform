@@ -8,6 +8,7 @@ import {
 import { CanonicalPermission, type ContractError, type ErrorCategory, type IpcRequest } from "@pos-platform/contracts";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
+import { localOperatorAuthorization, type LocalAuthorizedSession } from "../security/local-operator-development-bridge.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { boundIdentityFromClaims, type BoundSessionIdentity } from "../session/session-binding-registry.js";
@@ -152,6 +153,7 @@ export class CommercialRequestHandler {
   constructor(
     private readonly config: ServiceConfig,
     private readonly commercial: CommercialComponent,
+    private readonly resolveLocalOperator?: (connectionId: string) => LocalAuthorizedSession | null,
   ) {}
 
   private scope(): SyncScope {
@@ -174,7 +176,27 @@ export class CommercialRequestHandler {
     connectionId: string,
   ): { identity: BoundSessionIdentity; snapshot: StoredAuthorizationSnapshot } | { rejection: string } {
     const identity = this.commercial.bindings.resolve(connectionId);
-    if (identity === null) return { rejection: SESSION_NOT_BOUND };
+    if (identity === null) {
+      // Explicit LOCAL development authority. No signed commercial SSA/SAS or
+      // CommercialComponent binding is invented. Every business operation
+      // rechecks the backend-owned connection's currently live login.
+      if (this.config.local_operator_auth_store !== undefined && this.resolveLocalOperator) {
+        const local = this.resolveLocalOperator(connectionId);
+        if (local !== null) {
+          const {userId, snapshot} = localOperatorAuthorization(local, this.config);
+          return {
+            identity: {
+              userId,
+              ssaSessionId: local.sessionId,
+              tenantMembershipId: this.config.tenant_id,
+              offlineValidUntil: local.expiresAt,
+            },
+            snapshot,
+          };
+        }
+      }
+      return { rejection: SESSION_NOT_BOUND };
+    }
 
     const { installationId, deviceId } = this.commercial.deviceBinding();
     const snapshot = this.commercial.loadVerifiedAuthorization({
