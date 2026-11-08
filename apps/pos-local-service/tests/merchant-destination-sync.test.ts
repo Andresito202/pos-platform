@@ -15,6 +15,9 @@ describe("QR-001 signed-device HTTPS client",()=>{
   const transport=new MerchantDestinationHttpsTransport("https://central.example.test",signer);
   expect(await transport.request("floor",{},new AbortController().signal)).toEqual({floor:null});
   expect(signed).toHaveBeenCalledOnce();
+  const signedFields=signed.mock.calls[0]?.[0] as {requestId:string;correlationId:string};
+  expect(signedFields.requestId).toMatch(/^[a-f0-9-]{14}7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[a-f0-9]{12}$/i);
+  expect(signedFields.correlationId).toMatch(/^[a-f0-9-]{14}7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[a-f0-9]{12}$/i);
   expect(signed.mock.calls[0]?.[0]).toMatchObject({
     method:"POST",path:"/v1/commercial/merchant-destinations/floor",body:"{}",
   });
@@ -31,6 +34,21 @@ describe("QR-001 signed-device HTTPS client",()=>{
     "content-type":"application/json; charset=utf-8","cache-control":"no-store","content-length":"999999",
   }})) as typeof fetch;
   await expect(transport.request("floor",{},new AbortController().signal)).rejects.toThrow("QR001_RESPONSE_TOO_LARGE");
+ });
+ it("accepts a three-QR bounded signed snapshot but rejects oversized payloads",async()=>{
+   const signer={authorization:async()=> "DeviceProof signed",isProvisioned:()=>true} as DeviceCredentialProvider;
+   const transport=new MerchantDestinationHttpsTransport("https://central.example.test",signer);
+   const payload=JSON.stringify({artifact:{claims:{snapshot:{
+     destinations:[1,2,3].map(n=>({kind:n,png_base64:"A".repeat(1_300_000)})),
+   }}}});
+   globalThis.fetch=vi.fn(async()=>new Response(payload,{status:200,headers:{
+     "content-type":"application/json; charset=utf-8","cache-control":"no-store",
+   }})) as typeof fetch;
+   expect(await transport.request("snapshot",{},new AbortController().signal)).toBeTruthy();
+   globalThis.fetch=vi.fn(async()=>new Response("x".repeat(4_400_001),{status:200,headers:{
+     "content-type":"application/json; charset=utf-8","cache-control":"no-store",
+   }})) as typeof fetch;
+   await expect(transport.request("snapshot",{},new AbortController().signal)).rejects.toThrow("QR001_RESPONSE_TOO_LARGE");
  });
  it("denies insecure origin and disabled TLS verification",()=>{
   const signer={authorization:async()=> "x"} as DeviceCredentialProvider;
