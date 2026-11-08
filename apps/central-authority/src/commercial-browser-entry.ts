@@ -70,10 +70,10 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
 <section id="qr001" hidden aria-label="Administración de cobros Nequi y Bre-B">
 <h3>Cobros sin pasarela · Nequi / Bre-B</h3>
 <p>Los datos pertenecen exclusivamente a este negocio. Caja solo podrá consultarlos; no puede modificarlos. Los pagos requieren verificación independiente.</p>
-<label>Método<select id="qr001-kind"><option value="NEQUI_BUSINESS_QR">QR oficial Nequi Negocios</option><option value="BREB_KEY">Llave Bre-B</option><option value="NEQUI_NUMBER">Número Nequi</option></select></label>
-<label>Nombre para caja<input id="qr001-label" maxlength="80" value="Cobro del negocio"></label>
-<label>Número o llave registrada<input id="qr001-reference" maxlength="160" autocomplete="off" placeholder="Nequi o llave del comercio"></label>
-<label>Imagen PNG del QR oficial Nequi o Bre-B (opcional para llave Bre-B)<input id="qr001-file" type="file" accept="image/png"></label>
+<label>Método<select id="qr001-kind"><option value="NEQUI_BUSINESS_QR">QR original Nequi (personal o Negocios)</option><option value="BREB_KEY">Llave Bre-B</option><option value="NEQUI_NUMBER">Número Nequi</option></select></label>
+<label>Nombre visible en Caja<input id="qr001-label" maxlength="80" value="Cobro del negocio"></label>
+<label>Referencia del destino: Nequi o llave Bre-B<input id="qr001-reference" maxlength="160" autocomplete="off" placeholder="QR Nequi, número o llave exacta del comercio"></label>
+<label>Imagen PNG del QR original Nequi o Bre-B (opcional si solo se usa la llave)<input id="qr001-file" type="file" accept="image/png"></label>
 <button id="qr001-upload" type="button">Verificar y cargar QR</button>
 <button id="qr001-create" type="button">Guardar borrador</button>
 <button id="qr001-refresh" type="button">Actualizar lista</button>
@@ -151,7 +151,7 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
         binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192));
       const result=(await post("merchant-destinations/upload",{png_base64:btoa(binary)},undefined,csrf)).result;
       if(!result||typeof result.id!=="string"||typeof result.sha256!=="string")throw Error("INVALID_RESPONSE");
-      qrAsset=result;qrInfo("Imagen oficial validada y almacenada. Ahora guarda el borrador.");
+      qrAsset=result;qrInfo("Imagen PNG aceptada y almacenada. Verifica que el QR y su beneficiario sean correctos antes de publicar.");
     }catch{qrInfo("No fue posible guardar el PNG. Verifica la imagen oficial.",true);}
     finally{action.disabled=false;}
   });
