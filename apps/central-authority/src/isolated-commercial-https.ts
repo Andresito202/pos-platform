@@ -159,7 +159,7 @@ export async function prepareCommercialHttpHandler(input:{
             const registration=destination?clients.requireExact(destination.client_id,destination.redirect_uri):null;
             if(!destination||!registration||registration.authorizationOrigin!==input.origin)throw new Rejection(401);
             sendCommercialBrowserEntry(res,input.browserEntry,{request:token,tenantName:destination.tenant_name,companyName:destination.company_name,
-              deviceId:destination.device_id,installationId:destination.installation_id});return;
+              deviceId:destination.device_id,installationId:destination.installation_id},Boolean(input.merchantDestinations));return;
           }
           if(input.deploymentContext)throw new Rejection(400);
           const names=["client_id","redirect_uri","code_challenge","code_challenge_method","state"];
