@@ -83,6 +83,8 @@ jobs:
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
       - name: Real SCM virtual account, session-zero and DPAPI isolation (disposable)
         shell: powershell
+        env:
+          CAMACHO_NATIVE_G1_DIAGNOSTICS: '1'
         run: |
           & ./tools/operators/ci-windows-scm-identity-service.ps1 -Run -NativePipe
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
