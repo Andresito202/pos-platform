@@ -33,6 +33,10 @@ on:
       - 'tools/target-migrations/src/postgres-commercial-*.ts'
       - 'tools/target-migrations/tests/postgres-024-merchant-destinations.test.ts'
       - 'tools/target-migrations/tests/postgres-024-merchant-destinations-physical.test.ts'
+      - 'apps/pos-local-service/src/main.ts'
+      - 'apps/pos-local-service/src/config.ts'
+      - 'apps/pos-local-service/src/payments/merchant-destination-sync.ts'
+      - 'packages/database-postgres/src/device-proof-replay-verifier.ts'
       - 'pnpm-lock.yaml'
       - '.github/workflows/qr001-validation.yml'
   workflow_dispatch:
@@ -86,6 +90,7 @@ jobs:
       - name: Typecheck contracts, domain, Central, POS Local, Electron and migrations
         run: |
           pnpm --filter @pos-platform/contracts typecheck
+          pnpm --filter @pos-platform/database-postgres typecheck
           pnpm --filter @pos-platform/domain typecheck
           pnpm --filter @pos-platform/central-authority typecheck
           pnpm --filter @pos-platform/pos-local-service typecheck
