@@ -138,7 +138,13 @@ if(commercialProvision&&(!deployment||deployment.environment==="LOCAL"||!session
 const commercialHandler=commercialProvision?await prepareCentralCommercialRuntime({pool,provisionFile:commercialProvision,
   origin:deployment!.origin,environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION",tls:{key:tlsKey,cert:tlsCert},
   publishedSsaFile:required("SESSION_TRUST_ARTIFACT_FILE"),publishedSasFile:required("AUTHORIZATION_TRUST_ARTIFACT_FILE"),
-  merchantDestinationsEnabled:qr001Option==="true"}):undefined;
+  merchantDestinationsEnabled:qr001Option==="true",
+  ...(qr001Option==="true"?{merchantQrSigning:{
+    keyPath:required("CENTRAL_QR001_PRIVATE_KEY_FILE"),
+    keyId:required("CENTRAL_QR001_KEY_ID"),
+    validFrom:required("CENTRAL_QR001_VALID_FROM"),
+    validUntil:required("CENTRAL_QR001_VALID_UNTIL"),
+  }}:{})}):undefined;
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
 const handler = new DeviceEnrollmentHttpHandler(issuer, {
