@@ -71,3 +71,19 @@
 **Límite innegociable:** los cinco gates de certificación comercial física siguen SIN CERTIFICAR porque el runner no es la VM Hyper-V original, no conoce su DeviceIdentity ni los secretos DPAPI, no ha iniciado el Service bajo la cuenta `NT SERVICE\CamachoPOSLocalService` de ese laboratorio, ni ha registrado DEV-003 de esa identidad en Central. Un runner hospedado no puede acreditar posesión de una clave que no posee. La sesión humana MFA histórica no se repite por defecto y tampoco se presenta como sesión BUSINESS actual.
 
 El inspector de servicio permanece fail-closed; no se ha eliminado `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN`, creado/registrado dispositivo, desplegado Central ni fusionado PR #99. No adjudicar a CI el cierre de los gates físicos.
+
+## 7. Alternativa sin PC: Windows Server 2022 hospedado con DPAPI real
+
+[GitHub Actions #42459348643](https://github.com/Andresito202/pos-platform/actions/runs/42459348643) sobre commit `6a90cda52b4d9889bf42f98347dd163855500712`: **SUCCESS en cinco jobs**.
+
+- Login P0 Windows: TypeScript, transporte/leases, Central y Electron en entorno aislado: PASS.
+- Receptor nativo DPAPI de Windows real: **1 PASS y 23 SKIP** en la ejecución focalizada `windows-handoff.test.ts -t "real Windows receiver:"`. Comprueba token interactivo, ACL de propietario, DPAPI CurrentUser, denegación de sobrescritura/contexto equivocado y alteraciones.
+- UUIDv7 SCM/provisión BUSINESS: contratos PASS, sin instalar un servicio.
+- DEV-003/BUSINESS: contratos PASS, sin registro real de dispositivo.
+- OAuth/PKCE con PostgreSQL 16.14 efímero: PASS, 5 pruebas.
+
+**Ajuste verificable:** `packages/local-channel/src/windows-handoff-native.ts` importa explícitamente `Microsoft.PowerShell.Security`. El runner prepara `PSModulePath` Windows y ejecuta el test desde PowerShell 5.1. No cambia autorización, ACL, identidades o reglas de negación.
+
+**NO está acreditado:** la cuenta virtual SCM de la VM original, sus claves DPAPI y DeviceIdentity UUIDv7 existentes, el handshake comercial real SERVICE↔DESKTOP con esa identidad, inscripción DEV-003 en Central autorizada, retiro del gate SCM, ni un recorrido BUSINESS humano hasta Caja, refresh, logout y revocación.
+
+**Alternativa para una futura certificación de artefacto sin PC:** aprovisionar automáticamente un laboratorio nuevo y desechable en Windows Server 2022 con wrapper WinSW aprobado, dos identidades OS reales, claves nuevas, Central aislada y pruebas E2E. Eso certificaría una instalación nueva, **no** la provisión privada preexistente del equipo. La implementación E2E del laboratorio nuevo sigue pendiente. Mantener el PR Draft y `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` activo.
