@@ -96,14 +96,9 @@ try {
 $ErrorActionPreference='Stop'
 try {
   $status=& sc.exe queryex CamachoPOSLocalService
-  $line=@($status | Where-Object {$_ -match '^\\s*PID\\s*:\\s*([0-9]+)\\s*
-} finally {
-  if (connection) native.release(connection.handle);
-  if (listener) native.stop(listener);
-}
-})
+  $line=@($status | Where-Object {$_ -match '^\s*PID\s*:\s*([0-9]+)\s*$'})
   if($LASTEXITCODE -ne 0 -or $line.Count -ne 1){throw 'SCM_QUERY_FAILED'}
-  $pidNumber=[int]([regex]::Match($line[0],':\\s*([0-9]+)').Groups[1].Value)
+  $pidNumber=[int]([regex]::Match($line[0],':\s*([0-9]+)').Groups[1].Value)
   if($pidNumber -le 0){throw 'SCM_NOT_RUNNING'}
   Add-Type -TypeDefinition @'
 using System;
