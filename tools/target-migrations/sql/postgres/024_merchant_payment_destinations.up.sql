@@ -27,7 +27,7 @@ CREATE TABLE payments.merchant_destinations (
  FOREIGN KEY (tenant_id,company_id) REFERENCES organization.companies(tenant_id,id),
  FOREIGN KEY (tenant_id,company_id,qr_asset_id)
    REFERENCES payments.merchant_qr_assets(tenant_id,company_id,id),
- CHECK ((kind='NEQUI_BUSINESS_QR')=(qr_asset_id IS NOT NULL)),
+ CHECK (kind<>'NEQUI_BUSINESS_QR' OR qr_asset_id IS NOT NULL),
  CHECK ((status='DRAFT' AND published_at IS NULL AND revoked_at IS NULL)
      OR (status='PUBLISHED' AND published_at IS NOT NULL AND revoked_at IS NULL)
      OR (status='REVOKED' AND published_at IS NOT NULL AND revoked_at IS NOT NULL))
@@ -69,7 +69,8 @@ CREATE TABLE payments.merchant_destination_acknowledgements (
  sequence bigint NOT NULL CHECK(sequence>0),
  acknowledged_at timestamptz NOT NULL,
  PRIMARY KEY(tenant_id,company_id,installation_id),
- FOREIGN KEY (tenant_id,company_id) REFERENCES organization.companies(tenant_id,id)
+ FOREIGN KEY (tenant_id,company_id) REFERENCES organization.companies(tenant_id,id),
+ FOREIGN KEY (installation_id) REFERENCES identity.device_registry(installation_id)
 );
 
 -- A published destination can only be revoked, never edited in place.
@@ -113,6 +114,38 @@ CREATE TRIGGER merchant_ack_monotonic
  BEFORE UPDATE ON payments.merchant_destination_acknowledgements FOR EACH ROW
  EXECUTE FUNCTION payments.guard_merchant_monotonic_sequence();
 
+-- Strict initialization and immutable evidence. No direct DELETE/TRUNCATE.
+CREATE FUNCTION payments.guard_merchant_destination_insert()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $guard$
+BEGIN
+ IF NEW.status<>'DRAFT' OR NEW.version<>1 OR
+    NEW.published_at IS NOT NULL OR NEW.revoked_at IS NOT NULL THEN
+   RAISE EXCEPTION 'merchant destination must start as draft v1';
+ END IF;
+ RETURN NEW;
+END $guard$;
+CREATE TRIGGER merchant_destination_insert
+ BEFORE INSERT ON payments.merchant_destinations FOR EACH ROW
+ EXECUTE FUNCTION payments.guard_merchant_destination_insert();
+
+CREATE FUNCTION payments.guard_merchant_ack_identity()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $guard$
+BEGIN
+ IF TG_OP='UPDATE' AND NEW.installation_id<>OLD.installation_id THEN
+   RAISE EXCEPTION 'merchant acknowledgement installation immutable';
+ END IF;
+ IF NOT EXISTS (
+   SELECT 1 FROM identity.device_registry d
+   WHERE d.installation_id=NEW.installation_id
+   AND d.tenant_id=NEW.tenant_id AND d.company_id=NEW.company_id
+   AND d.status='ACTIVE'
+ ) THEN RAISE EXCEPTION 'merchant acknowledgement device scope inactive'; END IF;
+ RETURN NEW;
+END $guard$;
+CREATE TRIGGER merchant_ack_identity
+ BEFORE INSERT OR UPDATE ON payments.merchant_destination_acknowledgements
+ FOR EACH ROW EXECUTE FUNCTION payments.guard_merchant_ack_identity();
+
 DO $setup$ DECLARE object text; BEGIN
  FOREACH object IN ARRAY ARRAY[
  'merchant_qr_assets','merchant_destinations','merchant_destination_events',
@@ -129,3 +162,32 @@ DO $setup$ DECLARE object text; BEGIN
   EXECUTE format('CREATE TRIGGER merchant_no_truncate BEFORE TRUNCATE ON payments.%I FOR EACH STATEMENT EXECUTE FUNCTION audit.reject_append_only_mutation()',object);
  END LOOP;
 END $setup$;
+-- The central runtime cannot write without explicit provisioning and an
+-- authenticated authorization handler; grants are intentionally restricted.
+REVOKE ALL ON ALL TABLES IN SCHEMA payments FROM PUBLIC,pos_app,pos_worker,pos_reporting;
+REVOKE ALL ON FUNCTION payments.guard_merchant_destination_transition() FROM PUBLIC;
+REVOKE ALL ON FUNCTION payments.guard_merchant_monotonic_sequence() FROM PUBLIC;
+REVOKE ALL ON FUNCTION payments.guard_merchant_destination_insert() FROM PUBLIC;
+REVOKE ALL ON FUNCTION payments.guard_merchant_ack_identity() FROM PUBLIC;
+GRANT USAGE ON SCHEMA payments TO pos_platform_app;
+-- Local merchant POS roles receive no DB rights.
+GRANT SELECT,INSERT ON payments.merchant_qr_assets TO pos_platform_app;
+GRANT SELECT,INSERT,UPDATE ON payments.merchant_destinations TO pos_platform_app;
+GRANT SELECT,INSERT ON payments.merchant_destination_events TO pos_platform_app;
+GRANT SELECT,INSERT ON payments.merchant_destination_outbox TO pos_platform_app;
+GRANT SELECT,INSERT,UPDATE ON payments.merchant_destination_sequences TO pos_platform_app;
+GRANT SELECT,INSERT,UPDATE ON payments.merchant_destination_acknowledgements TO pos_platform_app;
+
+
+CREATE TRIGGER merchant_asset_immutable BEFORE UPDATE OR DELETE ON payments.merchant_qr_assets
+ FOR EACH ROW EXECUTE FUNCTION audit.reject_append_only_mutation();
+CREATE TRIGGER merchant_event_immutable BEFORE UPDATE OR DELETE ON payments.merchant_destination_events
+ FOR EACH ROW EXECUTE FUNCTION audit.reject_append_only_mutation();
+CREATE TRIGGER merchant_outbox_immutable BEFORE UPDATE OR DELETE ON payments.merchant_destination_outbox
+ FOR EACH ROW EXECUTE FUNCTION audit.reject_append_only_mutation();
+CREATE TRIGGER merchant_destination_no_delete BEFORE DELETE ON payments.merchant_destinations
+ FOR EACH ROW EXECUTE FUNCTION audit.reject_append_only_mutation();
+CREATE TRIGGER merchant_sequences_no_delete BEFORE DELETE ON payments.merchant_destination_sequences
+ FOR EACH ROW EXECUTE FUNCTION audit.reject_append_only_mutation();
+CREATE TRIGGER merchant_ack_no_delete BEFORE DELETE ON payments.merchant_destination_acknowledgements
+ FOR EACH ROW EXECUTE FUNCTION audit.reject_append_only_mutation();
