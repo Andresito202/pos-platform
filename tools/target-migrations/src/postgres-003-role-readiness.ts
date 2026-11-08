@@ -1,3 +1,4 @@
+import {isSupportedMigrationPostgresVersion,type ApprovedMigrationPostgresVersion} from "./postgres-compatibility.js";
 import { open, readFile, readdir, unlink } from "node:fs/promises";
 import type { SqlExecutor } from "./database.js";
 import { executeRaw, postgresDatabase, queryRows } from "./database.js";
@@ -83,7 +84,7 @@ interface RoleReadinessReceiptPayloadBase {
   result: "SUCCESS";
   repository_commit: string;
   artifacts: ArtifactHashes;
-  target: { environment_id: string; database_name: string; postgres_version_num: "160014" };
+  target: { environment_id: string; database_name: string; postgres_version_num: ApprovedMigrationPostgresVersion };
   identities: { session_user: "pos_migrator"; effective_role: "pos_schema_owner"; target_role: typeof ROLE_READINESS_TARGET_ROLE; operator_or_job_id: string | null };
   started_at: string;
   completed_at: string;
@@ -223,8 +224,19 @@ async function verifyRuntimeAndTarget(db: SqlExecutor, config: RoleReadinessConf
   const row = (await queryRows<{ database: string; version: string; session_user: string; current_user: string }>(db,
     "SELECT current_database() database,current_setting('server_version_num') version,session_user,current_user"))[0];
   invariant(row?.database === config.expectedDatabase, "TARGET_MISMATCH");
-  invariant(row.version === "160014", "TARGET_MISMATCH");
+  invariant(isSupportedMigrationPostgresVersion(row.version), "TARGET_MISMATCH");
   invariant(row.session_user === expectedUser && row.current_user === expectedUser, "IDENTITY_MISMATCH");
+}
+
+async function currentRoleReadinessPostgresVersion(config: RoleReadinessConfig): Promise<ApprovedMigrationPostgresVersion> {
+  const db=postgresDatabase(config.provisioningUrl,1);
+  try {
+    const row=(await queryRows<{database:string;version:string;session_user:string}>(db,
+      "SELECT current_database() AS database,current_setting('server_version_num') AS version,session_user"))[0];
+    invariant(row?.database===config.expectedDatabase&&row.session_user==="pos_migrator"&&
+      isSupportedMigrationPostgresVersion(row.version),"TARGET_MISMATCH");
+    return row.version;
+  } finally { await db.destroy(); }
 }
 
 async function roleAttributes(db: SqlExecutor, role: string): Promise<RoleAttributes> {
@@ -437,7 +449,7 @@ export function validateRoleReadinessReceipt(value: unknown): RoleReadinessRecei
   for(const key of ["started_at","completed_at"]){const date=payload[key];invariant(typeof date==="string"&&!Number.isNaN(Date.parse(date))&&new Date(date).toISOString()===date,"INVALID_RECEIPT");}
   invariant(payload.global_lock_resource===POSTGRES_MIGRATION_LOCK_RESOURCE&&payload.contract_validation_before==="PASS"&&payload.contract_validation_after==="PASS"&&payload.catalog_validation_before==="PASS"&&payload.catalog_validation_after==="PASS","INVALID_RECEIPT");
   exactKeys(payload.artifacts,["readiness_up_sha256","readiness_down_sha256","migration_001_up_sha256","migration_001_down_sha256","migration_002_up_sha256","migration_002_down_sha256"]);invariant(Object.values(payload.artifacts as Record<string,unknown>).every(item=>typeof item==="string"&&/^[0-9a-f]{64}$/.test(item)),"INVALID_RECEIPT");
-  exactKeys(payload.target,["environment_id","database_name","postgres_version_num"]);const target=payload.target as Record<string,unknown>;invariant(typeof target.environment_id==="string"&&target.environment_id.length>0&&typeof target.database_name==="string"&&target.database_name.length>0&&target.postgres_version_num==="160014","INVALID_RECEIPT");
+  exactKeys(payload.target,["environment_id","database_name","postgres_version_num"]);const target=payload.target as Record<string,unknown>;invariant(typeof target.environment_id==="string"&&target.environment_id.length>0&&typeof target.database_name==="string"&&target.database_name.length>0&&isSupportedMigrationPostgresVersion(target.postgres_version_num),"INVALID_RECEIPT");
   exactKeys(payload.identities,["session_user","effective_role","target_role","operator_or_job_id"]);const identities=payload.identities as Record<string,unknown>;invariant(identities.session_user==="pos_migrator"&&identities.effective_role==="pos_schema_owner"&&identities.target_role===ROLE_READINESS_TARGET_ROLE&&(identities.operator_or_job_id===null||(typeof identities.operator_or_job_id==="string"&&identities.operator_or_job_id.length>0)),"INVALID_RECEIPT");
   exactKeys(payload.governance,["sql_003","descriptor_003","migration_003_ledger_entries","fiscal_schema"]);const governance=payload.governance as Record<string,unknown>;
   if (payload.receipt_version === 1) {
@@ -470,7 +482,7 @@ export async function applyRoleReadiness(config:RoleReadinessConfig):Promise<Rol
     if(!operationId){await freshAdminPostcheck(config,"READY");return {operation:"APPLY",result:"READY_NO_OP",state:"READY",failure_code:null,operation_id:null,receipt_path:null,receipt_sha256:null};}
     const fresh=await freshAdminPostcheck(config,"READY");invariant(sameObject(fresh,after),"CURRENT_SECURITY_STATE_MISMATCH");
     const repositoryGovernance=await repository003ArtifactState();
-    const payload:RoleReadinessReceiptPayloadV2={receipt_version:ROLE_READINESS_RECEIPT_VERSION,lifecycle_contract_version:ROLE_READINESS_LIFECYCLE_CONTRACT_VERSION,operation_id:operationId,operation_type:ROLE_READINESS_OPERATION_TYPE,operation:"APPLY",result:"SUCCESS",repository_commit:config.repositoryCommit,artifacts,target:{environment_id:config.environmentId,database_name:config.expectedDatabase,postgres_version_num:"160014"},identities:{session_user:"pos_migrator",effective_role:"pos_schema_owner",target_role:ROLE_READINESS_TARGET_ROLE,operator_or_job_id:config.operatorOrJobId??null},started_at:startedAt,completed_at:isoNow(),global_lock_resource:POSTGRES_MIGRATION_LOCK_RESOURCE,state_before:"MISSING",acl_before:before!,state_after:"READY",acl_after:after!,contract_validation_before:"PASS",contract_validation_after:"PASS",catalog_validation_before:"PASS",catalog_validation_after:"PASS",governance:repositoryGovernance};
+    const payload:RoleReadinessReceiptPayloadV2={receipt_version:ROLE_READINESS_RECEIPT_VERSION,lifecycle_contract_version:ROLE_READINESS_LIFECYCLE_CONTRACT_VERSION,operation_id:operationId,operation_type:ROLE_READINESS_OPERATION_TYPE,operation:"APPLY",result:"SUCCESS",repository_commit:config.repositoryCommit,artifacts,target:{environment_id:config.environmentId,database_name:config.expectedDatabase,postgres_version_num:await currentRoleReadinessPostgresVersion(config)},identities:{session_user:"pos_migrator",effective_role:"pos_schema_owner",target_role:ROLE_READINESS_TARGET_ROLE,operator_or_job_id:config.operatorOrJobId??null},started_at:startedAt,completed_at:isoNow(),global_lock_resource:POSTGRES_MIGRATION_LOCK_RESOURCE,state_before:"MISSING",acl_before:before!,state_after:"READY",acl_after:after!,contract_validation_before:"PASS",contract_validation_after:"PASS",catalog_validation_before:"PASS",catalog_validation_after:"PASS",governance:repositoryGovernance};
     receiptHash=sha256(canonicalJson(payload)).toString("hex");const receipt={receipt_payload:payload,receipt_sha256:receiptHash};
     try{await publishReceipt(config.receiptOutputPath!,receipt);}catch{return {operation:"APPLY",result:"APPLIED_WITHOUT_DURABLE_RECEIPT",state:"READY",failure_code:"RECEIPT_PUBLICATION_FAILED",operation_id:operationId,receipt_path:null,receipt_sha256:null};}
     return {operation:"APPLY",result:"READY_WITH_RECEIPT",state:"READY",failure_code:null,operation_id:operationId,receipt_path:config.receiptOutputPath!,receipt_sha256:receiptHash};
@@ -485,7 +497,7 @@ async function readReceipt(path:string|undefined):Promise<RoleReadinessReceipt>{
 
 async function validateReversal(config:RoleReadinessConfig,receipt:RoleReadinessReceipt,current:RoleReadinessAclSnapshot):Promise<void>{
   const payload=receipt.receipt_payload;
-  invariant(payload.target.environment_id===config.environmentId&&payload.target.database_name===config.expectedDatabase&&payload.target.postgres_version_num==="160014","TARGET_MISMATCH");
+  invariant(payload.target.environment_id===config.environmentId&&payload.target.database_name===config.expectedDatabase&&payload.target.postgres_version_num===await currentRoleReadinessPostgresVersion(config),"TARGET_MISMATCH");
   invariant(ROLE_READINESS_AUTOMATIC_REVERSAL_COMPATIBLE_VERSIONS.includes(payload.lifecycle_contract_version),"LATER_DEPENDENCY_NOT_PROVEN_SAFE");
   const hashes=await artifactHashes();invariant(sameObject(payload.artifacts,hashes),"ARTIFACT_OR_CONTRACT_MISMATCH");
   invariant(classifyRoleReadiness(current)==="READY"&&sameObject(current,payload.acl_after),"CURRENT_SECURITY_STATE_MISMATCH");
