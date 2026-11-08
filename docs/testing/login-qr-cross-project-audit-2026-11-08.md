@@ -104,3 +104,16 @@ El servicio **es un probe separado compilado en la VM de Actions**, no el ejecut
 **Certificación parcial acreditada:** capacidad de hospedar cuenta de servicio virtual real, control de sesión 0, custodia DPAPI y separación criptográfica de identidades; compilación nativa Windows con smoketests Node/Electron.
 
 **Pendientes para certificar una instalación comercial sin PC:** (1) probar canal nativo `WindowsScmChannelTransport` ↔ `connectWindowsScmClient` en el servicio real, con manifiestos y claves administradas por cada SID; (2) reemplazar el servicio probe por el envoltorio comercial WinSW firmado y verificado; (3) hacer DEV-003 en Central desechable con autenticación BUSINESS y evidencias de posesión; (4) comprobar el gate SCM, la sesión comercial, RBAC, refresh, logout y revoke. No está acreditado E2E ni autorización de producción, y PR #99 debe permanecer Draft hasta cumplirlos.
+
+## 9. CI G1 nativo SCM ↔ escritorio con usuario temporal — diagnóstico 2026-11-08
+
+**No certificado / gate permanece activo.** El trabajo más reciente de Actions crea una cuenta Windows local desechable con token interactivo verdadero, SID `S-1-5-5-*` consultado con `whoami /logonid`, sesión OS > 0, ACL mínimas en el laboratorio, y conserva la identidad virtual `NT SERVICE\\CamachoPOSLocalService` en sesión 0. No usa SID inventado ni altera la VM original.
+
+- Evidencia de token interactivo temporal real: [run #42461678633](https://github.com/Andresito202/pos-platform/actions/runs/42461678633): **SUCCESS**, un SID de logon auténtico (sin divulgarlo) y token interactivo.
+- La compilación de `camacho_windows_pipe.node`, carga Node/Electron y rechazo de suplantación aprobaron de nuevo.
+- Intento integrado G1 [run #42462137074](https://github.com/Andresito202/pos-platform/actions/runs/42462137074) sobre SHA `ae0e69e5f2ba19e915219a65d4d8c9659fd6d4af`: **FAILURE** en el paso de enlace nativo, con recibo de fallo `G1_NATIVE_DESKTOP_FAIL_PHASE=DESKTOP_CONNECT`. El listener SCM ya estaba disponible, pero el cliente no completó `native.connect`; **no** se generaron los dos recibos de éxito. No se debe interpretar como G1 aprobado ni sustituir con un fixture.
+- El probe de DPAPI, servicio virtual sesión 0 y separación de identidades previamente certificado sigue válido para su alcance específico; la nueva batería G1 no pasó.
+- Cambios CI: `tools/operators/ci-windows-scm-native-peer.mjs`, `ci-windows-scm-identity-service.ps1`, y prueba de inicio de sesión local desechable. La limpieza solicita terminar el cliente, borrar la cuenta y el servicio en finally. La rama sigue en Draft.
+- Diagnóstico siguiente: distinguir fallo de política DACL/named pipe versus la atestación kernel del proceso servidor mediante medición CI acotada, sin exponer SID/DPAPI. Repetir sobre el commit corregido y exigir `G1_NATIVE_SCM_TO_INTERACTIVE_IDENTITY=PASS`, `G1_NATIVE_PEER_RECHECK=PASS` y ambos recibos. Revisar compatibilidad de cliente con Electron real (en esta prueba el lado Desktop corre Node). Después G2, DEV-003 real en Central y recorrido BUSINESS antes de cualquier retiro de `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN`.
+- Este intento **no** desbloquea la ruta comercial, no enlaza DEV-003 ni certifica los roles o MFA del usuario. PR #99 no debe fusionarse como certificado.
+
