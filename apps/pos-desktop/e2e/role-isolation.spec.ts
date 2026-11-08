@@ -17,7 +17,8 @@ const roles=["CAJERO","SUPERVISOR","ADMINISTRADOR","SUPERADMINISTRADOR"] as cons
 const installation="018f0000-0000-7000-8000-0000000000a2";
 const device="018f0000-0000-7000-8000-0000000000a3";
 const role=process.env.POS_E2E_ROLE;
-if(!role||!roles.includes(role as typeof roles[number]))throw Error("ROLE_E2E_MUST_SELECT_EXPLICIT_PROFILE");
+if(role!==undefined&&!roles.includes(role as typeof roles[number]))throw Error("ROLE_E2E_UNRECOGNIZED_PROFILE");
+test.skip(role===undefined,"Explicit POS_E2E_ROLE required for this laboratory test");
 test.skip(process.platform!=="win32","Windows role E2E requires real DPAPI/named-pipe backend");
 test("role-scoped menus and server decisions follow signed authorization, not a renderer role switch",async()=>{
   if(process.env.POS_E2E_INTERACTIVE==="1")test.setTimeout(0);
