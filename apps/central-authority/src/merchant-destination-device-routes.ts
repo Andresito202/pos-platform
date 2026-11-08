@@ -19,7 +19,7 @@ export class MerchantDestinationDeviceRoutes {
     if(!payload||typeof payload!=="object"||Array.isArray(payload))return null;
     const o=payload as Record<string,unknown>;
     if(Object.keys(o).length!==(route==="ack"?1:0) ||
-       (route==="ack" && (!Number.isSafeInteger(o.sequence)||Number(o.sequence)<1)))return null;
+       (route==="ack" && (typeof o.sequence!=="number"||!Number.isSafeInteger(o.sequence)||o.sequence<1)))return null;
     const verified=await this.verifier.verifyOperationAndConsume(input,operations[route]);
     if(!verified)return null;
     const scope={tenantId:verified.tenantId,companyId:verified.companyId,installationId:verified.installationId};
