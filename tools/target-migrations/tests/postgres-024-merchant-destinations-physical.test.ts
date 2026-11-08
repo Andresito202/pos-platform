@@ -147,6 +147,7 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
   await pool.query("SET ROLE pos_schema_owner");
   try{
    await pool.query(await readArtifact("postgres/025_merchant_payment_notifications.up.sql"));
+   await pool.query(await readArtifact("postgres/026_merchant_payment_notice_reported_details.up.sql"));
    await pool.query(`INSERT INTO identity.device_registry(installation_id,tenant_id,company_id,status)
     VALUES('55555555-5555-4555-8555-555555555555',
            '11111111-1111-4111-8111-111111111111',
@@ -158,6 +159,10 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
       ('merchant_notification_bridge_consents','merchant_payment_notification_inbox')`);
   expect(r.rows).toHaveLength(2);
   for(const row of r.rows){expect(row.relrowsecurity).toBe(true);expect(row.relforcerowsecurity).toBe(true);}
+  const columns=await pool.query(`SELECT attname FROM pg_attribute
+    WHERE attrelid='payments.merchant_payment_notification_inbox'::regclass
+      AND attname IN ('reported_amount_cop','payer_display') AND NOT attisdropped`);
+  expect(columns.rows).toHaveLength(2);
   const privileges=await pool.query(`SELECT
     has_table_privilege('pos_platform_app','payments.merchant_payment_notification_inbox','UPDATE') AS can_update,
     has_table_privilege('pos_platform_app','payments.merchant_payment_notification_inbox','DELETE') AS can_delete,
@@ -190,7 +195,18 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
        observed_at,received_at,sender_label)
       VALUES($1,$2,$3,$4,$5,now(),now(),'SMS Negocios')`,
       ["01900000-0000-7000-8000-000000000032",a,ca,installation,"b".repeat(64)]);
-   expect((await client.query("SELECT count(*)::integer AS n FROM payments.merchant_payment_notification_inbox")).rows[0].n).toBe(1);
+   await client.query(`INSERT INTO payments.merchant_payment_notification_inbox
+      (id,tenant_id,company_id,source_installation_id,message_sha256,
+       observed_at,received_at,sender_label,reported_amount_cop,payer_display)
+      VALUES($1,$2,$3,$4,$5,now(),now(),'SMS Negocios',4500,'Juan Pérez')`,
+      ["01900000-0000-7000-8000-000000000034",a,ca,installation,"d".repeat(64)]);
+   const actual=await client.query(`SELECT reported_amount_cop::text,payer_display,
+      bank_confirmed,sale_confirmed FROM payments.merchant_payment_notification_inbox
+      WHERE message_sha256=$1`,["d".repeat(64)]);
+   expect(actual.rows[0]).toEqual({reported_amount_cop:"4500",payer_display:"Juan Pérez",
+     bank_confirmed:false,sale_confirmed:false});
+
+   expect((await client.query("SELECT count(*)::integer AS n FROM payments.merchant_payment_notification_inbox")).rows[0].n).toBe(2);
    await client.query("COMMIT");
    await client.query("BEGIN");
    await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[b,cb]);
