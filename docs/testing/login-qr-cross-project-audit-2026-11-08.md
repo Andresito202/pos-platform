@@ -34,3 +34,21 @@
 - **Login P0 = CERTIFICADO** solo con pruebas físicas firmadas de Service+Electron+Central+cuenta/rol/tenant legítimos sobre el commit exacto, incluyendo negativos, refresh, revocación, logout y recuperación. No alcanza con tests mock.
 - **QR-002 automatizado = PASS** para el SHA citado; **comercial = PENDIENTE** hasta captura/consentimiento/conciliación reales y despliegue controlado.
 - **Cajero QR visual = MONTADO Y AUTOMATIZADO (run #42455293429)**; pendiente de E2E físico comercial y validación de QR bancario real.
+
+## 4. CI Windows P0 ejecutada — 2026-11-08
+
+- **SHA probado:** `7a415f4217aef8687914a9e8ebe1d83a2a631a14` (PR #99).
+- **GitHub Actions:** [Windows login P0 isolated validation #42456761732](https://github.com/Andresito202/pos-platform/actions/runs/42456761732): **SUCCESS** en runner `windows-2022`; 202 PASS, 2 SKIP, 0 FAIL, typechecks contratos/canal/Local Service/Central/Desktop PASS.
+- Pruebas de servicio: 57 PASS; canal: 19 PASS/1 SKIP; handoff firmado: 23 PASS/1 SKIP; Central: 50 PASS; Electron: 53 PASS. Un test de receiver Windows físico fue excluido explícitamente del workflow hospedado porque exige custodia e identidad SCM de laboratorio autorizadas; no se declaró que haya pasado.
+- El inspector `tools/operators/windows-winsw-readiness.ps1` **conserva su política de producción original** tras revertir una regresión durante depuración. La suite exige que la falta de ACL/firma/versionado no habilite WinSW comercial.
+- Este PASS solo certifica los componentes seleccionados bajo Windows CI y el comportamiento de rechazo seguro; **no** prueba servicio WinSW real, clave DPAPI del token virtual, binding comercial UUIDv7, DEV-003, Central desplegada, contraseña/UV/PKCE humanos ni sesión BUSINESS/GLOBAL hasta el dashboard.
+- El rechazo `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` permanece incondicional en la entrada comercial. Para retirarlo se necesitan evidencia física del par comercial y revisión mínima de seguridad antes de aprobar un cambio. No modificar el gate por obtener CI verde.
+- **Continuidad QR:** ejecución [#42455293429](https://github.com/Andresito202/pos-platform/actions/runs/42455293429) en SHA `6cb6bf42697a226c907f0efbb4534e7b2a3229ff`: SUCCESS de la integración de Caja y migraciones, sin despliegue comercial.
+
+### Siguiente aceptación obligatoria
+
+1. Ejecutar en VM Windows Server 2022 la vinculación comercial SCM del dispositivo UUIDv7 con hashes y ACL verificadas.
+2. Probar físicamente ambas identidades SERVICE/DESKTOP y propiedades G1/G2 en ese vínculo; sin fixtures ni host equivocado.
+3. Registrar DEV-003 con posesión actual y provisión BUSINESS en Central, verificar SSA/SAS.
+4. Tras la revisión del gate SCM, ejecutar el inicio completo BUSINESS, roles/tenants, expiración, renovación, logout y revocación y el flujo GLOBAL separado.
+5. Registrar evidencia exacta de commit, OS, identidades, recibos y 0 skips en las pruebas físicas exigidas; mantener PR Draft hasta entonces.
