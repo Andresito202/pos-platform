@@ -41,3 +41,24 @@ Nequi permite SMS de negocios a hasta tres números adicionales. No existe API d
 - `SalePanel.tsx`: transferencia manual reportable y confirmable con permisos distintos; botón 'QR integrado' aparece pendiente.
 - `UC-PAY-003`: exige QR versionado y declara dependencia QR-001 todavía no modelada.
 - El servicio local ya tiene registro de transferencias, separado de su confirmación. Reutilizarlo, sin alterar cobertura ni reportar pagos falsamente.
+
+
+## Avance adicional: proyección de lectura QR-001 (2026-11-07)
+- `packages/domain/src/merchant-destination.ts`: validación estricta de identificadores y metadatos para QR oficial de Nequi.
+- `packages/domain/src/merchant-destination-policy.ts`: transiciones puras de publicación/revocación y lectura por empresa.
+- `packages/domain/src/merchant-destination-snapshot.ts`: proyección de destino, secuencia monotónica, binding tenant/empresa, caducidad e invalidación cuando Central publica una revocación vacía.
+- Pruebas escritas en `packages/domain/tests/merchant-destination*.test.ts`; **no se han ejecutado, no se declara TESTED**.
+
+### Bloqueos de arquitectura y gobernanza observados
+`AGENTS.md`, `README.md` y `docs/governance/repository-governance.md` exigen trabajo en la línea activa `feat/android-commercial-runtime` y prohibición de líneas paralelas. PR #103 existe como rama derivada por la intervención previa, pero no se integra ni se considera nueva fuente canónica. Su revisión e incorporación deben respetar el flujo de la rama activa y los gates.
+
+`docs/architecture/data-ownership.md` asigna configuración de pagos a Payments, no a un módulo Configuration independiente. `tools/target-migrations/README.md` exige descriptors, checksum, ledger y pruebas reales para migraciones. Por tanto:
+- No se añade DDL ejecutable ni se alteran migraciones existentes sin protocolo canónico.
+- La sincronización propuesta **no funciona aún**: no hay emisor Central firmado/verificado para QR-001, ni verificador del servicio local, ni persistencia SQLite.
+- `applyVerifiedDestinationSnapshot()` **solo** puede invocarse después de verificar origen y firma con el mecanismo de confianza existente. No aceptar snapshots desde renderer ni usarlo como un bypass; tampoco conectar el método directamente a IPC.
+- No hay provisión de permiso nuevo ni formulario activado; `canConfigure` debe venir de una decisión backend central existente o de un permiso atómico ratificado, nunca del string de rol del usuario.
+- En QR estático compartido por cuatro cajas, dos transacciones idénticas no se distinguen por el QR; deben permanecer PENDING hasta conciliación inequívoca.
+- La entrega automática de notificación SMS no acredita pago y no cambia el estado de Payment.
+
+### Condición para desbloquear interfaz
+Adoptar el contrato en el módulo Payments y en el migrador canónico, habilitar permiso administrativo verificable, guardar revisiones y auditoría de manera atómica, generar/validar snapshots con el canal confiable y probar lectura de cuatro cajas. Después, y solo después, activar editor administrativo y visualizador de caja.
