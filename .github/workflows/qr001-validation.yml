@@ -63,7 +63,7 @@ jobs:
         run: pnpm --filter @pos-platform/domain exec vitest run tests/merchant-destination.test.ts tests/merchant-destination-commands.test.ts tests/merchant-destination-snapshot.test.ts
       - name: QR-001 Central tests (QR PNG and transaction)
         if: ${{ !cancelled() }}
-        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-postgres-store.test.ts
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-qr-asset-store.test.ts tests/merchant-destination-postgres-store.test.ts
       - name: QR-001 SQLite and cryptographic tests
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-activation.test.ts tests/merchant-destination-projection.test.ts tests/merchant-destination-snapshot-verifier.test.ts
