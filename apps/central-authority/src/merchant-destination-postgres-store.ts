@@ -115,12 +115,26 @@ export class PostgresMerchantDestinationStore implements DestinationMutationStor
             VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
             [eventId,event.tenant_id,event.company_id,event.destination_id,
              event.destination_version,event.type,event.actor_user_id,event.at]);
+          // One durable company-wide coordinate per committed change.
+          // The trigger enforces sequence monotonicity; event and outbox are
+          // committed in this same SERIALIZABLE transaction.
+          const cursor=await client.query<{sequence:string}>(`INSERT INTO payments.merchant_destination_sequences
+            (tenant_id,company_id,sequence,updated_at)
+            VALUES($1,$2,1,clock_timestamp())
+            ON CONFLICT(tenant_id,company_id) DO UPDATE SET
+              sequence=payments.merchant_destination_sequences.sequence+1,
+              updated_at=clock_timestamp()
+            RETURNING sequence::text`,
+            [event.tenant_id,event.company_id]);
+          const sequence=Number(cursor.rows[0]?.sequence);
+          if(!Number.isSafeInteger(sequence)||sequence<1)
+            throw new Error("QR001_INVALID_CENTRAL_SEQUENCE");
           await client.query(`INSERT INTO payments.merchant_destination_outbox
             (event_id,tenant_id,company_id,destination_id,destination_version,
              payload_json,recorded_at)
             VALUES($1,$2,$3,$4,$5,$6::jsonb,clock_timestamp())`,
             [eventId,event.tenant_id,event.company_id,event.destination_id,
-             event.destination_version,JSON.stringify(event)]);
+             event.destination_version,JSON.stringify({...event,sequence})]);
         },
       };
       const result=await work(tx);
