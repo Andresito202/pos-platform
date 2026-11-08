@@ -127,7 +127,7 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
      if(this.stopping||this.inFlight)return;
      const controller=new AbortController();
      this.inFlightAbort=controller;
-     this.inFlight=this.tick(signal)
+     this.inFlight=this.tick(controller.signal)
        .catch(error=>this.report(error instanceof Error?error.message:"QR001_SYNC_FAILURE"))
        .finally(()=>{
          if(this.inFlightAbort===controller)this.inFlightAbort=undefined;
