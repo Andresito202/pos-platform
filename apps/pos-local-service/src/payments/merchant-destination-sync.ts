@@ -102,25 +102,48 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
    const verifier=new MerchantDestinationSnapshotVerifier(
       new Map([[this.provision.keyId,{key:this.provision.publicKey,purpose:MERCHANT_DESTINATION_KEY_PURPOSE,
         status:"ACTIVE" as const}]]),new TrustedClockGuard(this.db.database));
-   const floor={
-     floorFor:async()=>{
-       const value=await this.transport.request("floor",{},controller.signal) as {floor?:unknown};
-       if(!value||typeof value!=="object"||!Object.hasOwn(value,"floor"))throw Error("QR001_INVALID_FLOOR");
-       if(value.floor===null)return null;
-       if(typeof value.floor!=="number"||!Number.isSafeInteger(value.floor)||value.floor<1)
-         throw Error("QR001_INVALID_FLOOR");
-       return value.floor;
-     },
-   };
+   const company={tenantId:scope.tenantId,companyId:scope.companyId};
    try{
+     // Low-bandwidth authenticated status check. A full signed PNG bundle is
+     // fetched only on a new company publication or before snapshot expiry.
+     const status=await this.transport.request("floor",{},controller.signal) as
+       {floor?:unknown;current_sequence?:unknown};
+     const sequence=(value:unknown):number|null=>{
+       if(value===null)return null;
+       if(typeof value!=="number"||!Number.isSafeInteger(value)||value<1)
+         throw Error("QR001_INVALID_SEQUENCE_STATUS");
+       return value;
+     };
+     if(!status||typeof status!=="object"||
+        !Object.hasOwn(status,"floor")||!Object.hasOwn(status,"current_sequence"))
+       throw Error("QR001_INVALID_SEQUENCE_STATUS");
+     const acknowledged=sequence(status.floor);
+     const current=sequence(status.current_sequence);
+     const local=store.load(company);
+     const localSeq=local?.snapshot.sequence??null;
+     // Only a fully acknowledged, still-valid snapshot may skip downloading.
+     // A stale, unacknowledged or restored SQLite state MUST refresh from
+     // Central and pass Ed25519/signature/version verification again.
+     if(localSeq!==null&&acknowledged!==null&&current!==null&&
+        acknowledged>=localSeq&&current===localSeq&&
+        Date.parse(local!.snapshot.expires_at)>Date.now()+15*60_000){
+       this.report("VALID_CACHED");
+       return;
+     }
+     const floor={
+       floorFor:async()=>acknowledged,
+     };
      const response=await this.transport.request("snapshot",{},controller.signal) as {artifact?:unknown};
-     if(!response||typeof response!=="object"||!response.artifact)throw Error("QR001_INVALID_SNAPSHOT_RESPONSE");
-     const activated=await new MerchantDestinationActivationService(verifier,store,floor).acceptSigned(response.artifact,scope);
+     if(!response||typeof response!=="object"||!response.artifact)
+       throw Error("QR001_INVALID_SNAPSHOT_RESPONSE");
+     const activated=await new MerchantDestinationActivationService(verifier,store,floor)
+       .acceptSigned(response.artifact,scope);
      if(activated.kind!=="ACTIVATED"){this.report(activated.reason);return;}
-     const acknowledged=await this.transport.request("ack",{sequence:activated.sequence},controller.signal) as {sequence?:unknown};
-     if(typeof acknowledged?.sequence!=="number"||!Number.isSafeInteger(acknowledged.sequence)||
-       acknowledged.sequence<activated.sequence)throw Error("QR001_ACK_REJECTED");
+     const ack=await this.transport.request("ack",{sequence:activated.sequence},controller.signal) as {sequence?:unknown};
+     if(typeof ack?.sequence!=="number"||!Number.isSafeInteger(ack.sequence)||
+       ack.sequence<activated.sequence)throw Error("QR001_ACK_REJECTED");
      this.report("ACTIVATED_AND_ACKNOWLEDGED");
    }catch(error){this.report(error instanceof Error?error.message:"QR001_SYNC_FAILURE");}
+
  }
 }
