@@ -57,7 +57,7 @@ describe("SQLite QR-001 projection on LocalDatabase",()=>{
    try {
      store.activatePreverified(scope,make(1),date);
      expect(()=>db.native.prepare("DELETE FROM local_merchant_payment_destination_snapshot").run()).toThrow();
-     db.native.prepare("UPDATE local_merchant_payment_destination_snapshot SET issued_at=? WHERE tenant_id=? AND company_id=?")
+     db.native.prepare("UPDATE local_merchant_payment_destination_snapshot SET issued_at=?, sequence=2 WHERE tenant_id=? AND company_id=?")
        .run("2026-11-07T09:00:00.000Z",TENANT,COMPANY);
      expect(()=>store.load(scope)).toThrow("DESTINATION_SNAPSHOT_CORRUPTED");
    } finally {db.close();}
