@@ -15,6 +15,7 @@ on:
       - 'apps/pos-local-service/src/commercial/**'
       - 'apps/pos-local-service/src/security/local-operator-development-bridge.ts'
       - 'apps/pos-desktop/src/**'
+      - 'apps/pos-desktop/e2e/local-operator-live.spec.ts'
       - 'apps/pos-desktop/renderer/src/**'
       - 'packages/contracts/src/**'
       - 'packages/local-channel/src/**'
@@ -79,3 +80,7 @@ jobs:
       - name: Boot actual local Windows service and durable database
         shell: pwsh
         run: pwsh -NoProfile -File tools/operators/start-local-operator-pos.ps1 -SkipBuild -ServiceOnly
+      - name: Compile production Electron renderer and entry
+        run: pnpm --filter @pos-platform/pos-desktop build
+      - name: E2E real Windows service, production Electron, local credentials and SQLite
+        run: pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/local-operator-live.spec.ts --workers=1 --retries=0
