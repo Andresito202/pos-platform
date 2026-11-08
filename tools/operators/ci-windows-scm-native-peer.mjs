@@ -78,6 +78,16 @@ try {
         connection.peer.sessionId !== config.session)
       throw Error("NATIVE_SERVICE_PEER_MISMATCH");
     stamp("native-service-pass.json", {status:"PASS", peer_role:"DESKTOP"});
+    // Keep the SCM process and the accepted native handle alive until the
+    // desktop has rechecked that SAME connection and acknowledged it.
+    // Otherwise the service peer can release first and desktop recheck
+    // correctly rejects a now-closed handle (racy false failure in CI).
+    phase="SERVICE_WAIT_DESKTOP_RECHECK";
+    const acknowledged=join(config.results, "native-desktop-pass.json");
+    const until=Date.now()+15_000;
+    while (!existsSync(acknowledged) && Date.now()<until)
+      await new Promise(resolve=>setTimeout(resolve, 50));
+    if (!existsSync(acknowledged)) throw Error("NATIVE_DESKTOP_RECHECK_ACK_TIMEOUT");
   } else {
     const deadline = Date.now() + 25_000;
     while (!existsSync(join(config.results, "native-ready.json")) && Date.now() < deadline)
