@@ -73,6 +73,7 @@ try {
   $cipher=Join-Path $results 'service-dpapi-ciphertext.txt'
   Must (Test-Path -LiteralPath $cipher -PathType Leaf) 'SCM_DPAPI_CIPHER_MISSING'
   $bytes=[Convert]::FromBase64String((Get-Content -LiteralPath $cipher -Raw).Trim())
+  Add-Type -AssemblyName System.Security -ErrorAction Stop
   $entropy=[Text.Encoding]::UTF8.GetBytes('CAMACHO_GITHUB_EPHEMERAL_SERVICE_IDENTITY_V1')
   $denied=$false
   try {
