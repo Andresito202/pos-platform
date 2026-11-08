@@ -137,6 +137,14 @@ jobs:
           pnpm --filter @pos-platform/pos-desktop build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Write-Host 'ELECTRON_MAIN_PRELOAD_RENDERER_BUILD=PASS'
+      - name: Bundle isolated custody probe for Electron E2E
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop exec esbuild src/electron-business-login.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/native-business-custody-probe.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $probe='apps/pos-desktop/dist/native-business-custody-probe.mjs'
+          if (-not (Test-Path -LiteralPath $probe -PathType Leaf)) { throw 'NATIVE_CUSTODY_E2E_BUNDLE_MISSING' }
+          Write-Host 'ELECTRON_CUSTODY_E2E_BUNDLE=PASS'
       - name: Exercise service-backed BUSINESS native main contracts on Windows
         shell: pwsh
         run: |
