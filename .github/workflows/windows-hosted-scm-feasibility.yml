@@ -65,7 +65,7 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'WINDOWS_POWERSHELL_SECURITY_MODULE_UNAVAILABLE'}
           Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PSModulePath='+$env:PSModulePath)
       - name: Real Windows DPAPI receiver with proper owner ACL and tampering regressions
-        shell: pwsh
+        shell: powershell
         run: |
           pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-handoff.test.ts -t "real Windows receiver:" --no-file-parallelism --reporter=verbose
       - name: Boundaries
