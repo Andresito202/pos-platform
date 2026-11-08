@@ -1,5 +1,5 @@
 import {uuidV7} from "@pos-platform/contracts";
-import type {Pool} from "@pos-platform/database-postgres";
+import type {Pool,PoolClient} from "@pos-platform/database-postgres";
 import {validateOfficialQrPng} from "./merchant-destination-qr-asset.js";
 import type {VerifiedMerchantScope} from "./merchant-destination-postgres-store.js";
 
@@ -23,7 +23,8 @@ function assertScope(scope:VerifiedMerchantScope,actorId?:string):void {
      (actorId!==undefined&&!UUID.test(actorId)))throw new Error("QR001_INVALID_AUTHENTICATED_SCOPE");
 }
 export class PostgresMerchantQrAssetRepository {
-  constructor(private readonly pool:Pool,private readonly scope:VerifiedMerchantScope){
+  constructor(private readonly pool:Pool,private readonly scope:VerifiedMerchantScope,
+    private readonly authorizeSensitiveWrite?:(client:PoolClient)=>Promise<void>){
     assertScope(scope);
   }
   private async withScope<T>(write:boolean,work:(query:Pool["query"])=>Promise<T>):Promise<T>{
@@ -34,6 +35,7 @@ export class PostgresMerchantQrAssetRepository {
       started=true;
       await client.query("SELECT set_config('app.tenant_id',$1,true)",[this.scope.tenantId]);
       await client.query("SELECT set_config('app.company_id',$1,true)",[this.scope.companyId]);
+      if(write&&this.authorizeSensitiveWrite)await this.authorizeSensitiveWrite(client);
       const result=await work(client.query.bind(client) as Pool["query"]);
       await client.query("COMMIT");
       started=false;
