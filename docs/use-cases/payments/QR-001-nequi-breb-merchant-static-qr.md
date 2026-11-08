@@ -62,3 +62,18 @@ Nequi permite SMS de negocios a hasta tres números adicionales. No existe API d
 
 ### Condición para desbloquear interfaz
 Adoptar el contrato en el módulo Payments y en el migrador canónico, habilitar permiso administrativo verificable, guardar revisiones y auditoría de manera atómica, generar/validar snapshots con el canal confiable y probar lectura de cuatro cajas. Después, y solo después, activar editor administrativo y visualizador de caja.
+
+
+## Incremento de confianza criptográfica — 2026-11-07
+
+- `apps/pos-local-service/src/security/merchant-destination-snapshot-verifier.ts` verifica un sobre firmado Ed25519 según el `canonicalJson` existente (no introduce cifrado ni algoritmos nuevos).
+- Las claves deben estar explícitamente destinadas a `MERCHANT_DESTINATION_SNAPSHOT`, con estado válido, ambiente, vigencia y scope de empresa. Una clave de licencia o `MASTER_SNAPSHOT` no sirve.
+- `apps/pos-local-service/src/payments/merchant-destination-activation.ts` compone **verify → activate SQLite**. El store de activación de proyección continúa sin ruta IPC; no se autoriza escribir desde frontend.
+- Pruebas de firma, manipulación, empresa equivocada, ambiente equivocado, claves revocadas, expiración, replay y revocación: **escritas, no ejecutadas por Vitest**.
+- Smoke SQL aislado (Python sqlite3 3.46.1, esquema de MIGRATION_019): rechazo a UPDATE de secuencia igual, DELETE y aceptación de incremento: PASS. No demuestra ejecución de pruebas del repositorio ni build.
+
+### Gaps para certificación
+1. El emisor Central legítimo debe firmar con claves aprovisionadas, con su propia custodia y registro de eventos. Este incremento únicamente implementa el verificador local; no existe emisor habilitado.
+2. Exigir piso de secuencia reconocido por Central para evitar rollback a snapshot auténtico antiguo tras restauración de backup. Actualmente solo se compara la cota local.
+3. Materializar persistencia Central y autorización real, distribución autenticada a cuatro instalaciones, selección desde Administración y lectura segura desde Caja; tests CI y físicos.
+4. No afirmar recepción bancaria gratuita en tiempo real ni confirmación automática de fondos por SMS. La validación financiera permanece fuera de QR-001.
