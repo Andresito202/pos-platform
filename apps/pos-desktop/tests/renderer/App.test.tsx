@@ -4,6 +4,26 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { SalesReceiptGetRequestSchema } from "@pos-platform/contracts";
 import { App } from "../../renderer/src/App.js";
 
+function localOperatorResult(outcome: "NO_SESSION" | "UNAVAILABLE" | "AUTHENTICATED" | "SIGNED_OUT" = "NO_SESSION") {
+  return {
+    protocol_version: "1.0.0",
+    request_id: "11111111-1111-4111-8111-111111111111",
+    correlation_id: "11111111-1111-4111-8111-111111111112",
+    operation_id: null,
+    status: "SUCCEEDED",
+    result_code: outcome,
+    result_schema_version: "1.0.0",
+    error: null,
+    server_time: "2026-11-08T00:00:00.000Z",
+    result: {
+      outcome,
+      username: outcome === "AUTHENTICATED" ? "cajero.local" : null,
+      role: outcome === "AUTHENTICATED" ? "CAJERO" : null,
+      expires_at: outcome === "AUTHENTICATED" ? "2099-01-01T00:00:00.000Z" : null,
+    },
+  };
+}
+
 function makeService() {
   return {
     "runtime.status.get": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
@@ -13,6 +33,9 @@ function makeService() {
       result: { outcome: "AVAILABLE", permissions: ["CATALOG_PRODUCT_READ"] },
     }),
     "session.recover": vi.fn().mockResolvedValue({ status: "SUCCEEDED", result_code: "NONE", result: { outcome: "NONE", session_id: null, offline_valid_until: null, decision: null } }),
+    "local.operator.session": vi.fn().mockResolvedValue(localOperatorResult("NO_SESSION")),
+    "local.operator.login": vi.fn().mockResolvedValue(localOperatorResult("NO_SESSION")),
+    "local.operator.logout": vi.fn().mockResolvedValue(localOperatorResult("SIGNED_OUT")),
     "operation.result.get": vi.fn(),
     "operation.confirm": vi.fn(),
     "catalog.item.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
@@ -388,7 +411,7 @@ describe("Entry and navigation preserve authorization boundaries", () => {
     });
     render(<App />);
     await screen.findByTestId("authorization-unauthenticated");
-    fireEvent.click(screen.getByRole("button", { name: /Comprobar sesi/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar acceso" }));
     await screen.findByTestId("authorization-unauthenticated");
     expect(window.posService["session.recover"]).toHaveBeenCalledTimes(2);
     expect(screen.queryByTestId("sale-panel")).toBeNull();

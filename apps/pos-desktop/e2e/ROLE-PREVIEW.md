@@ -41,6 +41,46 @@ no son una frontera de seguridad de producción**.
 > custodiado. El test interactivo actual elimina la base al cerrar; **no
 > debes usarlo para registrar trabajo que quieras conservar**.
 
+## Revisión comercial de diseño (un solo comando)
+
+Runtime **aislado** (`%LOCALAPPDATA%\CamachoPOS\design-review-runtime`): IDs
+persistentes compartidos entre servicio y Electron, provisión firmada de
+capacidad de licencia (mismo mecanismo V2 de las pruebas), caja demo y catálogo
+sembrado vía `RegisterProductUseCase`. No toca datos de
+`local-operator-runtime` ni de una instalación comercial.
+
+```powershell
+pwsh -File tools/operators/open-commercial-design-review.ps1
+```
+
+Tras el login local (`cajero.local` o `admin.local`), el lanzador imprime
+`DESIGN_REVIEW_REGISTER_ID`. Úsalo en Caja y ventas para recorrer carrito →
+cobro → denominaciones con operaciones y permisos reales. No certifica login
+BUSINESS ni Central.
+
+La provisión firmada se genera **en runtime** bajo el directorio aislado
+(`trust/license-signing.private.pem`, `trust/license-capacity-provision.json`).
+Esas claves y el artefacto **no viven en Git**. El `key_id` de laboratorio es
+`DESIGN_REVIEW_LICENSE`. El `LicenseCapacityGate` sigue fail-closed: sin
+`POS_LICENSE_CAPACITY_PROVISION_FILE` responde `LICENSE_CAPACITY_NOT_PROVISIONED`.
+Esta superficie es revisión de diseño, **no** licencia ni certificación de
+producción.
+
+### Evidencia de pruebas (agente Linux, no certificación Windows)
+
+- Unitarias `@pos-platform/pos-desktop`: **249 PASS / 0 FAIL**.
+- Typecheck y build de escritorio: PASS observados.
+- E2E Playwright en Linux (**no** ocultar): **6 PASS**, **5 SKIP**, **5 FAIL**:
+  - FAIL `e2e/native-custody.spec.ts` — custody OS quedó en `MODULE_IMPORT`
+    (`cleared/restored` falsos) en Linux.
+  - FAIL `e2e/real-channel.spec.ts` (4 casos) — `local channel client is not
+    connected` / timeouts al activar sesión o localizar Caja/Catálogo.
+  - SKIP `local-operator-live`, `role-isolation`, `unauthenticated-startup`
+    (requieren Windows / rol E2E explícito).
+- El arranque Electron de revisión comercial **debe verificarse en Windows**
+  con el comando de un solo paso. Un PASS de unitarias Linux no certifica el
+  runtime comercial Windows.
+
 ## Windows PowerShell (desde la raíz del repositorio)
 
 Instala dependencias y compila el escritorio una sola vez:
