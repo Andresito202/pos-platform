@@ -63,3 +63,11 @@
 - Las validaciones 1 (binding nativo real), 2 (SCM↔Electron con identidad comercial UUIDv7), 3 (DEV-003 y provisión BUSINESS real), 4 (desbloqueo revisado de gate SCM) y 5 (login humano con dashboard, refresh, logout y revocación) siguen **PENDIENTES de ejecución física/autoridad de Central en la VM**. No se ejecutaron ni fueron marcadas como PASS por las pruebas del runner.
 - Las fases 1→2→3→4→5 tienen dependencias causales: pueden prepararse y probar sus unidades en paralelo, pero **no certificarse simultáneamente de forma independiente**. Cada evidencia depende del control de identidad y del aprovisionamiento anterior.
 - El gate `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` y el estado Draft del PR #99 siguen activos; no se modificó el runtime de producción durante este incremento.
+
+## 6. Ampliación de evidencia sin PC — 2026-11-08
+
+**GitHub Actions #42457877871: SUCCESS en cuatro jobs**, HEAD probado `a08fc8e9395c4284bce6bf7e7e4feeb2dcee0be0`. Se añadió PostgreSQL 16.14 en contenedor efímero aislado, para la prueba `native-authorization-full-composition-physical.test.ts`: **5 PASS, 0 FAIL**, incluyendo callback PKCE, consumo de código de un solo uso y concurrencia; el servicio PostgreSQL fue realmente iniciado por CI. Los jobs Windows P0, DEV-003/BUSINESS (fixtures) y binding UUIDv7 (contratos) también concluyeron `success`.
+
+**Límite innegociable:** los cinco gates de certificación comercial física siguen SIN CERTIFICAR porque el runner no es la VM Hyper-V original, no conoce su DeviceIdentity ni los secretos DPAPI, no ha iniciado el Service bajo la cuenta `NT SERVICE\CamachoPOSLocalService` de ese laboratorio, ni ha registrado DEV-003 de esa identidad en Central. Un runner hospedado no puede acreditar posesión de una clave que no posee. La sesión humana MFA histórica no se repite por defecto y tampoco se presenta como sesión BUSINESS actual.
+
+El inspector de servicio permanece fail-closed; no se ha eliminado `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN`, creado/registrado dispositivo, desplegado Central ni fusionado PR #99. No adjudicar a CI el cierre de los gates físicos.
