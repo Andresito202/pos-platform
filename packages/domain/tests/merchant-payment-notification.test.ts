@@ -1,0 +1,61 @@
+import {describe,expect,it} from "vitest";
+import {
+  MerchantPaymentNoticeObservationSchema,
+  UnverifiedMerchantPaymentNoticeSchema,
+  projectUnverifiedMerchantNotice,
+  appendUnverifiedMerchantNotice,
+} from "../src/merchant-payment-notification.js";
+
+const companyA={tenantId:"11111111-1111-4111-8111-111111111111",
+  companyId:"33333333-3333-4333-8333-333333333333",
+  installationId:"55555555-5555-4555-8555-555555555555"};
+const companyB={...companyA,companyId:"44444444-4444-4444-8444-444444444444"};
+const signal={source:"NEQUI_NEGOCIOS_SHARED_SMS",message_sha256:"a".repeat(64),
+  observed_at:"2026-11-07T10:00:00Z",received_at:"2026-11-07T10:00:30Z",
+  sender_label:"Notificacion no verificada"};
+describe("QR-002 external business SMS is ALWAYS unverified",()=>{
+ it("produces merchant-isolated, non-financial evidence from enrolled bridge context",()=>{
+  const item=projectUnverifiedMerchantNotice(companyA,signal);
+  expect(item.tenant_id).toBe(companyA.tenantId);
+  expect(item.company_id).toBe(companyA.companyId);
+  expect(item.status).toBe("UNVERIFIED");
+  expect(item.bank_confirmed).toBe(false);
+  expect(item.sale_confirmed).toBe(false);
+  expect(item.requires_independent_reconciliation).toBe(true);
+  expect("sale_id" in item).toBe(false);
+  expect("payment_id" in item).toBe(false);
+  expect("amount_cop" in item).toBe(false);
+ });
+ it("does not accept a claimed tenant, bank success or sale identifier from SMS input",()=>{
+  for(const key of ["tenant_id","company_id","bank_confirmed","sale_confirmed","payment_id","sale_id"]){
+   expect(()=>projectUnverifiedMerchantNotice(companyA,{...signal,[key]:key.includes("confirmed")?true:"forged"})).toThrow();
+  }
+  expect(UnverifiedMerchantPaymentNoticeSchema.safeParse({
+   ...projectUnverifiedMerchantNotice(companyA,signal),bank_confirmed:true,
+  }).success).toBe(false);
+ });
+ it("never treats personal P2P QR or other app notifications as Nequi Negocios shared SMS",()=>{
+  for(const source of ["NEQUI_P2P","BREB_PERSONAL","BANK_WEBHOOK","NEQUI_APP_PUSH"]){
+   expect(MerchantPaymentNoticeObservationSchema.safeParse({...signal,source}).success).toBe(false);
+  }
+ });
+ it("deduplicates exactly repeated evidence but never merges companies",()=>{
+  const first=projectUnverifiedMerchantNotice(companyA,signal);
+  const second=projectUnverifiedMerchantNotice(companyB,signal);
+  const once=appendUnverifiedMerchantNotice([],first);
+  expect(appendUnverifiedMerchantNotice(once,first)).toHaveLength(1);
+  const both=appendUnverifiedMerchantNotice(once,second);
+  expect(both).toHaveLength(2);
+  expect(both[1]?.company_id).toBe(companyB.companyId);
+ });
+ it("rejects same-hash conflicting content, forged source and future timestamps",()=>{
+  const first=projectUnverifiedMerchantNotice(companyA,signal);
+  expect(()=>appendUnverifiedMerchantNotice([first],{
+   ...first,sender_label:"Tampered", 
+  })).toThrow("QR002_NOTIFICATION_IDEMPOTENCY_CONFLICT");
+  expect(()=>projectUnverifiedMerchantNotice(companyA,{
+   ...signal,observed_at:"2026-11-07T11:00:00Z",
+  })).toThrow();
+  expect(()=>projectUnverifiedMerchantNotice({...companyA,companyId:"invalid"},signal)).toThrow();
+ });
+});
