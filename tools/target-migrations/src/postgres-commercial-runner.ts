@@ -47,7 +47,9 @@ export const POSTGRES_025_DESCRIPTOR=descriptor("025_merchant_payment_notificati
  ["payments.merchant_notification_bridge_consents","payments.merchant_payment_notification_inbox"],"payments");
 export const POSTGRES_026_DESCRIPTOR=descriptor("026_merchant_payment_notice_reported_details",POSTGRES_025_DESCRIPTOR.migrationId,
  ["payments.merchant_payment_notification_inbox"],"payments");
-export const MERCHANT_NOTIFICATION_MIGRATIONS=Object.freeze([...MERCHANT_DESTINATION_MIGRATIONS,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR]);
+export const POSTGRES_027_DESCRIPTOR=descriptor("027_merchant_notice_revocation_guard",POSTGRES_026_DESCRIPTOR.migrationId,
+ ["payments.merchant_notification_bridge_consents"],"payments");
+export const MERCHANT_NOTIFICATION_MIGRATIONS=Object.freeze([...MERCHANT_DESTINATION_MIGRATIONS,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR,POSTGRES_027_DESCRIPTOR]);
 type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG"|"MERCHANT_DESTINATIONS"|"MERCHANT_NOTIFICATIONS";
 function migrations(target:CommercialMigrationTarget){
   if(target==="MERCHANT_NOTIFICATIONS")return MERCHANT_NOTIFICATION_MIGRATIONS;
@@ -91,6 +93,14 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
         check(!(await c.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,table])).rows[0].allowed,"Factus Pay inbox exposed to tenant runtime");
       check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,"Factus Pay evidence must not be deletable");
     }
+  }
+  if(d===POSTGRES_027_DESCRIPTOR){
+    const guard=await c.query("SELECT prosecdef,proconfig,pg_get_userbyid(proowner) AS owner FROM pg_proc WHERE oid=to_regprocedure('payments.guard_merchant_notice_consent()')");
+    check(guard.rowCount===1&&guard.rows[0]?.prosecdef===true&&guard.rows[0]?.owner==="pos_schema_owner"&&
+      guard.rows[0]?.proconfig?.includes("search_path=pg_catalog"),"QR002 revocation guard security configuration mismatch");
+    const source=await readArtifact(POSTGRES_027_DESCRIPTOR.upArtifact);
+    const installed=await c.query("SELECT prosrc FROM pg_proc WHERE oid=to_regprocedure('payments.guard_merchant_notice_consent()')");
+    check(installed.rows[0]?.prosrc?.trim()===source.split("$guard$")[1]?.trim(),"QR002 revocation guard drift");
   }
   if(d===POSTGRES_026_DESCRIPTOR){
     const fields=await c.query("SELECT attname FROM pg_attribute WHERE attrelid='payments.merchant_payment_notification_inbox'::regclass AND attname=ANY($1) AND attnum>0 AND NOT attisdropped",[
