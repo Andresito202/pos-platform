@@ -3,6 +3,7 @@ import {uuidV7} from "@pos-platform/contracts";
 import {MerchantDestinationCommands,MerchantDestinationDraftSchema,type MerchantDestinationRevision} from "@pos-platform/domain";
 import {PostgresMerchantDestinationStore} from "./merchant-destination-postgres-store.js";
 import {PostgresMerchantQrAssetRepository} from "./merchant-destination-qr-asset-store.js";
+import {assertMerchantAdminDuringWrite} from "./merchant-destination-admin-authorization.js";
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export type MerchantBusinessSession={sessionId:string;userId:string;tenantId:string;tenantMembershipId:string};
@@ -77,8 +78,10 @@ export class MerchantBusinessDestinationOperations {
   const userId=request.session.userId;
   const scope={tenantId,companyId};
   const input=object(request.payload);
-  const assets=new PostgresMerchantQrAssetRepository(this.pool,scope);
-  const store=new PostgresMerchantDestinationStore(this.pool,scope);
+  const recheck=(client:import("@pos-platform/database-postgres").PoolClient)=>
+    assertMerchantAdminDuringWrite(client,request.session,companyId);
+  const assets=new PostgresMerchantQrAssetRepository(this.pool,scope,recheck);
+  const store=new PostgresMerchantDestinationStore(this.pool,scope,recheck);
   const commands=new MerchantDestinationCommands(store);
   const access={tenantId,companyId,userId,canConfigure:true};
   if(request.action==="upload"){
