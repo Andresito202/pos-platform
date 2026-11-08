@@ -41,9 +41,13 @@ describe("QR-001 official PNG ingress",()=>{
   const tampered=Buffer.from(png());tampered[30]^=1;
   expect(()=>validateOfficialQrPng(tampered)).toThrow();
  });
- it("rejects oversized dimensions and decompression bombs",()=>{
+ it("rejects oversized dimensions and decompression beyond declared dimensions",()=>{
   expect(()=>validateOfficialQrPng(png(1025,1))).toThrow();
-  expect(()=>validateOfficialQrPng(png(1024,1024))).toThrow();
+  const ihdr=Buffer.alloc(13);ihdr.writeUInt32BE(1,0);ihdr.writeUInt32BE(1,4);ihdr[8]=8;ihdr[9]=6;
+  const overlong=Buffer.concat([signature,chunk("IHDR",ihdr),
+    chunk("IDAT",deflateSync(Buffer.alloc(1024*1024))),
+    chunk("IEND",Buffer.alloc(0))]);
+  expect(()=>validateOfficialQrPng(overlong)).toThrow();
  });
  it("rejects non-image data, truncated PNG and invalid scanline filters",()=>{
   expect(()=>validateOfficialQrPng(Buffer.from("<svg/>"))).toThrow();
