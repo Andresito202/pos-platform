@@ -31,6 +31,9 @@ on:
       - 'apps/pos-local-service/src/payments/merchant-destination-*.ts'
       - 'apps/pos-local-service/src/payments/merchant-notice-feed.ts'
       - 'apps/pos-local-service/tests/merchant-notice-feed.test.ts'
+      - 'apps/pos-android/operational-boundary.test.mjs'
+      - 'apps/pos-android/src/main/AndroidManifest.xml'
+      - 'apps/pos-android/src/runtime/AndroidManifest.xml'
       - 'apps/pos-local-service/src/payments/sqlite-merchant-destination-*.ts'
       - 'apps/pos-local-service/src/security/merchant-destination-*.ts'
       - 'apps/pos-local-service/tests/merchant-destination-*.test.ts'
@@ -112,6 +115,8 @@ jobs:
           pnpm --filter @pos-platform/pos-local-service typecheck
           pnpm --filter @pos-platform/target-migrations typecheck
           pnpm --filter @pos-platform/pos-desktop typecheck
+      - name: QR-002 Android laboratory manifest isolation
+        run: node --test --test-name-pattern='QR-002: laboratory Android manifests' apps/pos-android/operational-boundary.test.mjs
       - name: QR-001 domain unit tests
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/domain exec vitest run tests/merchant-destination.test.ts tests/merchant-destination-commands.test.ts tests/merchant-destination-snapshot.test.ts tests/merchant-payment-notification.test.ts
