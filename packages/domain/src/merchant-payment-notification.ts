@@ -28,8 +28,8 @@ export const MerchantPaymentNoticeObservationSchema=z.strictObject({
   // Zero monetary data is needed for the safe intake contract.
   sender_label:z.string().min(1).max(64),
   text_preview:z.string().max(200).optional(),
-  reported_amount_cop:SmsReportedAmount.nullable(),
-  payer_display:SmsPayer.nullable(),
+  reported_amount_cop:SmsReportedAmount.nullable().default(null),
+  payer_display:SmsPayer.nullable().default(null),
 }).superRefine((notice,ctx)=>{
   const observed=Date.parse(notice.observed_at);
   const received=Date.parse(notice.received_at);
@@ -47,8 +47,8 @@ export const UnverifiedMerchantPaymentNoticeSchema=z.strictObject({
   received_at:IsoDate,
   sender_label:z.string().min(1).max(64),
   text_preview:z.string().max(200).optional(),
-  reported_amount_cop:SmsReportedAmount.nullable(),
-  payer_display:SmsPayer.nullable(),
+  reported_amount_cop:SmsReportedAmount.nullable().default(null),
+  payer_display:SmsPayer.nullable().default(null),
   status:z.literal("UNVERIFIED"),
   bank_confirmed:z.literal(false),
   sale_confirmed:z.literal(false),
