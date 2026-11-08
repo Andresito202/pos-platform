@@ -4,9 +4,6 @@ on:
   pull_request:
     branches:
       - feat/android-commercial-runtime
-      # A QA PR targeting this feature branch runs the same isolated
-      # PostgreSQL/contract suite without changing the protected base branch.
-      - feat/nequi-breb-static-qr-phase1
     paths:
       - 'apps/central-authority/src/merchant-destination-*.ts'
       - 'apps/central-authority/src/merchant-notification-inbox.ts'
