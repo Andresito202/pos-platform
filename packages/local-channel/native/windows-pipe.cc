@@ -82,8 +82,11 @@ static void serviceIdentity(const Identity& peer,const std::wstring& sid){
 // account. Bind the server pipe PID to the *running SCM service PID* and its
 // birth-ordered process ancestry instead. SERVICE.listen still proves its own
 // virtual-account token; the authenticated handoff verifies the signer later.
-static void scmServerLineage(const Identity& peer,const std::wstring& sid){
+static void scmServerLineage(const Identity& peer,const std::wstring& sid,const char** stage=nullptr){
+ auto mark=[&](const char* name){if(stage)*stage=name;};
+ mark("ATTEST_SESSION");
  require(peer.session==0);
+ mark("ATTEST_SERVICE_SID_LOOKUP");
  DWORD sidBytes=0,domainChars=0;SID_NAME_USE use{};
  LookupAccountNameW(nullptr,L"NT SERVICE\\CamachoPOSLocalService",nullptr,&sidBytes,nullptr,&domainChars,&use);
  require(GetLastError()==ERROR_INSUFFICIENT_BUFFER&&sidBytes>0&&sidBytes<=SECURITY_MAX_SID_SIZE&&domainChars<1024);
@@ -92,41 +95,42 @@ static void scmServerLineage(const Identity& peer,const std::wstring& sid){
  require(LookupAccountNameW(nullptr,L"NT SERVICE\\CamachoPOSLocalService",
   sidBuffer.data(),&sidBytes,domain.data(),&domainChars,&use));
  require(sidText(sidBuffer.data())==sid);
+ mark("ATTEST_SCM_STATUS");
  const DWORD service=scmPid();
  DWORD pid=peer.pid;uint64_t child=peer.born;bool found=false;
  for(unsigned i=0;i<16;i++){
   DWORD session=0;
-  require(ProcessIdToSessionId(pid,&session)&&session==0);
-  uint64_t born=kernelProcessBirth(pid);
+  mark("ATTEST_PROCESS_SESSION");require(ProcessIdToSessionId(pid,&session)&&session==0);
+  mark("ATTEST_PROCESS_BIRTH");uint64_t born=kernelProcessBirth(pid);
   require(born!=0&&born==child);
   if(pid==service){found=true;break;}
-  DWORD parent=parentPid(pid);
+  mark("ATTEST_PARENT_LOOKUP");DWORD parent=parentPid(pid);
   require(parent!=0&&parent!=pid);
-  pid=parent;child=kernelProcessBirth(parent);
+  mark("ATTEST_PARENT_BIRTH");pid=parent;child=kernelProcessBirth(parent);
   require(child!=0&&child<=born);
  }
- require(found&&scmPid()==service);
+ mark("ATTEST_SCM_RECHECK");require(found&&scmPid()==service);
 }
 struct Policy{std::wstring endpoint,service,recipient,logon;DWORD session;};
 static Policy policy(napi_env e,napi_value* a){Policy p{str(e,a[0]),str(e,a[1]),str(e,a[2]),str(e,a[3]),num(e,a[4])};
  require(p.endpoint.rfind(L"\\\\.\\pipe\\camacho-pos-",0)==0&&p.endpoint.find(L'\\',9)==std::wstring::npos&&p.session>0);
  sidValid(p.service);sidValid(p.recipient);sidValid(p.logon);require(p.service.rfind(L"S-1-5-80-",0)==0&&p.recipient.rfind(L"S-1-5-21-",0)==0&&p.logon.rfind(L"S-1-5-5-",0)==0);return p;}
-static Identity peerIdentity(HANDLE pipe,bool server,const Policy& p){
+static Identity peerIdentity(HANDLE pipe,bool server,const Policy& p,const char** stage=nullptr){
  ULONG pid=0,session=0;require(server?GetNamedPipeClientProcessId(pipe,&pid):GetNamedPipeServerProcessId(pipe,&pid));
  require(server?GetNamedPipeClientSessionId(pipe,&session):GetNamedPipeServerSessionId(pipe,&session));
  Identity id=server?pipeClientIdentity(pipe,pid):Identity{};
   if(!server){id.pid=pid;id.session=session;id.born=kernelProcessBirth(pid);}
   require(id.session==session);
  if(server)require(id.sid==p.recipient&&id.logon==p.logon&&id.session==p.session);
- else {scmServerLineage(id,p.service);id.sid=p.service;}
+ else {scmServerLineage(id,p.service,stage);id.sid=p.service;}
  ULONG again=0;require(server?GetNamedPipeClientProcessId(pipe,&again):GetNamedPipeServerProcessId(pipe,&again));require(pid==again);return id;
 }
 // Use libuv's descriptor table, not the addon's private /MT CRT table.
 // Node and Electron may link different CRTs; raw _open_osfhandle is unsafe.
 static void closeFd(int fd){uv_fs_t request{};uv_fs_close(nullptr,&request,fd,nullptr);uv_fs_req_cleanup(&request);}
 struct Connection{int fd=-1;bool adopted=false,closed=false,server=false;HANDLE proof=INVALID_HANDLE_VALUE;Policy p;Identity peer;~Connection(){release();}void release(){if(closed)return;closed=true;if(proof!=INVALID_HANDLE_VALUE)CloseHandle(proof);proof=INVALID_HANDLE_VALUE;if(fd>=0&&!adopted)closeFd(fd);fd=-1;}};
-static std::unique_ptr<Connection> connection(HANDLE pipe,bool server,const Policy& p){
- auto c=std::make_unique<Connection>();c->p=p;c->server=server;c->peer=peerIdentity(pipe,server,p);
+static std::unique_ptr<Connection> connection(HANDLE pipe,bool server,const Policy& p,const char** stage=nullptr){
+ auto c=std::make_unique<Connection>();c->p=p;c->server=server;c->peer=peerIdentity(pipe,server,p,stage);
  require(DuplicateHandle(GetCurrentProcess(),pipe,GetCurrentProcess(),&c->proof,0,FALSE,DUPLICATE_SAME_ACCESS));
  c->fd=uv_open_osfhandle(pipe);require(c->fd>=0);return c;
 }
@@ -196,7 +200,7 @@ static void execute(napi_env,void* data){auto w=static_cast<Work*>(data);HANDLE 
    if(pipe!=INVALID_HANDLE_VALUE)break;require(GetLastError()==ERROR_PIPE_BUSY&&GetTickCount64()<until);WaitNamedPipeW(w->p.endpoint.c_str(),100);
   }while(true);
   w->stage="DESKTOP_PREFACE";pipePreface(pipe,false,w->timeout);
-  w->stage="DESKTOP_SERVER_ATTESTATION";w->result=connection(pipe,false,w->p);pipe=INVALID_HANDLE_VALUE;
+  w->stage="DESKTOP_SERVER_ATTESTATION";w->result=connection(pipe,false,w->p,&w->stage);pipe=INVALID_HANDLE_VALUE;
  }
  }catch(...){w->failed=true;if(pipe!=INVALID_HANDLE_VALUE){if(w->listener&&w->listener->pending==pipe)DisconnectNamedPipe(pipe);else CloseHandle(pipe);}}
  if(w->listener){auto l=w->listener;std::lock_guard<std::mutex>lock(l->mutex);l->busy=false;if(l->closed&&l->pending!=INVALID_HANDLE_VALUE){CloseHandle(l->pending);l->pending=INVALID_HANDLE_VALUE;}}
