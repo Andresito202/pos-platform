@@ -154,10 +154,20 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
         throw Error("QR002_UNTRUSTED_NOTICE_STATE");
       const li=document.createElement("li");
       const heading=document.createElement("strong");
-      heading.textContent="Aviso NO verificado · "+new Date(notice.received_at).toLocaleString("es-CO");
+      const raw=notice.reported_amount_cop;
+      const amount=raw===null||raw===undefined?null:Number(raw);
+      if(amount!==null&&(!Number.isSafeInteger(amount)||amount<1||amount>100000000))
+        throw Error("QR002_INVALID_REPORTED_AMOUNT");
+      const payer=typeof notice.payer_display==="string"&&notice.payer_display.length>=2
+        ?notice.payer_display:null;
+      const reported=amount===null?"importe no informado":
+        new Intl.NumberFormat("es-CO",{style:"currency",currency:"COP",maximumFractionDigits:0}).format(amount)+" informados por SMS";
+      heading.textContent="Aviso Nequi · "+reported;
       const sender=document.createElement("p");
-      sender.textContent="Origen comunicado: "+String(notice.sender_label);
-      li.append(heading,sender);
+      sender.textContent="Pagador indicado: "+(payer??"no identificado");
+      const detail=document.createElement("small");
+      detail.textContent="Sin confirmar en el banco · "+new Date(notice.received_at).toLocaleString("es-CO");
+      li.append(heading,sender,detail);
       noticeList.appendChild(li);
     }
     noticeState.textContent=reply.result.notices.length
