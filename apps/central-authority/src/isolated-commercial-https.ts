@@ -18,6 +18,7 @@ import {IsolatedAuthorizationSnapshotIssuer} from "./isolated-authorization-snap
 import {assertCommercialDeployment,type PostgresCommercialDeploymentContext} from "@pos-platform/database-postgres";
 import {FixedWindowRateLimiter} from "./fixed-window-rate-limiter.js";
 import {MerchantBusinessDestinationOperations} from "./merchant-destination-business-operations.js";
+import {MerchantDestinationDeviceRoutes} from "./merchant-destination-device-routes.js";
 
 type ObjectBody=Record<string,unknown>;
 const exact=(o:ObjectBody,keys:readonly string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -95,6 +96,7 @@ export async function prepareCommercialHttpHandler(input:{
   authorizationIssuer?:IsolatedAuthorizationSnapshotIssuer;
   authorizationTrustCandidate?:SignedAuthorizationTrustCandidate;
   merchantDestinations?:MerchantBusinessDestinationOperations;
+  merchantDeviceRoutes?:MerchantDestinationDeviceRoutes;
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
   if(input.deploymentContext){
@@ -112,6 +114,8 @@ export async function prepareCommercialHttpHandler(input:{
   if(!input.deploymentContext){const database=await pool.query<{ok:boolean}>("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
   if(database.rows[0]?.ok!==true)throw Error("COMMERCIAL_HTTPS_TEMPORARY_DATABASE_REQUIRED");
   }
+  if(input.merchantDeviceRoutes && (!input.deploymentContext || !(input.merchantDeviceRoutes instanceof MerchantDestinationDeviceRoutes)))
+    throw Error("QR001_DEVICE_ROUTES_PRODUCTION_ONLY");
   if(input.merchantDestinations && (!input.deploymentContext || !(input.merchantDestinations instanceof MerchantBusinessDestinationOperations)))
     throw Error("QR001_PRODUCTION_ADMIN_COMPOSITION_REQUIRED");
   const origin=new URL(input.origin);
@@ -171,20 +175,28 @@ export async function prepareCommercialHttpHandler(input:{
             (req.headers.origin && req.headers.origin!==input.origin) || Number(req.headers["content-length"]??0)!==0)throw new Rejection(400);
           sendCommercialBrowserEntry(res,input.browserEntry);return;
         }
+        const merchantDeviceAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(snapshot|floor|ack)$/)?.[1] as
+          "snapshot"|"floor"|"ack"|undefined;
         const qrAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(list|upload|asset|create|publish|revoke)$/)?.[1] as
           "list"|"upload"|"asset"|"create"|"publish"|"revoke"|undefined;
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
-          (!qrAction && !/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
+          (!qrAction && !merchantDeviceAction && !/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
             !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions",
               ...(native.codec instanceof CommercialBusinessAccessAuthority?["/v1/commercial/refresh","/v1/commercial/revoke"]:[]),
               ...(input.authorizationIssuer?["/v1/business-session/authorization"]:[])].includes(req.url))))throw new Rejection(400);
         const tokenRoute=req.url==="/v1/commercial/token";
-        const nativeRoute=tokenRoute||req.url==="/v1/commercial/refresh"||req.url==="/v1/commercial/revoke"||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
+        const nativeRoute=Boolean(merchantDeviceAction)||tokenRoute||req.url==="/v1/commercial/refresh"||req.url==="/v1/commercial/revoke"||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
         if(nativeRoute){
           // Native back-channel: browser origins and ambient cookies are forbidden.
           if(req.headers.origin||req.headers.cookie||req.headers["sec-fetch-site"])throw new Rejection(403);
         }else if(req.headers.origin!==input.origin||req.headers["sec-fetch-site"]!=="same-origin")throw new Rejection(403);
         const {object:o,raw}=await body(req,qrAction==="upload"?Math.max(policy.maximumBodyBytes,1_420_000):policy.maximumBodyBytes);
+        if(merchantDeviceAction){
+          if(!input.merchantDeviceRoutes)throw new Rejection(404);
+          const result=await input.merchantDeviceRoutes.handle(merchantDeviceAction,proof());
+          if(result===null)throw new Rejection(401);
+          send(res,200,result);return;
+        }
         if(qrAction){
           if(!input.merchantDestinations)throw new Rejection(404);
           const session=await browser.inspect({method:"POST",origin:req.headers.origin??null,
