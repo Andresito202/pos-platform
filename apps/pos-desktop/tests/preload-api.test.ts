@@ -23,6 +23,7 @@ describe("preload-api", () => {
       "payment.transfer.confirm",
       "payment.cancel",
       "payment.get",
+      "payment.destination.get",
       "customer.register",
       "customer.get",
       "customer.find",
