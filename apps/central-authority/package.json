@@ -15,6 +15,7 @@
   "dependencies": {
     "@pos-platform/contracts": "workspace:*",
     "@pos-platform/domain": "workspace:*",
+    "@pos-platform/local-channel": "workspace:*",
     "@pos-platform/database-postgres": "workspace:*",
     "@pos-platform/device-trust": "workspace:*"
   },
