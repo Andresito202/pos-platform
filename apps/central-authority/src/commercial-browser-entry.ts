@@ -73,7 +73,7 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
 <label>Método<select id="qr001-kind"><option value="NEQUI_BUSINESS_QR">QR oficial Nequi Negocios</option><option value="BREB_KEY">Llave Bre-B</option><option value="NEQUI_NUMBER">Número Nequi</option></select></label>
 <label>Nombre para caja<input id="qr001-label" maxlength="80" value="Cobro del negocio"></label>
 <label>Número o llave registrada<input id="qr001-reference" maxlength="160" autocomplete="off" placeholder="Nequi o llave del comercio"></label>
-<label>Imagen PNG de QR oficial (solo QR Negocios)<input id="qr001-file" type="file" accept="image/png"></label>
+<label>Imagen PNG del QR oficial Nequi o Bre-B (opcional para llave Bre-B)<input id="qr001-file" type="file" accept="image/png"></label>
 <button id="qr001-upload" type="button">Verificar y cargar QR</button>
 <button id="qr001-create" type="button">Guardar borrador</button>
 <button id="qr001-refresh" type="button">Actualizar lista</button>
@@ -134,6 +134,12 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
     }
     qrInfo("Configuración de cobros de tu empresa. Solo los destinos publicados son visibles para caja.");
   }
+  document.getElementById("qr001-kind").addEventListener("change",()=>{
+    qrAsset=null;
+    document.getElementById("qr001-file").value="";
+    qrInfo("Método cambiado: carga su QR oficial correspondiente, si aplica.");
+  });
+  document.getElementById("qr001-file").addEventListener("change",()=>{qrAsset=null;});
   document.getElementById("qr001-refresh").addEventListener("click",()=>{void qrReload().catch(()=>qrInfo("No se pudo actualizar la configuración.",true));});
   document.getElementById("qr001-upload").addEventListener("click",async()=>{
     const file=document.getElementById("qr001-file").files[0];
@@ -152,12 +158,13 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
   document.getElementById("qr001-create").addEventListener("click",async()=>{
     if(!csrf)return;
     const kind=document.getElementById("qr001-kind").value;
+    const selectedAsset=qrAsset;
     const label=document.getElementById("qr001-label").value.trim();
     const value=document.getElementById("qr001-reference").value.trim();
-    if(kind==="NEQUI_BUSINESS_QR"&&!qrAsset){qrInfo("Primero carga la imagen QR oficial.",true);return;}
+    if(kind==="NEQUI_BUSINESS_QR"&&!selectedAsset){qrInfo("Primero carga la imagen QR oficial.",true);return;}
     const draft={kind,label,destination_reference:value,
-      qr_asset_id:kind==="NEQUI_BUSINESS_QR"?qrAsset.id:null,
-      qr_sha256:kind==="NEQUI_BUSINESS_QR"?qrAsset.sha256:null};
+      qr_asset_id:kind!=="NEQUI_NUMBER"&&selectedAsset?selectedAsset.id:null,
+      qr_sha256:kind!=="NEQUI_NUMBER"&&selectedAsset?selectedAsset.sha256:null};
     const action=document.getElementById("qr001-create");action.disabled=true;
     try{await post("merchant-destinations/create",{draft},undefined,csrf);qrInfo("Borrador guardado; publícalo para habilitar su lectura.");await qrReload();}
     catch{qrInfo("No se pudo guardar. Revisa que el destino sea correcto y no esté duplicado.",true);}
