@@ -5,6 +5,8 @@ on:
     paths:
       - 'apps/pos-local-service/src/security/local-operator-password.ts'
       - 'apps/pos-local-service/src/security/local-operator-password.test.ts'
+      - 'apps/pos-local-service/src/security/local-operator-password-gate.ts'
+      - 'apps/pos-local-service/src/security/local-operator-password-gate.test.ts'
       - '.github/workflows/local-operator-auth-foundation.yml'
   workflow_dispatch:
 permissions:
@@ -27,4 +29,4 @@ jobs:
       - name: Typecheck real backend
         run: pnpm --filter @pos-platform/pos-local-service typecheck
       - name: Verify password-gate constraints
-        run: pnpm --filter @pos-platform/pos-local-service exec vitest run src/security/local-operator-password.test.ts
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run src/security/local-operator-password.test.ts src/security/local-operator-password-gate.test.ts
