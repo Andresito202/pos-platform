@@ -130,11 +130,15 @@ const collectionsProvision=process.env.CENTRAL_FACTUS_PAY_COLLECTIONS_PROVISION_
 if(collectionsProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("COLLECTIONS_REAL_DEPLOYMENT_REQUIRED");
 const collectionsRuntime=collectionsProvision?await prepareSubscriptionCollectionRuntime({pool,provisionFile:collectionsProvision,
   onError:code=>process.stderr.write(JSON.stringify({service:"subscription-collections",code})+"\n")}):undefined;
+const qr001Option=process.env.CENTRAL_MERCHANT_QR001_ENABLED;
+if(qr001Option!==undefined&&!["true","false"].includes(qr001Option))throw Error("QR001_INVALID_DEPLOYMENT_FLAG");
+if(qr001Option==="true"&&!deployment)throw Error("QR001_CENTRAL_DEPLOYMENT_REQUIRED");
 const commercialProvision=process.env.CENTRAL_COMMERCIAL_PROVISION_FILE;
 if(commercialProvision&&(!deployment||deployment.environment==="LOCAL"||!sessionTrustPublication||!authorizationTrustPublication))throw Error("COMMERCIAL_REAL_DEPLOYMENT_TRUST_REQUIRED");
 const commercialHandler=commercialProvision?await prepareCentralCommercialRuntime({pool,provisionFile:commercialProvision,
   origin:deployment!.origin,environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION",tls:{key:tlsKey,cert:tlsCert},
-  publishedSsaFile:required("SESSION_TRUST_ARTIFACT_FILE"),publishedSasFile:required("AUTHORIZATION_TRUST_ARTIFACT_FILE")}):undefined;
+  publishedSsaFile:required("SESSION_TRUST_ARTIFACT_FILE"),publishedSasFile:required("AUTHORIZATION_TRUST_ARTIFACT_FILE"),
+  merchantDestinationsEnabled:qr001Option==="true"}):undefined;
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
 const handler = new DeviceEnrollmentHttpHandler(issuer, {
