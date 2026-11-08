@@ -26,8 +26,8 @@ function fakePool(consented:boolean){
     release,
     query:vi.fn(async(q:string)=>{
       sql.push(q);
-      if(q.includes("FROM payments.merchant_notification_bridge_consents c"))
-        return {rowCount:consented?1:0,rows:consented?[{ok:true}]:[]};
+      // The feed query itself contains an EXISTS(consent) subquery; recognize
+      // the outer SELECT before the consent-only authorization query.
       if(q.includes("FROM payments.merchant_payment_notification_inbox n"))
         return {rowCount:1,rows:[{
           id:"01900000-0000-7000-8000-000000000031",
@@ -35,6 +35,8 @@ function fakePool(consented:boolean){
           reported_amount_cop:"4500",payer_display:"Juan Pérez",
           status:"UNVERIFIED",bank_confirmed:false,sale_confirmed:false,
         }]};
+      if(q.includes("FROM payments.merchant_notification_bridge_consents c"))
+        return {rowCount:consented?1:0,rows:consented?[{ok:true}]:[]};
       if(q.includes("INSERT INTO payments.merchant_payment_notification_inbox"))
         return {rowCount:1,rows:[{id:"test"}]};
       return {rowCount:0,rows:[]};
