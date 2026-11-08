@@ -164,7 +164,12 @@ DO $setup$ DECLARE object text; BEGIN
 END $setup$;
 -- The central runtime cannot write without explicit provisioning and an
 -- authenticated authorization handler; grants are intentionally restricted.
-REVOKE ALL ON ALL TABLES IN SCHEMA payments FROM PUBLIC,pos_app,pos_worker,pos_reporting;
+DO $revoke$ DECLARE object text; BEGIN
+ FOREACH object IN ARRAY ARRAY['merchant_qr_assets','merchant_destinations','merchant_destination_events',
+ 'merchant_destination_outbox','merchant_destination_sequences','merchant_destination_acknowledgements'] LOOP
+  EXECUTE format('REVOKE ALL ON payments.%I FROM PUBLIC,pos_app,pos_worker,pos_reporting',object);
+ END LOOP;
+END $revoke$;
 REVOKE ALL ON FUNCTION payments.guard_merchant_destination_transition() FROM PUBLIC;
 REVOKE ALL ON FUNCTION payments.guard_merchant_monotonic_sequence() FROM PUBLIC;
 REVOKE ALL ON FUNCTION payments.guard_merchant_destination_insert() FROM PUBLIC;
