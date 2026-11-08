@@ -154,6 +154,15 @@ try {
       if($labProcess.HasExited){break}
       Start-Sleep -Milliseconds 100
     }
+    if(-not (Test-Path -LiteralPath $desktopProof -PathType Leaf)){
+      foreach($role in @('service','desktop')){
+        $failurePath=Join-Path $results ('native-'+$role+'-failure.json')
+        if(Test-Path -LiteralPath $failurePath -PathType Leaf){
+          $detail=Get-Content -LiteralPath $failurePath -Raw | ConvertFrom-Json
+          Write-Host ('G1_NATIVE_'+$role.ToUpperInvariant()+'_FAIL_PHASE='+$detail.phase)
+        }
+      }
+    }
     Must (Test-Path -LiteralPath $desktopProof -PathType Leaf) 'NATIVE_DESKTOP_CONNECT_FAILED'
     $serviceProof=Join-Path $results 'native-service-pass.json'
     $desktopProof=Join-Path $results 'native-desktop-pass.json'
