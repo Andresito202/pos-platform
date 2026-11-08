@@ -15,10 +15,10 @@ export interface CommercialBrowserEntryConfiguration {
  * one-use code; no device key, token minting or POS grant enters the document.
  * Mounted by the existing isolated host; production activation stays gated. */
 export function sendCommercialBrowserEntry(res: ServerResponse, configuration: CommercialBrowserEntryConfiguration,
-  destination?:{request:string;tenantName:string;companyName:string;deviceId:string;installationId:string},merchantAdminEnabled=false): void {
+  destination?:{request:string;tenantName:string;companyName:string;deviceId:string;installationId:string},merchantAdminEnabled=false,merchantNoticeReadEnabled=false): void {
   const nonce = randomBytes(24).toString("base64url");
   const config = JSON.stringify({ rpId: configuration.rpId, factorId: configuration.factorId,
-    tenantId: configuration.tenantId, membershipId: configuration.membershipId,destination,merchantAdminEnabled }).replace(/</g, "\\u003c");
+    tenantId: configuration.tenantId, membershipId: configuration.membershipId,destination,merchantAdminEnabled,merchantNoticeReadEnabled }).replace(/</g, "\\u003c");
   const html = `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Acceso — Camacho POS Colombia</title>
 <style nonce="${nonce}">
@@ -79,6 +79,13 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
 <button id="qr001-refresh" type="button">Actualizar lista</button>
 <p id="qr001-state" role="status" aria-live="polite">Verifica tu permiso administrativo.</p>
 <ul id="qr001-list"></ul>
+<section id="qr002" hidden aria-label="Avisos de transferencias no verificados">
+<h3>Avisos Nequi Negocios — sin verificar</h3>
+<p>Un SMS no confirma un abono. Compara cada aviso con los movimientos de la cuenta antes de confirmar una venta.</p>
+<button id="qr002-refresh" type="button">Consultar avisos</button>
+<p id="qr002-state" role="status" aria-live="polite">No se han consultado avisos.</p>
+<ul id="qr002-list"></ul>
+</section>
 </section>
 
 </section>
@@ -134,6 +141,35 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
     }
     qrInfo("Configuración de cobros de tu empresa. Solo los destinos publicados son visibles para caja.");
   }
+  const noticePanel=document.getElementById("qr002");
+  const noticeList=document.getElementById("qr002-list");
+  const noticeState=document.getElementById("qr002-state");
+  async function reloadNotices(){
+    if(!csrf||!config.merchantNoticeReadEnabled) return;
+    const reply=await post("merchant-destinations/notices",{},undefined,csrf);
+    if(!reply.result||!Array.isArray(reply.result.notices))throw Error("QR002_LIST_INVALID");
+    noticeList.replaceChildren();
+    for(const notice of reply.result.notices){
+      if(notice.status!=="UNVERIFIED"||notice.bank_confirmed!==false||notice.sale_confirmed!==false)
+        throw Error("QR002_UNTRUSTED_NOTICE_STATE");
+      const li=document.createElement("li");
+      const heading=document.createElement("strong");
+      heading.textContent="Aviso NO verificado · "+new Date(notice.received_at).toLocaleString("es-CO");
+      const sender=document.createElement("p");
+      sender.textContent="Origen comunicado: "+String(notice.sender_label);
+      li.append(heading,sender);
+      noticeList.appendChild(li);
+    }
+    noticeState.textContent=reply.result.notices.length
+      ?"Consulta de avisos: se requiere conciliación bancaria independiente."
+      :"No hay avisos registrados para esta empresa.";
+  }
+  document.getElementById("qr002-refresh").addEventListener("click",()=>{
+    void reloadNotices().catch(()=>{
+      noticeList.replaceChildren();
+      noticeState.textContent="No se pudieron verificar los avisos de esta empresa.";
+    });
+  });
   document.getElementById("qr001-kind").addEventListener("change",()=>{
     qrAsset=null;
     document.getElementById("qr001-file").value="";
@@ -205,7 +241,7 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
         "Identidad, MFA y sesión BUSINESS verificados. La entrega al dispositivo sigue bloqueada hasta aprobar su binding. El POS no ha recibido permisos.");
       confirm.hidden=!config.destination;
       if(config.merchantAdminEnabled){
-        try{await qrReload();qrPanel.hidden=false;}
+        try{await qrReload();qrPanel.hidden=false;noticePanel.hidden=!config.merchantNoticeReadEnabled;}
         catch{qrPanel.hidden=true;}
       }
     } catch (error) {
@@ -224,7 +260,7 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
   });
   logout.addEventListener("click", async () => {
     logout.disabled = true;
-    try { await post("browser/logout", {}, undefined, csrf); csrf = null; logout.hidden = true; start.disabled = false; qrPanel.hidden=true;qrAsset=null;qrList.replaceChildren();
+    try { await post("browser/logout", {}, undefined, csrf); csrf = null; logout.hidden = true; start.disabled = false; qrPanel.hidden=true;noticePanel.hidden=true;noticeList.replaceChildren();qrAsset=null;qrList.replaceChildren();
       show("SIGNED_OUT", "La autoridad central confirmó el cierre de sesión.");
     } catch { show("LOGOUT_UNCONFIRMED", "La autoridad central no confirmó el cierre. Reintenta cuando haya conexión."); }
     finally { logout.disabled = false; }
