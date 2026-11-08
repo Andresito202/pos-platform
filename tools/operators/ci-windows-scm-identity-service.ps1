@@ -166,6 +166,11 @@ try {
               $classification='TOKEN_PROBE_INCONCLUSIVE'
             }
             Write-Host ('G1_NATIVE_SCM_TOKEN_QUERY='+$classification)
+            $nativeStage=[string]$detail.native_stage
+            if($nativeStage -notin @('DESKTOP_SELF_IDENTITY','DESKTOP_PIPE_OPEN','DESKTOP_PREFACE','DESKTOP_SERVER_ATTESTATION')){
+              $nativeStage='NOT_CLASSIFIED'
+            }
+            Write-Host ('G1_NATIVE_CONNECT_STAGE='+$nativeStage)
           }
         }
       }
