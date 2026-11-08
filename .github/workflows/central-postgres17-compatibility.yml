@@ -62,12 +62,20 @@ jobs:
           node -e "const u=new URL(process.env.POSTGRES_TEST_URL);if(u.hostname!=='127.0.0.1'||u.port!=='55432'||u.pathname!=='/postgres'||u.username!=='postgres')process.exit(2)"
           docker exec "${{ job.services.postgres.id }}" psql -U postgres -d postgres -tAX -c 'SHOW server_version_num' | grep -Fx '170011'
           echo 'PG17_11_EPHEMERAL_TARGET=PASS'
+      - name: Typecheck PostgreSQL migration execution and receipt contracts
+        run: pnpm --filter @pos-platform/target-migrations typecheck
       - name: Execute canonical 001 and 002 migrations and failure-recovery tests on PostgreSQL 17
         shell: bash
         run: |
           set -euo pipefail
           pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-migration.test.ts tests/postgres-002-migration.test.ts --no-file-parallelism
           echo 'PG17_CANONICAL_001_002_AND_ROLES=PASS'
+      - name: Execute canonical 003 migration and role-readiness lifecycle on PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-003-runner.test.ts --no-file-parallelism
+          echo 'PG17_CANONICAL_003_AND_READINESS=PASS'
       - name: Verify 005 SQL physical tenant isolation on PostgreSQL 17
         shell: bash
         run: |
