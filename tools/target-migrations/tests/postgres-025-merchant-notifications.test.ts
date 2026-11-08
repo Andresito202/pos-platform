@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {commercialMigrationManifest,POSTGRES_024_DESCRIPTOR,POSTGRES_025_DESCRIPTOR} from "../src/postgres-commercial-runner.js";
+import {commercialMigrationManifest,POSTGRES_024_DESCRIPTOR,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR} from "../src/postgres-commercial-runner.js";
 import {readArtifact,sha256} from "../src/shared.js";
 
 describe("QR-002 migration 025: explicit consent-gated notification evidence",()=>{
@@ -10,6 +10,19 @@ describe("QR-002 migration 025: explicit consent-gated notification evidence",()
   const manifest=await commercialMigrationManifest("MERCHANT_NOTIFICATIONS");
   expect(manifest[POSTGRES_025_DESCRIPTOR.migrationId]).toBe(sha256(source).toString("hex"));
   expect((await commercialMigrationManifest("MERCHANT_DESTINATIONS"))[POSTGRES_025_DESCRIPTOR.migrationId]).toBeUndefined();
+ });
+ it("registers an additive 026 SMS detail migration without rewriting 025",async()=>{
+  expect(POSTGRES_026_DESCRIPTOR.dependencies).toEqual([POSTGRES_025_DESCRIPTOR.migrationId]);
+  const up=await readArtifact(POSTGRES_026_DESCRIPTOR.upArtifact);
+  const down=await readArtifact(POSTGRES_026_DESCRIPTOR.downArtifact);
+  expect(up).toContain("ADD COLUMN reported_amount_cop bigint NULL");
+  expect(up).toContain("ADD COLUMN payer_display text NULL");
+  expect(up).toContain("merchant_notice_reported_amount_positive");
+  expect(up).toContain("SMS, not confirmed settlement");
+  expect(down).toContain("cannot downgrade reported SMS evidence");
+  const manifest=await commercialMigrationManifest("MERCHANT_NOTIFICATIONS");
+  expect(manifest[POSTGRES_026_DESCRIPTOR.migrationId]).toBe(sha256(up).toString("hex"));
+  expect((await commercialMigrationManifest("MERCHANT_DESTINATIONS"))[POSTGRES_026_DESCRIPTOR.migrationId]).toBeUndefined();
  });
  it("requires device consent and never enables bank-confirmed or sale-confirmed state",async()=>{
   const sql=await readArtifact(POSTGRES_025_DESCRIPTOR.upArtifact);
