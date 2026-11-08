@@ -250,4 +250,62 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
   }finally{await pool.query("RESET ROLE");}
  });
 
+ test("QR-002 ingestion cannot race an uncommitted consent revocation",async()=>{
+  // The prior migration test creates 025-027 in this disposable PostgreSQL.
+  const tenant="11111111-1111-4111-8111-111111111111";
+  const company="33333333-3333-4333-8333-333333333333";
+  const installation="88888888-8888-4888-8888-888888888888";
+  await pool.query("SET ROLE pos_schema_owner");
+  try{
+   await pool.query(`INSERT INTO identity.device_registry(installation_id,tenant_id,company_id,status)
+     VALUES($1,$2,$3,'ACTIVE')`,[installation,tenant,company]);
+  }finally{await pool.query("RESET ROLE");}
+  const setup=await pool.connect();
+  try{
+   await setup.query("SET ROLE pos_platform_app");
+   await setup.query("BEGIN");
+   await setup.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[tenant,company]);
+   await setup.query(`INSERT INTO payments.merchant_notification_bridge_consents
+     (tenant_id,company_id,installation_id,granted_by)
+     VALUES($1,$2,$3,$4)`,[tenant,company,installation,"77777777-7777-4777-8777-777777777777"]);
+   await setup.query("COMMIT");
+  }finally{await setup.query("RESET ROLE").catch(()=>undefined);setup.release();}
+  const revoker=await pool.connect(),ingester=await pool.connect();
+  try{
+   await revoker.query("SET ROLE pos_platform_app");
+   await ingester.query("SET ROLE pos_platform_app");
+   await revoker.query("BEGIN");
+   await revoker.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[tenant,company]);
+   await revoker.query(`UPDATE payments.merchant_notification_bridge_consents
+     SET revoked_at=clock_timestamp()
+     WHERE tenant_id=$1 AND company_id=$2 AND installation_id=$3 AND revoked_at IS NULL`,
+     [tenant,company,installation]);
+   // Hold the uncommitted UPDATE's row lock. A simultaneous ingestion
+   // must not pass the BEFORE INSERT guard and silently record a payment.
+   await ingester.query("BEGIN");
+   await ingester.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[tenant,company]);
+   await ingester.query("SET LOCAL lock_timeout='300ms'");
+   const insert=`INSERT INTO payments.merchant_payment_notification_inbox
+      (id,tenant_id,company_id,source_installation_id,message_sha256,observed_at,received_at,sender_label)
+      VALUES($1,$2,$3,$4,$5,now(),now(),'SMS Negocios')`;
+   await expect(ingester.query(insert,[
+     "01900000-0000-7000-8000-000000000091",tenant,company,installation,"e".repeat(64),
+   ])).rejects.toMatchObject({code:"55P03"});
+   await ingester.query("ROLLBACK");
+   await revoker.query("COMMIT");
+   await ingester.query("BEGIN");
+   await ingester.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",[tenant,company]);
+   await expect(ingester.query(insert,[
+     "01900000-0000-7000-8000-000000000092",tenant,company,installation,"f".repeat(64),
+   ])).rejects.toThrow();
+   await ingester.query("ROLLBACK");
+  }finally{
+   await revoker.query("ROLLBACK").catch(()=>undefined);
+   await ingester.query("ROLLBACK").catch(()=>undefined);
+   await revoker.query("RESET ROLE").catch(()=>undefined);
+   await ingester.query("RESET ROLE").catch(()=>undefined);
+   revoker.release();ingester.release();
+  }
+ });
+
 });
