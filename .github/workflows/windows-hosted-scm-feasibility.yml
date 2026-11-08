@@ -53,6 +53,16 @@ jobs:
           Write-Output ('BATCH_TOKEN='+($groups -contains 'S-1-5-3'))
           Write-Output ('SERVICE_TOKEN='+($groups -contains 'S-1-5-6'))
           if($os.BuildNumber -ne '20348') { throw 'HOSTED_NOT_WINDOWS_SERVER_2022' }
+      - name: Instrument native error category only in disposable CI checkout
+        shell: pwsh
+        run: |
+          $path='packages/local-channel/src/windows-handoff-native.ts'
+          $source=[IO.File]::ReadAllText($path)
+          $from='if(r.error||r.status!==0)throw Error("HANDOFF_NATIVE_REJECTED");'
+          $to='if(r.error||r.status!==0){const category=(r.stderr||"").match(/(?:HANDOFF|WINDOWS|INTERACTIVE|SCM|REPARSE|LOCAL)_[A-Z_]+|Access is denied|Exception calling|The requested operation requires elevation/i);throw Error("HANDOFF_NATIVE_REJECTED_DIAGNOSTIC:"+(category?.[0]??("EXIT_"+r.status)));}'
+          if(-not $source.Contains($from)){throw 'DIAGNOSTIC_ANCHOR_NOT_FOUND'}
+          [IO.File]::WriteAllText($path,$source.Replace($from,$to),[Text.UTF8Encoding]::new($false))
+          Write-Output 'DIAGNOSTIC_INSTRUMENTATION_EPHEMERAL_ONLY'
       - name: Real Windows DPAPI receiver with proper owner ACL and tampering regressions
         shell: pwsh
         run: |
