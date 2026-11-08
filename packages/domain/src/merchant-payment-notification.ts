@@ -13,6 +13,11 @@ import * as z from "zod";
 const Uuid=z.string().uuid();
 const Sha256=z.string().regex(/^[a-f0-9]{64}$/);
 const IsoDate=z.iso.datetime({offset:true});
+/** Amount asserted in an SMS, never a bank-verified settlement. */
+const SmsReportedAmount=z.number().int().positive().safe().max(100_000_000);
+const SmsPayer=z.string().min(2).max(80)
+  .regex(/^[\p{L}\p{N} .'*+-]{2,80}$/u);
+
 
 export const MerchantPaymentNoticeObservationSchema=z.strictObject({
   source:z.literal("NEQUI_NEGOCIOS_SHARED_SMS"),
@@ -23,6 +28,8 @@ export const MerchantPaymentNoticeObservationSchema=z.strictObject({
   // Zero monetary data is needed for the safe intake contract.
   sender_label:z.string().min(1).max(64),
   text_preview:z.string().max(200).optional(),
+  reported_amount_cop:SmsReportedAmount.nullable(),
+  payer_display:SmsPayer.nullable(),
 }).superRefine((notice,ctx)=>{
   const observed=Date.parse(notice.observed_at);
   const received=Date.parse(notice.received_at);
@@ -40,6 +47,8 @@ export const UnverifiedMerchantPaymentNoticeSchema=z.strictObject({
   received_at:IsoDate,
   sender_label:z.string().min(1).max(64),
   text_preview:z.string().max(200).optional(),
+  reported_amount_cop:SmsReportedAmount.nullable(),
+  payer_display:SmsPayer.nullable(),
   status:z.literal("UNVERIFIED"),
   bank_confirmed:z.literal(false),
   sale_confirmed:z.literal(false),
@@ -99,4 +108,23 @@ export function appendUnverifiedMerchantNotice(
     return previous;
   }
   return [...previous,verified];
+}
+
+/** Comparing two reported numbers NEVER confirms receipt or links a sale. */
+export function compareUnverifiedNoticeToRequestedAmount(
+ requestedAmountCop:number,
+ notice:Pick<UnverifiedMerchantPaymentNotice,"reported_amount_cop"|"payer_display">,
+):{requested_amount_cop:number;reported_amount_cop:number|null;
+  difference_cop:number|null;comparison:"UNKNOWN"|"EQUAL"|"LESS"|"MORE";
+  payer_display:string|null;bank_confirmed:false}{
+ const requested=SmsReportedAmount.parse(requestedAmountCop);
+ const reported=SmsReportedAmount.nullable().parse(notice.reported_amount_cop);
+ const payer=SmsPayer.nullable().parse(notice.payer_display);
+ return {
+  requested_amount_cop:requested,reported_amount_cop:reported,
+  difference_cop:reported===null?null:reported-requested,
+  comparison:reported===null?"UNKNOWN":reported===requested?"EQUAL":
+    reported<requested?"LESS":"MORE",
+  payer_display:payer,bank_confirmed:false,
+ };
 }
