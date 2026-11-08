@@ -1,6 +1,8 @@
 # QR-002 — Nequi Negocios: aviso de transferencia, NO confirmación bancaria
 
-**Estado:** contrato de dominio y pruebas automatizadas, en PR #103 Draft. Sin receptor SMS conectado, sin aplicación Android instalada, sin entrega realtime a Caja, sin pagos reales, sin modificación al libro de pagos.
+**Estado actual (2026-11-08):** PR #103 Draft. Ya existen contrato, migraciones 025 y 026 (no desplegadas), ruta firmada de ingestión, consulta firmada de avisos para dispositivos, lectura administrativa y panel de Caja con comparación informativa de montos reportados. No existe receptor SMS Android comercial acreditado, consentimiento administrativo operativo, Central desplegada ni prueba bancaria real. La entrega es mediante sondeo, no push en tiempo real garantizado. No se modifica el libro de pagos.
+
+**Lectura del documento:** los apartados que describen etapas iniciales de diseño son antecedentes históricos; la sección «Valor realmente informado por el SMS y comparación en Caja (incremento 026)» describe las capacidades más recientes del código. No implementar otra ruta de ingestión, otro feed Windows ni otro panel de Caja basándose en tareas antiguas de este documento.
 
 ## Alcance financiero autorizado
 - El **negocio**, no Camacho POS, mantiene la titularidad del QR, la llave y el dinero.
@@ -20,7 +22,7 @@ El registro es idempotente por `(tenant, company, installation, message_sha256)`
 ## Requisitos pendientes para el receptor Android / Central
 1. El administrador opta expresamente por notificaciones y designa un Android del **propio comercio**; el dispositivo debe estar enrolado y con permisos específicos. La captura de SMS/notifications depende de restricciones Android y de políticas de distribución, no de una API gratuita de confirmación de pagos.
 2. No transmitir cuerpos SMS, teléfonos completos o contactos si no se necesitan; proteger cifrado en tránsito/almacenamiento, confidencialidad por empresa, borrado/retención y revocación administrativa.
-3. Crear endpoints autenticados de ingestión y suscripción de solo lectura (requerir pruebas antirreplay, RBAC, rate limits, idempotencia durable y aislamiento multiempresa). **No están implementados**.
+3. **Histórico:** se solicitaban endpoints autenticados. La ingestión y lectura firmadas por DeviceProof ya están implementadas; falta certificar el receptor Android real, el consentimiento administrativo y la distribución operativa, no volver a crear esos endpoints.
 4. No enlazar una observación a una venta por importe u hora solamente. Presentar `Aviso de transferencia — no verificado` para conciliación independiente contra movimientos del banco.
 5. Probar con SMS reales y consentimiento, duplicados, suplantación, varios comercios, cuatro cajas, caídas offline, restauración, reintentos, logout y revocación. Las pruebas automáticas actuales solo certifican el **contrato puro**.
 
@@ -33,7 +35,7 @@ El QR propio Nequi P2P o Bre-B estático sigue siendo una opción de cobro **sin
 - Ambas tablas usan FORCE RLS por tenant+empresa; los roles de caja y reporting no tienen acceso, y Central solo puede insertar/leer la evidencia, nunca modificarla o borrarla. El trigger exige consentimiento vigente y dispositivo activo; bloquea la inserción tras revocación del consentimiento.
 - El migrador canónico registra el sucesor `025_merchant_payment_notifications` de 024, **solo** con `--merchant-notifications`; ejecutar `--merchant-destinations` NO incluye QR-002.
 - El repositorio `PostgresUnverifiedMerchantNotificationInbox` requiere además un callback de autorización de puente enrolado dentro de la transacción SERIALIZABLE, rechaza previews del cuerpo SMS y exige idempotencia estricta por empresa+dispositivo+digest.
-- La tabla de consentimiento **no tiene todavía** una interfaz administrativa para conceder la autorización; tampoco existen endpoints de ingestión ni receptor Android. No ejecutar en Central comercial ni simular un bridge enrolado hasta completar esas fronteras.
+- La tabla de consentimiento **no tiene todavía** una interfaz administrativa acreditada para conceder la autorización. Los endpoints de ingestión y consulta fueron implementados después de esta etapa; el receptor Android comercial continúa pendiente. No ejecutar en Central comercial ni simular un bridge enrolado hasta completar esas fronteras.
 - Las pruebas comprueban los contratos, el registro de migración y PostgreSQL 16 físico en un contenedor descartable. Ninguna prueba utiliza datos bancarios, teléfonos o SMS personales reales.
 
 ## Vista administrativa QR-002 (solo lectura, desactivada por defecto)
