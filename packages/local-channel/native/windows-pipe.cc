@@ -116,7 +116,7 @@ static Identity peerIdentity(HANDLE pipe,bool server,const Policy& p){
   if(!server){id.pid=pid;id.session=session;id.born=kernelProcessBirth(pid);}
   require(id.session==session);
  if(server)require(id.sid==p.recipient&&id.logon==p.logon&&id.session==p.session);
- else scmServerLineage(id,p.service);
+ else {scmServerLineage(id,p.service);id.sid=p.service;}
  ULONG again=0;require(server?GetNamedPipeClientProcessId(pipe,&again):GetNamedPipeServerProcessId(pipe,&again));require(pid==again);return id;
 }
 // Use libuv's descriptor table, not the addon's private /MT CRT table.
