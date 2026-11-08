@@ -1,5 +1,7 @@
 import {describe,expect,it,vi,afterEach} from "vitest";
-import {MerchantDestinationHttpsTransport,canReuseMerchantDestinationSnapshot,canRecoverMerchantDestinationAcknowledgement} from "../src/payments/merchant-destination-sync.js";
+import {generateKeyPairSync} from "node:crypto";
+import type {LocalDatabaseComponent} from "../src/local-database-component.js";
+import {MerchantDestinationHttpsTransport,MerchantDestinationSyncComponent,canReuseMerchantDestinationSnapshot,canRecoverMerchantDestinationAcknowledgement} from "../src/payments/merchant-destination-sync.js";
 import type {DeviceCredentialProvider} from "../src/sync/device-credential.js";
 
 const original=globalThis.fetch;
@@ -21,6 +23,39 @@ describe("QR-001 low-bandwidth trusted company revision check",()=>{
    expect(canReuseMerchantDestinationSnapshot(state,12,12,Date.parse("2026-11-07T12:45:00Z"))).toBe(false);
    expect(canReuseMerchantDestinationSnapshot(null,12,12,now)).toBe(false);
    expect(canReuseMerchantDestinationSnapshot({snapshot:{sequence:12,expires_at:"invalid"}},12,12,now)).toBe(false);
+ });
+});
+describe("QR-001 offline-first service lifecycle",()=>{
+ it("starts without awaiting Central and cancels an active HTTPS request on shutdown",async()=>{
+   const key=generateKeyPairSync("ed25519").publicKey;
+   const signer={authorization:async()=> "DeviceProof signed",isProvisioned:()=>true} as DeviceCredentialProvider;
+   const fetcher=vi.fn((_url:unknown,options:RequestInit)=>new Promise<Response>((_resolve,reject)=>{
+     const signal=options.signal;
+     if(!signal)throw Error("QR001_MISSING_ABORT_SIGNAL");
+     if(signal.aborted){reject(Error("QR001_ABORTED"));return;}
+     signal.addEventListener("abort",()=>reject(Error("QR001_ABORTED")),{once:true});
+   }));
+   globalThis.fetch=fetcher as typeof fetch;
+   const report=vi.fn();
+   // The remote status call never returns. No local SQL is reached until it
+   // does, and the fake DB contains no sale or banking data.
+   const db={database:{}} as unknown as LocalDatabaseComponent;
+   const sync=new MerchantDestinationSyncComponent(db,signer,{
+     origin:"https://central.example.test",
+     tenantId:"11111111-1111-4111-8111-111111111111",
+     companyId:"33333333-3333-4333-8333-333333333333",
+     installationId:"77777777-7777-4777-8777-777777777777",
+     environment:"SANDBOX",keyId:"merchant-test",publicKey:key,intervalMs:30_000,
+   },report);
+   // A regression to "await this.tick()" would block here indefinitely.
+   await sync.start();
+   await new Promise<void>(resolve=>setImmediate(resolve));
+   expect(fetcher).toHaveBeenCalledOnce();
+   const options=fetcher.mock.calls[0]?.[1] as RequestInit;
+   expect(options.signal?.aborted).toBe(false);
+   await sync.stop();
+   expect(options.signal?.aborted).toBe(true);
+   expect(report).toHaveBeenCalledWith("QR001_ABORTED");
  });
 });
 describe("QR-001 durable ACK crash recovery",()=>{
