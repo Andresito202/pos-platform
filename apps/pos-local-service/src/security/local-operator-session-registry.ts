@@ -38,11 +38,13 @@ export class LocalOperatorSessionRegistry {
     password: string,
   ): Promise<LocalOperatorLoginResult> {
     if (!connectionId || this.pending.has(connectionId)) return { status: "DENIED" };
+    this.cancelled.delete(connectionId);
     this.pending.add(connectionId);
     // Never preserve a previous user if a reauthentication fails.
     this.sessions.delete(connectionId);
     try {
       const result = await this.gate.authenticate(username, password);
+      if (this.cancelled.has(connectionId)) return { status: "DENIED" };
       if (result.status !== "AUTHENTICATED") return { status: result.status };
       const expiresAtMs = this.now() + this.validForMs;
       const active: ActiveOperator = {
@@ -60,6 +62,7 @@ export class LocalOperatorSessionRegistry {
       };
     } finally {
       this.pending.delete(connectionId);
+      this.cancelled.delete(connectionId);
     }
   }
 
@@ -83,7 +86,7 @@ export class LocalOperatorSessionRegistry {
     // Revocation must not race an async scrypt in login(). A release during
     // pending login cancels its post-verification commit as well.
     this.sessions.delete(connectionId);
-    this.cancelled.add(connectionId);
+    if (this.pending.has(connectionId)) this.cancelled.add(connectionId);
   }
 
   private readonly cancelled = new Set<string>();
