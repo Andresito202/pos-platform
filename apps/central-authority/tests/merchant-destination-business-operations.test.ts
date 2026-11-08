@@ -9,14 +9,14 @@ const session={
  tenantMembershipId:"44444444-4444-4444-8444-444444444444",
 };
 const company="55555555-5555-4555-8555-555555555555";
-function setup(companies:string[]=[company],enableNotices=false){
+function setup(companies:string[]=[company],enableNotices=false,recheckAllowed=true){
  const statements:{sql:string;values?:unknown[]}[]=[];
  const client={
   release:vi.fn(),
   query:vi.fn(async(sql:string,values?:unknown[])=>{
    statements.push({sql,...(values?{values}:{})});
    if(sql.includes("SELECT DISTINCT a.company_id"))return {rowCount:companies.length,rows:companies.map(company_id=>({company_id}))};
-   if(sql.includes("FOR SHARE OF a,role,m,s"))return {rowCount:companies.length===1?1:0,rows:companies.length===1?[{ok:true}]:[]};
+   if(sql.includes("FOR SHARE OF a,role,m,s"))return {rowCount:companies.length===1&&recheckAllowed?1:0,rows:companies.length===1&&recheckAllowed?[{ok:true}]:[]};
    if(sql.includes("UPDATE payments.merchant_notification_bridge_consents"))
      return {rowCount:1,rows:[{installation_id:"66666666-6666-4666-8666-666666666666"}]};
 
@@ -155,6 +155,17 @@ describe("QR-001 BUSINESS administrative scope",()=>{
      payload:{installation_id:"66666666-6666-4666-8666-666666666666"}}))
      .rejects.toThrow("QR001_ADMIN_DENIED_OR_AMBIGUOUS_COMPANY");
    expect(statements.some(s=>s.sql.includes("UPDATE payments.merchant_notification_bridge_consents"))).toBe(false);
+ });
+
+ it("rolls back without revoking if BUSINESS session is revoked before the write",async()=>{
+   const {pool,statements}=setup([company],true,false);
+   const enabled=new MerchantBusinessDestinationOperations(pool,true,true);
+   await expect(enabled.dispatch({session,action:"notice-consent-revoke",
+     payload:{installation_id:"66666666-6666-4666-8666-666666666666"}}))
+     .rejects.toThrow("QR001_ADMIN_WRITE_REVOKED");
+   expect(statements.some(s=>s.sql.includes("FOR SHARE OF a,role,m,s"))).toBe(true);
+   expect(statements.some(s=>s.sql.includes("UPDATE payments.merchant_notification_bridge_consents"))).toBe(false);
+   expect(statements.at(-1)?.sql).toBe("ROLLBACK");
  });
 
 });
