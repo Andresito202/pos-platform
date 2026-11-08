@@ -45,7 +45,9 @@ export const POSTGRES_024_DESCRIPTOR=descriptor("024_merchant_payment_destinatio
 export const MERCHANT_DESTINATION_MIGRATIONS=Object.freeze([...LICENSE_CATALOG_MIGRATIONS,POSTGRES_024_DESCRIPTOR]);
 export const POSTGRES_025_DESCRIPTOR=descriptor("025_merchant_payment_notifications",POSTGRES_024_DESCRIPTOR.migrationId,
  ["payments.merchant_notification_bridge_consents","payments.merchant_payment_notification_inbox"],"payments");
-export const MERCHANT_NOTIFICATION_MIGRATIONS=Object.freeze([...MERCHANT_DESTINATION_MIGRATIONS,POSTGRES_025_DESCRIPTOR]);
+export const POSTGRES_026_DESCRIPTOR=descriptor("026_merchant_payment_notice_reported_details",POSTGRES_025_DESCRIPTOR.migrationId,
+ ["payments.merchant_payment_notification_inbox"],"payments");
+export const MERCHANT_NOTIFICATION_MIGRATIONS=Object.freeze([...MERCHANT_DESTINATION_MIGRATIONS,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR]);
 type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG"|"MERCHANT_DESTINATIONS"|"MERCHANT_NOTIFICATIONS";
 function migrations(target:CommercialMigrationTarget){
   if(target==="MERCHANT_NOTIFICATIONS")return MERCHANT_NOTIFICATION_MIGRATIONS;
@@ -89,6 +91,14 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
         check(!(await c.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,table])).rows[0].allowed,"Factus Pay inbox exposed to tenant runtime");
       check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,"Factus Pay evidence must not be deletable");
     }
+  }
+  if(d===POSTGRES_026_DESCRIPTOR){
+    const fields=await c.query("SELECT attname FROM pg_attribute WHERE attrelid='payments.merchant_payment_notification_inbox'::regclass AND attname=ANY($1) AND attnum>0 AND NOT attisdropped",[
+      ["reported_amount_cop","payer_display"]]);
+    check(fields.rowCount===2,"QR002 reported-amount fields absent");
+    for(const constraint of ["merchant_notice_reported_amount_positive","merchant_notice_payer_display_size"])
+      check((await c.query("SELECT 1 FROM pg_constraint WHERE conrelid='payments.merchant_payment_notification_inbox'::regclass AND conname=$1",[constraint])).rowCount===1,
+        "QR002 reported evidence constraint missing: "+constraint);
   }
   if(d===POSTGRES_025_DESCRIPTOR){
     for(const table of d.ownedTables){
