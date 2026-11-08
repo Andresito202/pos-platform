@@ -61,9 +61,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Windows native host identity SCM fail closed and lease regressions
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/service-descriptor.test.ts tests/windows-commercial-host-identity.test.ts tests/windows-handoff-lease-state.test.ts tests/windows-scm-runtime.test.ts tests/windows-scm-stop.test.ts tests/windows-winsw-readiness.test.ts tests/windows-dpapi.test.ts tests/native-session-close-lifecycle.test.ts --no-file-parallelism
-      - name: Windows channel and DPAPI ownership
+      - name: Windows channel contracts (non-enrolled hosted runner)
         if: ${{ !cancelled() }}
-        run: pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-production.test.ts tests/windows-handoff.test.ts tests/windows-native-pipe.test.ts tests/windows-service-signer.test.ts --no-file-parallelism
+        run: pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-production.test.ts tests/windows-native-pipe.test.ts tests/windows-service-signer.test.ts --no-file-parallelism
+      - name: Signed handoff contract tests excluding physical receiver enrollment
+        if: ${{ !cancelled() }}
+        # Physical owner-ACL/DPAPI receiver enrollment requires the approved SCM lab.
+        # This CI suite must not imply an actual SERVICE/DESKTOP identity test.
+        run: pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-handoff.test.ts -t "^(?!.*real Windows receiver:)" --no-file-parallelism
       - name: Central login contracts and authorization
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/central-login-preflight.test.ts tests/central-certification-preflight.test.ts tests/business-login-coordinator.test.ts tests/native-authorization-code-exchange.test.ts tests/central-session-assertion-issuer.test.ts --no-file-parallelism
