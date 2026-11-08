@@ -111,6 +111,13 @@ DO $setup$ DECLARE object text; BEGIN
   -- scoped to current tenant/company; local POS roles remain denied.
   EXECUTE format($owner$CREATE POLICY merchant_notice_owner_evidence_read ON payments.%I
     FOR SELECT TO pos_schema_owner USING (true)$owner$,object);
+  -- PostgreSQL evaluates the UPDATE policy for a SELECT ... FOR SHARE lock.
+  -- Without this owner-only policy the SECURITY DEFINER guard cannot lock
+  -- a consent row and incorrectly rejects every valid bridge notification.
+  IF object='merchant_notification_bridge_consents' THEN
+    EXECUTE format($owner$CREATE POLICY merchant_notice_owner_guard_lock ON payments.%I
+      FOR UPDATE TO pos_schema_owner USING (true) WITH CHECK (true)$owner$,object);
+  END IF;
   EXECUTE format('CREATE TRIGGER merchant_notice_no_truncate BEFORE TRUNCATE ON payments.%I FOR EACH STATEMENT EXECUTE FUNCTION audit.reject_append_only_mutation()',object);
   EXECUTE format('REVOKE ALL ON payments.%I FROM PUBLIC,pos_app,pos_worker,pos_reporting',object);
  END LOOP;
