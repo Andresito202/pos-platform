@@ -53,6 +53,21 @@ export class MerchantDestinationHttpsTransport {
    return JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(Buffer.concat(chunks,total)));
  }
 }
+/**
+ * Only an exact remotely acknowledged, unexpired company projection can be
+ * reused; any revision mismatch, local corruption, rollback or short TTL
+ * requires retrieving a new signed snapshot.
+ */
+export function canReuseMerchantDestinationSnapshot(
+ local:{snapshot:{sequence:number;expires_at:string}}|null,
+ acknowledged:number|null,current:number|null,nowMs:number,
+):boolean {
+ if(!local||acknowledged===null||current===null||!Number.isFinite(nowMs))return false;
+ const seq=local.snapshot.sequence;
+ return Number.isSafeInteger(seq)&&seq>0&&acknowledged===seq&&current===seq&&
+   Date.parse(local.snapshot.expires_at)>nowMs+15*60_000;
+}
+
 export interface MerchantDestinationSyncProvision{
  readonly origin:string;
  readonly tenantId:string;
@@ -120,13 +135,8 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
      const acknowledged=sequence(status.floor);
      const current=sequence(status.current_sequence);
      const local=store.load(company);
-     const localSeq=local?.snapshot.sequence??null;
-     // Only a fully acknowledged, still-valid snapshot may skip downloading.
-     // A stale, unacknowledged or restored SQLite state MUST refresh from
-     // Central and pass Ed25519/signature/version verification again.
-     if(localSeq!==null&&acknowledged!==null&&current!==null&&
-        acknowledged>=localSeq&&current===localSeq&&
-        Date.parse(local!.snapshot.expires_at)>Date.now()+15*60_000){
+     // A stale, unacknowledged or restored SQLite state MUST refresh.
+     if(canReuseMerchantDestinationSnapshot(local,acknowledged,current,Date.now())){
        this.report("VALID_CACHED");
        return;
      }
