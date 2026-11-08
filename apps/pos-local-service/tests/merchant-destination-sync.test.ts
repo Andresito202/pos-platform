@@ -6,9 +6,9 @@ const original=globalThis.fetch;
 afterEach(()=>{globalThis.fetch=original;});
 describe("QR-001 signed-device HTTPS client",()=>{
  it("signs exact requested path and body without tenant asserted by renderer",async()=>{
-  const signed=vi.fn(async()=> "DeviceProof signed");
+  const signed=vi.fn(async(_context:unknown)=> "DeviceProof signed");
   const signer={authorization:signed,isProvisioned:()=>true} as DeviceCredentialProvider;
-  const fetcher=vi.fn(async()=>new Response(JSON.stringify({floor:null}),{
+  const fetcher=vi.fn(async(_url:unknown,_options:unknown)=>new Response(JSON.stringify({floor:null}),{
    status:200,headers:{"content-type":"application/json; charset=utf-8","cache-control":"no-store"},
   }));
   globalThis.fetch=fetcher as typeof fetch;
