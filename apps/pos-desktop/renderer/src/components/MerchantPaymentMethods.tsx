@@ -42,10 +42,10 @@ export function MerchantPaymentMethods({enabled,amount}:{
    {error&&<p role="status" data-testid="merchant-payment-unavailable">{error}</p>}
    {value?.destinations.map(item=><article key={item.kind} className="pos-payment-destination" data-testid={"destination-"+item.kind}>
      <h4>{item.label}</h4>
-     {item.kind==="NEQUI_BUSINESS_QR"&&item.qr_png_base64
+     {(item.kind==="NEQUI_BUSINESS_QR"||item.kind==="BREB_KEY")&&item.qr_png_base64
        ? <img src={"data:image/png;base64,"+item.qr_png_base64} alt="QR oficial del comercio"
            width={224} height={224} style={{maxWidth:"100%",height:"auto",imageRendering:"auto"}} />
-       : item.kind==="NEQUI_BUSINESS_QR"
+        : item.kind==="NEQUI_BUSINESS_QR"||item.kind==="BREB_KEY"
        ? <p>El QR oficial no está disponible en esta caja. Solicita sincronización al administrador.</p>
        : null}
      <p>{item.kind==="NEQUI_NUMBER"?"Nequi":item.kind==="BREB_KEY"?"Llave Bre-B":"Llave vinculada al QR"}</p>
