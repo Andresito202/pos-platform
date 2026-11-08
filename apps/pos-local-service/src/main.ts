@@ -1,3 +1,5 @@
+import { LocalOperatorPasswordGate } from "./security/local-operator-password-gate.js";
+import { LocalOperatorSessionRegistry } from "./security/local-operator-session-registry.js";
 import {fetchPublicLicenseCatalog} from "./security/license-offer-catalog.js";
 import { createPublicKey } from "node:crypto";
 import { Buffer } from "node:buffer";
@@ -336,6 +338,10 @@ try {
       commercial,
       nativeCommercial,
       scmProvision,
+      config.local_operator_auth_store === undefined ? undefined : () =>
+        new LocalOperatorSessionRegistry(new LocalOperatorPasswordGate(
+          localDatabase.database, config.local_operator_auth_store!,
+        )),
     );
     components.push(localChannel);
   }
