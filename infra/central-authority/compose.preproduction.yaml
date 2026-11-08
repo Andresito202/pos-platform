@@ -1,0 +1,47 @@
+# Preproduction deployment; use from the repository root:
+# docker compose --env-file /etc/camacho-pos/deployment.env -f infra/central-authority/compose.preproduction.yaml up -d --build
+# This host does NOT expose the database. TLS is terminated by Central itself.
+services:
+  central:
+    build:
+      context: ../..
+      dockerfile: infra/central-authority/Dockerfile
+    image: camacho-pos-central:preproduction
+    init: true
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=32m
+    ports:
+      - "443:8443"
+    env_file:
+      - path: /etc/camacho-pos/central-runtime.env
+        required: true
+    environment:
+      CENTRAL_DEPLOYMENT_ENVIRONMENT: PREPRODUCTION
+      CENTRAL_AUTHORITY_PORT: "8443"
+      CENTRAL_BIND_ADDRESS: "0.0.0.0"
+      CENTRAL_TLS_KEY_FILE: /run/camacho-secrets/tls.key
+      CENTRAL_TLS_CERT_FILE: /run/camacho-secrets/tls.crt
+      D3_ISSUER_PRIVATE_KEY_FILE: /run/camacho-secrets/issuer.key
+      D3_ENROLLMENT_TRANSPORT_TOKEN_FILE: /run/camacho-secrets/enrollment.token
+    volumes:
+      - type: bind
+        source: /etc/camacho-pos/secrets
+        target: /run/camacho-secrets
+        read_only: true
+        bind:
+          create_host_path: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 256
+    mem_limit: 1g
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "node", "-e", "const https=require('node:https');const fs=require('node:fs');const u=new URL(process.env.CENTRAL_AUTHORITY_ORIGIN);const opts={hostname:'127.0.0.1',port:8443,path:'/ready',headers:{host:u.host},servername:u.hostname,ca:fs.readFileSync('/run/camacho-secrets/tls.crt'),timeout:5000};https.get(opts,r=>{r.resume();process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+      start_period: 30s
