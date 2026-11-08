@@ -8,6 +8,20 @@ on:
       - 'apps/central-authority/src/merchant-destination-*.ts'
       - 'apps/central-authority/tests/merchant-destination-*.test.ts'
       - 'apps/central-authority/package.json'
+      - 'apps/central-authority/src/isolated-commercial-https.ts'
+      - 'apps/central-authority/src/central-commercial-runtime.ts'
+      - 'apps/central-authority/src/commercial-browser-entry.ts'
+      - 'apps/central-authority/src/main.ts'
+      - 'apps/pos-local-service/src/commercial/commercial-request-handler.ts'
+      - 'apps/pos-local-service/src/channel/local-channel-component.ts'
+      - 'apps/pos-desktop/renderer/src/components/MerchantPaymentMethods.tsx'
+      - 'apps/pos-desktop/renderer/src/components/SalePanel.tsx'
+      - 'apps/pos-desktop/tests/renderer/MerchantPaymentMethods.test.tsx'
+      - 'apps/pos-desktop/src/preload-api.ts'
+      - 'apps/pos-desktop/src/ipc-allowlist.ts'
+      - 'packages/contracts/src/ipc-commercial.ts'
+      - 'packages/contracts/src/ipc.ts'
+      - 'packages/local-channel/src/response-schemas.ts'
       - 'apps/pos-local-service/src/payments/merchant-destination-*.ts'
       - 'apps/pos-local-service/src/payments/sqlite-merchant-destination-*.ts'
       - 'apps/pos-local-service/src/security/merchant-destination-*.ts'
@@ -69,12 +83,14 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
-      - name: Typecheck domain, Central, local service and migration runner
+      - name: Typecheck contracts, domain, Central, POS Local, Electron and migrations
         run: |
+          pnpm --filter @pos-platform/contracts typecheck
           pnpm --filter @pos-platform/domain typecheck
           pnpm --filter @pos-platform/central-authority typecheck
           pnpm --filter @pos-platform/pos-local-service typecheck
           pnpm --filter @pos-platform/target-migrations typecheck
+          pnpm --filter @pos-platform/pos-desktop typecheck
       - name: QR-001 domain unit tests
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/domain exec vitest run tests/merchant-destination.test.ts tests/merchant-destination-commands.test.ts tests/merchant-destination-snapshot.test.ts
@@ -84,6 +100,9 @@ jobs:
       - name: QR-001 SQLite and cryptographic tests
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-activation.test.ts tests/merchant-destination-projection.test.ts tests/merchant-destination-snapshot-verifier.test.ts
+      - name: QR-001 Electron cashier renderer integration
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @pos-platform/pos-desktop exec vitest run --config vitest.config.ts tests/renderer/MerchantPaymentMethods.test.tsx
       - name: QR-001 central migration manifest and security gates
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations.test.ts tests/postgres-024-merchant-destinations-physical.test.ts
