@@ -88,7 +88,33 @@ const SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
 const SESSION_KEY_ID = "SESSION_KEY_1";
 const NOW = new Date("2026-09-03T12:00:00.000Z");
 
-const PERMISSIONS = Object.values(CanonicalPermission);
+// Explicit test-only role views. These are NOT Central's role assignments;
+// the signer is ephemeral, the database temporary and the host rejects
+// NODE_ENV other than test. No production runtime reads POS_E2E_ROLE.
+const ROLE_PERMISSIONS = {
+  CAJERO: [
+    CanonicalPermission.CASH_SHIFT_OPEN, CanonicalPermission.CASH_SHIFT_CLOSE,
+    CanonicalPermission.SALES_SALE_CREATE, CanonicalPermission.SALES_RECEIPT_READ,
+    CanonicalPermission.PAYMENTS_PAYMENT_REGISTER, CanonicalPermission.PAYMENTS_PAYMENT_READ,
+    CanonicalPermission.PAYMENTS_TRANSFER_REPORT,
+    CanonicalPermission.CATALOG_PRODUCT_READ, CanonicalPermission.CUSTOMERS_CUSTOMER_READ,
+  ],
+  SUPERVISOR: [
+    CanonicalPermission.CASH_SHIFT_OPEN, CanonicalPermission.CASH_SHIFT_CLOSE,
+    CanonicalPermission.SALES_SALE_CREATE, CanonicalPermission.SALES_RECEIPT_READ,
+    CanonicalPermission.PAYMENTS_PAYMENT_REGISTER, CanonicalPermission.PAYMENTS_PAYMENT_READ,
+    CanonicalPermission.PAYMENTS_TRANSFER_REPORT, CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM,
+    CanonicalPermission.CATALOG_PRODUCT_READ, CanonicalPermission.INVENTORY_STOCK_READ,
+    CanonicalPermission.CUSTOMERS_CUSTOMER_READ, CanonicalPermission.AUDIT_EVENT_READ,
+  ],
+  ADMINISTRADOR: Object.values(CanonicalPermission).filter(code => code !== CanonicalPermission.LICENSE_PLAN_MANAGE),
+  SUPERADMINISTRADOR: [CanonicalPermission.LICENSE_PLAN_MANAGE],
+} as const;
+const requestedRole=process.env.POS_E2E_ROLE;
+if(requestedRole!==undefined&&!Object.prototype.hasOwnProperty.call(ROLE_PERMISSIONS,requestedRole))
+  throw Error("E2E_ROLE_UNRECOGNIZED");
+const PERMISSIONS:readonly string[]=requestedRole===undefined?Object.values(CanonicalPermission):
+  ROLE_PERMISSIONS[requestedRole as keyof typeof ROLE_PERMISSIONS];
 
 const keyPair = WITHOUT_SESSION?null:generateKeyPairSync("ed25519");
 const authorizationKeyPair=WITHOUT_SESSION?null:generateKeyPairSync("ed25519");
