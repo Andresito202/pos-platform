@@ -96,6 +96,7 @@ let SESSION_SEQUENCE = 1;
 let SNAPSHOT_SEQUENCE = 1;
 const SESSION_KEY_ID = "SESSION_KEY_1";
 const NOW = process.env.POS_E2E_PERSISTENT_DEV==="1"?new Date():new Date("2026-09-03T12:00:00.000Z");
+const clock=()=>PERSISTENT_DEV?new Date():NOW;
 
 // Explicit test-only role views. These are NOT Central's role assignments;
 // the signer is ephemeral, the database temporary and the host rejects
@@ -327,7 +328,7 @@ async function main(): Promise<void> {
     // The signed bytes and persisted claims MUST be identical. A per-boot
     // UUIDv7 snapshot cannot be recomputed between signing and storage.
     const claims=authorizationClaims();
-    const result=new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+    const result=new SqliteAuthorizationSnapshotStore(database, clock).activate(
       {
         claims,
         signature: sign(null, unsignedAuthorizationSnapshotBytes(claims), authorizationKeyPair.privateKey)
@@ -363,7 +364,7 @@ async function main(): Promise<void> {
       localDatabase,
       durableSync,
       keys,
-      () => NOW,
+      clock,
       fiscalSecretStore,
       new FakeIssuancePort(),
       new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),
