@@ -1,4 +1,5 @@
 import {randomUUID} from "node:crypto";
+import {uuidV7} from "@pos-platform/contracts";
 import type {KeyObject} from "node:crypto";
 import type {RuntimeComponent} from "../lifecycle.js";
 import type {DeviceCredentialProvider} from "../sync/device-credential.js";
