@@ -18,6 +18,7 @@ import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-sessi
 import {IsolatedNativeBusinessRequests} from "./isolated-native-business-requests.js";
 import {IsolatedAuthorizationSnapshotIssuer} from "./isolated-authorization-snapshot-issuer.js";
 import {prepareCommercialHttpHandler} from "./isolated-commercial-https.js";
+import {MerchantBusinessDestinationOperations} from "./merchant-destination-business-operations.js";
 
 function managed(path:string,max=1048576){
   if(!isAbsolute(path))throw Error("COMMERCIAL_MANAGED_ABSOLUTE_FILE_REQUIRED");
@@ -34,7 +35,7 @@ const publicMaterial=(key:KeyObject)=>key.export({type:"spki",format:"der"}).toS
 /** One composition on the existing Central listener. No constructor accepts
  * client-supplied approval flags, identities or a synthetic authenticated user. */
 export async function prepareCentralCommercialRuntime(input:{pool:Pool;provisionFile:string;origin:string;environment:"PREPRODUCTION"|"PRODUCTION";
-  tls:{key:Buffer;cert:Buffer};publishedSsaFile:string;publishedSasFile:string}){
+  tls:{key:Buffer;cert:Buffer};publishedSsaFile:string;publishedSasFile:string;merchantDestinationsEnabled?:boolean}){
   const p=CentralCommercialProvisionSchema.parse(json(input.provisionFile)),l=p.limits,d=p.recipient;
   validateCommercialHttpsOrigin(input.origin);validateWindowsCommercialRegistration(p.registration,p.rp_id,input.origin);
   if(p.environment!==input.environment||p.registration.authorizationOrigin!==input.origin||resolve(p.sas.trust_bundle_file)!==resolve(input.publishedSasFile))throw Error("COMMERCIAL_DEPLOYMENT_SCOPE_REJECTED");
@@ -68,6 +69,15 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
     [p.factor_id,p.membership_id,d.tenant_id,d.device_id,d.installation_id,d.company_id,d.branch_id]);
   if(selected.rowCount!==1)throw Error("COMMERCIAL_AUTHENTIC_SCOPE_NOT_PROVISIONED");
   }finally{try{await preflight.query("ROLLBACK");}finally{preflight.release();}}
+  if(input.merchantDestinationsEnabled){
+    // Migration 024 must already exist in this EXACT Central database. Do not
+    // enable an admin-facing endpoint on partially provisioned storage.
+    const q=await input.pool.query<{ready:boolean}>(`SELECT
+      to_regclass('payments.merchant_destinations') IS NOT NULL AND
+      to_regclass('payments.merchant_qr_assets') IS NOT NULL AND
+      to_regclass('payments.merchant_destination_outbox') IS NOT NULL AS ready`);
+    if(q.rows[0]?.ready!==true)throw Error("QR001_CENTRAL_MIGRATION_024_REQUIRED");
+  }
   const mfa=new BusinessInitialMfaFlow(input.pool,{rpId:p.rp_id,origin:input.origin,challengeLifetimeMs:l.mfa_challenge_ms,rejectionVerifier:rejection});
   const authority=new BusinessSessionAuthority(input.pool,mfa,{mode:"PRODUCTION",version:p.policy_reference,sessionLifetimeMs:l.session_ms,
     maximumMfaAgeMs:l.mfa_age_ms,maximumReauthenticationAgeMs:l.reauthentication_ms,accessProof:{mode:"COMMERCIAL_POSSESSION_V2",policyReference:p.policy_reference},
@@ -94,6 +104,7 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
       {mode:"DEPLOYMENT",lifetimeMs:l.sas_ms,maximumReauthenticationAgeMs:l.reauthentication_ms},
       {mode:"DEPLOYMENT",environment:p.environment,purpose:"AUTHORIZATION_SNAPSHOT",keyId:p.sas.key_id,status:"ACTIVE",privateKey:sasPrivate,publicKey:sasPublic,validFrom:sasFrom,validUntil:sasUntil},
       {mode:"REGISTERED_015",lockTimeoutMs:l.sql_lock_timeout_ms},deployment),
+    ...(input.merchantDestinationsEnabled?{merchantDestinations:new MerchantBusinessDestinationOperations(input.pool)}:{}),
     browserEntry:{rpId:p.rp_id,factorId:p.factor_id,tenantId:d.tenant_id,membershipId:p.membership_id,logoPng:managed(fileURLToPath(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url)))},
     policy:{mode:"DEPLOYMENT",maximumBodyBytes:l.http_maximum_body_bytes,requestsPerMinute:l.http_requests_per_minute,maximumLoginAttempts:l.maximum_login_attempts,maximumBuckets:l.http_maximum_buckets}});
 }
