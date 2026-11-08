@@ -48,6 +48,22 @@ describe("connection-scoped local operator sessions", () => {
     expect(registry.resolve("A")).toBeNull();
   });
 
+  it("does not revive a disconnected login after its connection ID is reused",async()=>{
+    const releases: Array<(result:typeof accepted)=>void> = [];
+    const registry=new LocalOperatorSessionRegistry({
+      authenticate:()=>new Promise<typeof accepted>(resolve=>{releases.push(resolve);}),
+    });
+    const old=registry.login("A","admin.local","correct");
+    registry.release("A");
+    const next=registry.login("A","admin.local","correct");
+    releases[0]!(accepted);
+    expect(await old).toEqual({status:"DENIED"});
+    expect(registry.resolve("A")).toBeNull();
+    releases[1]!(accepted);
+    expect((await next).status).toBe("AUTHENTICATED");
+    expect(registry.resolve("A")?.username).toBe("admin.local");
+  });
+
   it("denies overlapping authentication and does not revive cleared sessions",async()=>{
     let release:((result:typeof accepted)=>void)|undefined;
     const registry=new LocalOperatorSessionRegistry({
