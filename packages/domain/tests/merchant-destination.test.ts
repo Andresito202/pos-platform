@@ -19,6 +19,18 @@ describe("QR-001 isolation and immutable transitions",()=>{
  it("validates official QR payload metadata",()=>{
    expect(MerchantDestinationDraftSchema.safeParse(draft).success).toBe(true);
    expect(MerchantDestinationDraftSchema.safeParse({...draft,qr_sha256:null}).success).toBe(false);
+   expect(MerchantDestinationDraftSchema.safeParse({
+     kind:"BREB_KEY",label:"Llave Bre-B",destination_reference:"@3001234567",
+     qr_asset_id:QR,qr_sha256:digest,
+   }).success).toBe(true);
+   expect(MerchantDestinationDraftSchema.safeParse({
+     kind:"BREB_KEY",label:"Llave Bre-B",destination_reference:"@3001234567",
+     qr_asset_id:null,qr_sha256:null,
+   }).success).toBe(true);
+   expect(MerchantDestinationDraftSchema.safeParse({
+     kind:"NEQUI_NUMBER",label:"Número",destination_reference:"3001234567",
+     qr_asset_id:QR,qr_sha256:digest,
+   }).success).toBe(false);
    expect(MerchantDestinationDraftSchema.safeParse({...draft,qr_asset_id:null,qr_sha256:null}).success).toBe(false);
    expect(MerchantDestinationDraftSchema.safeParse({kind:"NEQUI_NUMBER",label:"A",destination_reference:"0000",qr_asset_id:null,qr_sha256:null}).success).toBe(false);
  });
