@@ -1,0 +1,65 @@
+name: QR-001 Nequi Bre-B validation
+
+on:
+  pull_request:
+    branches:
+      - feat/android-commercial-runtime
+    paths:
+      - 'apps/central-authority/src/merchant-destination-*.ts'
+      - 'apps/central-authority/tests/merchant-destination-*.test.ts'
+      - 'apps/central-authority/package.json'
+      - 'apps/pos-local-service/src/payments/merchant-destination-*.ts'
+      - 'apps/pos-local-service/src/payments/sqlite-merchant-destination-*.ts'
+      - 'apps/pos-local-service/src/security/merchant-destination-*.ts'
+      - 'apps/pos-local-service/tests/merchant-destination-*.test.ts'
+      - 'packages/domain/src/merchant-destination*.ts'
+      - 'packages/domain/tests/merchant-destination*.test.ts'
+      - 'packages/database-sqlite/src/local-database.ts'
+      - 'tools/target-migrations/sql/postgres/024_merchant_payment_destinations.*.sql'
+      - 'tools/target-migrations/src/postgres-commercial-*.ts'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/qr001-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qr001-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qr001:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact reviewed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck domain, Central, local service and migration runner
+        run: |
+          pnpm --filter @pos-platform/domain typecheck
+          pnpm --filter @pos-platform/central-authority typecheck
+          pnpm --filter @pos-platform/pos-local-service typecheck
+          pnpm --filter @pos-platform/target-migrations typecheck
+      - name: QR-001 domain unit tests
+        run: pnpm --filter @pos-platform/domain exec vitest run tests/merchant-destination.test.ts tests/merchant-destination-commands.test.ts tests/merchant-destination-snapshot.test.ts
+      - name: QR-001 Central tests (QR PNG and transaction)
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-postgres-store.test.ts
+      - name: QR-001 SQLite and cryptographic tests
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-activation.test.ts tests/merchant-destination-projection.test.ts tests/merchant-destination-snapshot-verifier.test.ts
