@@ -22,13 +22,15 @@ const now=new Date();
 const {privateKey,publicKey}=generateKeyPairSync("ed25519");
 function setup(rows:Record<string,unknown>[]=[],cursor="3"){
  const queries:{sql:string;params?:unknown[]}[]=[];
- let sequence=Number(cursor);
+ let sequence=Number(cursor),renewedAt=now.getTime();
+ const setGenerationAgeMs=(age:number)=>{renewedAt=now.getTime()-age;};
  const client={
   release:vi.fn(),
   query:vi.fn(async(sql:string,params?:unknown[])=>{
    queries.push({sql,...(params?{params}:{})});
-   if(sql.includes("UPDATE payments.merchant_destination_sequences")){
-     sequence++;
+   if(sql.includes("WITH renewed AS")){
+     const ttl=Number(params?.[2]);
+     if(now.getTime()-renewedAt>=ttl-900_000){sequence++;renewedAt=now.getTime();}
      return {rowCount:1,rows:[{sequence:String(sequence),now}]};
    }
    if(sql.includes("FROM payments.merchant_destinations"))return {rowCount:rows.length,rows};
@@ -39,9 +41,9 @@ function setup(rows:Record<string,unknown>[]=[],cursor="3"){
  const issuer=new CentralMerchantDestinationPublisher(pool,{
   purpose:"MERCHANT_DESTINATION_SNAPSHOT",environment:"SANDBOX",keyId:"qr001-test",
   privateKey,validFrom:new Date(now.getTime()-60_000).toISOString(),
-  validUntil:new Date(now.getTime()+120_000).toISOString(),snapshotLifetimeMs:60_000,
+  validUntil:new Date(now.getTime()+3*60*60_000).toISOString(),snapshotLifetimeMs:60*60_000,
  });
- return {issuer,client,queries};
+ return {issuer,client,queries,setGenerationAgeMs};
 }
 describe("QR-001 Central Ed25519 company issuer",()=>{
  it("signs multiple published methods consistently from one company",async()=>{
@@ -86,16 +88,21 @@ describe("QR-001 Central Ed25519 company issuer",()=>{
   expect(queries.at(-1)?.sql).toBe("ROLLBACK");
   expect(client.release).toHaveBeenCalledOnce();
  });
- it("renews the same unchanged static bank QR with strictly increasing sequence",async()=>{
+ it("serves four registered tills from one generation and renews only near expiry",async()=>{
   const sample={kind:"NEQUI_NUMBER",label:"Nequi",destination_reference:"3001234567",
     qr_asset_id:null,qr_sha256:null,version:1};
-  const {issuer,queries}=setup([sample],"20");
-  const first=await issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C});
-  const second=await issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C});
-  expect(first.claims.snapshot.sequence).toBe(21);
-  expect(second.claims.snapshot.sequence).toBe(22);
-  expect(first.claims.snapshot.destinations).toEqual(second.claims.snapshot.destinations);
-  expect(queries.filter(x=>x.sql.includes("UPDATE payments.merchant_destination_sequences"))).toHaveLength(2);
+  const {issuer,queries,setGenerationAgeMs}=setup([sample],"20");
+  const four=await Promise.all(Array.from({length:4},()=>
+    issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C})));
+  expect(four.map(x=>x.claims.snapshot.sequence)).toEqual([20,20,20,20]);
+  expect(four.every(x=>JSON.stringify(x.claims.snapshot.destinations)===
+    JSON.stringify(four[0]!.claims.snapshot.destinations))).toBe(true);
+  setGenerationAgeMs(45*60_000+1);
+  const renewal=await issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C});
+  expect(renewal.claims.snapshot.sequence).toBe(21);
+  const after=await issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C});
+  expect(after.claims.snapshot.sequence).toBe(21);
+  expect(queries.filter(x=>x.sql.includes("WITH renewed AS"))).toHaveLength(6);
  });
  it("requires an authoritative company sequence",async()=>{
   const {issuer}=setup([],"-1");
