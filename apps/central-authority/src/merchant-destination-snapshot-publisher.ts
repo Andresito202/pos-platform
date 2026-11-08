@@ -43,8 +43,9 @@ function validSequence(value:unknown):number {
  * before invoking issueForPreauthorizedInstallation().
  *
  * This class does not expose HTTP, grant read/write permission or send funds.
- * Uses read-only REPEATABLE READ to keep company sequence and published
- * methods consistent at a single database snapshot.
+ * Allocates a fresh monotonic signed issuance sequence on EVERY refresh.
+ * A static QR cannot expire permanently merely because its admin config did
+ * not change. SERIALIZABLE ensures issuer and admin outbox share one order.
  */
 export class CentralMerchantDestinationPublisher {
  constructor(private readonly pool:Pool,private readonly signing:MerchantSigningConfiguration){
@@ -63,14 +64,17 @@ export class CentralMerchantDestinationPublisher {
   const client=await this.pool.connect();
   let begun=false;
   try {
-   await client.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
+   await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
    begun=true;
    await client.query("SELECT set_config('app.tenant_id',$1,true)",[scope.tenantId]);
    await client.query("SELECT set_config('app.company_id',$1,true)",[scope.companyId]);
-   // Read database time and sequence inside the same MVCC snapshot as methods.
-   const cursor=await client.query(`SELECT s.sequence::text AS sequence,clock_timestamp() AS now
-     FROM payments.merchant_destination_sequences s
-     WHERE s.tenant_id=$1 AND s.company_id=$2`,[scope.tenantId,scope.companyId]);
+   // Increment on issuance as well as mutation. Otherwise the same static QR
+   // can never be refreshed after its signed snapshot expires.
+   const cursor=await client.query(`UPDATE payments.merchant_destination_sequences
+       SET sequence=sequence+1,updated_at=clock_timestamp()
+       WHERE tenant_id=$1 AND company_id=$2
+       RETURNING sequence::text AS sequence,clock_timestamp() AS now`,
+       [scope.tenantId,scope.companyId]);
    if(cursor.rowCount!==1)throw Error("QR001_NOT_PUBLISHED");
    const sequence=validSequence(cursor.rows[0]?.sequence);
    const now=cursor.rows[0]?.now as Date;
