@@ -55,7 +55,8 @@ function toRevision(row:Row):MerchantDestinationRevision {
 }
 
 export class PostgresMerchantDestinationStore implements DestinationMutationStore {
-  constructor(private readonly pool:Pool,private readonly scope:VerifiedMerchantScope) {
+  constructor(private readonly pool:Pool,private readonly scope:VerifiedMerchantScope,
+    private readonly authorizeSensitiveWrite?:(client:PoolClient)=>Promise<void>) {
     assertUuid(scope.tenantId);assertUuid(scope.companyId);
   }
 
@@ -67,6 +68,7 @@ export class PostgresMerchantDestinationStore implements DestinationMutationStor
       begun=true;
       await client.query("SELECT set_config('app.tenant_id',$1,true)",[this.scope.tenantId]);
       await client.query("SELECT set_config('app.company_id',$1,true)",[this.scope.companyId]);
+      if(this.authorizeSensitiveWrite)await this.authorizeSensitiveWrite(client);
       await client.query("SET LOCAL lock_timeout = '5s'");
       await client.query("SET LOCAL statement_timeout = '10s'");
       const ensureScope=(tenantId:string,companyId:string):void=>{
