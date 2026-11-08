@@ -16,7 +16,9 @@ const IsoDate=z.iso.datetime({offset:true});
 /** Amount asserted in an SMS, never a bank-verified settlement. */
 const SmsReportedAmount=z.number().int().positive().safe().max(100_000_000);
 const SmsPayer=z.string().min(2).max(80)
-  .regex(/^[\p{L}\p{N} .'*+-]{2,80}$/u);
+  .regex(/^[\p{L}\p{N} .'*+-]{2,80}$/u)
+  .refine(value=>!/(?:^|\D)3\d{9}(?:$|\D)/.test(value),
+    "unmasked personal phone numbers must not be persisted");
 
 
 export const MerchantPaymentNoticeObservationSchema=z.strictObject({
