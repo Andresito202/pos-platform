@@ -9,7 +9,7 @@ const session={
  tenantMembershipId:"44444444-4444-4444-8444-444444444444",
 };
 const company="55555555-5555-4555-8555-555555555555";
-function setup(companies:string[]=[company]){
+function setup(companies:string[]=[company],enableNotices=false){
  const statements:{sql:string;values?:unknown[]}[]=[];
  const client={
   release:vi.fn(),
@@ -17,11 +17,16 @@ function setup(companies:string[]=[company]){
    statements.push({sql,...(values?{values}:{})});
    if(sql.includes("SELECT DISTINCT a.company_id"))return {rowCount:companies.length,rows:companies.map(company_id=>({company_id}))};
    if(sql.includes("FROM payments.merchant_destinations d"))return {rowCount:0,rows:[]};
+   if(sql.includes("FROM payments.merchant_payment_notification_inbox"))return {rowCount:1,rows:[{
+     id:"77777777-7777-4777-8777-777777777777",received_at:new Date("2026-11-07T12:00:00Z"),
+     sender_label:"SMS compartido",status:"UNVERIFIED",bank_confirmed:false,
+     sale_confirmed:false,requires_independent_reconciliation:true,
+   }]};
    return {rowCount:1,rows:[]};
   }),
  };
  const pool={connect:async()=>client} as unknown as Pool;
- return {service:new MerchantBusinessDestinationOperations(pool),statements,client};
+ return {service:new MerchantBusinessDestinationOperations(pool,enableNotices),statements,client};
 }
 describe("QR-001 BUSINESS administrative scope",()=>{
  it("allows read only for one active explicit admin company derived from the session",async()=>{
@@ -55,4 +60,33 @@ describe("QR-001 BUSINESS administrative scope",()=>{
    .rejects.toThrow("QR001_INVALID_REQUEST");
   expect(statements).toHaveLength(0);
  });
+ it("denies QR-002 notice reads when migration-enabled rollout flag is off",async()=>{
+  const {service,statements}=setup();
+  await expect(service.dispatch({session,action:"notices",payload:{}}))
+    .rejects.toThrow("QR002_NOTIFICATIONS_NOT_ENABLED");
+  expect(statements.some(x=>x.sql.includes("merchant_payment_notification_inbox"))).toBe(false);
+ });
+ it("shows at most 25 unverified observations to a verified company administrator",async()=>{
+  const {service,statements}=setup([company],true);
+  const response=await service.dispatch({session,action:"notices",payload:{}}) as {notices:Record<string,unknown>[]};
+  expect(response.notices).toHaveLength(1);
+  expect(response.notices[0]?.bank_confirmed).toBe(false);
+  expect(response.notices[0]?.sale_confirmed).toBe(false);
+  const query=statements.find(x=>x.sql.includes("FROM payments.merchant_payment_notification_inbox"));
+  expect(query?.sql).toContain("LIMIT 25");
+  expect(query?.sql).not.toMatch(/payments\.payments|payment_id|sale_id|message_sha256/);
+  expect(query?.values).toEqual([session.tenantId,company]);
+  expect(statements.some(x=>x.sql.includes("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))).toBe(true);
+ });
+ it("rejects cashier and caller-specified company before exposing notifications",async()=>{
+  const unauthorized=setup([],true);
+  await expect(unauthorized.service.dispatch({session,action:"notices",payload:{}}))
+    .rejects.toThrow("QR001_ADMIN_DENIED_OR_AMBIGUOUS_COMPANY");
+  expect(unauthorized.statements.some(x=>x.sql.includes("merchant_payment_notification_inbox"))).toBe(false);
+  const injected=setup([company],true);
+  await expect(injected.service.dispatch({session,action:"notices",payload:{company_id:company}}))
+    .rejects.toThrow("QR001_INVALID_REQUEST");
+  expect(injected.statements.some(x=>x.sql.includes("merchant_payment_notification_inbox"))).toBe(false);
+ });
+
 });
