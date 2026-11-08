@@ -2,6 +2,7 @@ import { CanonicalPermission } from "@pos-platform/contracts";
 import { useState } from "react";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
 import { ProductAvatar } from "./ProductAvatar.js";
+import {MerchantPaymentMethods} from "./MerchantPaymentMethods.js";
 
 const paymentButtons = [
   { id: "cash", label: "Efectivo", icon: new URL("../assets/payment-icons/banknote.svg", import.meta.url).href },
@@ -243,6 +244,8 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                   ) : null
                 ))}
               </div>
+
+              <MerchantPaymentMethods enabled={permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ)} amount={paymentAmount||sale.sale.payableAmount}/>
 
               {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER) && <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
                 <div><span>Efectivo recibido</span><strong data-testid="tendered-display">{tendered || "0"}</strong></div>

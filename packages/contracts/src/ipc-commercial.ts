@@ -1237,6 +1237,54 @@ export const AuditEventListResultSchema = z.strictObject({
 export const AuditEventListResponseSchema =
   createResponseEnvelopeSchema(AuditEventListResultSchema);
 
+// ── payment.destination.get — QR-001 ─────────────────────────────────────────
+// A strictly read-only authenticated projection. The renderer cannot supply
+// any tenant, company, image URL, account or authorization context.
+export const MerchantDestinationsGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({message_type:z.literal("payment.destination.get")})
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const MerchantDestinationsGetResultSchema = z.strictObject({
+  outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),
+  sequence:z.number().int().positive().nullable(),
+  destinations:z.array(z.strictObject({
+    kind:z.enum(["NEQUI_NUMBER","BREB_KEY","NEQUI_BUSINESS_QR"]),
+    label:z.string().min(1).max(80),
+    destination_reference:z.string().min(4).max(160),
+    qr_asset_id:z.string().uuid().nullable(),
+    qr_sha256:z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+    qr_png_base64:z.string().min(76).max(1_400_000)
+      .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).optional(),
+    version:z.number().int().positive(),
+  })).max(3),
+});
+export const MerchantDestinationsGetResponseSchema=createResponseEnvelopeSchema(MerchantDestinationsGetResultSchema);
+export type MerchantDestinationsGetResult=z.infer<typeof MerchantDestinationsGetResultSchema>;
+
+// ── payment.notice.get — QR-002 (read-only, NO bank settlement) ───────────────
+export const MerchantNoticesGetRequestSchema=createRequestEnvelopeSchema(
+ z.strictObject({}),
+).safeExtend({message_type:z.literal("payment.notice.get")})
+ .superRefine(forbidCallerAssertedIdentity);
+
+export const MerchantNoticeItemSchema=z.strictObject({
+ id:UuidSchema,
+ received_at:UtcDateTimeSchema,
+ reported_amount_cop:z.number().int().positive().safe().max(100_000_000).nullable(),
+ payer_display:z.string().min(2).max(80).nullable(),
+ status:z.literal("UNVERIFIED"),
+ bank_confirmed:z.literal(false),
+ sale_confirmed:z.literal(false),
+});
+export const MerchantNoticesGetResultSchema=z.strictObject({
+ outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),
+ checked_at:UtcDateTimeSchema.nullable(),
+ notices:z.array(MerchantNoticeItemSchema).max(25),
+});
+export const MerchantNoticesGetResponseSchema=createResponseEnvelopeSchema(MerchantNoticesGetResultSchema);
+export type MerchantNoticesGetResult=z.infer<typeof MerchantNoticesGetResultSchema>;
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -1260,6 +1308,8 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "payment.transfer.confirm",
   "payment.cancel",
   "payment.get",
+  "payment.destination.get",
+  "payment.notice.get",
   "customer.register",
   "customer.get",
   "customer.find",
@@ -1295,6 +1345,8 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:payment.transfer.confirm",
   "pos:payment.cancel",
   "pos:payment.get",
+  "pos:payment.destination.get",
+  "pos:payment.notice.get",
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",

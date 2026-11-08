@@ -210,3 +210,30 @@ export class PostgresNativeBusinessDeviceProofVerifier extends PostgresDevicePro
     return this.verifyTargetAndConsume(input,"/v1/business-session/authorization");
   }
 }
+
+/** QR-001 device-bound routes reuse nonce/replay and ACTIVE enrollment checks.
+ * No login assertion, browser cookie or new cryptographic purpose is inferred.
+ */
+export type MerchantDestinationDeviceOperation="SNAPSHOT"|"FLOOR"|"ACK";
+const MERCHANT_DEVICE_PATHS:Readonly<Record<MerchantDestinationDeviceOperation,string>>={
+ SNAPSHOT:"/v1/commercial/merchant-destinations/snapshot",
+ FLOOR:"/v1/commercial/merchant-destinations/floor",
+ ACK:"/v1/commercial/merchant-destinations/ack",
+};
+export class PostgresMerchantDestinationDeviceProofVerifier extends PostgresDeviceProofReplayVerifier{
+ verifyOperationAndConsume(input:DeviceProofRequest,operation:MerchantDestinationDeviceOperation){
+  return this.verifyTargetAndConsume(input,MERCHANT_DEVICE_PATHS[operation]);
+ }
+}
+
+/** QR-002 dedicated intake proof. A QR001 proof cannot be replayed at this
+ * endpoint: the Ed25519 proof binds method, URL, body and one-use nonce. */
+export const MERCHANT_NOTIFICATION_INGEST_PATH="/v1/commercial/merchant-notifications/ingest";
+export class PostgresMerchantNotificationDeviceProofVerifier extends PostgresDeviceProofReplayVerifier{
+  verifyRecentAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,"/v1/commercial/merchant-notifications/recent");
+  }
+  verifyIngestAndConsume(input:DeviceProofRequest){
+    return this.verifyTargetAndConsume(input,MERCHANT_NOTIFICATION_INGEST_PATH);
+  }
+}

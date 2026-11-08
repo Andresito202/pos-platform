@@ -11,6 +11,8 @@ import type { ServiceConfig } from "../config.js";
 import type { OperationConfirmationComponent } from "../operations/operation-confirmation-component.js";
 import type { CommercialComponent } from "../commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../commercial/commercial-request-handler.js";
+import {SqliteMerchantDestinationProjectionStore} from "../payments/sqlite-merchant-destination-projection-store.js";
+import type {MerchantNoticeFeedSyncComponent} from "../payments/merchant-notice-feed.js";
 import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/local-channel";
 import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
@@ -44,8 +46,11 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly operationConfirmation: OperationConfirmationComponent,
     private readonly commercial: CommercialComponent,
     private readonly nativeCommercial?:Pick<NativeCommercialCoordinator,"handle"|"release"|"stop"> & {recovered?:(connectionId:string)=>void},
+    private readonly noticeFeed?:MerchantNoticeFeedSyncComponent,
   ) {
-    this.commercialHandler = new CommercialRequestHandler(config, commercial);
+    this.commercialHandler = new CommercialRequestHandler(config, commercial,
+      () => new SqliteMerchantDestinationProjectionStore(localDatabase.database),
+      ()=>noticeFeed?.snapshot()??{outcome:"UNAVAILABLE",checked_at:null,notices:[]});
     this.endpoint = localChannelEndpoint(config.installation_id);
   }
 
@@ -128,6 +133,8 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "payment.transfer.confirm":
       case "payment.cancel":
       case "payment.get":
+      case "payment.destination.get":
+      case "payment.notice.get":
       case "customer.register":
       case "customer.get":
       case "customer.find":

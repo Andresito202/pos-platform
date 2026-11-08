@@ -1,0 +1,86 @@
+# QR-002 — Nequi Negocios: aviso de transferencia, NO confirmación bancaria
+
+**Estado actual (2026-11-08):** PR #103 Draft. Ya existen contrato, migraciones 025 y 026 (no desplegadas), ruta firmada de ingestión, consulta firmada de avisos para dispositivos, lectura administrativa y panel de Caja con comparación informativa de montos reportados. No existe receptor SMS Android comercial acreditado, consentimiento administrativo operativo, Central desplegada ni prueba bancaria real. La entrega es mediante sondeo, no push en tiempo real garantizado. No se modifica el libro de pagos.
+
+**Lectura del documento:** los apartados que describen etapas iniciales de diseño son antecedentes históricos; la sección «Valor realmente informado por el SMS y comparación en Caja (incremento 026)» describe las capacidades más recientes del código. No implementar otra ruta de ingestión, otro feed Windows ni otro panel de Caja basándose en tareas antiguas de este documento.
+
+## Alcance financiero autorizado
+- El **negocio**, no Camacho POS, mantiene la titularidad del QR, la llave y el dinero.
+- La fuente documentada para compartir SMS es **Nequi Negocios**: pagos por Llave Nequi Negocios o QR Negocios asociado a Bre-B; hasta **tres números adicionales** inscritos por el titular. El SMS no abarca automáticamente pagos recibidos en un QR personal P2P ni todos los movimientos Nequi.
+- Documentación oficial: https://ayuda.nequi.com.co/hc/es/articles/47915840624525-Comparte-las-notificaciones-de-pagos-de-tu-Negocio-con-Nequi
+- La app Nequi exige registro y autenticación del número destinatario por el titular; un POS no puede agregar teléfonos en nombre del negocio.
+- El SMS es una **observación de una fuente externa no autenticada como comprobante bancario**, no una garantía de abono; puede duplicarse, demorarse o falsificarse. **Prohibido** crear, confirmar o cerrar pagos automáticamente a partir de texto, monto, código QR o nombre del remitente.
+
+## Frontera creada en el código
+`packages/domain/src/merchant-payment-notification.ts` valida un aviso de origen `NEQUI_NEGOCIOS_SHARED_SMS` y produce solo:
+- `tenant_id / company_id / source_installation_id`, derivados de una futura autenticación de instalación segura, nunca del contenido SMS;
+- digest SHA-256 de la evidencia, marca temporal, etiqueta del remitente y opcionalmente una vista previa limitada; los cuerpos originales no son necesarios para este contrato;
+- estados fijos `status=UNVERIFIED`, `bank_confirmed=false`, `sale_confirmed=false`, `requires_independent_reconciliation=true`.
+
+El registro es idempotente por `(tenant, company, installation, message_sha256)` y rechaza versiones distintas de un mismo digest. Jamás agrupa pagos de igual importe ni genera IDs de venta, pago o transacción bancaria.
+
+## Requisitos pendientes para el receptor Android / Central
+1. El administrador opta expresamente por notificaciones y designa un Android del **propio comercio**; el dispositivo debe estar enrolado y con permisos específicos. La captura de SMS/notifications depende de restricciones Android y de políticas de distribución, no de una API gratuita de confirmación de pagos.
+2. No transmitir cuerpos SMS, teléfonos completos o contactos si no se necesitan; proteger cifrado en tránsito/almacenamiento, confidencialidad por empresa, borrado/retención y revocación administrativa.
+3. **Histórico:** se solicitaban endpoints autenticados. La ingestión y lectura firmadas por DeviceProof ya están implementadas; falta certificar el receptor Android real, el consentimiento administrativo y la distribución operativa, no volver a crear esos endpoints.
+4. No enlazar una observación a una venta por importe u hora solamente. Presentar `Aviso de transferencia — no verificado` para conciliación independiente contra movimientos del banco.
+5. Probar con SMS reales y consentimiento, duplicados, suplantación, varios comercios, cuatro cajas, caídas offline, restauración, reintentos, logout y revocación. Las pruebas automáticas actuales solo certifican el **contrato puro**.
+
+## Compatibilidad QR-001
+El QR propio Nequi P2P o Bre-B estático sigue siendo una opción de cobro **sin comisión de software**, pero no presupone que Nequi Negocios emita SMS de negocio por ese QR. La detección automatizada no debe activarse en Caja por el simple hecho de que Administración haya cargado una imagen.
+
+## Incremento de persistencia QR-002 — migración 025 (sin exposición remota)
+- El esquema `payments.merchant_notification_bridge_consents` registra consentimiento por empresa + instalación; exige dispositivo ACTIVE, conserva `granted_by` y permite solo revocación irreversible. Una instalación revocada no puede reactivar esa misma fila.
+- `payments.merchant_payment_notification_inbox` guarda como evidencia inmutable UUIDv7, empresa, instalación, digest SHA-256, tiempos y etiqueta del aviso. No contiene `amount`, `bank_transaction_id`, `sale_id`, `payment_id`, cuerpo SMS ni estados de crédito bancario. Las restricciones CHECK fuerzan siempre `UNVERIFIED`, `bank_confirmed=false` y `sale_confirmed=false`.
+- Ambas tablas usan FORCE RLS por tenant+empresa; los roles de caja y reporting no tienen acceso, y Central solo puede insertar/leer la evidencia, nunca modificarla o borrarla. El trigger exige consentimiento vigente y dispositivo activo; bloquea la inserción tras revocación del consentimiento.
+- El migrador canónico registra el sucesor `025_merchant_payment_notifications` de 024, **solo** con `--merchant-notifications`; ejecutar `--merchant-destinations` NO incluye QR-002.
+- El repositorio `PostgresUnverifiedMerchantNotificationInbox` requiere además un callback de autorización de puente enrolado dentro de la transacción SERIALIZABLE, rechaza previews del cuerpo SMS y exige idempotencia estricta por empresa+dispositivo+digest.
+- La tabla de consentimiento **no tiene todavía** una interfaz administrativa acreditada para conceder la autorización. Los endpoints de ingestión y consulta fueron implementados después de esta etapa; el receptor Android comercial continúa pendiente. No ejecutar en Central comercial ni simular un bridge enrolado hasta completar esas fronteras.
+- Las pruebas comprueban los contratos, el registro de migración y PostgreSQL 16 físico en un contenedor descartable. Ninguna prueba utiliza datos bancarios, teléfonos o SMS personales reales.
+
+## Vista administrativa QR-002 (solo lectura, desactivada por defecto)
+- La composición HTTPS comercial exige `CENTRAL_MERCHANT_QR001_ENABLED=true`, el aprovisionamiento habitual de QR-001, las **migraciones 025 y 026 aplicadas previamente** y `CENTRAL_MERCHANT_QR002_ADMIN_READ_ENABLED=true`. Una bandera incompleta, incorrecta o una tabla ausente rechazan el arranque en lugar de ofrecer una ruta parcial.
+- Tras la sesión BUSINESS con MFA y reautenticación vigente, solo OWNER/GENERAL_ADMIN explícitos de **una única empresa** pueden llamar `POST /v1/commercial/merchant-destinations/notices` con JSON vacío y CSRF válido. El tenant, empresa, permisos y actor **nunca se aceptan desde el frontend**.
+- La consulta utiliza una transacción read-only con RLS por empresa y `LIMIT 25`, devolviendo únicamente fecha, etiqueta, estado forzado `UNVERIFIED` y los indicadores fijos de no confirmación. No devuelve hashes de SMS, números de teléfono, importes, payload privado, IDs de venta o cuenta bancaria.
+- La página comercial presenta la sección solo cuando la función de consulta está habilitada en el backend y la autenticación administrativa ha sido verificada. **No hay botón para conciliar, aprobar, registrar o confirmar pagos**. Se borra su lista al cerrar sesión.
+- Esto **no** habilita un receptor Android ni SMS reales. En una Central sin registros la bandeja aparecerá vacía; no se deben inventar alertas ni simular cobros.
+
+## Ingestión criptográfica implementada, inactiva por defecto (incremento posterior)
+- **Ruta nativa:** `POST /v1/commercial/merchant-notifications/ingest`. Está fuera de las cookies y CSRF del navegador; exige cabeceras DeviceProof Ed25519 firmadas exactamente para esta ruta, JSON bruto y UUID por solicitud. El verificador del dispositivo consulta credencial y registro ACTIVE, consume nonce/request ID de una sola vez y rechaza reutilización. Una prueba firmada para `merchant-destinations/ack` no autoriza ingestión.
+- **Consentimiento:** la identidad tenant+company+installation se obtiene del DeviceProof validado, no de campos del cliente. Una consulta dentro de la misma transacción SERIALIZABLE bloquea la fila de consentimiento activa y comprueba también el registro del dispositivo. Un dispositivo sin consentimiento o con consentimiento revocado recibe rechazo.
+- **Intake mínimo:** JSON estricto de `source, message_sha256, observed_at, received_at, sender_label`. Máximo 2048 bytes. Prohibidos `text_preview`, números de teléfono, cuerpo SMS, monto, `sale_id`, `payment_id`, `bank_confirmed`, `sale_confirmed` y empresa declarada por el emisor. Respuesta `{accepted:true,inserted:boolean}`: **accepted NO significa pago aceptado**, solo evidencia guardada.
+- **Activación explícita:** `CENTRAL_MERCHANT_QR002_INGEST_ENABLED=true` requiere además `CENTRAL_MERCHANT_QR002_ADMIN_READ_ENABLED=true`, QR-001 activo, servicio comercial HTTPS, migraciones 024, 025 y 026 presentes y un dispositivo con consentimiento otorgado por un flujo administrativo acreditado. Sin estas condiciones, el endpoint responde 404 o Central se niega a iniciar con el flag incorrecto. Los flags permanecen desactivados por defecto.
+- **No es aún un servicio comercial:** no existe receptor Android instalable ni comprobación técnica de permisos SMS del sistema operativo; tampoco existe UI para otorgar consentimiento de recepción. **No activar el flag en producción hasta certificar el dispositivo receptor y los permisos del comercio**.
+- La entrega a las cuatro cajas y la conciliación bancaria siguen pendientes. No se ha desplegado código en una Central productiva ni recibido ningún SMS auténtico.
+
+## Valor realmente informado por el SMS y comparación en Caja (incremento 026)
+- **Diferenciar tres cantidades:** `requested_amount_cop` = importe que Caja solicita; `reported_amount_cop` = importe que el SMS dice haber notificado (puede ser NULL); saldo bancario efectivo = **DESCONOCIDO** hasta una comprobación independiente en Nequi. No copiar el importe solicitado como importe recibido.
+- La migración aditiva `026_merchant_payment_notice_reported_details` preserva el checksum de 025 y agrega dos columnas de evidencia inmutable y opcionales: monto COP positivo, `payer_display` (nombre tal como figura en el aviso o teléfono enmascarado). Si faltan, guardar NULL; nunca inventar titular ni monto. Reversión bloqueada cuando existen datos de evidencia.
+- El contrato sólo admite COP entero positivo limitado y un pagador opcional; rechaza guardar un número celular colombiano completo. El extractor incluido es **conservador y de referencia**: prueba frases sintéticas de `recibiste $4.500 de Juan Pérez`, rechaza varios importes y formatos ambiguos, y enmascara teléfono a `******6213`. **No está certificado contra el formato real de SMS Nequi**, porque todavía no se ha facilitado un SMS real anonimizado ni integrado un teléfono Android receptor.
+- La ingestión DeviceProof sigue siendo `UNVERIFIED`, sin consentimiento no hay inserción, sin llamada de cierre de ventas. Idempotencia compara ahora monto y pagador, por lo que una repetición con el mismo hash y datos distintos se rechaza.
+- **Consulta a cuatro cajas:** nuevo endpoint nativo firmado `/v1/commercial/merchant-notifications/recent`, con verificación del dispositivo, RLS empresa y máximo 25 avisos, sin texto SMS ni credenciales. El Windows Local Service sólo lo consulta con opt-in `POS_QR002_NOTICE_FEED_ENABLED=true` y confianza QR-001 aprovisionada, almacena una copia **volátil** durante máximo 15 segundos y consulta aproximadamente cada 5 segundos. Una desconexión prolongada oculta datos viejos en vez de mostrarlos como recientes.
+- **Caja:** canal `payment.notice.get` sólo lectura y protegido por `PAYMENTS_PAYMENT_READ`/sesión comercial. Muestra hasta cinco avisos: `$4.500 informados por SMS · Juan Pérez`, la diferencia frente al valor de esa venta y la leyenda `SIN VERIFICAR EN EL BANCO`. Un importe coincidente NO identifica una venta ni genera confirmación, especialmente con varias cajas cobrando importes iguales.
+- **Latencia:** sondeos de cinco segundos en condiciones operativas; el retraso real depende de Nequi, SMS, teléfono, permisos Android, Central y conectividad. **No se promete tiempo real garantizado** ni hay pagos bancarios certificados por este canal. El APK de laboratorio actual no tiene permisos de recepción SMS/red, así que todavía NO existen avisos reales de extremo a extremo.
+- Datos personales: no insertar teléfonos completos ni cuerpos SMS en Central/Git/logs; usar el nombre si aparece en el aviso y está permitido por el consentimiento del comercio. Nequi puede mostrar identidad enmascarada o no incluirla.
+
+
+## Consulta administrativa de consentimientos (sin concesión ni revocación)
+- `POST /v1/commercial/merchant-destinations/notice-consents` usa la sesión BUSINESS existente, cookie, CSRF, origen permitido, MFA y reautenticación reciente. Solo OWNER / GENERAL_ADMIN con empresa única pueden consultar. Se mantiene deshabilitado por defecto mediante `CENTRAL_MERCHANT_QR002_ADMIN_READ_ENABLED`.
+- Petición estricta `{}`; no admite company, tenant ni permisos enviados por el navegador. Central deriva el ámbito de la sesión, aplica RLS y limita a 100 resultados de la misma empresa. Proyección de solo lectura: `installation_id`, `granted_at`, `revoked_at`. No incluye número telefónico, SMS, hash ni datos de ventas.
+- Esta operación **no concede, reactiva ni revoca** consentimientos, ni enrola teléfonos. No se agregó botón administrativo a la UI sin un flujo completo validado.
+- **Bloqueo de revocación comprobado en migración 025:** `payments.guard_merchant_notice_consent()` exige `identity.device_registry.status='ACTIVE'` también durante `UPDATE`. Si el dispositivo ya está inactivo, la revocación SQL puede rechazarse. Antes de habilitar la revocación administrativa, corregir ese caso con una migración aditiva (sin reescribir 025), probar RLS, el bloqueo concurrente y la imposibilidad de reactivar la autorización.
+
+
+## Migración aditiva 027 — revocación de dispositivo previamente desactivado
+- La migración `027_merchant_notice_revocation_guard`, dependiente de 026, reemplaza únicamente el cuerpo del trigger `payments.guard_merchant_notice_consent()` sin modificar el SQL ni checksum histórico de 025.
+- `INSERT` sigue exigiendo dispositivo `ACTIVE` de la empresa. `UPDATE` solo permite pasar irrevocablemente de `revoked_at=NULL` a una fecha de revocación, preservando los demás campos; ya no exige que el dispositivo continúe activo para revocar.
+- El trigger independiente `merchant_notice_intake_guard` y el bloqueo del consentimiento siguen impidiendo ingestión después de revocar; el esquema de evidencia y RLS no cambian.
+- El DOWN de 027 rechaza retroceder cuando hay registros de consentimiento para no restaurar el problema sobre evidencia existente.
+- Las pruebas de PostgreSQL descartable incluyen el caso del dispositivo desactivado antes de revocar, rechazo de reactivación y rechazo de nueva ingestión. **No implica autorización de la ruta de revocación ni funcionamiento comercial probado**. Hasta certificar estas pruebas y el endpoint BUSINESS transaccional, solo se permite consulta de consentimientos.
+
+
+## Revocación administrativa con sesión BUSINESS (apagada por defecto)
+- Ruta `POST /v1/commercial/merchant-destinations/notice-consent-revoke`, JSON exacto `{"installation_id":"<UUID>"}`; la empresa y el tenant se derivan de la sesión, nunca del JSON. Exige origen de navegador, cookie/CSRF, rol OWNER o GENERAL_ADMIN de empresa única, MFA y reautenticación.
+- La bandera separada `CENTRAL_MERCHANT_QR002_CONSENT_REVOKE_ENABLED=true` exige `CENTRAL_MERCHANT_QR002_ADMIN_READ_ENABLED=true` y evidencia en el ledger de la migración 027 aplicada. **Por defecto es false**; habilitar solo tras certificación física del migrador y una Central con autorización comercial real.
+- La escritura ocurre en transacción `SERIALIZABLE` con RLS, `assertMerchantAdminDuringWrite` (bloqueo de sesión y asignaciones vigentes), `UPDATE ... WHERE revoked_at IS NULL` y respuesta `{revoked:boolean}`. Una autorización revocada nunca se reactiva. `revoked:false` significa que no se alteró ninguna fila de esa empresa, no certifica el estado de otra empresa ni de un banco.
+- La autorización para **conceder** consentimientos y el receptor Android real continúan pendientes. No hay botón agregado a la pantalla comercial ni activación en producción. Estas rutas no verifican abonos bancarios y no deben afectar pagos o ventas.

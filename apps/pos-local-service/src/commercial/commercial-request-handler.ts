@@ -5,7 +5,10 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
-import { CanonicalPermission, type ContractError, type ErrorCategory, type IpcRequest } from "@pos-platform/contracts";
+import { CanonicalPermission, MerchantNoticesGetResultSchema,
+  type MerchantNoticesGetResult, type ContractError, type ErrorCategory, type IpcRequest } from "@pos-platform/contracts";
+import {visibleCompanyDestinations} from "@pos-platform/domain";
+import type {SqliteMerchantDestinationProjectionStore} from "../payments/sqlite-merchant-destination-projection-store.js";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
@@ -23,7 +26,7 @@ type CommercialRequest = Extract<
       | "session.activate" | "session.recover"
       | "cash.shift.open" | "cash.shift.close" | "sale.create"
       | "payment.register.cash" | "payment.register.transfer"
-      | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
+      | "payment.transfer.confirm" | "payment.cancel" | "payment.get" | "payment.destination.get" | "payment.notice.get"
       | "customer.register" | "customer.get" | "customer.find"
       | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
       | "fiscal.document.issue"
@@ -46,6 +49,7 @@ const AUTHORIZATION_SNAPSHOT_UNAVAILABLE = "AUTHORIZATION_SNAPSHOT_UNAVAILABLE";
  */
 const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   UNAUTHORIZED: "AUTHORIZATION",
+  UNAVAILABLE: "CONFLICT",
   REGISTER_NOT_FOUND: "NOT_FOUND",
   REGISTER_INACTIVE: "CONFLICT",
   NEGATIVE_OPENING_AMOUNT: "VALIDATION",
@@ -152,6 +156,8 @@ export class CommercialRequestHandler {
   constructor(
     private readonly config: ServiceConfig,
     private readonly commercial: CommercialComponent,
+    private readonly destinationStore?: () => SqliteMerchantDestinationProjectionStore,
+    private readonly noticeFeed?:()=>MerchantNoticesGetResult,
   ) {}
 
   private scope(): SyncScope {
@@ -208,6 +214,8 @@ export class CommercialRequestHandler {
       case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
       case "payment.cancel": return this.cancelPayment(request, connectionId);
       case "payment.get": return this.getPayment(request, connectionId);
+      case "payment.destination.get": return this.getPaymentDestinations(request, connectionId);
+      case "payment.notice.get": return this.getPaymentNotices(request,connectionId);
       case "customer.register": return this.registerCustomer(request, connectionId);
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
@@ -434,6 +442,67 @@ export class CommercialRequestHandler {
       return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
     }
     return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+  }
+
+  /**
+   * QR-001: immutable merchant destination projection for this authenticated
+   * company. The renderer never supplies scope or bank recipient details.
+   */
+  private getPaymentDestinations(
+    request: Extract<CommercialRequest,{message_type:"payment.destination.get"}>,
+    connectionId:string,
+  ):unknown {
+    const blank={sequence:null,destinations:[]};
+    const authenticated=this.authenticate(connectionId);
+    if("rejection" in authenticated)
+      return rejected(request,authenticated.rejection,{outcome:"UNAUTHORIZED",...blank});
+    const scope=createOperationScope(this.config.tenant_id,this.config.company_id,this.config.branch_id);
+    const allowed=evaluatePermission({
+      actor:createActor("USER",authenticated.snapshot.claims.user_id),
+      permission:CanonicalPermission.PAYMENTS_PAYMENT_READ,
+      scope,at:new Date(),assignments:toRoleAssignments(authenticated.snapshot.claims),
+    }).allowed;
+    if(!allowed)return rejected(request,"UNAUTHORIZED",{outcome:"UNAUTHORIZED",...blank});
+    if(!this.destinationStore)return rejected(request,"UNAVAILABLE",{outcome:"UNAVAILABLE",...blank});
+    try{
+      const company={tenantId:this.config.tenant_id,companyId:this.config.company_id};
+      const state=this.destinationStore().load(company);
+      if(state===null)return rejected(request,"UNAVAILABLE",{outcome:"UNAVAILABLE",...blank});
+      const now=new Date().toISOString();
+      if(Date.parse(state.snapshot.expires_at)<=Date.parse(now))
+        return rejected(request,"UNAVAILABLE",{outcome:"UNAVAILABLE",...blank});
+      const destinations=visibleCompanyDestinations(state,company,now);
+      return succeeded(request,"AVAILABLE",{outcome:"AVAILABLE",sequence:state.snapshot.sequence,destinations});
+    }catch{return rejected(request,"UNAVAILABLE",{outcome:"UNAVAILABLE",...blank});}
+  }
+
+  /**
+   * QR-002: read only near-live SMS observations from the verified device feed.
+   * A matching amount NEVER creates a payment record or binds a notice to
+   * this sale. Authorization is resolved from this LOCAL connection, not
+   * from renderer supplied identity or claimed company.
+   */
+  private getPaymentNotices(
+    request:Extract<CommercialRequest,{message_type:"payment.notice.get"}>,
+    connectionId:string,
+  ):unknown{
+    const unavailable:MerchantNoticesGetResult={outcome:"UNAVAILABLE",checked_at:null,notices:[]};
+    const authenticated=this.authenticate(connectionId);
+    if("rejection" in authenticated)
+      return rejected(request,authenticated.rejection,{...unavailable,outcome:"UNAUTHORIZED"});
+    const scope=createOperationScope(this.config.tenant_id,this.config.company_id,this.config.branch_id);
+    const allowed=evaluatePermission({
+      actor:createActor("USER",authenticated.snapshot.claims.user_id),
+      permission:CanonicalPermission.PAYMENTS_PAYMENT_READ,scope,at:new Date(),
+      assignments:toRoleAssignments(authenticated.snapshot.claims),
+    }).allowed;
+    if(!allowed)return rejected(request,"UNAUTHORIZED",{...unavailable,outcome:"UNAUTHORIZED"});
+    try{
+      const current=MerchantNoticesGetResultSchema.parse(this.noticeFeed?.()??unavailable);
+      if(current.outcome!=="AVAILABLE")
+        return rejected(request,"UNAVAILABLE",unavailable);
+      return succeeded(request,"AVAILABLE",current);
+    }catch{return rejected(request,"UNAVAILABLE",unavailable);}
   }
 
   // ── customer.register ──────────────────────────────────────────────────────

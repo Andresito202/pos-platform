@@ -130,11 +130,39 @@ const collectionsProvision=process.env.CENTRAL_FACTUS_PAY_COLLECTIONS_PROVISION_
 if(collectionsProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("COLLECTIONS_REAL_DEPLOYMENT_REQUIRED");
 const collectionsRuntime=collectionsProvision?await prepareSubscriptionCollectionRuntime({pool,provisionFile:collectionsProvision,
   onError:code=>process.stderr.write(JSON.stringify({service:"subscription-collections",code})+"\n")}):undefined;
+const qr002RevokeOption=process.env.CENTRAL_MERCHANT_QR002_CONSENT_REVOKE_ENABLED;
+if(qr002RevokeOption!==undefined&&!["true","false"].includes(qr002RevokeOption))
+  throw Error("QR002_INVALID_CONSENT_REVOKE_FLAG");
+if(qr002RevokeOption==="true"&&process.env.CENTRAL_MERCHANT_QR002_ADMIN_READ_ENABLED!=="true")
+  throw Error("QR002_CONSENT_REVOCATION_REQUIRES_ADMIN_READ");
+const qr002IngestOption=process.env.CENTRAL_MERCHANT_QR002_INGEST_ENABLED;
+if(qr002IngestOption!==undefined&&!["true","false"].includes(qr002IngestOption))
+  throw Error("QR002_INVALID_INGEST_FLAG");
+if(qr002IngestOption==="true"&&process.env.CENTRAL_MERCHANT_QR002_ADMIN_READ_ENABLED!=="true")
+  throw Error("QR002_INGEST_REQUIRES_ADMIN_READ");
+const qr002Option=process.env.CENTRAL_MERCHANT_QR002_ADMIN_READ_ENABLED;
+if(qr002Option!==undefined&&!["true","false"].includes(qr002Option))
+  throw Error("QR002_INVALID_DEPLOYMENT_FLAG");
+if(qr002Option==="true"&&process.env.CENTRAL_MERCHANT_QR001_ENABLED!=="true")
+  throw Error("QR002_REQUIRES_QR001");
+const qr001Option=process.env.CENTRAL_MERCHANT_QR001_ENABLED;
+if(qr001Option!==undefined&&!["true","false"].includes(qr001Option))throw Error("QR001_INVALID_DEPLOYMENT_FLAG");
+if(qr001Option==="true"&&!deployment)throw Error("QR001_CENTRAL_DEPLOYMENT_REQUIRED");
 const commercialProvision=process.env.CENTRAL_COMMERCIAL_PROVISION_FILE;
 if(commercialProvision&&(!deployment||deployment.environment==="LOCAL"||!sessionTrustPublication||!authorizationTrustPublication))throw Error("COMMERCIAL_REAL_DEPLOYMENT_TRUST_REQUIRED");
 const commercialHandler=commercialProvision?await prepareCentralCommercialRuntime({pool,provisionFile:commercialProvision,
   origin:deployment!.origin,environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION",tls:{key:tlsKey,cert:tlsCert},
-  publishedSsaFile:required("SESSION_TRUST_ARTIFACT_FILE"),publishedSasFile:required("AUTHORIZATION_TRUST_ARTIFACT_FILE")}):undefined;
+  publishedSsaFile:required("SESSION_TRUST_ARTIFACT_FILE"),publishedSasFile:required("AUTHORIZATION_TRUST_ARTIFACT_FILE"),
+  merchantDestinationsEnabled:qr001Option==="true",
+  merchantNotificationReadEnabled:qr002Option==="true",
+  merchantNotificationIngestEnabled:qr002IngestOption==="true",
+  merchantConsentRevocationEnabled:qr002RevokeOption==="true",
+  ...(qr001Option==="true"?{merchantQrSigning:{
+    keyPath:required("CENTRAL_QR001_PRIVATE_KEY_FILE"),
+    keyId:required("CENTRAL_QR001_KEY_ID"),
+    validFrom:required("CENTRAL_QR001_VALID_FROM"),
+    validUntil:required("CENTRAL_QR001_VALID_UNTIL"),
+  }}:{})}):undefined;
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
 const handler = new DeviceEnrollmentHttpHandler(issuer, {

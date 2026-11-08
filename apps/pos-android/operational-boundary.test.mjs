@@ -30,3 +30,12 @@ test('native license information has no checkout navigation or Play Billing depe
   const manifest=await readFile(new URL('src/runtime/AndroidManifest.xml',base),'utf8'),gradle=await readFile(new URL('build.gradle.kts',base),'utf8');
   assert.doesNotMatch(manifest+gradle,/com\.android\.vending\.BILLING|com\.android\.billingclient/);
 });
+
+test('QR-002: laboratory Android manifests must not silently enable SMS capture or networking',async()=>{
+  const root=new URL('./',import.meta.url);
+  for(const path of ['src/main/AndroidManifest.xml','src/runtime/AndroidManifest.xml']){
+    const manifest=await readFile(new URL(path,root),'utf8');
+    assert.doesNotMatch(manifest,/<uses-permission\b[^>]*android:name\s*=\s*["']android\.permission\.(?:RECEIVE_SMS|READ_SMS|SEND_SMS|INTERNET|BIND_NOTIFICATION_LISTENER_SERVICE)["']/);
+    assert.doesNotMatch(manifest,/<receiver\b|android\.provider\.Telephony\.SMS_RECEIVED|android\.service\.notification\.NotificationListenerService/);
+  }
+});

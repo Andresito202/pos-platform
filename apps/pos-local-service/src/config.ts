@@ -24,6 +24,10 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_AUTHORIZATION_TRUST_PROVISION_FILE",
   "POS_WINDOWS_COMMERCIAL_PROVISION_FILE",
   "POS_LICENSE_CAPACITY_PROVISION_FILE",
+  "POS_QR001_PUBLIC_KEY_FILE",
+  "POS_QR001_KEY_ID",
+  "POS_QR001_ENVIRONMENT",
+  "POS_QR002_NOTICE_FEED_ENABLED",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -41,6 +45,10 @@ const ServiceConfigSchema = z.strictObject({
   hardware_profiles_file:z.string().refine(isAbsolute).optional(),
   windows_commercial_provision_file:z.string().refine(isAbsolute).optional(),
   license_capacity_provision_file:z.string().refine(isAbsolute).optional(),
+  qr001_public_key_file:z.string().refine(isAbsolute).optional(),
+  qr001_key_id:z.string().regex(/^[A-Za-z0-9._-]{1,96}$/).optional(),
+  qr001_environment:z.enum(["SANDBOX","STAGING","PRODUCTION"]).optional(),
+  qr002_notice_feed_enabled:z.enum(["true","false"]).optional(),
   hardware_automatic_drawer_policy_file:z.string().refine(isAbsolute).optional(),
   session_trust_environment: z.string().min(1).max(128).optional(),
   session_trust_root_public_key_pem: z.string().min(80).max(4096).optional(),
@@ -50,6 +58,11 @@ const ServiceConfigSchema = z.strictObject({
   session_trust_transport_token_file: z.string().min(1).max(4096).optional(),
   authorization_trust_provision_file:z.string().refine(isAbsolute).optional(),
 }).superRefine((value, context) => {
+  const qrParts=[value.qr001_public_key_file,value.qr001_key_id,value.qr001_environment];
+  if(value.qr002_notice_feed_enabled==="true"&&(!qrParts.every(x=>x!==undefined)||!value.central_base_url))
+    context.addIssue({code:"custom",path:["qr002_notice_feed_enabled"],message:"QR002 requires enrolled QR001 trust and Central"});
+  if(qrParts.some(x=>x!==undefined)&&(!qrParts.every(x=>x!==undefined)||value.central_base_url===undefined))
+    context.addIssue({code:"custom",path:["qr001_public_key_file"],message:"QR001 requires complete key, environment and Central HTTPS"});
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({ code: "custom", path: ["protocol_max"], message: "protocol_max must be greater than or equal to protocol_min" });
   }
@@ -95,6 +108,10 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     session_trust_transport_token_file: environment.POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE,
     windows_commercial_provision_file: environment.POS_WINDOWS_COMMERCIAL_PROVISION_FILE,
     license_capacity_provision_file: environment.POS_LICENSE_CAPACITY_PROVISION_FILE,
+    qr001_public_key_file:environment.POS_QR001_PUBLIC_KEY_FILE,
+    qr001_key_id:environment.POS_QR001_KEY_ID,
+    qr001_environment:environment.POS_QR001_ENVIRONMENT,
+    qr002_notice_feed_enabled:environment.POS_QR002_NOTICE_FEED_ENABLED,
     authorization_trust_provision_file:environment.POS_AUTHORIZATION_TRUST_PROVISION_FILE,
   });
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");

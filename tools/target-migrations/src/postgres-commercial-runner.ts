@@ -39,8 +39,21 @@ export const POSTGRES_022_DESCRIPTOR=descriptor("022_license_activations",POSTGR
 export const LICENSE_ACTIVATION_MIGRATIONS=Object.freeze([...GLOBAL_ADMINISTRATION_MIGRATIONS,POSTGRES_022_DESCRIPTOR]);
 export const POSTGRES_023_DESCRIPTOR=descriptor("023_license_offer_terms",POSTGRES_022_DESCRIPTOR.migrationId,["licensing.plans"],"licensing");
 export const LICENSE_CATALOG_MIGRATIONS=Object.freeze([...LICENSE_ACTIVATION_MIGRATIONS,POSTGRES_023_DESCRIPTOR]);
-type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
+export const POSTGRES_024_DESCRIPTOR=descriptor("024_merchant_payment_destinations",POSTGRES_023_DESCRIPTOR.migrationId,
+  ["payments.merchant_qr_assets","payments.merchant_destinations","payments.merchant_destination_events",
+   "payments.merchant_destination_outbox","payments.merchant_destination_sequences","payments.merchant_destination_acknowledgements"],"payments");
+export const MERCHANT_DESTINATION_MIGRATIONS=Object.freeze([...LICENSE_CATALOG_MIGRATIONS,POSTGRES_024_DESCRIPTOR]);
+export const POSTGRES_025_DESCRIPTOR=descriptor("025_merchant_payment_notifications",POSTGRES_024_DESCRIPTOR.migrationId,
+ ["payments.merchant_notification_bridge_consents","payments.merchant_payment_notification_inbox"],"payments");
+export const POSTGRES_026_DESCRIPTOR=descriptor("026_merchant_payment_notice_reported_details",POSTGRES_025_DESCRIPTOR.migrationId,
+ ["payments.merchant_payment_notification_inbox"],"payments");
+export const POSTGRES_027_DESCRIPTOR=descriptor("027_merchant_notice_revocation_guard",POSTGRES_026_DESCRIPTOR.migrationId,
+ ["payments.merchant_notification_bridge_consents"],"payments");
+export const MERCHANT_NOTIFICATION_MIGRATIONS=Object.freeze([...MERCHANT_DESTINATION_MIGRATIONS,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR,POSTGRES_027_DESCRIPTOR]);
+type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG"|"MERCHANT_DESTINATIONS"|"MERCHANT_NOTIFICATIONS";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="MERCHANT_NOTIFICATIONS")return MERCHANT_NOTIFICATION_MIGRATIONS;
+  if(target==="MERCHANT_DESTINATIONS")return MERCHANT_DESTINATION_MIGRATIONS;
   if(target==="LICENSE_CATALOG")return LICENSE_CATALOG_MIGRATIONS;
   if(target==="LICENSE_ACTIVATIONS")return LICENSE_ACTIVATION_MIGRATIONS;
   if(target==="AUTHENTICATION")return COMMERCIAL_MIGRATIONS;
@@ -80,6 +93,69 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
         check(!(await c.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,table])).rows[0].allowed,"Factus Pay inbox exposed to tenant runtime");
       check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,"Factus Pay evidence must not be deletable");
     }
+  }
+  if(d===POSTGRES_027_DESCRIPTOR){
+    const guard=await c.query("SELECT prosecdef,proconfig,pg_get_userbyid(proowner) AS owner FROM pg_proc WHERE oid=to_regprocedure('payments.guard_merchant_notice_consent()')");
+    check(guard.rowCount===1&&guard.rows[0]?.prosecdef===true&&guard.rows[0]?.owner==="pos_schema_owner"&&
+      guard.rows[0]?.proconfig?.includes("search_path=pg_catalog"),"QR002 revocation guard security configuration mismatch");
+    const source=await readArtifact(POSTGRES_027_DESCRIPTOR.upArtifact);
+    const installed=await c.query("SELECT prosrc FROM pg_proc WHERE oid=to_regprocedure('payments.guard_merchant_notice_consent()')");
+    check(installed.rows[0]?.prosrc?.trim()===source.split("$guard$")[1]?.trim(),"QR002 revocation guard drift");
+  }
+  if(d===POSTGRES_026_DESCRIPTOR){
+    const fields=await c.query("SELECT attname FROM pg_attribute WHERE attrelid='payments.merchant_payment_notification_inbox'::regclass AND attname=ANY($1) AND attnum>0 AND NOT attisdropped",[
+      ["reported_amount_cop","payer_display"]]);
+    check(fields.rowCount===2,"QR002 reported-amount fields absent");
+    for(const constraint of ["merchant_notice_reported_amount_positive","merchant_notice_payer_display_size"])
+      check((await c.query("SELECT 1 FROM pg_constraint WHERE conrelid='payments.merchant_payment_notification_inbox'::regclass AND conname=$1",[constraint])).rowCount===1,
+        "QR002 reported evidence constraint missing: "+constraint);
+  }
+  if(d===POSTGRES_025_DESCRIPTOR){
+    for(const table of d.ownedTables){
+      for(const role of ["pos_app","pos_worker","pos_reporting"])
+        check(!(await c.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,table])).rows[0].allowed,
+          "Merchant notification inbox exposed to local tenant runtime");
+      check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,
+        "Merchant notice evidence must not be deletable");
+      check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname='merchant_notice_no_truncate' AND tgenabled='O'",[table])).rowCount===1,
+        "Merchant notification truncation guard missing");
+    }
+    const guards=[
+      ["payments.merchant_notification_bridge_consents","merchant_notice_consent_guard"],
+      ["payments.merchant_notification_bridge_consents","merchant_notice_consent_no_delete"],
+      ["payments.merchant_payment_notification_inbox","merchant_notice_intake_guard"],
+      ["payments.merchant_payment_notification_inbox","merchant_notice_inbox_immutable"],
+    ] as const;
+    for(const [table,trigger] of guards)
+      check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname=$2 AND tgenabled='O'",[table,trigger])).rowCount===1,
+        "Merchant notification required trigger missing: "+trigger);
+    check(!(await c.query("SELECT has_table_privilege('pos_platform_app','payments.merchant_payment_notification_inbox','UPDATE') AS allowed")).rows[0].allowed,
+      "Unverified notification evidence must be append-only");
+  }
+  if(d===POSTGRES_024_DESCRIPTOR){
+    for(const table of d.ownedTables){
+      for(const role of ["pos_app","pos_worker","pos_reporting"])
+        check(!(await c.query("SELECT has_table_privilege($1,$2,'SELECT,INSERT,UPDATE,DELETE') AS allowed",[role,table])).rows[0].allowed,
+          "Merchant destinations exposed to local tenant role");
+      check(!(await c.query("SELECT has_table_privilege('pos_platform_app',$1,'DELETE') AS allowed",[table])).rows[0].allowed,
+        "Merchant destination evidence deletable");
+      check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname='merchant_no_truncate' AND tgenabled='O'",[table])).rowCount===1,
+        "Merchant destination truncation guard missing");
+    }
+    const checks=[
+      ["payments.merchant_destinations","merchant_destination_transition"],
+      ["payments.merchant_destinations","merchant_destination_insert"],
+      ["payments.merchant_destinations","merchant_destination_no_delete"],
+      ["payments.merchant_qr_assets","merchant_asset_immutable"],
+      ["payments.merchant_destination_events","merchant_event_immutable"],
+      ["payments.merchant_destination_outbox","merchant_outbox_immutable"],
+      ["payments.merchant_destination_sequences","merchant_sequence_monotonic"],
+      ["payments.merchant_destination_acknowledgements","merchant_ack_monotonic"],
+      ["payments.merchant_destination_acknowledgements","merchant_ack_identity"],
+    ] as const;
+    for(const [table,trigger] of checks)
+      check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname=$2 AND tgenabled='O'",[table,trigger])).rowCount===1,
+        "Merchant destination required trigger missing: "+trigger);
   }
   if(d===POSTGRES_020_DESCRIPTOR){
     check(!(await c.query("SELECT has_column_privilege('pos_platform_app','payments.payments','expected_amount','UPDATE') AS allowed")).rows[0].allowed,"Subscription payment amount must be immutable to runtime");

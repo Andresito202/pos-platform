@@ -30,7 +30,10 @@ const visualOnlyChannel = {
       && envelope.message_type === "authorization.capabilities.get") {
       return {
         status: "SUCCEEDED",
-        result_code: "VISUAL_PREVIEW_ONLY",
+        // Match the canonical read-only capability response; the visual-only
+        // provenance remains explicit in the Electron banner and no commercial
+        // request or write can be completed in this preview stub.
+        result_code: "AVAILABLE",
         result: { outcome: "AVAILABLE", permissions: [...previewCapabilities] },
       };
     }
