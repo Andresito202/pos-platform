@@ -14,6 +14,7 @@ on:
       - 'tools/operators/ci-windows-scm-identity-service.ps1'
       - 'apps/pos-local-service/src/security/windows-commercial-host-identity.ts'
       - 'apps/pos-local-service/tests/windows-scm-physical.test.ts'
+      - 'tools/operators/ci-windows-scm-native-peer.mjs'
   workflow_dispatch:
 
 permissions:
@@ -59,7 +60,7 @@ jobs:
       - name: Real SCM virtual account, session-zero and DPAPI isolation (disposable)
         shell: powershell
         run: |
-          & ./tools/operators/ci-windows-scm-identity-service.ps1 -Run
+          & ./tools/operators/ci-windows-scm-identity-service.ps1 -Run -NativePipe
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
       - name: Assert native listener and SCM controls are not mistaken for G1 commercial interoperability
         shell: pwsh
@@ -70,7 +71,8 @@ jobs:
           if(-not $physical.Contains('CAMACHO_SCM_PHYSICAL_PROVISION')){throw 'PHYSICAL_PROVISION_GATE_REMOVED'}
           Write-Host 'SCM_NATIVE_ARTIFACT=PASS'
           Write-Host 'SCM_VIRTUAL_SERVICE_DPAPI=PASS'
-          Write-Host 'COMMERCIAL_CHANNEL_SERVICE_TO_ELECTRON=NOT_CERTIFIED'
+          Write-Host 'G1_NATIVE_PIPED_SERVICE_TO_DESKTOP=REQUIRES_REAL_RECEIPTS'
+          Write-Host 'COMMERCIAL_BUSINESS_SERVICE_TO_ELECTRON=NOT_CERTIFIED'
           Write-Host 'COMMERCIAL_GATE=ACTIVE'
       - name: Scope statement
         run: echo 'NATIVE_WINDOWS_BINARY_AND_BOTH_RUNTIME_SMOKE_ONLY_NO_INSTALLED_SCM_CONNECTION_OR_DEV003'
