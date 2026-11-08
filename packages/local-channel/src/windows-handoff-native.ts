@@ -5,6 +5,7 @@ import {spawnSync} from "node:child_process";
 // argv, env, logs, renderer, or shared files. No DPAPI LocalMachine fallback.
 const script=String.raw`
 $ErrorActionPreference='Stop'
+Import-Module Microsoft.PowerShell.Security -ErrorAction Stop
 Add-Type -AssemblyName System.Security
 Add-Type -TypeDefinition @'
 using System;
