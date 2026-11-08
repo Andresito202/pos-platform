@@ -128,3 +128,39 @@ export function compareUnverifiedNoticeToRequestedAmount(
   payer_display:payer,bank_confirmed:false,
  };
 }
+
+/**
+ * Conservative reference extractor for opt-in SMS on an enrolled Android.
+ * The templates below are SYNTHETIC examples, NOT a certified Nequi SMS format.
+ * Unknown or ambiguous values remain null; never use the POS requested amount.
+ * Sender identity is SMS-claimed, not bank-authenticated.
+ */
+export function extractUnverifiedSmsDetails(message:string):{
+  reported_amount_cop:number|null;payer_display:string|null
+}{
+ if(typeof message!=="string"||message.length>1200)return {reported_amount_cop:null,payer_display:null};
+ const payment=/\\b(?:recibiste|recibido|recibida|recibió|pago recibido|te pagaron)\\b/iu.test(message);
+ if(!payment)return {reported_amount_cop:null,payer_display:null};
+ const currency=[...message.matchAll(/(?:COP|COL\\$|\\$)\\s*([0-9][0-9.,]*)/giu)];
+ let reported_amount_cop:number|null=null;
+ if(currency.length===1){
+  const amount=currency[0]?.[1]??"";
+  // Exact integer COP: 4500, 4.500, 4,500, 4500,00.
+  // Comma as decimal is only accepted for ,00 and never silently rounded.
+  const normalized=amount.replace(/,00$/,"");
+  if(/^[1-9][0-9]{0,8}$/.test(normalized)||
+     /^[1-9][0-9]{0,2}(?:\\.[0-9]{3})+$/.test(normalized)){
+   const value=Number(normalized.replaceAll(".",""));
+   if(Number.isSafeInteger(value)&&value<=100_000_000)reported_amount_cop=value;
+  }
+ }
+ let payer_display:string|null=null;
+ const match=message.match(/\\bde\\s+([\\p{L}]+(?:\\s+[\\p{L}]+){0,3})(?=\\s*[,.;]|\\s*$)/iu);
+ if(match?.[1]&&match[1].length>=2&&match[1].length<=80)
+   payer_display=match[1];
+ else {
+  const phone=message.match(/\\bde\\s+(3[0-9]{9})\\b/u)?.[1];
+  if(phone)payer_display="******"+phone.slice(-4);
+ }
+ return {reported_amount_cop,payer_display};
+}
