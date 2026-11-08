@@ -17,6 +17,7 @@ on:
       - 'packages/database-sqlite/src/local-database.ts'
       - 'tools/target-migrations/sql/postgres/024_merchant_payment_destinations.*.sql'
       - 'tools/target-migrations/src/postgres-commercial-*.ts'
+      - 'tools/target-migrations/tests/postgres-024-merchant-destinations.test.ts'
       - 'pnpm-lock.yaml'
       - '.github/workflows/qr001-validation.yml'
   workflow_dispatch:
@@ -63,3 +64,5 @@ jobs:
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-postgres-store.test.ts
       - name: QR-001 SQLite and cryptographic tests
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-activation.test.ts tests/merchant-destination-projection.test.ts tests/merchant-destination-snapshot-verifier.test.ts
+      - name: QR-001 central migration manifest and security gates
+        run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations.test.ts
