@@ -27,10 +27,10 @@ function signed(claims:typeof baseClaims=baseClaims){
  return {claims,signature:sign(null,unsignedMerchantDestinationBytes(claims),privateKey).toString("base64url")};
 }
 const folders:string[]=[];
-function setup(keyPurpose:string=MERCHANT_DESTINATION_KEY_PURPOSE,status:"ACTIVE"|"VERIFY_ONLY"|"REVOKED"="ACTIVE",clock=now){
+function setup(keyPurpose:string=MERCHANT_DESTINATION_KEY_PURPOSE,status:"ACTIVE"|"VERIFY_ONLY"|"REVOKED"="ACTIVE",clock=now,validFrom?:string){
  const folder=mkdtempSync(join(tmpdir(),"qr001-signed-")); folders.push(folder);
  const db=LocalDatabase.open({dataDirectory:folder});
- const keys=new Map([["merchant-key-1",{key:publicKey,purpose:keyPurpose,status}]]);
+ const keys=new Map([["merchant-key-1",{key:publicKey,purpose:keyPurpose,status,validFrom}]]);
  const verifier=new MerchantDestinationSnapshotVerifier(keys,new TrustedClockGuard(db),()=>new Date(clock));
  return {db,verifier};
 }
@@ -68,6 +68,11 @@ describe("QR-001 signed projection trust",()=>{
   try{expect(a.verifier.verify(signed(),scope).decision).toBe("EXPIRED");}finally{a.db.close();}
   const b=setup(MERCHANT_DESTINATION_KEY_PURPOSE,"ACTIVE","2026-11-06T18:00:00.000Z");
   try{expect(b.verifier.verify(signed(),scope).decision).toBe("NOT_YET_VALID");}finally{b.db.close();}
+ });
+ it("fails closed on malformed key validity window",()=>{
+  const {db,verifier}=setup(MERCHANT_DESTINATION_KEY_PURPOSE,"ACTIVE",now,"not-a-date");
+  try{ expect(verifier.verify(signed(),scope).decision).toBe("KEY_OUTSIDE_LIFECYCLE"); }
+  finally{db.close();}
  });
  it("rejects unknown key and invalid outer schema",()=>{
   const {db,verifier}=setup();
