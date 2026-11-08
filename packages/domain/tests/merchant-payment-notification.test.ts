@@ -5,6 +5,7 @@ import {
   projectUnverifiedMerchantNotice,
   appendUnverifiedMerchantNotice,
   compareUnverifiedNoticeToRequestedAmount,
+  extractUnverifiedSmsDetails,
 } from "../src/merchant-payment-notification.js";
 
 const companyA={tenantId:"11111111-1111-4111-8111-111111111111",
@@ -89,6 +90,33 @@ describe("QR-002 external business SMS is ALWAYS unverified",()=>{
   for(const payer of ["","X","<script>","A".repeat(81)]){
    expect(()=>projectUnverifiedMerchantNotice(companyA,{...signal,payer_display:payer})).toThrow();
   }
+ });
+
+ it("extracts only SMS-declared COP amount and claimed name from a synthetic example",()=>{
+  expect(extractUnverifiedSmsDetails("Nequi: recibiste $4.500 de Juan Pérez.")).toEqual({
+   reported_amount_cop:4500,payer_display:"Juan Pérez",
+  });
+  expect(extractUnverifiedSmsDetails("Nequi: recibido COP 4500 de Ana Ruiz.")).toEqual({
+   reported_amount_cop:4500,payer_display:"Ana Ruiz",
+  });
+ });
+ it("does not invent the bank amount or payer when the SMS lacks details",()=>{
+  expect(extractUnverifiedSmsDetails("Nequi: recibiste una transferencia.")).toEqual({
+   reported_amount_cop:null,payer_display:null,
+  });
+  expect(extractUnverifiedSmsDetails("Nequi: pago solicitado $4500 a Juan Pérez.")).toEqual({
+   reported_amount_cop:null,payer_display:null,
+  });
+ });
+ it("never assumes a requested price is the paid value when SMS has multiple currencies",()=>{
+  expect(extractUnverifiedSmsDetails("recibiste $4.500 y COP 5.000 de Juan Pérez.").reported_amount_cop).toBeNull();
+  expect(extractUnverifiedSmsDetails("recibiste $4,500 de Juan Pérez.").reported_amount_cop).toBeNull();
+  expect(extractUnverifiedSmsDetails("recibiste $4.500,50 de Juan Pérez.").reported_amount_cop).toBeNull();
+ });
+ it("masks claimed 10-digit payer number, never stores a whole personal phone",()=>{
+  const record=extractUnverifiedSmsDetails("Nequi: recibiste $4500 de 3227506213.");
+  expect(record.reported_amount_cop).toBe(4500);
+  expect(record.payer_display).toBe("******6213");
  });
 
 });
