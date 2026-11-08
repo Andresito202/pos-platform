@@ -18,7 +18,7 @@ import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/sec
 import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
-import { CanonicalPermission } from "@pos-platform/contracts";
+import { CanonicalPermission,uuidV7 } from "@pos-platform/contracts";
 import {SessionTrustKeyVerifier} from "../src/security/session-trust-key-verifier.js";
 import {IsolatedHttpsSnapshotProvider} from "../src/authorization/isolated-https-snapshot-provider.js";
 import {mkdirSync} from "node:fs";
@@ -73,6 +73,13 @@ function required(name: string): string {
 if(process.env.NODE_ENV!=="test")throw Error("E2E_HOST_REQUIRES_TEST_ENVIRONMENT");
 const WITHOUT_SESSION=process.env.POS_E2E_SESSION_MODE==="NONE";
 if(WITHOUT_SESSION&&process.platform!=="win32")throw Error("UNAUTHENTICATED_PRODUCTION_ENTRY_TEST_REQUIRES_WINDOWS");
+const PERSISTENT_DEV=process.env.POS_E2E_PERSISTENT_DEV==="1";
+if(PERSISTENT_DEV&&(
+  process.platform!=="win32"||process.env.NODE_ENV!=="test"||
+  process.env.CI||process.env.POS_E2E_ROLE===undefined||
+  process.env.POS_E2E_SESSION_MODE==="NONE"||
+  !process.env.POS_E2E_DATA_DIR?.includes("CamachoPOS")
+))throw Error("PERSISTENT_DEV_PROFILE_SCOPE_REJECTED");
 const DATA_DIRECTORY = required("POS_E2E_DATA_DIR");
 const SECRET = WITHOUT_SESSION?Buffer.alloc(0):Buffer.from(required("POS_E2E_CHANNEL_SECRET"), "hex");
 const TENANT = required("POS_E2E_TENANT_ID");
@@ -84,9 +91,11 @@ const USER = WITHOUT_SESSION?"":required("POS_E2E_USER_ID");
 const REGISTER = WITHOUT_SESSION?"":required("POS_E2E_REGISTER_ID");
 
 const MEMBERSHIP = "018f0000-0000-7000-8000-0000000000b1";
-const SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
+let SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
+let SESSION_SEQUENCE = 1;
+let SNAPSHOT_SEQUENCE = 1;
 const SESSION_KEY_ID = "SESSION_KEY_1";
-const NOW = new Date("2026-09-03T12:00:00.000Z");
+const NOW = process.env.POS_E2E_PERSISTENT_DEV==="1"?new Date():new Date("2026-09-03T12:00:00.000Z");
 
 // Explicit test-only role views. These are NOT Central's role assignments;
 // the signer is ephemeral, the database temporary and the host rejects
@@ -193,20 +202,20 @@ function seedFiscalRange(database: LocalDatabase): void {
 
 function authorizationClaims(): AuthorizationSnapshotClaims {
   return {
-    snapshot_id: "018f0000-0000-7000-8000-0000000000c0",
+    snapshot_id: PERSISTENT_DEV?uuidV7():"018f0000-0000-7000-8000-0000000000c0",
     user_id: USER,
     installation_id: INSTALLATION,
     device_id: DEVICE,
-    sequence: 1,
-    issued_at: "2026-09-03T00:00:00.000Z",
-    expires_at: "2026-09-04T00:00:00.000Z",
+    sequence: SNAPSHOT_SEQUENCE,
+    issued_at: PERSISTENT_DEV?new Date(NOW.getTime()-30_000).toISOString():"2026-09-03T00:00:00.000Z",
+    expires_at: PERSISTENT_DEV?new Date(NOW.getTime()+8*3600_000).toISOString():"2026-09-04T00:00:00.000Z",
     assignments: [
       {
         tenant_id: TENANT,
         company_id: COMPANY,
         branch_id: BRANCH,
         status: "ACTIVE",
-        valid_from: "2026-09-01T00:00:00.000Z",
+        valid_from: PERSISTENT_DEV?new Date(NOW.getTime()-60_000).toISOString():"2026-09-01T00:00:00.000Z",
         valid_until: null,
         role_status: "ACTIVE",
         permissions: PERMISSIONS.map((code) => ({ code, status: "ACTIVE" as const })),
@@ -223,9 +232,9 @@ function sessionClaims(): SessionAssertionClaims {
     tenant_membership_id: MEMBERSHIP,
     installation_id: INSTALLATION,
     device_id: DEVICE,
-    issued_at: "2026-09-03T00:00:00.000Z",
-    offline_valid_until: "2026-09-04T00:00:00.000Z",
-    sequence: 1,
+    issued_at: PERSISTENT_DEV?new Date(NOW.getTime()-30_000).toISOString():"2026-09-03T00:00:00.000Z",
+    offline_valid_until: PERSISTENT_DEV?new Date(NOW.getTime()+8*3600_000).toISOString():"2026-09-04T00:00:00.000Z",
+    sequence: SESSION_SEQUENCE,
     key_id: SESSION_KEY_ID,
   } as SessionAssertionClaims;
 }
@@ -257,6 +266,21 @@ async function main(): Promise<void> {
   const localDatabase = new LocalDatabaseComponent(DATA_DIRECTORY);
   await localDatabase.start();
   const database = localDatabase.database;
+  if(PERSISTENT_DEV){
+    // Reissue a new short-lived test credential on every successful password-
+    // gated launch. SQLite business data survives; old SSA/SAS do not become
+    // permanently trusted. Monotonic sequences prevent replay after restart.
+    const prevSession=database.native.prepare(
+      "SELECT sequence FROM local_session_assertion WHERE user_id=? AND installation_id=? AND device_id=?"
+    ).get(USER,INSTALLATION,DEVICE) as {sequence:number}|undefined;
+    const prevAuth=database.native.prepare(
+      "SELECT sequence FROM local_authorization_snapshot WHERE user_id=? AND installation_id=? AND device_id=?"
+    ).get(USER,INSTALLATION,DEVICE) as {sequence:number}|undefined;
+    SESSION_SEQUENCE=(prevSession?.sequence??0)+1;
+    SNAPSHOT_SEQUENCE=(prevAuth?.sequence??0)+1;
+    SSA_SESSION=uuidV7();
+  }
+
   const durableSync = new DurableSyncComponent(localDatabase);
   await durableSync.start();
   const operations = new OperationConfirmationComponent(localDatabase, durableSync);
