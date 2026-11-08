@@ -99,6 +99,7 @@ export async function prepareCommercialHttpHandler(input:{
   merchantDestinations?:MerchantBusinessDestinationOperations;
   merchantDeviceRoutes?:MerchantDestinationDeviceRoutes;
   merchantNotificationReadEnabled?:boolean;
+  merchantConsentRevocationEnabled?:boolean;
   merchantNotificationIngest?:MerchantNotificationIngestRoutes;
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
@@ -186,8 +187,8 @@ export async function prepareCommercialHttpHandler(input:{
           "snapshot"|"floor"|"ack"|undefined;
         const qr002Ingest=req.url==="/v1/commercial/merchant-notifications/ingest";
         const qr002Recent=req.url==="/v1/commercial/merchant-notifications/recent";
-        const qrAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(list|upload|asset|create|publish|revoke|notices|notice-consents)$/)?.[1] as
-          "list"|"upload"|"asset"|"create"|"publish"|"revoke"|"notices"|"notice-consents"|undefined;
+        const qrAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(list|upload|asset|create|publish|revoke|notices|notice-consents|notice-consent-revoke)$/)?.[1] as
+          "list"|"upload"|"asset"|"create"|"publish"|"revoke"|"notices"|"notice-consents"|"notice-consent-revoke"|undefined;
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
           (!qrAction && !merchantDeviceAction && !qr002Ingest && !qr002Recent && !/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
             !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions",
@@ -234,7 +235,8 @@ export async function prepareCommercialHttpHandler(input:{
           send(res,200,result);return;
         }
         if(qrAction){
-          if(!input.merchantDestinations || ((qrAction==="notices"||qrAction==="notice-consents")&&!input.merchantNotificationReadEnabled))throw new Rejection(404);
+          if(!input.merchantDestinations || ((qrAction==="notices"||qrAction==="notice-consents")&&!input.merchantNotificationReadEnabled) ||
+            (qrAction==="notice-consent-revoke"&&!input.merchantConsentRevocationEnabled))throw new Rejection(404);
           const session=await browser.inspect({method:"POST",origin:req.headers.origin??null,
             fetchSite:typeof req.headers["sec-fetch-site"]==="string"?req.headers["sec-fetch-site"]:null,
             cookie:req.headers.cookie??null,csrfToken:typeof req.headers["x-csrf-token"]==="string"?req.headers["x-csrf-token"]:null});
