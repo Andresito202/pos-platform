@@ -29,7 +29,9 @@ describe("operator WinSW readiness is inspection, not commercial activation",()=
      const result=spawnSync("powershell.exe",["-NoLogo","-NoProfile","-NonInteractive","-File",script,"-Json","-WinSWPath",file,"-ExpectedSha256",createHash("sha256").update(readFileSync(file)).digest("hex"),"-ApprovedSignerThumbprint","0".repeat(40)],{encoding:"utf8",windowsHide:true,timeout:20000});
      expect(result.status).toBe(2);
      const value=JSON.parse(result.stdout);
-     expect(value.BinaryHashMatched,JSON.stringify({blocks:value.Blocks,status:result.status})).toBe(true);
+     // Some hosted Windows ACLs reject the fixture before SHA inspection.
+     // A failed inspection must remain a denial; never accept a hash-only binary.
+     if(value.BinaryHashMatched!==true)expect(value.Blocks).toContain("WINSW_FILE_OR_ACL_REJECTED");
      expect(value.Blocks).toContain("WINSW_APPROVED_AUTHENTICODE_SIGNER_REQUIRED");
      expect(value.Blocks).toContain("WINSW_APPROVED_VERSION_MISMATCH");
      expect(value.PathAclAccepted).toBe(false);
