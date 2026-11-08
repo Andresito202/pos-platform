@@ -206,7 +206,17 @@ export async function prepareCommercialHttpHandler(input:{
         };
         if(qr002Ingest){
           if(!input.merchantNotificationIngest)throw new Rejection(404);
-          const outcome=await input.merchantNotificationIngest.handle(proof());
+          let outcome:Awaited<ReturnType<MerchantNotificationIngestRoutes["handle"]>>;
+          try{outcome=await input.merchantNotificationIngest.handle(proof());}
+          catch(error){
+            if(error instanceof Error&&(error.message==="QR002_BRIDGE_NOT_AUTHORIZED_OR_CONSENT_REVOKED"||
+                error.message==="QR002_BRIDGE_NOT_ENROLLED"))
+              throw new Rejection(403);
+            if(error instanceof Error&&(error.message==="QR002_STALE_OR_FUTURE_OBSERVATION"||
+                error.message==="QR002_NOTIFICATION_IDEMPOTENCY_CONFLICT"))
+              throw new Rejection(409);
+            throw error;
+          }
           if(outcome===null)throw new Rejection(401);
           send(res,200,outcome);return;
         }
