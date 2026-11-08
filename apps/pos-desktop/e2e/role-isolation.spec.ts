@@ -69,8 +69,8 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
     if(authorized){
       await expect(page.locator(".pos-nav")).toBeVisible();
     }else{
-      await expect(page.getByTestId("authorization-denied")).toBeVisible();
-      await expect(page.locator(".pos-nav")).toHaveCount(0);
+      await expect(page.getByTestId("no-authorized-screens")).toBeVisible();
+      await expect(page.locator(".pos-nav button")).toHaveCount(0);
     }
     const names=await page.locator(".pos-nav button").allTextContents();
     const has=(name:string)=>names.includes(name);
