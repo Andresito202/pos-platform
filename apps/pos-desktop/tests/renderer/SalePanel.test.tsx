@@ -174,6 +174,39 @@ describe("SalePanel — vertical comercial", () => {
     expect(screen.getByTestId("payable-amount").textContent).toBe("3500.000000");
   });
 
+  it("muestra en Caja el QR publicado por Administración y el importe de la venta sin cobrar automáticamente", async () => {
+    const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(52)]).toString("base64");
+    install({...BASE_OVERRIDES,
+      "payment.destination.get":succeeded({outcome:"AVAILABLE",sequence:7,destinations:[{
+        kind:"BREB_KEY",label:"Llave del negocio",destination_reference:"@negocio",
+        qr_asset_id:"77777777-7777-4777-8777-777777777777",
+        qr_sha256:"a".repeat(64),qr_png_base64:png,version:2,
+      }]}),
+    });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift();await addProduct();await createSale();
+    const panel=await screen.findByTestId("merchant-payment-methods");
+    expect(panel.textContent).toContain("Llave del negocio");
+    expect(screen.getByTestId("merchant-destination-reference").textContent).toBe("@negocio");
+    expect(screen.getByAltText("QR de cobro proporcionado por el comercio").getAttribute("width")).toBe("320");
+    expect(panel.textContent).toContain("3500.000000");
+    expect(calls.get("payment.destination.get")).toEqual([{}]);
+    expect(calls.get("payment.transfer.confirm")).toBeUndefined();
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+    expect(screen.queryByRole("button",{name:/QR integrado/i})).toBeNull();
+  });
+
+  it("no consulta QR ni expone información bancaria sin PAYMENTS_PAYMENT_READ", async () => {
+    install(BASE_OVERRIDES);
+    const permissions=new Set(CANONICAL_PERMISSION_CODES);
+    permissions.delete("payments.payment.read");
+    // The canonical constant is used by SalePanel, not a UI-only feature flag.
+    render(<SalePanel permissions={permissions} />);
+    await openShift();await addProduct();await createSale();
+    expect(screen.queryByTestId("merchant-payment-methods")).toBeNull();
+    expect(calls.get("payment.destination.get")).toBeUndefined();
+  });
+
   it("sale.create NO envía cash_shift_id: la resolución no vive en el renderer", async () => {
     install(BASE_OVERRIDES);
     render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
