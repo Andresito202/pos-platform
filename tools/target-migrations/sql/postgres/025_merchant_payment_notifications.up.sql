@@ -45,7 +45,7 @@ CREATE INDEX merchant_notification_company_recent
 -- Consent can only be revoked, never edited/reissued in place.
 -- Re-enrollment requires a new security-approved installation identity.
 CREATE FUNCTION payments.guard_merchant_notice_consent()
- RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $guard$
+ RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $guard$
 BEGIN
  IF TG_OP='UPDATE' THEN
   IF ROW(NEW.tenant_id,NEW.company_id,NEW.installation_id,NEW.granted_by,NEW.granted_at)
@@ -70,7 +70,7 @@ CREATE TRIGGER merchant_notice_consent_guard
 -- Ingest and revocation serialize on the consent row. A bridge disabled by
 -- Administration must NOT insert an additional notification after revocation.
 CREATE FUNCTION payments.guard_merchant_notice_intake()
- RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $guard$
+ RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $guard$
 BEGIN
  IF NOT EXISTS(SELECT 1 FROM payments.merchant_notification_bridge_consents c
      JOIN identity.device_registry d ON d.installation_id=c.installation_id
@@ -105,6 +105,14 @@ DO $setup$ DECLARE object text; BEGIN
        AND company_id=nullif(current_setting('app.company_id',true),'')::uuid)
     WITH CHECK (tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
        AND company_id=nullif(current_setting('app.company_id',true),'')::uuid)$policy$,object);
+  -- SECURITY DEFINER guards run as pos_schema_owner; FORCE RLS still
+  -- applies, so allow ONLY a company-scoped read of the consent row.
+  IF object='merchant_notification_bridge_consents' THEN
+    EXECUTE format($owner$CREATE POLICY merchant_notice_guard_owner_read ON payments.%I
+      FOR SELECT TO pos_schema_owner
+      USING (tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
+         AND company_id=nullif(current_setting('app.company_id',true),'')::uuid)$owner$,object);
+  END IF;
   EXECUTE format('CREATE TRIGGER merchant_notice_no_truncate BEFORE TRUNCATE ON payments.%I FOR EACH STATEMENT EXECUTE FUNCTION audit.reject_append_only_mutation()',object);
   EXECUTE format('REVOKE ALL ON payments.%I FROM PUBLIC,pos_app,pos_worker,pos_reporting',object);
  END LOOP;
