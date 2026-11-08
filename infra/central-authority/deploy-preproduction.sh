@@ -13,7 +13,10 @@ COMPOSE=infra/central-authority/compose.preproduction.yaml
 test -f "$COMPOSE" || { echo 'RUN_FROM_REPOSITORY_ROOT' >&2; exit 1; }
 test -f "$CONFIG" || { echo 'CENTRAL_RUNTIME_ENV_MISSING' >&2; exit 1; }
 test -d "$ROOT/secrets" || { echo 'CENTRAL_PROTECTED_SECRETS_MISSING' >&2; exit 1; }
-for name in tls.key tls.crt issuer.key enrollment.token commercial.json session-trust.token authorization-trust.token authorization-trust.json; do
+if [[ "$(stat -c %a "$ROOT/secrets")" != "750" || "$(stat -c %u:%g "$ROOT/secrets")" != "0:1000" ]]; then
+  echo 'PROTECTED_SECRETS_DIRECTORY_PERMISSIONS_REJECTED' >&2; exit 1
+fi
+for name in tls.key tls.crt issuer.key enrollment.token commercial.json global-admin.json session-trust.json session-trust.token authorization-trust.token authorization-trust.json; do
   test -f "$ROOT/secrets/$name" || { echo "PROTECTED_FILE_MISSING:$name" >&2; exit 1; }
   test ! -L "$ROOT/secrets/$name" || { echo "PROTECTED_SYMLINK_REJECTED:$name" >&2; exit 1; }
 done
@@ -39,7 +42,7 @@ openssl x509 -in "$ROOT/secrets/tls.crt" -noout -checkend 86400 >/dev/null ||
   { echo 'CENTRAL_TLS_EXPIRING_OR_INVALID' >&2; exit 1; }
 openssl x509 -in "$ROOT/secrets/tls.crt" -noout -checkhost "$hostname" | grep -q 'does match' ||
   { echo 'CENTRAL_TLS_HOSTNAME_REJECTED' >&2; exit 1; }
-for envkey in CENTRAL_DATABASE_URL CENTRAL_COMMERCIAL_PROVISION_FILE SESSION_TRUST_ARTIFACT_FILE SESSION_TRUST_TRANSPORT_TOKEN_FILE AUTHORIZATION_TRUST_ARTIFACT_FILE AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE; do
+for envkey in CENTRAL_DATABASE_URL CENTRAL_COMMERCIAL_PROVISION_FILE CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE SESSION_TRUST_ARTIFACT_FILE SESSION_TRUST_TRANSPORT_TOKEN_FILE AUTHORIZATION_TRUST_ARTIFACT_FILE AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE; do
   if ! grep -q "^${envkey}=" "$CONFIG"; then echo "CENTRAL_REQUIRED_ENV_MISSING:$envkey" >&2; exit 1; fi
 done
 # The runtime validates the actual DB identity, schema, trust, issuer and
