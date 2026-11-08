@@ -22,11 +22,15 @@ const now=new Date();
 const {privateKey,publicKey}=generateKeyPairSync("ed25519");
 function setup(rows:Record<string,unknown>[]=[],cursor="3"){
  const queries:{sql:string;params?:unknown[]}[]=[];
+ let sequence=Number(cursor);
  const client={
   release:vi.fn(),
   query:vi.fn(async(sql:string,params?:unknown[])=>{
    queries.push({sql,...(params?{params}:{})});
-   if(sql.includes("FROM payments.merchant_destination_sequences"))return {rowCount:1,rows:[{sequence:cursor,now}]};
+   if(sql.includes("UPDATE payments.merchant_destination_sequences")){
+     sequence++;
+     return {rowCount:1,rows:[{sequence:String(sequence),now}]};
+   }
    if(sql.includes("FROM payments.merchant_destinations"))return {rowCount:rows.length,rows};
    return {rowCount:0,rows:[]};
   }),
@@ -73,8 +77,19 @@ describe("QR-001 Central Ed25519 company issuer",()=>{
   expect(queries.at(-1)?.sql).toBe("ROLLBACK");
   expect(client.release).toHaveBeenCalledOnce();
  });
+ it("renews the same unchanged static bank QR with strictly increasing sequence",async()=>{
+  const sample={kind:"NEQUI_NUMBER",label:"Nequi",destination_reference:"3001234567",
+    qr_asset_id:null,qr_sha256:null,version:1};
+  const {issuer,queries}=setup([sample],"20");
+  const first=await issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C});
+  const second=await issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C});
+  expect(first.claims.snapshot.sequence).toBe(21);
+  expect(second.claims.snapshot.sequence).toBe(22);
+  expect(first.claims.snapshot.destinations).toEqual(second.claims.snapshot.destinations);
+  expect(queries.filter(x=>x.sql.includes("UPDATE payments.merchant_destination_sequences"))).toHaveLength(2);
+ });
  it("requires an authoritative company sequence",async()=>{
-  const {issuer}=setup([],"0");
+  const {issuer}=setup([],"-1");
   await expect(issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C})).rejects.toThrow("QR001_INVALID_SEQUENCE");
  });
 });
