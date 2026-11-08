@@ -16,6 +16,10 @@ function setup(companies:string[]=[company],enableNotices=false){
   query:vi.fn(async(sql:string,values?:unknown[])=>{
    statements.push({sql,...(values?{values}:{})});
    if(sql.includes("SELECT DISTINCT a.company_id"))return {rowCount:companies.length,rows:companies.map(company_id=>({company_id}))};
+   if(sql.includes("FOR SHARE OF a,role,m,s"))return {rowCount:companies.length===1?1:0,rows:companies.length===1?[{ok:true}]:[]};
+   if(sql.includes("UPDATE payments.merchant_notification_bridge_consents"))
+     return {rowCount:1,rows:[{installation_id:"66666666-6666-4666-8666-666666666666"}]};
+
    if(sql.includes("FROM payments.merchant_notification_bridge_consents"))
      return {rowCount:1,rows:[{installation_id:"66666666-6666-4666-8666-666666666666",granted_at:new Date("2026-11-07T12:00:00Z"),revoked_at:null}]};
    if(sql.includes("FROM payments.merchant_destinations d"))return {rowCount:0,rows:[]};
@@ -114,6 +118,43 @@ describe("QR-001 BUSINESS administrative scope",()=>{
    await expect(service.dispatch({session,action:"notice-consents",payload})).rejects.toThrow();
    expect(statements.some(s=>s.sql.includes("FROM payments.merchant_notification_bridge_consents"))).toBe(false);
   }
+ });
+
+ it("revokes only an explicit installation with fresh role/session recheck inside SERIALIZABLE",async()=>{
+   const {service,statements}=setup([company],true);
+   const enabled=new MerchantBusinessDestinationOperations((service as unknown as {pool:Pool}).pool,true,true);
+   const result=await enabled.dispatch({session,action:"notice-consent-revoke",
+     payload:{installation_id:"66666666-6666-4666-8666-666666666666"}});
+   expect(result).toEqual({revoked:true});
+   const begin=statements.findIndex(s=>s.sql==="BEGIN ISOLATION LEVEL SERIALIZABLE");
+   const locked=statements.findIndex(s=>s.sql.includes("FOR SHARE OF a,role,m,s"));
+   const write=statements.findIndex(s=>s.sql.includes("UPDATE payments.merchant_notification_bridge_consents"));
+   expect(begin).toBeGreaterThanOrEqual(0);
+   expect(locked).toBeGreaterThan(begin);
+   expect(write).toBeGreaterThan(locked);
+   expect(statements[write]?.values).toEqual([session.tenantId,company,"66666666-6666-4666-8666-666666666666"]);
+   expect(statements[write]?.sql).toContain("revoked_at IS NULL");
+   expect(statements.at(-1)?.sql).toBe("COMMIT");
+ });
+ it("blocks revocation by default and rejects injected company or invalid installation",async()=>{
+   const {service,statements}=setup([company],true);
+   await expect(service.dispatch({session,action:"notice-consent-revoke",
+     payload:{installation_id:"66666666-6666-4666-8666-666666666666"}}))
+     .rejects.toThrow("QR002_CONSENT_REVOCATION_NOT_ENABLED");
+   const enabled=new MerchantBusinessDestinationOperations((service as unknown as {pool:Pool}).pool,true,true);
+   for(const payload of [
+     {installation_id:"66666666-6666-4666-8666-666666666666",company_id:company},
+     {installation_id:"invalid"},
+   ])await expect(enabled.dispatch({session,action:"notice-consent-revoke",payload})).rejects.toThrow();
+   expect(statements.some(s=>s.sql.includes("UPDATE payments.merchant_notification_bridge_consents"))).toBe(false);
+ });
+ it("refuses revoked administrative grants before writing consent",async()=>{
+   const {service,statements}=setup([],true);
+   const enabled=new MerchantBusinessDestinationOperations((service as unknown as {pool:Pool}).pool,true,true);
+   await expect(enabled.dispatch({session,action:"notice-consent-revoke",
+     payload:{installation_id:"66666666-6666-4666-8666-666666666666"}}))
+     .rejects.toThrow("QR001_ADMIN_DENIED_OR_AMBIGUOUS_COMPANY");
+   expect(statements.some(s=>s.sql.includes("UPDATE payments.merchant_notification_bridge_consents"))).toBe(false);
  });
 
 });
