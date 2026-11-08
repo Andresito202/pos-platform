@@ -30,6 +30,9 @@ importers:
       '@pos-platform/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@pos-platform/local-channel':
+        specifier: workspace:*
+        version: link:../../packages/local-channel
       '@pos-platform/database-postgres':
         specifier: workspace:*
         version: link:../../packages/database-postgres
