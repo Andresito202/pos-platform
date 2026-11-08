@@ -51,13 +51,15 @@ if ($role -notin @('CAJERO','SUPERVISOR','ADMINISTRADOR','SUPERADMINISTRADOR')) 
 }
 $env:POS_E2E_ROLE = $role
 $env:POS_E2E_INTERACTIVE = '1'
+$env:POS_E2E_PERSISTENT_DEV = '1'
 try {
-  Write-Host "Abriendo vista de desarrollo: $role. El almacenamiento comercial es TEMPORAL."
+  Write-Host "Abriendo vista de desarrollo: $role. SQLite de DESARROLLO persistente, separado por rol."
+  Write-Host "No es una identidad BUSINESS ni una base comercial de produccion."
   Push-Location -LiteralPath $repo
   try {
     & pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/role-isolation.spec.ts --workers=1 --retries=0
     if ($LASTEXITCODE -ne 0) { throw "LOCAL_DEVELOPMENT_ROLE_PREVIEW_FAILED:$role" }
   } finally { Pop-Location }
 } finally {
-  Remove-Item Env:POS_E2E_ROLE,Env:POS_E2E_INTERACTIVE -ErrorAction SilentlyContinue
+  Remove-Item Env:POS_E2E_ROLE,Env:POS_E2E_INTERACTIVE,Env:POS_E2E_PERSISTENT_DEV -ErrorAction SilentlyContinue
 }
