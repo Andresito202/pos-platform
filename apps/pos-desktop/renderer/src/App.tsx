@@ -200,7 +200,7 @@ export function App(): React.JSX.Element {
           {loading ? (
             <div data-testid="authorization-loading" role="status">Cargando permisos…</div>
           ) : unauthenticated ? (
-            <div data-testid="authorization-unauthenticated" role="status">No hay una sesión comercial activa en este dispositivo.</div>
+            <div data-testid="authorization-unauthenticated" role="status">No hay una sesión iniciada en este dispositivo.</div>
           ) : authorization.phase === "denied" ? (
             <div data-testid="authorization-denied" role="alert">La sesión no dispone de permisos efectivos para operar en este POS.</div>
           ) : authorization.phase === "expired" ? (
@@ -211,7 +211,7 @@ export function App(): React.JSX.Element {
             </div>
           ) : null}
           {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={authorization.retry} />}
-          <button type="button" onClick={authorization.retry} disabled={loading}>Comprobar sesión comercial</button>
+          <button type="button" onClick={authorization.retry} disabled={loading}>Actualizar acceso</button>
           <StatusPanel />
         </section>
       </main>
