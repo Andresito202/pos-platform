@@ -97,6 +97,7 @@ export async function prepareCommercialHttpHandler(input:{
   authorizationTrustCandidate?:SignedAuthorizationTrustCandidate;
   merchantDestinations?:MerchantBusinessDestinationOperations;
   merchantDeviceRoutes?:MerchantDestinationDeviceRoutes;
+  merchantNotificationReadEnabled?:boolean;
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
   if(input.deploymentContext){
@@ -116,6 +117,8 @@ export async function prepareCommercialHttpHandler(input:{
   }
   if(input.merchantDeviceRoutes && (!input.deploymentContext || !(input.merchantDeviceRoutes instanceof MerchantDestinationDeviceRoutes)))
     throw Error("QR001_DEVICE_ROUTES_PRODUCTION_ONLY");
+  if(input.merchantNotificationReadEnabled && (!input.deploymentContext||!input.merchantDestinations))
+    throw Error("QR002_READONLY_DEPLOYMENT_REQUIRED");
   if(input.merchantDestinations && (!input.deploymentContext || !(input.merchantDestinations instanceof MerchantBusinessDestinationOperations)))
     throw Error("QR001_PRODUCTION_ADMIN_COMPOSITION_REQUIRED");
   const origin=new URL(input.origin);
@@ -163,7 +166,7 @@ export async function prepareCommercialHttpHandler(input:{
             const registration=destination?clients.requireExact(destination.client_id,destination.redirect_uri):null;
             if(!destination||!registration||registration.authorizationOrigin!==input.origin)throw new Rejection(401);
             sendCommercialBrowserEntry(res,input.browserEntry,{request:token,tenantName:destination.tenant_name,companyName:destination.company_name,
-              deviceId:destination.device_id,installationId:destination.installation_id},Boolean(input.merchantDestinations));return;
+              deviceId:destination.device_id,installationId:destination.installation_id},Boolean(input.merchantDestinations),Boolean(input.merchantNotificationReadEnabled));return;
           }
           if(input.deploymentContext)throw new Rejection(400);
           const names=["client_id","redirect_uri","code_challenge","code_challenge_method","state"];
@@ -177,8 +180,8 @@ export async function prepareCommercialHttpHandler(input:{
         }
         const merchantDeviceAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(snapshot|floor|ack)$/)?.[1] as
           "snapshot"|"floor"|"ack"|undefined;
-        const qrAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(list|upload|asset|create|publish|revoke)$/)?.[1] as
-          "list"|"upload"|"asset"|"create"|"publish"|"revoke"|undefined;
+        const qrAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(list|upload|asset|create|publish|revoke|notices)$/)?.[1] as
+          "list"|"upload"|"asset"|"create"|"publish"|"revoke"|"notices"|undefined;
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
           (!qrAction && !merchantDeviceAction && !/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
             !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions",
@@ -203,7 +206,7 @@ export async function prepareCommercialHttpHandler(input:{
           send(res,200,result);return;
         }
         if(qrAction){
-          if(!input.merchantDestinations)throw new Rejection(404);
+          if(!input.merchantDestinations || (qrAction==="notices"&&!input.merchantNotificationReadEnabled))throw new Rejection(404);
           const session=await browser.inspect({method:"POST",origin:req.headers.origin??null,
             fetchSite:typeof req.headers["sec-fetch-site"]==="string"?req.headers["sec-fetch-site"]:null,
             cookie:req.headers.cookie??null,csrfToken:typeof req.headers["x-csrf-token"]==="string"?req.headers["x-csrf-token"]:null});
