@@ -111,7 +111,14 @@ export class CentralMerchantDestinationPublisher {
    const snapshot=DestinationSnapshotSchema.parse({
       tenant_id:scope.tenantId,company_id:scope.companyId,sequence,
       issued_at:now.toISOString(),expires_at:new Date(until).toISOString(),
-      destination:destinations[0]??null,destinations,
+      // Single compatibility primary keeps method identity/digest only.
+      // A dense bank PNG appears once, inside destinations, not twice.
+      destination:destinations.length===0?null:CashierDestinationSchema.parse({
+        kind:destinations[0]!.kind,label:destinations[0]!.label,
+        destination_reference:destinations[0]!.destination_reference,
+        qr_asset_id:destinations[0]!.qr_asset_id,qr_sha256:destinations[0]!.qr_sha256,
+        version:destinations[0]!.version,
+      }),destinations,
    });
    const claims={schema_version:1 as const,key_id:this.signing.keyId,environment:this.signing.environment,snapshot};
    const signature=sign(null,Buffer.from(canonicalJson(claims)),this.signing.privateKey).toString("base64url");
