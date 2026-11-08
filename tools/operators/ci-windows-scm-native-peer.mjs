@@ -55,12 +55,17 @@ const stamp = (file, payload) => writeFileSync(resolve(config.results, file),
   { flag:"wx" });
 let listener;
 let connection;
+let phase="INITIAL";
 try {
   if (mode === "service") {
+    phase="SERVICE_LISTEN";
     listener = native.listen(...args); // Native code checks real SCM PID ancestry, SID, session 0.
     stamp("native-ready.json", {state:"LISTENING"});
+    phase="SERVICE_ACCEPT";
     connection = await native.accept(listener, 5000); // Actual kernel peer-token attestation.
+    phase="SERVICE_RECHECK";
     native.recheck(connection.handle);
+    phase="SERVICE_PEER_MATCH";
     if (connection.peer.sid !== config.recipient ||
         connection.peer.logonSid !== config.logon ||
         connection.peer.sessionId !== config.session)
@@ -72,14 +77,17 @@ try {
       await new Promise(resolve => setTimeout(resolve, 100));
     if (!existsSync(join(config.results, "native-ready.json")))
       throw Error("NATIVE_CI_SERVICE_NOT_LISTENING");
+    phase="DESKTOP_CONNECT";
     connection = await native.connect(...args, 5000); // Actual SCM process-tree attestation.
+    phase="DESKTOP_RECHECK";
     native.recheck(connection.handle);
+    phase="DESKTOP_PEER_MATCH";
     if (connection.peer.sid !== config.service || connection.peer.sessionId !== 0)
       throw Error("NATIVE_DESKTOP_PEER_MISMATCH");
     stamp("native-desktop-pass.json", {status:"PASS", peer_role:"SCM_SERVICE"});
   }
 } catch (e) {
-  try { stamp("native-"+mode+"-failure.json", {status:"FAIL", code:"NATIVE_CHANNEL_REJECTED"}); } catch {}
+  try { stamp("native-"+mode+"-failure.json", {status:"FAIL", phase, code:"NATIVE_CHANNEL_REJECTED"}); } catch {}
   throw Error("EPHEMERAL_NATIVE_G1_FAILED");
 } finally {
   if (connection) native.release(connection.handle);
