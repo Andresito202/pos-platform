@@ -52,3 +52,14 @@
 3. Registrar DEV-003 con posesión actual y provisión BUSINESS en Central, verificar SSA/SAS.
 4. Tras la revisión del gate SCM, ejecutar el inicio completo BUSINESS, roles/tenants, expiración, renovación, logout y revocación y el flujo GLOBAL separado.
 5. Registrar evidencia exacta de commit, OS, identidades, recibos y 0 skips en las pruebas físicas exigidas; mantener PR Draft hasta entonces.
+
+## 5. Ejecución independiente de frentes P0 — GitHub Actions #42457375454
+
+- **Commit exacto ejecutado:** `ab9810afe07a9574ac2346fbf141842b517e99db`.
+- **Resultado CI final: SUCCESS, tres jobs concurrentes y sin fallos:** (1) `login-p0` en `windows-2022`, (2) `commercial-binding-contracts` en Ubuntu y (3) `device-business-contracts` en Ubuntu.
+- [Evidencia](https://github.com/Andresito202/pos-platform/actions/runs/42457375454): tres conclusiones `success`; pruebas de binding/publicación UUIDv7 en runner aislado: 7 + 9 + 12 PASS.
+- `login-p0` repite TypeScript, protección de identidad SCM/DPAPI/leases, handoff, Central y Electron; no instala WinSW ni conecta una sesión BUSINESS real.
+- `device-business-contracts` valida implementación DEV-003 y contratos de inicio de sesión/SSA con fixtures, no registra la identidad del servicio en Central ni crea provisión de producción.
+- Las validaciones 1 (binding nativo real), 2 (SCM↔Electron con identidad comercial UUIDv7), 3 (DEV-003 y provisión BUSINESS real), 4 (desbloqueo revisado de gate SCM) y 5 (login humano con dashboard, refresh, logout y revocación) siguen **PENDIENTES de ejecución física/autoridad de Central en la VM**. No se ejecutaron ni fueron marcadas como PASS por las pruebas del runner.
+- Las fases 1→2→3→4→5 tienen dependencias causales: pueden prepararse y probar sus unidades en paralelo, pero **no certificarse simultáneamente de forma independiente**. Cada evidencia depende del control de identidad y del aprovisionamiento anterior.
+- El gate `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` y el estado Draft del PR #99 siguen activos; no se modificó el runtime de producción durante este incremento.
