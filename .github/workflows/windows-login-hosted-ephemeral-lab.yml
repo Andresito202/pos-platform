@@ -13,6 +13,7 @@ on:
       - 'apps/pos-local-service/tests/windows-handoff-lease-state.test.ts'
       - 'apps/pos-local-service/tests/windows-scm-runtime.test.ts'
       - 'apps/pos-local-service/tests/native-session-close-lifecycle.test.ts'
+      - 'apps/pos-local-service/tests/windows-scm-commercial-entry-process.test.ts'
       - 'apps/pos-desktop/e2e/**'
       - 'apps/pos-desktop/src/**'
       - 'pnpm-lock.yaml'
@@ -85,6 +86,12 @@ jobs:
           pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-handoff-lease-state.test.ts tests/windows-scm-runtime.test.ts tests/native-session-close-lifecycle.test.ts --no-file-parallelism
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Write-Host 'HOSTED_SCM_G2_REGRESSIONS=PASS'
+      - name: Prove production SCM service entry rejects before DB and DPAPI
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-scm-commercial-entry-process.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'SCM_PRODUCTION_ENTRY_FAIL_CLOSED=PASS'
       - name: Fail closed on commercial login claim
         shell: pwsh
         run: |
