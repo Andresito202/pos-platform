@@ -324,14 +324,18 @@ async function main(): Promise<void> {
     commercial = new CommercialComponent(config(), localDatabase, durableSync,externalKeys,undefined,undefined,undefined,authorizationKeys);
   } else {
     if(!keyPair||!authorizationKeyPair)throw Error("SIGNED_E2E_AUTHORITY_MISSING");
-    new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+    // The signed bytes and persisted claims MUST be identical. A per-boot
+    // UUIDv7 snapshot cannot be recomputed between signing and storage.
+    const claims=authorizationClaims();
+    const result=new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
       {
-        claims: authorizationClaims(),
-        signature: sign(null, unsignedAuthorizationSnapshotBytes(authorizationClaims()), authorizationKeyPair.privateKey)
+        claims,
+        signature: sign(null, unsignedAuthorizationSnapshotBytes(claims), authorizationKeyPair.privateKey)
           .toString("base64url"),
       },
       { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
     );
+    if(result.kind!=="ACTIVATED")throw Error("DEV_AUTHORIZATION_SNAPSHOT_REJECTED");
     seedRegister(database);
     seedFiscalRange(database);
 
