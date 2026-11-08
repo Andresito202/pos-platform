@@ -16,6 +16,7 @@ export const RENDERER_API_METHODS = [
   "payment.transfer.confirm",
   "payment.cancel",
   "payment.get",
+  "payment.destination.get",
   "customer.register",
   "customer.get",
   "customer.find",
