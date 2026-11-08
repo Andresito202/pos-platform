@@ -1,3 +1,4 @@
+import {isSupportedMigrationPostgresVersion} from "./postgres-compatibility.js";
 import {Pool,type PoolClient} from "pg";
 import { POSTGRES_003_DESCRIPTOR, type MigrationDescriptor } from "./contract.js";
 import {POSTGRES_007_DESCRIPTOR} from "./postgres-007-contract.js";
@@ -111,7 +112,7 @@ export async function applyCommercialMigrations(input:{migratorUrl:string;expect
   const pool=new Pool({connectionString:input.migratorUrl,max:1}),c=await pool.connect(),results=[];
   try{
     const target=(await c.query("SELECT current_database() AS db,session_user,current_setting('server_version_num') AS version")).rows[0];
-    check(target.db===input.expectedDatabase&&target.session_user==="pos_migrator"&&target.version==="160014","Commercial migration target mismatch");
+    check(target.db===input.expectedDatabase&&target.session_user==="pos_migrator"&&isSupportedMigrationPostgresVersion(target.version),"Commercial migration target mismatch");
     await c.query("SET ROLE pos_schema_owner");
     await c.query("SELECT set_config('lock_timeout',$1,false),set_config('statement_timeout',$2,false)",[`${input.lockTimeoutMs}ms`,`${input.statementTimeoutMs}ms`]);
     await c.query("SELECT pg_advisory_lock(hashtextextended($1,0))",[POSTGRES_MIGRATION_LOCK_RESOURCE]);
