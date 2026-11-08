@@ -89,8 +89,14 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
     if(!input.merchantDestinationsEnabled)throw Error("QR002_REQUIRES_QR001");
     const qr002Ready=await input.pool.query<{ready:boolean}>(`SELECT
       to_regclass('payments.merchant_notification_bridge_consents') IS NOT NULL
-      AND to_regclass('payments.merchant_payment_notification_inbox') IS NOT NULL AS ready`);
-    if(qr002Ready.rows[0]?.ready!==true)throw Error("QR002_CENTRAL_MIGRATION_025_REQUIRED");
+      AND to_regclass('payments.merchant_payment_notification_inbox') IS NOT NULL
+      AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+        WHERE attrelid=to_regclass('payments.merchant_payment_notification_inbox')
+          AND attname='reported_amount_cop' AND attnum>0 AND NOT attisdropped)
+      AND EXISTS (SELECT 1 FROM pg_catalog.pg_attribute
+        WHERE attrelid=to_regclass('payments.merchant_payment_notification_inbox')
+          AND attname='payer_display' AND attnum>0 AND NOT attisdropped) AS ready`);
+    if(qr002Ready.rows[0]?.ready!==true)throw Error("QR002_CENTRAL_MIGRATION_026_REQUIRED");
   }
   const qrSigner=input.merchantQrSigning?createPrivateKey(managed(input.merchantQrSigning.keyPath,8192)):undefined;
   if(qrSigner && [publicMaterial(ssaPublic),publicMaterial(sasPublic),publicMaterial(createPublicKey(accessPublic))].includes(publicMaterial(createPublicKey(qrSigner))))
