@@ -16,6 +16,8 @@ function setup(companies:string[]=[company],enableNotices=false){
   query:vi.fn(async(sql:string,values?:unknown[])=>{
    statements.push({sql,...(values?{values}:{})});
    if(sql.includes("SELECT DISTINCT a.company_id"))return {rowCount:companies.length,rows:companies.map(company_id=>({company_id}))};
+   if(sql.includes("FROM payments.merchant_notification_bridge_consents"))
+     return {rowCount:1,rows:[{installation_id:"66666666-6666-4666-8666-666666666666",granted_at:new Date("2026-11-07T12:00:00Z"),revoked_at:null}]};
    if(sql.includes("FROM payments.merchant_destinations d"))return {rowCount:0,rows:[]};
    if(sql.includes("FROM payments.merchant_payment_notification_inbox"))return {rowCount:1,rows:[{
      id:"77777777-7777-4777-8777-777777777777",received_at:new Date("2026-11-07T12:00:00Z"),
@@ -90,6 +92,28 @@ describe("QR-001 BUSINESS administrative scope",()=>{
   await expect(injected.service.dispatch({session,action:"notices",payload:{company_id:company}}))
     .rejects.toThrow("QR001_INVALID_REQUEST");
   expect(injected.statements.some(x=>x.sql.includes("merchant_payment_notification_inbox"))).toBe(false);
+ });
+
+ it("lists QR-002 bridge consents only for the authenticated business company",async()=>{
+  const {service,statements}=setup([company],true);
+  const result=await service.dispatch({session,action:"notice-consents",payload:{}}) as {consents:{installation_id:string;revoked_at:null}[]};
+  expect(result.consents).toHaveLength(1);
+  expect(result.consents[0]?.revoked_at).toBeNull();
+  const query=statements.find(s=>s.sql.includes("FROM payments.merchant_notification_bridge_consents"));
+  expect(query?.sql).toContain("LIMIT 100");
+  expect(query?.sql).not.toMatch(/phone|sms_body|message_sha256|payment_id|sale_id/);
+  expect(query?.values).toEqual([session.tenantId,company]);
+  expect(statements.some(s=>s.sql.includes("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))).toBe(true);
+  expect(statements.some(s=>/INSERT INTO payments.merchant_notification_bridge_consents|UPDATE payments.merchant_notification_bridge_consents/.test(s.sql))).toBe(false);
+ });
+ it("denies QR-002 consent inventory without flag or administrator, and forbids injected company",async()=>{
+  for(const [companies,enabled,payload] of [
+   [[company],false,{}],[[],true,{}],[[company],true,{company_id:company}],
+  ] as const){
+   const {service,statements}=setup([...companies],enabled);
+   await expect(service.dispatch({session,action:"notice-consents",payload})).rejects.toThrow();
+   expect(statements.some(s=>s.sql.includes("FROM payments.merchant_notification_bridge_consents"))).toBe(false);
+  }
  });
 
 });
