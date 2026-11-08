@@ -1,12 +1,6 @@
 name: Windows SCM virtual account and DPAPI disposable lab
 
 on:
-  push:
-    branches: [feat/p0-windows-login-install-readiness]
-    paths:
-      - '.github/workflows/windows-scm-virtual-account-lab.yml'
-      - 'tools/operators/ci-windows-scm-identity-service.cs'
-      - 'tools/operators/ci-windows-scm-identity-service.ps1'
   workflow_dispatch:
 
 permissions:
