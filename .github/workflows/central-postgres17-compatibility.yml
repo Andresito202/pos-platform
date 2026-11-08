@@ -109,12 +109,13 @@ jobs:
           docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl_cert_file = '/tmp/camacho-ci-postgres.crt'"
           docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl_key_file = '/tmp/camacho-ci-postgres.key'"
           docker cp "$container:/tmp/camacho-ci-postgres.crt" "$RUNNER_TEMP/pg17-ca.crt"
-          docker restart "$container"
-          for i in $(seq 1 40); do
-            if docker exec "$container" pg_isready -U postgres -d postgres >/dev/null; then break; fi
+          docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT pg_reload_conf()'
+          for i in $(seq 1 20); do
+            value="$(docker exec -u postgres "$container" psql -U postgres -d postgres -tAX -c 'SHOW ssl' | tr -d '\r')"
+            if [[ "$value" == on ]]; then break; fi
             sleep 1
           done
-          docker exec -u postgres "$container" psql -U postgres -d postgres -tAX -c 'SHOW ssl' | grep -Fx on
+          test "$value" = on
           echo 'PG17_EPHEMERAL_TLS=PASS'
       - name: Execute uninterrupted 001 to 016 chain with physical RLS and no fixture ledger
         shell: bash
