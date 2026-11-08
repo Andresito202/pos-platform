@@ -34,7 +34,7 @@ describe("PG17.11 canonical full commercial chain",()=>{
       expect(version).toBe("170011");
       await admin.query('CREATE DATABASE "'+database+'"');
       created=true;
-      const dbUrl=new URL(source);dbUrl.pathname="/"+database;
+      const dbUrl=new URL(source);dbUrl.pathname="/"+database;dbUrl.searchParams.set("sslmode","require");
       const url=dbUrl.toString();
       const context={adminUrl:url,expectedDatabase:database,repositoryCommit:commit};
       const a=await applyPostgres001({adminUrl:url});expect(a.noOp).toBe(false);
