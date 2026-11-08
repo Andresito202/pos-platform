@@ -809,3 +809,9 @@ button {
 .pos-local-login button:disabled{opacity:.65;cursor:not-allowed}
 .pos-local-login small{display:block;margin-top:12px;font-size:12px;color:var(--camacho-muted)}
 .pos-local-login-message{color:var(--camacho-ink);font-size:13px}
+
+
+.pos-local-session-control{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.pos-local-session-control span{font-size:13px;color:var(--camacho-ink);font-weight:700}
+.pos-local-session-control button{background:var(--camacho-navy);color:white;border:0;padding:10px 14px;border-radius:8px;min-height:44px}
+.pos-local-session-control button:disabled{opacity:.55;cursor:not-allowed}
