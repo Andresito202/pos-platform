@@ -86,3 +86,22 @@ Adoptar el contrato en el módulo Payments y en el migrador canónico, habilitar
 - Se añadieron pruebas escritas para pérdida de conectividad, cota central antirrestauración, scope de instalación inválido y ciclo de vida corrupto de clave.
 - **Pendiente necesario**: implementar el origen Central de la cota durable y el protocolo de acuse tras activación. Hasta hacerlo no está permitido habilitar esta ruta en el arranque ni en IPC.
 - No se han ejecutado Vitest, TypeScript typecheck, CI del HEAD, ni operaciones físicas. Nivel de evidencia: `IMPLEMENTED` para componentes aislados, no `TESTED` ni `END_TO_END`.
+
+## Incremento Central y carga de QR — 2026-11-07
+
+Materialización nueva:
+- `apps/central-authority/src/merchant-destination-qr-asset.ts`: validador estricto de PNG oficial (RGB/RGBA 8-bit, máximo 1024x1024, máximo 1 MiB, CRC íntegro, zlib acotado, sin chunks adicionales ni contenido después de IEND), hash SHA-256. Esto **no** comprueba que el QR escanee correctamente ni prueba titularidad bancaria. Otros formatos exigen conversión segura previa, no cambio de extensión.
+- `tools/target-migrations/sql/postgres/024_merchant_payment_destinations.up.sql` y `.down.sql`: migración Central aditiva bajo `payments` con objetos de QR, destinos, eventos de auditoría, outbox, secuencias y acuses por instalación. Protecciones RLS forzadas por tenant y empresa, FK compuestas, prohibición de DELETE/TRUNCATE y versiones/estados controlados.
+- `tools/target-migrations/src/postgres-commercial-runner.ts` y `postgres-commercial-cli.ts`: descriptor/target explícito `MERCHANT_DESTINATIONS`, sucesor de 023, con checksum en ledger y smoke para RLS/ownership/gates. **No aplicada a base de datos.**
+- `apps/central-authority/src/merchant-destination-postgres-store.ts`: adaptador central transaccional de comandos QR-001, `SERIALIZABLE`, `SET LOCAL` de ámbito, compare-and-swap, auditoría y outbox en una misma transacción. NO es endpoint HTTP, NO recibe una sesión del navegador, NO concede permisos por sí mismo.
+- `.github/workflows/qr001-validation.yml`: CI focalizado del PR con typecheck y tests de dominio, Central, SQLite y migración 024. GitHub aún no reportó ejecución sobre el último HEAD consultado.
+
+Antes de habilitar interfaz o pruebas con QR propio:
+1. Ejecutar en CI y PostgreSQL 16.14 el schema 024 y revisar tests, grants y RLS físicos.
+2. Montar un handler Central que derive `tenantId/companyId/userId` y permiso atómico de la **sesión autenticada**; no aceptar `canConfigure` ni IDs del renderer. Auditar toda acción.
+3. Subida de QR oficial: validar PNG, almacenar en tabla `payments.merchant_qr_assets` dentro de la empresa. La comprobación de propiedad del QR es operativa; el hash solo detecta manipulación de bytes.
+4. Emisor Central Ed25519 con aprovisionamiento de claves, secuencia de emisión y acuses por instalación; publicar snapshots firmados y entregar por transporte seguro a las cuatro cajas, con invalidación y caducidad.
+5. Habilitar editor de Administración (solo escritura admin) y lector en Caja después de pruebas de frontera real; no dejar que cajeros cambien destino.
+6. Mantener cada venta por transferencia QR en PENDING hasta una verificación autorizada. Los SMS de Nequi de la fase 2 serán eventos de aviso y no evidencia financiera concluyente.
+
+**Precisión económica:** integrar la visualización de un QR oficial y una llave de negocio no requiere comisiones de Camacho POS. No hay API bancaria gratuita universal certificada para confirmar automáticamente cada abono Nequi/Bre-B en las cajas. Ni la migración ni el adaptador ofrecen esta capacidad aún.
