@@ -1,5 +1,6 @@
 import {uuidV7} from "@pos-platform/contracts";
 import type {KeyObject} from "node:crypto";
+import type {DestinationProjectionState,DestinationSnapshot} from "@pos-platform/domain";
 import type {RuntimeComponent} from "../lifecycle.js";
 import type {DeviceCredentialProvider} from "../sync/device-credential.js";
 import type {LocalDatabaseComponent} from "../local-database-component.js";
@@ -66,6 +67,28 @@ export function canReuseMerchantDestinationSnapshot(
  const seq=local.snapshot.sequence;
  return Number.isSafeInteger(seq)&&seq>0&&acknowledged===seq&&current===seq&&
    Date.parse(local.snapshot.expires_at)>nowMs+15*60_000;
+}
+
+/**
+ * Recover a lost Central ACK after SQLite has committed. This is only allowed
+ * when a newly verified Central signature matches the local recipient data
+ * byte-for-byte and Central has NOT published a newer generation. No bank
+ * payment is inferred by this acknowledgement.
+ */
+export function canRecoverMerchantDestinationAcknowledgement(
+ local:DestinationProjectionState|null,
+ verified:DestinationSnapshot,
+ acknowledged:number|null,current:number|null,nowMs:number,
+):boolean{
+ if(!local||current===null||!Number.isFinite(nowMs))return false;
+ const localSequence=local.snapshot.sequence;
+ if(verified.sequence!==localSequence||current!==localSequence||
+    (acknowledged!==null&&acknowledged>=localSequence)||
+    Date.parse(local.snapshot.expires_at)<=nowMs||
+    Date.parse(verified.expires_at)<=nowMs)return false;
+ const source=local.snapshot.destinations??(local.snapshot.destination?[local.snapshot.destination]:[]);
+ const remote=verified.destinations??(verified.destination?[verified.destination]:[]);
+ return JSON.stringify(source)===JSON.stringify(remote);
 }
 
 export interface MerchantDestinationSyncProvision{
@@ -146,6 +169,24 @@ export class MerchantDestinationSyncComponent implements RuntimeComponent {
      const response=await this.transport.request("snapshot",{},controller.signal) as {artifact?:unknown};
      if(!response||typeof response!=="object"||!response.artifact)
        throw Error("QR001_INVALID_SNAPSHOT_RESPONSE");
+     // If Central did not receive the last ACK, a crash may leave a durable,
+     // fully verified SQLite snapshot at the SAME generation. The normal CAS
+     // correctly rejects replay; recover the ACK only after verifying a fresh
+     // signed Central artifact with identical bank recipients and QR bytes.
+     if(local&&current===local.snapshot.sequence&&
+        (acknowledged===null||acknowledged<current)){
+       const fresh=verifier.verify(response.artifact,scope);
+       if(fresh.decision==="VALID"&&canRecoverMerchantDestinationAcknowledgement(
+         local,fresh.snapshot,acknowledged,current,Date.now())){
+         const ackRecovered=await this.transport.request("ack",{sequence:current},controller.signal)
+           as {sequence?:unknown};
+         if(typeof ackRecovered?.sequence!=="number"||
+            !Number.isSafeInteger(ackRecovered.sequence)||ackRecovered.sequence<current)
+           throw Error("QR001_ACK_RECOVERY_REJECTED");
+         this.report("ACK_RECOVERED");
+         return;
+       }
+     }
      const activated=await new MerchantDestinationActivationService(verifier,store,floor)
        .acceptSigned(response.artifact,scope);
      if(activated.kind!=="ACTIVATED"){this.report(activated.reason);return;}
