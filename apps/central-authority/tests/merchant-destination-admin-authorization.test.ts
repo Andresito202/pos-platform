@@ -12,7 +12,7 @@ describe("QR-001 atomic bank recipient authorization",()=>{
   const sql:string[]=[];
   const client={query:vi.fn(async(q:string)=>{sql.push(q);return {rowCount:1,rows:[{id:1}]};}),
     release:vi.fn()} as unknown as PoolClient;
-  const pool={connect:async()=>client} as Pool;
+  const pool={connect:async()=>client} as unknown as Pool;
   const store=new PostgresMerchantDestinationStore(pool,{tenantId:session.tenantId,companyId},
     c=>assertMerchantAdminDuringWrite(c,session,companyId));
   await store.transaction(async()=>true);
