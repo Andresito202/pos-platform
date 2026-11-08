@@ -20,6 +20,7 @@ describe("ipc-allowlist", () => {
       "pos:payment.cancel",
       "pos:payment.get",
       "pos:payment.destination.get",
+      "pos:payment.notice.get",
       "pos:customer.register",
       "pos:customer.get",
       "pos:customer.find",
