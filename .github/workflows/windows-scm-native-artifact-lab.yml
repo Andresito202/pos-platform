@@ -88,6 +88,13 @@ jobs:
         run: |
           & ./tools/operators/ci-windows-scm-identity-service.ps1 -Run -NativePipe
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - name: G2 durable lease, replay, revocation and close regressions after real G1
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-handoff-lease-state.test.ts tests/windows-scm-runtime.test.ts tests/native-session-close-lifecycle.test.ts --no-file-parallelism
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Write-Output 'G2_LEASE_REPLAY_REVOCATION_REGRESSIONS=PASS'
+          Write-Output 'G2_REAL_SCM_BUSINESS_SESSION=NOT_TESTED'
       - name: Assert native listener and SCM controls are not mistaken for G1 commercial interoperability
         shell: pwsh
         run: |
