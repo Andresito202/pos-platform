@@ -58,6 +58,11 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Locked dependencies
         run: pnpm install --frozen-lockfile
+      - name: Validate ephemeral G1 peer JavaScript syntax
+        shell: pwsh
+        run: |
+          node --check tools/operators/ci-windows-scm-native-peer.mjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
       - name: Compile production native Windows pipe addon x64
         shell: pwsh
         run: |
