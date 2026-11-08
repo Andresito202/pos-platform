@@ -58,8 +58,13 @@ describe("QR-001 Central Ed25519 company issuer",()=>{
   const {issuer,queries,client}=setup(rows);
   const signed=await issuer.issueForPreauthorizedInstallation({tenantId:A,companyId:C});
   expect(signed.claims.snapshot.destination?.kind).toBe("NEQUI_BUSINESS_QR");
-  expect(signed.claims.snapshot.destination?.qr_png_base64).toBe(png.toString("base64"));
+  expect(signed.claims.snapshot.destination?.qr_png_base64).toBeUndefined();
+  expect(signed.claims.snapshot.destinations?.[0]?.qr_png_base64).toBe(png.toString("base64"));
   expect(signed.claims.snapshot.destinations?.[1]?.qr_png_base64).toBe(png.toString("base64"));
+  // Two methods with the same fixture: encoded image occurs exactly twice,
+  // not three times with a duplicate primary compatibility field.
+  const serialized=JSON.stringify(signed);
+  expect(serialized.split(png.toString("base64")).length-1).toBe(2);
   expect(signed.claims.snapshot.destinations?.map(x=>x.kind)).toEqual(["NEQUI_BUSINESS_QR","BREB_KEY","NEQUI_NUMBER"]);
   expect(DestinationSnapshotSchema.safeParse(signed.claims.snapshot).success).toBe(true);
   expect(verify(null,Buffer.from(canonicalJson(signed.claims)),publicKey,Buffer.from(signed.signature,"base64url"))).toBe(true);
