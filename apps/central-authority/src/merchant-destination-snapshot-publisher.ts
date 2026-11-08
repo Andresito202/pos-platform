@@ -92,13 +92,14 @@ export class CentralMerchantDestinationPublisher {
    if(result.rowCount===null||result.rowCount>3)throw Error("QR001_PUBLISHED_METHODS_INVALID");
    const destinations:CashierDestination[]=result.rows.map((r:Record<string,unknown>)=>{
      let image:string|undefined;
-     if(r.kind==="NEQUI_BUSINESS_QR"){
+     if(r.qr_asset_id!==null){
        if(!Buffer.isBuffer(r.qr_png_bytes)||typeof r.qr_sha256!=="string")
          throw Error("QR001_QR_IMAGE_MISSING");
        const validated=validateOfficialQrPng(r.qr_png_bytes);
        if(validated.sha256!==r.qr_sha256)throw Error("QR001_QR_IMAGE_HASH_MISMATCH");
        image=validated.bytes.toString("base64");
      }
+     if(r.kind==="NEQUI_BUSINESS_QR"&&image===undefined)throw Error("QR001_QR_IMAGE_MISSING");
      return CashierDestinationSchema.parse({
        kind:r.kind,label:r.label,destination_reference:r.destination_reference,
        qr_asset_id:r.qr_asset_id,qr_sha256:r.qr_sha256,version:Number(r.version),
