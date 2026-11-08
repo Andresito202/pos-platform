@@ -35,7 +35,7 @@ test('QR-002: laboratory Android manifests must not silently enable SMS capture 
   const root=new URL('./',import.meta.url);
   for(const path of ['src/main/AndroidManifest.xml','src/runtime/AndroidManifest.xml']){
     const manifest=await readFile(new URL(path,root),'utf8');
-    assert.doesNotMatch(manifest,/<uses-permission\\b[^>]*android:name\\s*=\\s*["']android\\.permission\\.(?:RECEIVE_SMS|READ_SMS|SEND_SMS|INTERNET|BIND_NOTIFICATION_LISTENER_SERVICE)["']/);
-    assert.doesNotMatch(manifest,/<receiver\\b|android\\.provider\\.Telephony\\.SMS_RECEIVED|android\\.service\\.notification\\.NotificationListenerService/);
+    assert.doesNotMatch(manifest,/<uses-permission\b[^>]*android:name\s*=\s*["']android\.permission\.(?:RECEIVE_SMS|READ_SMS|SEND_SMS|INTERNET|BIND_NOTIFICATION_LISTENER_SERVICE)["']/);
+    assert.doesNotMatch(manifest,/<receiver\b|android\.provider\.Telephony\.SMS_RECEIVED|android\.service\.notification\.NotificationListenerService/);
   }
 });
