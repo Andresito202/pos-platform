@@ -44,7 +44,7 @@ jobs:
           printf '%s\\n' 'CENTRAL_AUTHORITY_ORIGIN=https://central-ci.invalid' > /tmp/central-ci-runtime.env
           sudo install -m 0600 /tmp/central-ci-runtime.env /etc/camacho-pos/central-runtime.env
           printf '%s\\n' '# CI-only nonsecret Compose validation' > /tmp/central-ci-deployment.env
-          docker compose --env-file /tmp/central-ci-deployment.env -f infra/central-authority/compose.preproduction.yaml config --quiet
+          sudo docker compose --env-file /tmp/central-ci-deployment.env -f infra/central-authority/compose.preproduction.yaml config --quiet
           sudo rm -f /etc/camacho-pos/central-runtime.env
           echo 'CENTRAL_VPS_COMPOSE_AND_INSTALL_SYNTAX=PASS'
       - name: Build persistent Central HTTPS runtime container
