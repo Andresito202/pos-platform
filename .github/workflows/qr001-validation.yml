@@ -7,6 +7,8 @@ on:
     paths:
       - 'apps/central-authority/src/merchant-destination-*.ts'
       - 'apps/central-authority/src/merchant-notification-inbox.ts'
+      - 'apps/central-authority/src/merchant-notification-ingest-routes.ts'
+      - 'apps/central-authority/tests/merchant-notification-ingest-routes.test.ts'
       - 'apps/central-authority/tests/merchant-notification-inbox.test.ts'
       - 'apps/central-authority/tests/merchant-destination-*.test.ts'
       - 'apps/central-authority/package.json'
@@ -110,7 +112,7 @@ jobs:
         run: pnpm --filter @pos-platform/domain exec vitest run tests/merchant-destination.test.ts tests/merchant-destination-commands.test.ts tests/merchant-destination-snapshot.test.ts tests/merchant-payment-notification.test.ts
       - name: QR-001 Central tests (QR PNG and transaction)
         if: ${{ !cancelled() }}
-        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-qr-asset-store.test.ts tests/merchant-destination-postgres-store.test.ts tests/merchant-destination-snapshot-publisher.test.ts tests/merchant-destination-acknowledgements.test.ts tests/merchant-destination-business-operations.test.ts tests/merchant-destination-admin-authorization.test.ts tests/merchant-notification-inbox.test.ts
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-qr-asset-store.test.ts tests/merchant-destination-postgres-store.test.ts tests/merchant-destination-snapshot-publisher.test.ts tests/merchant-destination-acknowledgements.test.ts tests/merchant-destination-business-operations.test.ts tests/merchant-destination-admin-authorization.test.ts tests/merchant-notification-inbox.test.ts tests/merchant-notification-ingest-routes.test.ts
       - name: QR-001 SQLite and cryptographic tests
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-activation.test.ts tests/merchant-destination-projection.test.ts tests/merchant-destination-snapshot-verifier.test.ts tests/merchant-destination-sync.test.ts
