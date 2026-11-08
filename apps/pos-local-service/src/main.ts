@@ -21,6 +21,7 @@ import {prepareAuthorizationTrustProvisioning} from "./security/authorization-tr
 import {WindowsCommercialRuntime,readWindowsCommercialConfiguration} from "./security/windows-commercial-runtime.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {MerchantDestinationSyncComponent} from "./payments/merchant-destination-sync.js";
+import {MerchantNoticeFeedSyncComponent} from "./payments/merchant-notice-feed.js";
 import {
   EncryptedFileSecretStore,
   DeviceIdentity,
@@ -332,6 +333,16 @@ try {
     },reason=>logger.log(reason==="ACTIVATED_AND_ACKNOWLEDGED"?"info":"warn","qr001.sync",{reason})));
   }
 
+  let noticeFeed:MerchantNoticeFeedSyncComponent|undefined;
+  if(config.qr002_notice_feed_enabled==="true"){
+    if(!config.central_base_url||security.protection!=="OS_BOUND")
+      throw Error("QR002_OS_PROTECTED_CENTRAL_DEVICE_REQUIRED");
+    noticeFeed=new MerchantNoticeFeedSyncComponent(config.central_base_url,
+      centralDeviceCredentials,
+      code=>logger.log("warn","qr002.notice_feed",{code}));
+    components.push(noticeFeed);
+  }
+
   if (process.platform === "win32") {
     localChannel = new LocalChannelComponent(
       config,
@@ -340,6 +351,7 @@ try {
       operationConfirmation,
       commercial,
       nativeCommercial,
+      noticeFeed,
     );
     components.push(localChannel);
   }
