@@ -23,11 +23,14 @@ test.skip(process.platform!=="win32","Windows role E2E requires real DPAPI/named
 test("role-scoped menus and server decisions follow signed authorization, not a renderer role switch",async()=>{
   if(process.env.POS_E2E_INTERACTIVE==="1")test.setTimeout(0);
   const durable=process.env.POS_E2E_PERSISTENT_DEV==="1";
-  if(durable&&(process.platform!=="win32"||!process.env.POS_E2E_INTERACTIVE||
-     process.env.CI||!process.env.LOCALAPPDATA))throw Error("PERSISTENT_PREVIEW_REQUIRES_LOCAL_WINDOWS_INTERACTIVE");
-  const workspace=join(process.env.LOCALAPPDATA??tmpdir(),"CamachoPOS","development","role-data");
+  const smoke=process.env.POS_E2E_PERSISTENCE_SMOKE==="1";
+  if(durable&&(process.platform!=="win32"||(!process.env.POS_E2E_INTERACTIVE&&!smoke)||
+     (process.env.CI&&!smoke)||(!smoke&&!process.env.LOCALAPPDATA)||
+     (smoke&&!process.env.POS_E2E_PERSISTENCE_ROOT)))throw Error("PERSISTENT_PREVIEW_REQUIRES_LOCAL_WINDOWS_INTERACTIVE");
+  const base=smoke?process.env.POS_E2E_PERSISTENCE_ROOT!:process.env.LOCALAPPDATA??tmpdir();
+  const workspace=join(base,"CamachoPOS","development","role-data");
   if(durable){
-    let path=resolve(process.env.LOCALAPPDATA!);
+    let path=resolve(base);
     for(const part of ["CamachoPOS","development","role-data",role!]){
       path=join(path,part);
       mkdirSync(path,{recursive:true});
@@ -113,6 +116,29 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
     if(role==="SUPERADMINISTRADOR")expect(has("Caja y ventas")).toBe(false);
     if(role==="CAJERO")expect(has("Impresora y cajón")).toBe(false);
     if(role==="ADMINISTRADOR")expect(has("Impresora y cajón")).toBe(true);
+    if(smoke){
+      if(role!=="ADMINISTRADOR")throw Error("PERSISTENCE_SMOKE_REQUIRES_ADMIN");
+      const barcode="7709876543210";
+      const found=await request("catalog.item.find",{barcode}) as {status:string;result?:{presentation_id?:string}};
+      if(process.env.POS_E2E_PERSISTENCE_EXPECT_EXISTING==="1"){
+        expect(found.status).toBe("SUCCEEDED");
+        expect(found.result?.presentation_id).toMatch(/^[0-9a-f-]{36}$/);
+        console.log("DEV_SQLITE_PERSISTED_CATALOG_READ=PASS");
+      }else{
+        expect(found.status).toBe("REJECTED");
+        const created=await page.evaluate(async input=>{
+          const api=(globalThis as unknown as {posService:Record<string,(request:unknown)=>Promise<unknown>>}).posService;
+          return api["catalog.product.register"]!({protocol_version:"1.0.0",message_type:"catalog.product.register",
+            request_id:crypto.randomUUID(),correlation_id:crypto.randomUUID(),operation_id:crypto.randomUUID(),
+            idempotency_key:crypto.randomUUID(),payload_schema_version:"1.0.0",
+            payload:{code:"DEV-PERSIST-001",name:"Persistencia local de prueba",stock_controlled:false,
+              presentation_name:"Unidad",unit_code:"UND",unit_precision:0,barcode:input,price_amount:"1000.000000",currency_code:"COP"}});
+        },barcode) as {status:string;result?:{outcome?:string}};
+        expect(created.status).toBe("SUCCEEDED");
+        expect(created.result?.outcome).toBe("REGISTERED");
+        console.log("DEV_SQLITE_PERSISTED_CATALOG_WRITE=PASS");
+      }
+    }
     console.log("ROLE_E2E_ISOLATED="+role+":PASS");
     if(process.env.POS_E2E_INTERACTIVE==="1"){
       // Interactive UI preview is strictly test-only, without live Central
