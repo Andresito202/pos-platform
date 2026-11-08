@@ -53,3 +53,9 @@ Nequi Negocios puede enviar SMS de pagos mediante Llave Nequi Negocios o QR Nego
 
 ## Qué evidencia tenemos
 El PR incluye pruebas de esquema PostgreSQL 16.14 en contenedor descartable, dominio, Central, SQLite, firma e IPC/React, más test del transporte HTTPS; **no** acredita Central desplegada ni cajas Windows físicas. Revisar el estado CI del HEAD y no fusionar mientras no se hayan ejecutado pruebas E2E con cuenta del comercio.
+
+## Auditoría de transporte de tres QR (2026-11-07)
+- Identificadores `x-request-id` y `x-correlation-id` emitidos como UUIDv7 en el cliente Windows, coherentes con la validación criptográfica de la ruta Central.
+- Un solo método puede contener una imagen PNG <=1 MiB y su Base64; tres imágenes consumen aproximadamente 4.2 MB sin contar metadatos y firma. El transporte de snapshots admite hasta **4,400,000 bytes** de respuesta y corta la lectura por longitud real (no solo Content-Length). Floor/ACK conservan un máximo de 1024 bytes.
+- El cambio no aumenta el tamaño permitido por archivo QR, no autoriza contenido desconocido y no despliega automáticamente el servicio.
+- Tests nuevos verifican los identificadores de la prueba firmada y la aceptación/rechazo de cargas dentro/fuera del límite. El valor de cada imagen siempre llega firmado por Central y ligado a empresa e instalación.
