@@ -13,6 +13,10 @@ function setup(opts:{active?:boolean,central?:number,ack?:number,fail?:boolean}=
    commands.push({sql,...(values?{values}:{})});
    if(opts.fail && sql.includes("merchant_destination_sequences"))throw new Error("DB_DOWN");
    if(sql.includes("FROM identity.device_registry"))return {rowCount:opts.active===false?0:1,rows:opts.active===false?[]:[{id:1}]};
+   if(sql.includes("AS current_sequence"))return {rowCount:1,rows:[{
+     floor:acknowledged===null?null:String(acknowledged),
+     current_sequence:String(opts.central??5),
+   }]};
    if(sql.includes("FROM payments.merchant_destination_sequences"))return {rowCount:1,rows:[{sequence:String(opts.central??5)}]};
    if(sql.includes("INSERT INTO payments.merchant_destination_acknowledgements")){
     const next=Number(values?.[3]);
@@ -40,6 +44,21 @@ describe("QR-001 durable Central acknowledged floor",()=>{
   await expect(x.store.floorForPreauthorizedInstallation(scope)).rejects.toThrow("QR001_INSTALLATION_NOT_ACTIVE_IN_COMPANY");
   expect(x.commands.some(q=>q.sql.includes("FROM payments.merchant_destination_acknowledgements"))).toBe(false);
   expect(x.commands.at(-1)?.sql).toBe("ROLLBACK");
+ });
+ it("returns current company publication sequence and per-installation ACK consistently",async()=>{
+   const x=setup({central:13,ack:12});
+   expect(await x.store.statusForPreauthorizedInstallation(scope))
+     .toEqual({floor:12,current_sequence:13});
+   expect(x.commands.some(q=>q.sql.includes("AS current_sequence")&&
+     q.values?.[0]===tenant&&q.values?.[1]===company&&q.values?.[2]===install)).toBe(true);
+   expect(x.commands[0]?.sql).toContain("READ ONLY");
+   expect(x.commands.at(-1)?.sql).toBe("COMMIT");
+ });
+ it("does not reveal company publication status for inactive device",async()=>{
+   const x=setup({active:false,central:13,ack:12});
+   await expect(x.store.statusForPreauthorizedInstallation(scope))
+     .rejects.toThrow("QR001_INSTALLATION_NOT_ACTIVE_IN_COMPANY");
+   expect(x.commands.some(q=>q.sql.includes("AS current_sequence"))).toBe(false);
  });
  it("records monotonic ACK bounded by Central publication sequence",async()=>{
   const x=setup({central:5,ack:2});
