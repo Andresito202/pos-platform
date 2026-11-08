@@ -69,3 +69,11 @@ El QR propio Nequi P2P o Bre-B estático sigue siendo una opción de cobro **sin
 - Petición estricta `{}`; no admite company, tenant ni permisos enviados por el navegador. Central deriva el ámbito de la sesión, aplica RLS y limita a 100 resultados de la misma empresa. Proyección de solo lectura: `installation_id`, `granted_at`, `revoked_at`. No incluye número telefónico, SMS, hash ni datos de ventas.
 - Esta operación **no concede, reactiva ni revoca** consentimientos, ni enrola teléfonos. No se agregó botón administrativo a la UI sin un flujo completo validado.
 - **Bloqueo de revocación comprobado en migración 025:** `payments.guard_merchant_notice_consent()` exige `identity.device_registry.status='ACTIVE'` también durante `UPDATE`. Si el dispositivo ya está inactivo, la revocación SQL puede rechazarse. Antes de habilitar la revocación administrativa, corregir ese caso con una migración aditiva (sin reescribir 025), probar RLS, el bloqueo concurrente y la imposibilidad de reactivar la autorización.
+
+
+## Migración aditiva 027 — revocación de dispositivo previamente desactivado
+- La migración `027_merchant_notice_revocation_guard`, dependiente de 026, reemplaza únicamente el cuerpo del trigger `payments.guard_merchant_notice_consent()` sin modificar el SQL ni checksum histórico de 025.
+- `INSERT` sigue exigiendo dispositivo `ACTIVE` de la empresa. `UPDATE` solo permite pasar irrevocablemente de `revoked_at=NULL` a una fecha de revocación, preservando los demás campos; ya no exige que el dispositivo continúe activo para revocar.
+- El trigger independiente `merchant_notice_intake_guard` y el bloqueo del consentimiento siguen impidiendo ingestión después de revocar; el esquema de evidencia y RLS no cambian.
+- El DOWN de 027 rechaza retroceder cuando hay registros de consentimiento para no restaurar el problema sobre evidencia existente.
+- Las pruebas de PostgreSQL descartable incluyen el caso del dispositivo desactivado antes de revocar, rechazo de reactivación y rechazo de nueva ingestión. **No implica autorización de la ruta de revocación ni funcionamiento comercial probado**. Hasta certificar estas pruebas y el endpoint BUSINESS transaccional, solo se permite consulta de consentimientos.
