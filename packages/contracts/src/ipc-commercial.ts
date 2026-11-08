@@ -1262,6 +1262,29 @@ export const MerchantDestinationsGetResultSchema = z.strictObject({
 export const MerchantDestinationsGetResponseSchema=createResponseEnvelopeSchema(MerchantDestinationsGetResultSchema);
 export type MerchantDestinationsGetResult=z.infer<typeof MerchantDestinationsGetResultSchema>;
 
+// ── payment.notice.get — QR-002 (read-only, NO bank settlement) ───────────────
+export const MerchantNoticesGetRequestSchema=createRequestEnvelopeSchema(
+ z.strictObject({}),
+).safeExtend({message_type:z.literal("payment.notice.get")})
+ .superRefine(forbidCallerAssertedIdentity);
+
+export const MerchantNoticeItemSchema=z.strictObject({
+ id:UuidSchema,
+ received_at:UtcDateTimeSchema,
+ reported_amount_cop:z.number().int().positive().safe().max(100_000_000).nullable(),
+ payer_display:z.string().min(2).max(80).nullable(),
+ status:z.literal("UNVERIFIED"),
+ bank_confirmed:z.literal(false),
+ sale_confirmed:z.literal(false),
+});
+export const MerchantNoticesGetResultSchema=z.strictObject({
+ outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),
+ checked_at:UtcDateTimeSchema.nullable(),
+ notices:z.array(MerchantNoticeItemSchema).max(25),
+});
+export const MerchantNoticesGetResponseSchema=createResponseEnvelopeSchema(MerchantNoticesGetResultSchema);
+export type MerchantNoticesGetResult=z.infer<typeof MerchantNoticesGetResultSchema>;
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -1286,6 +1309,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "payment.cancel",
   "payment.get",
   "payment.destination.get",
+  "payment.notice.get",
   "customer.register",
   "customer.get",
   "customer.find",
@@ -1322,6 +1346,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:payment.cancel",
   "pos:payment.get",
   "pos:payment.destination.get",
+  "pos:payment.notice.get",
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
