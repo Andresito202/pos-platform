@@ -15,10 +15,10 @@ export interface CommercialBrowserEntryConfiguration {
  * one-use code; no device key, token minting or POS grant enters the document.
  * Mounted by the existing isolated host; production activation stays gated. */
 export function sendCommercialBrowserEntry(res: ServerResponse, configuration: CommercialBrowserEntryConfiguration,
-  destination?:{request:string;tenantName:string;companyName:string;deviceId:string;installationId:string}): void {
+  destination?:{request:string;tenantName:string;companyName:string;deviceId:string;installationId:string},merchantAdminEnabled=false): void {
   const nonce = randomBytes(24).toString("base64url");
   const config = JSON.stringify({ rpId: configuration.rpId, factorId: configuration.factorId,
-    tenantId: configuration.tenantId, membershipId: configuration.membershipId,destination }).replace(/</g, "\\u003c");
+    tenantId: configuration.tenantId, membershipId: configuration.membershipId,destination,merchantAdminEnabled }).replace(/</g, "\\u003c");
   const html = `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Acceso — Camacho POS Colombia</title>
 <style nonce="${nonce}">
@@ -46,6 +46,11 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
 #status{margin:25px 0 0;padding:14px 15px;font-size:13px;line-height:1.55;color:#294e6d;background:#edf4f8;border:1px solid #cddde8;border-left:4px solid #2577b0;border-radius:6px;overflow-wrap:anywhere}
 #status[data-phase="BUSINESS_VERIFIED"],#status[data-phase="SIGNED_OUT"]{background:#e9f5ef;border-color:#b9ddcd;border-left-color:#087052;color:#175b42}
 #status[data-phase="REJECTED"],#status[data-phase="LOGOUT_UNCONFIRMED"]{background:#fff5e1;border-color:#e8d2a1;border-left-color:#9b6300;color:#674500}
+#qr001{margin-top:25px;padding-top:20px;border-top:1px solid var(--border)}
+#qr001 h3{font-size:19px;margin:0 0 10px}#qr001 p{font-size:13px;color:var(--muted)}
+#qr001 label{margin-top:12px}#qr001 select{display:block;width:100%;min-height:46px;padding:10px;border:1px solid #aebfca;border-radius:7px;background:#fff}
+#qr001-list{list-style:none;padding:0;margin:12px 0}#qr001-list li{padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;overflow-wrap:anywhere}
+#qr001-state{font-size:13px;color:#175b42}#qr001-state[data-error="yes"]{color:#a13224}
 #destination{margin:20px 0 0;padding:16px 0 0;font-size:13px;border-top:1px solid var(--border);overflow-wrap:anywhere}
 [hidden]{display:none!important}
 @media(max-width:800px){body{padding:18px}main{grid-template-columns:minmax(0,1fr);min-height:auto;max-width:630px}.access-brand{padding:32px 36px}.access-brand img{width:230px;max-height:130px;margin-bottom:22px;padding:10px}h1{font-size:29px;margin-bottom:8px}.access-brand p{max-width:none;font-size:13px}.access-form{padding:34px 36px}}
@@ -62,6 +67,20 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
 <p id="status" role="status" aria-live="polite" data-phase="IDLE">Se exigirá verificación WebAuthn.</p>
 <button id="logout" type="button" hidden>Cerrar sesión central</button>
 <p id="destination" hidden></p><button id="confirm" type="button" hidden>Confirmar destino y continuar al POS</button>
+<section id="qr001" hidden aria-label="Administración de cobros Nequi y Bre-B">
+<h3>Cobros sin pasarela · Nequi / Bre-B</h3>
+<p>Los datos pertenecen exclusivamente a este negocio. Caja solo podrá consultarlos; no puede modificarlos. Los pagos requieren verificación independiente.</p>
+<label>Método<select id="qr001-kind"><option value="NEQUI_BUSINESS_QR">QR oficial Nequi Negocios</option><option value="BREB_KEY">Llave Bre-B</option><option value="NEQUI_NUMBER">Número Nequi</option></select></label>
+<label>Nombre para caja<input id="qr001-label" maxlength="80" value="Cobro del negocio"></label>
+<label>Número o llave registrada<input id="qr001-reference" maxlength="160" autocomplete="off" placeholder="Nequi o llave del comercio"></label>
+<label>Imagen PNG de QR oficial (solo QR Negocios)<input id="qr001-file" type="file" accept="image/png"></label>
+<button id="qr001-upload" type="button">Verificar y cargar QR</button>
+<button id="qr001-create" type="button">Guardar borrador</button>
+<button id="qr001-refresh" type="button">Actualizar lista</button>
+<p id="qr001-state" role="status" aria-live="polite">Verifica tu permiso administrativo.</p>
+<ul id="qr001-list"></ul>
+</section>
+
 </section>
 <script nonce="${nonce}">
 "use strict";
@@ -82,6 +101,69 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
     if (!response.ok) throw new Error(response.status === 401 ? "CREDENTIALS_REJECTED" : response.status === 429 ? "THROTTLED" : "AUTHENTICATION_UNAVAILABLE");
     return response.json();
   }
+  const qrPanel=document.getElementById("qr001"),qrState=document.getElementById("qr001-state"),qrList=document.getElementById("qr001-list");
+  let qrAsset=null;
+  const qrInfo=(message,error=false)=>{qrState.textContent=message;qrState.dataset.error=error?"yes":"no";};
+  async function qrReload(){
+    const reply=await post("merchant-destinations/list",{},undefined,csrf);
+    if(!reply.result||!Array.isArray(reply.result.destinations))throw Error("LIST_INVALID");
+    qrList.replaceChildren();
+    for(const item of reply.result.destinations){
+      const li=document.createElement("li");
+      const title=document.createElement("strong");
+      title.textContent=String(item.label)+" · "+String(item.kind)+" · "+String(item.status)+" · v"+String(item.version);
+      li.appendChild(title);
+      const reference=document.createElement("p");
+      reference.textContent=String(item.destination_reference);
+      li.appendChild(reference);
+      if(item.status==="DRAFT"||item.status==="PUBLISHED"){
+        const action=document.createElement("button");
+        const verb=item.status==="DRAFT"?"publish":"revoke";
+        action.type="button";action.textContent=verb==="publish"?"Publicar para las cajas":"Revocar en las cajas";
+        action.addEventListener("click",async()=>{
+          if(!csrf||!window.confirm(verb==="publish"?"¿Publicar este destino de cobro?":"¿Revocar este destino?"))return;
+          action.disabled=true;
+          try{await post("merchant-destinations/"+verb,{id:item.id,expected_version:item.version},undefined,csrf);
+            qrInfo("Cambio registrado por Central; la actualización de cajas requiere sincronización verificada.");await qrReload();}
+          catch{qrInfo("Central rechazó el cambio. Verifica versión, permisos y conexión.",true);}
+          finally{action.disabled=false;}
+        });
+        li.appendChild(action);
+      }
+      qrList.appendChild(li);
+    }
+    qrInfo("Configuración de cobros de tu empresa. Solo los destinos publicados son visibles para caja.");
+  }
+  document.getElementById("qr001-refresh").addEventListener("click",()=>{void qrReload().catch(()=>qrInfo("No se pudo actualizar la configuración.",true));});
+  document.getElementById("qr001-upload").addEventListener("click",async()=>{
+    const file=document.getElementById("qr001-file").files[0];
+    if(!csrf||!file||file.type!=="image/png"||file.size>1048576||file.size<57){qrInfo("Selecciona un PNG oficial menor o igual a 1 MiB.",true);return;}
+    const action=document.getElementById("qr001-upload");action.disabled=true;qrAsset=null;
+    try{
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      let binary="";for(let offset=0;offset<bytes.length;offset+=8192)
+        binary+=String.fromCharCode(...bytes.subarray(offset,offset+8192));
+      const result=(await post("merchant-destinations/upload",{png_base64:btoa(binary)},undefined,csrf)).result;
+      if(!result||typeof result.id!=="string"||typeof result.sha256!=="string")throw Error("INVALID_RESPONSE");
+      qrAsset=result;qrInfo("Imagen oficial validada y almacenada. Ahora guarda el borrador.");
+    }catch{qrInfo("No fue posible guardar el PNG. Verifica la imagen oficial.",true);}
+    finally{action.disabled=false;}
+  });
+  document.getElementById("qr001-create").addEventListener("click",async()=>{
+    if(!csrf)return;
+    const kind=document.getElementById("qr001-kind").value;
+    const label=document.getElementById("qr001-label").value.trim();
+    const value=document.getElementById("qr001-reference").value.trim();
+    if(kind==="NEQUI_BUSINESS_QR"&&!qrAsset){qrInfo("Primero carga la imagen QR oficial.",true);return;}
+    const draft={kind,label,destination_reference:value,
+      qr_asset_id:kind==="NEQUI_BUSINESS_QR"?qrAsset.id:null,
+      qr_sha256:kind==="NEQUI_BUSINESS_QR"?qrAsset.sha256:null};
+    const action=document.getElementById("qr001-create");action.disabled=true;
+    try{await post("merchant-destinations/create",{draft},undefined,csrf);qrInfo("Borrador guardado; publícalo para habilitar su lectura.");await qrReload();}
+    catch{qrInfo("No se pudo guardar. Revisa que el destino sea correcto y no esté duplicado.",true);}
+    finally{action.disabled=false;}
+  });
+
   cancel.addEventListener("click", () => { controller?.abort(); });
   form.addEventListener("submit", async event => {
     event.preventDefault(); if (controller || csrf) return;
@@ -115,6 +197,10 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
       show("BUSINESS_VERIFIED", config.destination ? "Identidad y MFA verificados. Comprueba el destino antes de continuar." :
         "Identidad, MFA y sesión BUSINESS verificados. La entrega al dispositivo sigue bloqueada hasta aprobar su binding. El POS no ha recibido permisos.");
       confirm.hidden=!config.destination;
+      if(config.merchantAdminEnabled){
+        try{await qrReload();qrPanel.hidden=false;}
+        catch{qrPanel.hidden=true;}
+      }
     } catch (error) {
       show(error.name === "AbortError" || error.name === "NotAllowedError" ? "CANCELLED" : "REJECTED",
         error.name === "AbortError" || error.name === "NotAllowedError" ? "Autenticación cancelada. Inicia un intento nuevo." : "No se pudo verificar la autenticación. Comprueba las credenciales, el autenticador y la conexión.");
@@ -131,7 +217,7 @@ button:disabled{cursor:not-allowed;background:#eff2f4!important;border-color:#d6
   });
   logout.addEventListener("click", async () => {
     logout.disabled = true;
-    try { await post("browser/logout", {}, undefined, csrf); csrf = null; logout.hidden = true; start.disabled = false;
+    try { await post("browser/logout", {}, undefined, csrf); csrf = null; logout.hidden = true; start.disabled = false; qrPanel.hidden=true;qrAsset=null;qrList.replaceChildren();
       show("SIGNED_OUT", "La autoridad central confirmó el cierre de sesión.");
     } catch { show("LOGOUT_UNCONFIRMED", "La autoridad central no confirmó el cierre. Reintenta cuando haya conexión."); }
     finally { logout.disabled = false; }
