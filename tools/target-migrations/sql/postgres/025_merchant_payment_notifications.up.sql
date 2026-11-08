@@ -105,14 +105,12 @@ DO $setup$ DECLARE object text; BEGIN
        AND company_id=nullif(current_setting('app.company_id',true),'')::uuid)
     WITH CHECK (tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
        AND company_id=nullif(current_setting('app.company_id',true),'')::uuid)$policy$,object);
-  -- SECURITY DEFINER guards run as pos_schema_owner; FORCE RLS still
-  -- applies, so allow ONLY a company-scoped read of the consent row.
-  IF object='merchant_notification_bridge_consents' THEN
-    EXECUTE format($owner$CREATE POLICY merchant_notice_guard_owner_read ON payments.%I
-      FOR SELECT TO pos_schema_owner
-      USING (tenant_id=nullif(current_setting('app.tenant_id',true),'')::uuid
-         AND company_id=nullif(current_setting('app.company_id',true),'')::uuid)$owner$,object);
-  END IF;
+  -- The trusted schema owner must be able to check ALL rows when refusing
+  -- a destructive DOWN migration. FORCE RLS otherwise returns zero rows and
+  -- silently bypasses evidence retention. pos_platform_app remains strictly
+  -- scoped to current tenant/company; local POS roles remain denied.
+  EXECUTE format($owner$CREATE POLICY merchant_notice_owner_evidence_read ON payments.%I
+    FOR SELECT TO pos_schema_owner USING (true)$owner$,object);
   EXECUTE format('CREATE TRIGGER merchant_notice_no_truncate BEFORE TRUNCATE ON payments.%I FOR EACH STATEMENT EXECUTE FUNCTION audit.reject_append_only_mutation()',object);
   EXECUTE format('REVOKE ALL ON payments.%I FROM PUBLIC,pos_app,pos_worker,pos_reporting',object);
  END LOOP;
