@@ -27,7 +27,9 @@ on:
       - 'apps/pos-local-service/src/security/merchant-destination-*.ts'
       - 'apps/pos-local-service/tests/merchant-destination-*.test.ts'
       - 'packages/domain/src/merchant-destination*.ts'
+      - 'packages/domain/src/merchant-payment-notification.ts'
       - 'packages/domain/tests/merchant-destination*.test.ts'
+      - 'packages/domain/tests/merchant-payment-notification.test.ts'
       - 'packages/database-sqlite/src/local-database.ts'
       - 'tools/target-migrations/sql/postgres/024_merchant_payment_destinations.*.sql'
       - 'tools/target-migrations/src/postgres-commercial-*.ts'
@@ -99,7 +101,7 @@ jobs:
           pnpm --filter @pos-platform/pos-desktop typecheck
       - name: QR-001 domain unit tests
         if: ${{ !cancelled() }}
-        run: pnpm --filter @pos-platform/domain exec vitest run tests/merchant-destination.test.ts tests/merchant-destination-commands.test.ts tests/merchant-destination-snapshot.test.ts
+        run: pnpm --filter @pos-platform/domain exec vitest run tests/merchant-destination.test.ts tests/merchant-destination-commands.test.ts tests/merchant-destination-snapshot.test.ts tests/merchant-payment-notification.test.ts
       - name: QR-001 Central tests (QR PNG and transaction)
         if: ${{ !cancelled() }}
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-qr-asset-store.test.ts tests/merchant-destination-postgres-store.test.ts tests/merchant-destination-snapshot-publisher.test.ts tests/merchant-destination-acknowledgements.test.ts tests/merchant-destination-business-operations.test.ts tests/merchant-destination-admin-authorization.test.ts
