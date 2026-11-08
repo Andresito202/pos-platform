@@ -90,6 +90,11 @@ try {
   // Disposable runner only: classify whether the unprivileged Desktop token
   // can query the SCM process token. This is diagnosis, never an auth fallback.
   // No PID, SID, token bytes, native error details or secrets are logged.
+  const nativeStage = mode === "desktop" && phase === "DESKTOP_CONNECT" &&
+    e instanceof Error && [
+      "DESKTOP_SELF_IDENTITY", "DESKTOP_PIPE_OPEN",
+      "DESKTOP_PREFACE", "DESKTOP_SERVER_ATTESTATION"
+    ].includes(e.message) ? e.message : "NOT_CLASSIFIED";
   let scmTokenQuery = "NOT_CHECKED";
   if (mode === "desktop" && phase === "DESKTOP_CONNECT") {
     const probe = String.raw`
@@ -140,7 +145,7 @@ public static class CamachoCiTokenProbe {
   }
   try { stamp("native-"+mode+"-failure.json", {
     status:"FAIL", phase, code:"NATIVE_CHANNEL_REJECTED",
-    scm_token_query:scmTokenQuery
+    scm_token_query:scmTokenQuery, native_stage:nativeStage
   }); } catch {}
   throw Error("EPHEMERAL_NATIVE_G1_FAILED");
 } finally {
