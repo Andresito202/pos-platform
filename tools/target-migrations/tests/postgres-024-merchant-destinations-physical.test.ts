@@ -89,6 +89,48 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
      has_table_privilege('pos_platform_app','payments.merchant_qr_assets','DELETE') d`);
   expect(local.rows[0]).toEqual({r:false,i:false,d:false});
  });
+ test("physically shares one renewal sequence across four reads and rotates only after TTL margin",async()=>{
+  // Executable PostgreSQL counterpart of the publisher's CTE. The table
+  // trigger MUST permit a fresh no-op SELECT and a monotonic aged renewal.
+  const client=await pool.connect();
+  const selectGeneration=`WITH renewed AS (
+       UPDATE payments.merchant_destination_sequences
+       SET sequence=sequence+1,updated_at=clock_timestamp()
+       WHERE tenant_id=$1 AND company_id=$2
+         AND updated_at<=clock_timestamp()-(($3::integer-900000)*interval '1 millisecond')
+       RETURNING sequence::text AS sequence
+     )
+     SELECT sequence,clock_timestamp() AS now FROM renewed
+     UNION ALL
+     SELECT sequence::text AS sequence,clock_timestamp() AS now
+       FROM payments.merchant_destination_sequences
+       WHERE tenant_id=$1 AND company_id=$2 AND NOT EXISTS(SELECT 1 FROM renewed)`;
+  const cases=[
+   {tenant:"11111111-1111-4111-8111-111111111111",company:"33333333-3333-4333-8333-333333333333",ageMinutes:0,expected:4},
+   {tenant:"22222222-2222-4222-8222-222222222222",company:"44444444-4444-4444-8444-444444444444",ageMinutes:46,expected:5},
+  ];
+  try{
+   await client.query("SET ROLE pos_platform_app");
+   for(const item of cases){
+    await client.query("BEGIN");
+    try{
+     await client.query("SELECT set_config('app.tenant_id',$1,true),set_config('app.company_id',$2,true)",
+       [item.tenant,item.company]);
+     await client.query(`INSERT INTO payments.merchant_destination_sequences
+       (tenant_id,company_id,sequence,updated_at)
+       VALUES($1,$2,4,clock_timestamp()-($3::integer*interval '1 minute'))`,
+       [item.tenant,item.company,item.ageMinutes]);
+     for(let register=0;register<4;register++){
+       const current=await client.query(selectGeneration,[item.tenant,item.company,3600000]);
+       expect(current.rowCount).toBe(1);
+       expect(Number(current.rows[0]?.sequence)).toBe(item.expected);
+       expect(current.rows[0]?.now).toBeInstanceOf(Date);
+     }
+     await client.query("COMMIT");
+    }catch(error){await client.query("ROLLBACK").catch(()=>undefined);throw error;}
+   }
+  }finally{await client.query("RESET ROLE").catch(()=>undefined);client.release();}
+ });
  test("database registers enabled immutable evidence guard and denies app DELETE",async()=>{
   const triggers=await pool.query(`SELECT tgname,tgenabled FROM pg_trigger
     WHERE tgrelid='payments.merchant_qr_assets'::regclass
