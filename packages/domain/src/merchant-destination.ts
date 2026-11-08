@@ -52,5 +52,11 @@ export type MerchantDestinationRevision = z.infer<typeof MerchantDestinationRevi
 export const CashierDestinationSchema = MerchantDestinationRevisionSchema.pick({
   kind: true, label: true, destination_reference: true,
   qr_asset_id: true, qr_sha256: true, version: true,
+}).safeExtend({
+  // Optional for backward-compatible signed snapshots. When present the image
+  // is a validated official PNG included in Central's Ed25519 signed claims.
+  // The bank QR must NEVER be synthesized from a free-form account number.
+  qr_png_base64: z.string().min(76).max(1_400_000)
+    .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).optional(),
 });
 export type CashierDestination = z.infer<typeof CashierDestinationSchema>;
