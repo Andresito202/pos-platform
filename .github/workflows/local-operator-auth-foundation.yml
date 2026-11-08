@@ -1,0 +1,30 @@
+name: Local real login foundation validation
+on:
+  push:
+    branches: [feat/local-password-auth-foundation-20261108]
+    paths:
+      - 'apps/pos-local-service/src/security/local-operator-password.ts'
+      - 'apps/pos-local-service/src/security/local-operator-password.test.ts'
+      - '.github/workflows/local-operator-auth-foundation.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-local-passwords:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck real backend
+        run: pnpm --filter @pos-platform/pos-local-service typecheck
+      - name: Verify password-gate constraints
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run src/security/local-operator-password.test.ts
