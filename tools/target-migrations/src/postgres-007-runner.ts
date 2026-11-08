@@ -1,3 +1,4 @@
+import {isSupportedMigrationPostgresVersion} from "./postgres-compatibility.js";
 import { Pool } from "pg";
 import { MigrationInvariantError, POSTGRES_MIGRATION_LOCK_RESOURCE, RUNNER_VERSION, readArtifact, sha256, uuidV7 } from "./shared.js";
 import {runPostgres007Smoke} from "./postgres-006-007-smoke.js";
@@ -20,7 +21,7 @@ export async function applyPostgres007(config: Postgres007RunnerConfig): Promise
   try {
     const target = await client.query<{database:string;version:string;session_user:string;current_user:string}>("SELECT current_database() database,current_setting('server_version_num') version,session_user,current_user");
     const runtime = target.rows[0];
-    invariant(runtime?.database === config.expectedDatabase && runtime.version === "160014", "007 target mismatch");
+    invariant(runtime?.database === config.expectedDatabase && isSupportedMigrationPostgresVersion(runtime.version), "007 target mismatch");
     invariant(runtime.session_user === "pos_migrator" && runtime.current_user === "pos_migrator", "007 connection role mismatch");
     await client.query("SET ROLE pos_schema_owner");
     await client.query("SELECT pg_advisory_lock(hashtextextended($1,0))", [POSTGRES_MIGRATION_LOCK_RESOURCE]);
