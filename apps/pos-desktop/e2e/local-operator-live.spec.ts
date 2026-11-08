@@ -49,15 +49,20 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     POS_LOCAL_OPERATOR_AUTH_STORE:store};
   let service:ChildProcessWithoutNullStreams|undefined;
   let electron:Awaited<ReturnType<typeof _electron.launch>>|undefined;
-  try{
-    service=spawn(process.execPath,[requireService.resolve("tsx/cli"),join(serviceRoot,"src","main.ts")],
+  const startService=async():Promise<ChildProcessWithoutNullStreams>=>{
+    const child=spawn(process.execPath,[requireService.resolve("tsx/cli"),join(serviceRoot,"src","main.ts")],
       {cwd:serviceRoot,env,stdio:["pipe","pipe","pipe"]});
-    const child=service;
     await new Promise<void>((resolveReady,reject)=>{
       let buffer="";
       let stderr="";
-      const timeout=setTimeout(()=>reject(new Error("LOCAL_SERVICE_BOOT_TIMEOUT:"+stderr.slice(-1200))),30000);
-      const done=(error?:Error)=>{clearTimeout(timeout);error?reject(error):resolveReady();};
+      let settled=false;
+      const done=(error?:Error)=>{
+        if(settled)return;
+        settled=true;
+        clearTimeout(timeout);
+        error?reject(error):resolveReady();
+      };
+      const timeout=setTimeout(()=>done(new Error("LOCAL_SERVICE_BOOT_TIMEOUT:"+stderr.slice(-1200))),30000);
       child.stdout.on("data",(chunk:Buffer)=>{
         buffer+=chunk.toString("utf8");
         if(buffer.includes('"event":"runtime.started"'))done();
@@ -65,6 +70,10 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
       child.stderr.on("data",(chunk:Buffer)=>{stderr+=chunk.toString("utf8");});
       child.once("exit",code=>done(new Error("LOCAL_SERVICE_EARLY_EXIT_"+code+":"+stderr.slice(-1200))));
     });
+    return child;
+  };
+  try{
+    service=await startService();
     electron=await _electron.launch({executablePath:requireDesktop("electron") as string,
       args:[join(desktop,"dist","start.bundle.mjs")],env});
     const page=await electron.firstWindow();
@@ -113,6 +122,39 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     expect(restricted.status).toBe("REJECTED");
     expect(restricted.result_code).toBe("UNAUTHORIZED");
     console.log("REAL_LOCAL_CASHIER_BACKEND_DENIAL=PASS");
+
+    // Restart both production processes against the EXACT SAME SQLite folder.
+    // No local identity is auto-restored; the product written above survives.
+    await electron.close();
+    electron=undefined;
+    const priorService=service;
+    const exited=new Promise<void>((resolveExit,reject)=>{
+      const timeout=setTimeout(()=>reject(Error("LOCAL_SERVICE_RESTART_SHUTDOWN_TIMEOUT")),15000);
+      priorService.once("exit",()=>{clearTimeout(timeout);resolveExit();});
+    });
+    priorService.kill();
+    await exited;
+    service=await startService();
+    electron=await _electron.launch({executablePath:requireDesktop("electron") as string,
+      args:[join(desktop,"dist","start.bundle.mjs")],env});
+    const afterRestart=await electron.firstWindow();
+    await expect(afterRestart.getByRole("heading",{name:"Ingresar al POS",level:3}))
+      .toBeVisible({timeout:20000});
+    await expect(afterRestart.locator(".pos-nav")).toHaveCount(0);
+    await afterRestart.locator("#pos-local-username").selectOption("admin.local");
+    await afterRestart.locator("#pos-local-password").fill(passwords.get("admin.local")!);
+    await afterRestart.getByRole("button",{name:"Ingresar",exact:true}).click();
+    await expect(afterRestart.locator(".pos-nav")).toBeVisible({timeout:20000});
+    const found=await afterRestart.evaluate(async value=>{
+      const api=(window as unknown as {posService:Record<string,(x:unknown)=>Promise<unknown>>}).posService;
+      return api["catalog.item.find"]!({protocol_version:"1.0.0",message_type:"catalog.item.find",
+        request_id:crypto.randomUUID(),correlation_id:crypto.randomUUID(),payload_schema_version:"1.0.0",
+        payload:{barcode:value}});
+    },barcode) as {status:string;result_code:string;result?:{presentation_id:string}};
+    expect(found.status).toBe("SUCCEEDED");
+    expect(found.result?.presentation_id).toMatch(/^[0-9a-f-]{36}$/);
+    console.log("REAL_LOCAL_SQLITE_PERSISTENCE_AFTER_RESTART=PASS");
+    console.log("REAL_LOCAL_RELOGIN_REQUIRED_AFTER_RESTART=PASS");
   } finally {
     await electron?.close().catch(()=>undefined);
     service?.kill();
