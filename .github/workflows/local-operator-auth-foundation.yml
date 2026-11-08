@@ -9,6 +9,13 @@ on:
       - 'apps/pos-local-service/src/security/local-operator-password-gate.test.ts'
       - 'apps/pos-local-service/src/security/local-operator-session-registry.ts'
       - 'apps/pos-local-service/src/security/local-operator-session-registry.test.ts'
+      - 'apps/pos-local-service/src/main.ts'
+      - 'apps/pos-local-service/src/config.ts'
+      - 'apps/pos-local-service/src/channel/local-channel-component.ts'
+      - 'apps/pos-desktop/src/**'
+      - 'apps/pos-desktop/renderer/src/**'
+      - 'packages/contracts/src/**'
+      - 'packages/local-channel/src/**'
       - '.github/workflows/local-operator-auth-foundation.yml'
   workflow_dispatch:
 permissions:
@@ -28,7 +35,11 @@ jobs:
         with:
           node-version: 22.19.0
       - run: pnpm install --frozen-lockfile
-      - name: Typecheck real backend
-        run: pnpm --filter @pos-platform/pos-local-service typecheck
+      - name: Typecheck contracts, transport, service and desktop
+        run: |
+          pnpm --filter @pos-platform/contracts typecheck
+          pnpm --filter @pos-platform/local-channel typecheck
+          pnpm --filter @pos-platform/pos-local-service typecheck
+          pnpm --filter @pos-platform/pos-desktop typecheck
       - name: Verify password-gate constraints
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run src/security/local-operator-password.test.ts src/security/local-operator-password-gate.test.ts src/security/local-operator-session-registry.test.ts
