@@ -26,8 +26,16 @@ export const DestinationSnapshotSchema = z.strictObject({
     if ((s.destination === null) !== (s.destinations.length === 0)) {
       ctx.addIssue({code:"custom",path:["destination"],message:"primary destination must match active methods"});
     }
-    if (s.destination !== null && s.destinations.length > 0 && JSON.stringify(s.destination) !== JSON.stringify(s.destinations[0])) {
-      ctx.addIssue({code:"custom",path:["destination"],message:"primary destination must be first method"});
+    if (s.destination !== null && s.destinations.length > 0) {
+      const first=s.destinations[0]!;
+      // The compatibility primary omits heavy PNG bytes; the actual official
+      // image appears once in destinations[]. All financial identifiers,
+      // versions and digests must remain identical.
+      const fields=["kind","label","destination_reference","qr_asset_id","qr_sha256","version"] as const;
+      if(fields.some(key=>s.destination?.[key]!==first[key]) ||
+         (s.destination.qr_png_base64!==undefined && s.destination.qr_png_base64!==first.qr_png_base64)) {
+        ctx.addIssue({code:"custom",path:["destination"],message:"primary destination must be first method"});
+      }
     }
   }
   if (Date.parse(s.expires_at) <= Date.parse(s.issued_at)) {
