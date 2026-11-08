@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import "./App.css";
 import "./commercial-precision.css";
 import { StatusPanel } from "./components/StatusPanel.js";
+import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
@@ -208,7 +209,8 @@ export function App(): React.JSX.Element {
               No se pudo cargar la autorización: {authorization.message}
             </div>
           ) : null}
-          <button type="button" onClick={authorization.retry} disabled={loading}>Comprobar sesión</button>
+          {unauthenticated && <LocalOperatorLoginPanel />}
+          <button type="button" onClick={authorization.retry} disabled={loading}>Comprobar sesión comercial</button>
           <StatusPanel />
         </section>
       </main>
