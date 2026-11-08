@@ -27,6 +27,9 @@ importers:
       '@pos-platform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@pos-platform/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@pos-platform/database-postgres':
         specifier: workspace:*
         version: link:../../packages/database-postgres
