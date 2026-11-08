@@ -76,6 +76,35 @@ static void serviceIdentity(const Identity& peer,const std::wstring& sid){
   if(pid==expected){found=true;break;}child=current.born;DWORD parent=parentPid(pid);require(parent&&parent!=pid);pid=parent;
  }require(found&&scmPid()==expected);
 }
+// Desktop is not entitled to query the token of a different Windows service
+// account. Bind the server pipe PID to the *running SCM service PID* and its
+// birth-ordered process ancestry instead. SERVICE.listen still proves its own
+// virtual-account token; the authenticated handoff verifies the signer later.
+static void scmServerLineage(const Identity& peer,const std::wstring& sid){
+ require(peer.session==0);
+ DWORD sidBytes=0,domainChars=0;SID_NAME_USE use{};
+ LookupAccountNameW(nullptr,L"NT SERVICE\\CamachoPOSLocalService",nullptr,&sidBytes,nullptr,&domainChars,&use);
+ require(GetLastError()==ERROR_INSUFFICIENT_BUFFER&&sidBytes>0&&sidBytes<=SECURITY_MAX_SID_SIZE&&domainChars<1024);
+ std::vector<unsigned char> sidBuffer(sidBytes);
+ std::vector<wchar_t> domain(domainChars+1);
+ require(LookupAccountNameW(nullptr,L"NT SERVICE\\CamachoPOSLocalService",
+  sidBuffer.data(),&sidBytes,domain.data(),&domainChars,&use));
+ require(sidText(sidBuffer.data())==sid);
+ const DWORD service=scmPid();
+ DWORD pid=peer.pid;uint64_t child=peer.born;bool found=false;
+ for(unsigned i=0;i<16;i++){
+  DWORD session=0;
+  require(ProcessIdToSessionId(pid,&session)&&session==0);
+  uint64_t born=kernelProcessBirth(pid);
+  require(born!=0&&born==child);
+  if(pid==service){found=true;break;}
+  DWORD parent=parentPid(pid);
+  require(parent!=0&&parent!=pid);
+  pid=parent;child=kernelProcessBirth(parent);
+  require(child!=0&&child<=born);
+ }
+ require(found&&scmPid()==service);
+}
 struct Policy{std::wstring endpoint,service,recipient,logon;DWORD session;};
 static Policy policy(napi_env e,napi_value* a){Policy p{str(e,a[0]),str(e,a[1]),str(e,a[2]),str(e,a[3]),num(e,a[4])};
  require(p.endpoint.rfind(L"\\\\.\\pipe\\camacho-pos-",0)==0&&p.endpoint.find(L'\\',9)==std::wstring::npos&&p.session>0);
@@ -83,9 +112,11 @@ static Policy policy(napi_env e,napi_value* a){Policy p{str(e,a[0]),str(e,a[1]),
 static Identity peerIdentity(HANDLE pipe,bool server,const Policy& p){
  ULONG pid=0,session=0;require(server?GetNamedPipeClientProcessId(pipe,&pid):GetNamedPipeServerProcessId(pipe,&pid));
  require(server?GetNamedPipeClientSessionId(pipe,&session):GetNamedPipeServerSessionId(pipe,&session));
- Identity id=server?pipeClientIdentity(pipe,pid):identity(pid);require(id.session==session);
+ Identity id=server?pipeClientIdentity(pipe,pid):Identity{};
+  if(!server){id.pid=pid;id.session=session;id.born=kernelProcessBirth(pid);}
+  require(id.session==session);
  if(server)require(id.sid==p.recipient&&id.logon==p.logon&&id.session==p.session);
- else serviceIdentity(id,p.service);
+ else scmServerLineage(id,p.service);
  ULONG again=0;require(server?GetNamedPipeClientProcessId(pipe,&again):GetNamedPipeServerProcessId(pipe,&again));require(pid==again);return id;
 }
 // Use libuv's descriptor table, not the addon's private /MT CRT table.
