@@ -1,4 +1,4 @@
-import {CashierDestinationSchema, MerchantDestinationRevisionSchema, type CashierDestination, type MerchantDestinationRevision} from "./merchant-destination.js";
+import {CashierDestinationSchema, MerchantDestinationDraftSchema, MerchantDestinationRevisionSchema, type CashierDestination, type MerchantDestinationRevision} from "./merchant-destination.js";
 
 /** Scope and capability MUST be resolved from a verified backend session. */
 export interface MerchantDestinationAccess {
@@ -18,7 +18,9 @@ function assertAdmin(access: MerchantDestinationAccess): void {
   if (!access.canConfigure) throw new Error("FORBIDDEN");
 }
 function checked(record: MerchantDestinationRevision): MerchantDestinationRevision {
-  return MerchantDestinationRevisionSchema.parse(record);
+  const revision = MerchantDestinationRevisionSchema.parse(record);
+  MerchantDestinationDraftSchema.parse({kind: revision.kind, label: revision.label, destination_reference: revision.destination_reference, qr_asset_id: revision.qr_asset_id, qr_sha256: revision.qr_sha256});
+  return revision;
 }
 function checkTimestamp(value: string): void {
   if (Number.isNaN(Date.parse(value)) || !/^\d{4}-\d{2}-\d{2}T/.test(value)) {
