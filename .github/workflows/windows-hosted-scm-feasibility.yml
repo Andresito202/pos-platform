@@ -53,6 +53,16 @@ jobs:
           Write-Output ('BATCH_TOKEN='+($groups -contains 'S-1-5-3'))
           Write-Output ('SERVICE_TOKEN='+($groups -contains 'S-1-5-6'))
           if($os.BuildNumber -ne '20348') { throw 'HOSTED_NOT_WINDOWS_SERVER_2022' }
+      - name: Repair Windows PowerShell 5.1 module path in isolated runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $winModules=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          $all=@($winModules,(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'))
+          $env:PSModulePath=($all -join ';')
+          & powershell.exe -NoProfile -NonInteractive -Command "Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; Get-Acl -LiteralPath '$env:WINDIR' | Out-Null; 'WINPS_SECURITY_MODULE_OK'"
+          if($LASTEXITCODE -ne 0){throw 'WINDOWS_POWERSHELL_SECURITY_MODULE_UNAVAILABLE'}
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PSModulePath='+$env:PSModulePath)
       - name: Instrument native error category only in disposable CI checkout
         shell: pwsh
         run: |
