@@ -1,3 +1,4 @@
+# QR-002 certification probe: application code identical to the parent feature HEAD.
 name: QR-001 Nequi Bre-B validation
 
 on:
