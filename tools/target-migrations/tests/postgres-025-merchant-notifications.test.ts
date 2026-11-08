@@ -1,5 +1,5 @@
 import {describe,expect,it} from "vitest";
-import {commercialMigrationManifest,POSTGRES_024_DESCRIPTOR,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR} from "../src/postgres-commercial-runner.js";
+import {commercialMigrationManifest,POSTGRES_024_DESCRIPTOR,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR,POSTGRES_027_DESCRIPTOR} from "../src/postgres-commercial-runner.js";
 import {readArtifact,sha256} from "../src/shared.js";
 
 describe("QR-002 migration 025: explicit consent-gated notification evidence",()=>{
@@ -23,6 +23,20 @@ describe("QR-002 migration 025: explicit consent-gated notification evidence",()
   const manifest=await commercialMigrationManifest("MERCHANT_NOTIFICATIONS");
   expect(manifest[POSTGRES_026_DESCRIPTOR.migrationId]).toBe(sha256(up).toString("hex"));
   expect((await commercialMigrationManifest("MERCHANT_DESTINATIONS"))[POSTGRES_026_DESCRIPTOR.migrationId]).toBeUndefined();
+ });
+ it("registers 027 as an additive one-way revocation repair, without changing 025",async()=>{
+  expect(POSTGRES_027_DESCRIPTOR.dependencies).toEqual([POSTGRES_026_DESCRIPTOR.migrationId]);
+  const up=await readArtifact(POSTGRES_027_DESCRIPTOR.upArtifact);
+  const down=await readArtifact(POSTGRES_027_DESCRIPTOR.downArtifact);
+  expect(up).toContain("CREATE OR REPLACE FUNCTION payments.guard_merchant_notice_consent()");
+  expect(up).toContain("IF TG_OP='UPDATE' THEN");
+  expect(up).toContain("OR OLD.revoked_at IS NOT NULL OR NEW.revoked_at IS NULL");
+  expect(up).toContain("RETURN NEW;");
+  expect(up).toContain("d.status='ACTIVE'");
+  expect(down).toContain("cannot downgrade consent revocation with existing evidence");
+  const manifest=await commercialMigrationManifest("MERCHANT_NOTIFICATIONS");
+  expect(manifest[POSTGRES_027_DESCRIPTOR.migrationId]).toBe(sha256(up).toString("hex"));
+  expect((await commercialMigrationManifest("MERCHANT_DESTINATIONS"))[POSTGRES_027_DESCRIPTOR.migrationId]).toBeUndefined();
  });
  it("requires device consent and never enables bank-confirmed or sale-confirmed state",async()=>{
   const sql=await readArtifact(POSTGRES_025_DESCRIPTOR.upArtifact);
