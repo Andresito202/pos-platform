@@ -15,6 +15,7 @@ function setup(failQuery?:string){
     statements.push({sql,values});
     if(failQuery && sql.includes(failQuery))throw new Error("DATABASE_FAIL");
     if(sql.includes("SELECT d.id"))return {rowCount:0,rows:[]};
+    if(sql.includes("RETURNING sequence::text"))return {rowCount:1,rows:[{sequence:"1"}]};
     return {rowCount:1,rows:[]};
   }),
  };
@@ -49,6 +50,7 @@ describe("QR-001 Central DB transaction boundary",()=>{
     });
   })).rejects.toThrow("DATABASE_FAIL");
   expect(statements.some(s=>s.sql.includes("merchant_destination_events"))).toBe(true);
+  expect(statements.some(s=>s.sql.includes("merchant_destination_sequences"))).toBe(true);
   expect(statements.at(-1)?.sql).toBe("ROLLBACK");
   expect(client.release).toHaveBeenCalledOnce();
  });
