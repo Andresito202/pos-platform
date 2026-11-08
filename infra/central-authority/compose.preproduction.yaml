@@ -40,7 +40,7 @@ services:
     mem_limit: 1g
     stop_grace_period: 45s
     healthcheck:
-      test: ["CMD", "node", "-e", "const https=require('node:https');const fs=require('node:fs');const u=new URL(process.env.CENTRAL_AUTHORITY_ORIGIN);const opts={hostname:'127.0.0.1',port:8443,path:'/ready',headers:{host:u.host},servername:u.hostname,ca:fs.readFileSync('/run/camacho-secrets/tls.crt'),timeout:5000};https.get(opts,r=>{r.resume();process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "const https=require('node:https');const u=new URL(process.env.CENTRAL_AUTHORITY_ORIGIN);const opts={hostname:'127.0.0.1',port:8443,path:'/ready',headers:{host:u.host},servername:u.hostname,timeout:5000};https.get(opts,r=>{r.resume();process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"]
       interval: 30s
       timeout: 8s
       retries: 3
