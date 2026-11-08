@@ -37,7 +37,7 @@ const publicMaterial=(key:KeyObject)=>key.export({type:"spki",format:"der"}).toS
 /** One composition on the existing Central listener. No constructor accepts
  * client-supplied approval flags, identities or a synthetic authenticated user. */
 export async function prepareCentralCommercialRuntime(input:{pool:Pool;provisionFile:string;origin:string;environment:"PREPRODUCTION"|"PRODUCTION";
-  tls:{key:Buffer;cert:Buffer};publishedSsaFile:string;publishedSasFile:string;merchantDestinationsEnabled?:boolean;
+  tls:{key:Buffer;cert:Buffer};publishedSsaFile:string;publishedSasFile:string;merchantDestinationsEnabled?:boolean;merchantNotificationReadEnabled?:boolean;
   merchantQrSigning?:{keyPath:string;keyId:string;validFrom:string;validUntil:string}}){
   const p=CentralCommercialProvisionSchema.parse(json(input.provisionFile)),l=p.limits,d=p.recipient;
   validateCommercialHttpsOrigin(input.origin);validateWindowsCommercialRegistration(p.registration,p.rp_id,input.origin);
@@ -82,6 +82,13 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
       to_regclass('payments.merchant_destination_outbox') IS NOT NULL AS ready`);
     if(q.rows[0]?.ready!==true)throw Error("QR001_CENTRAL_MIGRATION_024_REQUIRED");
   }
+  if(input.merchantNotificationReadEnabled){
+    if(!input.merchantDestinationsEnabled)throw Error("QR002_REQUIRES_QR001");
+    const qr002Ready=await input.pool.query<{ready:boolean}>(`SELECT
+      to_regclass('payments.merchant_notification_bridge_consents') IS NOT NULL
+      AND to_regclass('payments.merchant_payment_notification_inbox') IS NOT NULL AS ready`);
+    if(qr002Ready.rows[0]?.ready!==true)throw Error("QR002_CENTRAL_MIGRATION_025_REQUIRED");
+  }
   const qrSigner=input.merchantQrSigning?createPrivateKey(managed(input.merchantQrSigning.keyPath,8192)):undefined;
   if(qrSigner && [publicMaterial(ssaPublic),publicMaterial(sasPublic),publicMaterial(createPublicKey(accessPublic))].includes(publicMaterial(createPublicKey(qrSigner))))
     throw Error("QR001_KEY_PURPOSE_NOT_SEPARATED");
@@ -116,7 +123,8 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
       {mode:"DEPLOYMENT",lifetimeMs:l.sas_ms,maximumReauthenticationAgeMs:l.reauthentication_ms},
       {mode:"DEPLOYMENT",environment:p.environment,purpose:"AUTHORIZATION_SNAPSHOT",keyId:p.sas.key_id,status:"ACTIVE",privateKey:sasPrivate,publicKey:sasPublic,validFrom:sasFrom,validUntil:sasUntil},
       {mode:"REGISTERED_015",lockTimeoutMs:l.sql_lock_timeout_ms},deployment),
-    ...(input.merchantDestinationsEnabled?{merchantDestinations:new MerchantBusinessDestinationOperations(input.pool)}:{}),
+    ...(input.merchantDestinationsEnabled?{merchantDestinations:new MerchantBusinessDestinationOperations(input.pool,Boolean(input.merchantNotificationReadEnabled))}:{}),
+    merchantNotificationReadEnabled:Boolean(input.merchantNotificationReadEnabled),
     ...(qrPublisher?{merchantDeviceRoutes:new MerchantDestinationDeviceRoutes(input.pool,qrPublisher)}:{}),
     browserEntry:{rpId:p.rp_id,factorId:p.factor_id,tenantId:d.tenant_id,membershipId:p.membership_id,logoPng:managed(fileURLToPath(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url)))},
     policy:{mode:"DEPLOYMENT",maximumBodyBytes:l.http_maximum_body_bytes,requestsPerMinute:l.http_requests_per_minute,maximumLoginAttempts:l.maximum_login_attempts,maximumBuckets:l.http_maximum_buckets}});
