@@ -94,3 +94,66 @@ jobs:
           Write-Host 'BUSINESS_REAL_SESSION=NOT_TESTED'
           Write-Host 'HUMAN_MFA=NOT_TESTED'
           Write-Host 'COMMERCIAL_LOGIN_CERTIFIED=NO'
+
+  hosted-electron-service-integration:
+    name: Real Electron and Local Service Windows integration (isolated identity)
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout immutable commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install locked dependencies
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify actual Windows Electron executable
+        shell: pwsh
+        run: |
+          $electron = pnpm --filter @pos-platform/pos-desktop exec node -p "require('electron')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $path = ($electron | Select-Object -Last 1).Trim()
+          if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'ELECTRON_WINDOWS_EXECUTABLE_MISSING' }
+          Write-Host 'ELECTRON_WINDOWS_EXECUTABLE=VERIFIED'
+      - name: Build actual Electron main, preload and renderer
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'ELECTRON_MAIN_PRELOAD_RENDERER_BUILD=PASS'
+      - name: Exercise service-backed BUSINESS native main contracts on Windows
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop exec vitest run tests/native-commercial-service-login.test.ts tests/native-business-login.test.ts tests/scm-channel-start.test.ts tests/desktop-commercial-startup-secrecy.test.ts tests/commercial-account.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'ELECTRON_BUSINESS_CONTRACTS_WINDOWS=PASS'
+      - name: Launch actual Electron and Local Service E2E with isolated fixture identity
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/boot.spec.ts e2e/native-custody.spec.ts e2e/real-channel.spec.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'ELECTRON_LOCAL_SERVICE_E2E_ISOLATED=PASS'
+      - name: Prohibit certification by fixture results
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          Write-Host 'ELECTRON_COMPILED_RUNTIME_TEST=ATTEMPTED'
+          Write-Host 'ELECTRON_SCM_COMMERCIAL_INTEROPERABILITY=NOT_TESTED'
+          Write-Host 'CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED'
+          Write-Host 'BUSINESS_REAL_SESSION=NOT_TESTED'
+          Write-Host 'HUMAN_MFA=NOT_TESTED'
+          Write-Host 'COMMERCIAL_LOGIN_CERTIFIED=NO'
