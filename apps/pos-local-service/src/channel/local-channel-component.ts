@@ -11,6 +11,7 @@ import type { ServiceConfig } from "../config.js";
 import type { OperationConfirmationComponent } from "../operations/operation-confirmation-component.js";
 import type { CommercialComponent } from "../commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../commercial/commercial-request-handler.js";
+import {SqliteMerchantDestinationProjectionStore} from "../payments/sqlite-merchant-destination-projection-store.js";
 import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/local-channel";
 import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
@@ -45,7 +46,8 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly commercial: CommercialComponent,
     private readonly nativeCommercial?:Pick<NativeCommercialCoordinator,"handle"|"release"|"stop"> & {recovered?:(connectionId:string)=>void},
   ) {
-    this.commercialHandler = new CommercialRequestHandler(config, commercial);
+    this.commercialHandler = new CommercialRequestHandler(config, commercial,
+      () => new SqliteMerchantDestinationProjectionStore(localDatabase.database));
     this.endpoint = localChannelEndpoint(config.installation_id);
   }
 
