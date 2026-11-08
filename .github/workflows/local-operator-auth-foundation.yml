@@ -16,6 +16,7 @@ on:
       - 'apps/pos-desktop/renderer/src/**'
       - 'packages/contracts/src/**'
       - 'packages/local-channel/src/**'
+      - 'tools/operators/start-local-operator-pos.ps1'
       - '.github/workflows/local-operator-auth-foundation.yml'
   workflow_dispatch:
 permissions:
@@ -43,3 +44,36 @@ jobs:
           pnpm --filter @pos-platform/pos-desktop typecheck
       - name: Verify password-gate constraints
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run src/security/local-operator-password.test.ts src/security/local-operator-password-gate.test.ts src/security/local-operator-session-registry.test.ts
+
+  windows-local-service-start:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+      - run: pnpm install --frozen-lockfile
+      - name: Verify Windows PowerShell launcher syntax
+        shell: pwsh
+        run: |
+          $tokens=$null; $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path tools/operators/start-local-operator-pos.ps1).Path,
+            [ref]$tokens,[ref]$errors)
+          if (@($errors).Count -ne 0) { throw "WINDOWS_LOCAL_OPERATOR_LAUNCHER_SYNTAX_INVALID" }
+      - name: Create ephemeral Windows operator accounts
+        shell: pwsh
+        run: |
+          node tools/operators/local-development-accounts.mjs init | ForEach-Object {
+            if ($_ -match '^PASSWORDS_SHOWN_ONCE') { Write-Host 'LOCAL_ACCOUNT_STORE_CREATED' }
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'LOCAL_ACCOUNT_INIT_FAILED' }
+      - name: Boot actual local Windows service and durable database
+        shell: pwsh
+        run: pwsh -NoProfile -File tools/operators/start-local-operator-pos.ps1 -SkipBuild -ServiceOnly
