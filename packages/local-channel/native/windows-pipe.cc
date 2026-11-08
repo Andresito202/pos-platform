@@ -116,13 +116,16 @@ static Policy policy(napi_env e,napi_value* a){Policy p{str(e,a[0]),str(e,a[1]),
  require(p.endpoint.rfind(L"\\\\.\\pipe\\camacho-pos-",0)==0&&p.endpoint.find(L'\\',9)==std::wstring::npos&&p.session>0);
  sidValid(p.service);sidValid(p.recipient);sidValid(p.logon);require(p.service.rfind(L"S-1-5-80-",0)==0&&p.recipient.rfind(L"S-1-5-21-",0)==0&&p.logon.rfind(L"S-1-5-5-",0)==0);return p;}
 static Identity peerIdentity(HANDLE pipe,bool server,const Policy& p,const char** stage=nullptr){
+ if(stage)*stage="ATTEST_PIPE_PID";
  ULONG pid=0,session=0;require(server?GetNamedPipeClientProcessId(pipe,&pid):GetNamedPipeServerProcessId(pipe,&pid));
+ if(stage)*stage="ATTEST_PIPE_SESSION";
  require(server?GetNamedPipeClientSessionId(pipe,&session):GetNamedPipeServerSessionId(pipe,&session));
  Identity id=server?pipeClientIdentity(pipe,pid):Identity{};
-  if(!server){id.pid=pid;id.session=session;id.born=kernelProcessBirth(pid);}
+  if(!server){if(stage)*stage="ATTEST_SERVER_PID_BIRTH";id.pid=pid;id.session=session;id.born=kernelProcessBirth(pid);}
   require(id.session==session);
  if(server)require(id.sid==p.recipient&&id.logon==p.logon&&id.session==p.session);
  else {scmServerLineage(id,p.service,stage);id.sid=p.service;}
+ if(stage)*stage="ATTEST_PEER_PID_RECHECK";
  ULONG again=0;require(server?GetNamedPipeClientProcessId(pipe,&again):GetNamedPipeServerProcessId(pipe,&again));require(pid==again);return id;
 }
 // Use libuv's descriptor table, not the addon's private /MT CRT table.
@@ -131,7 +134,9 @@ static void closeFd(int fd){uv_fs_t request{};uv_fs_close(nullptr,&request,fd,nu
 struct Connection{int fd=-1;bool adopted=false,closed=false,server=false;HANDLE proof=INVALID_HANDLE_VALUE;Policy p;Identity peer;~Connection(){release();}void release(){if(closed)return;closed=true;if(proof!=INVALID_HANDLE_VALUE)CloseHandle(proof);proof=INVALID_HANDLE_VALUE;if(fd>=0&&!adopted)closeFd(fd);fd=-1;}};
 static std::unique_ptr<Connection> connection(HANDLE pipe,bool server,const Policy& p,const char** stage=nullptr){
  auto c=std::make_unique<Connection>();c->p=p;c->server=server;c->peer=peerIdentity(pipe,server,p,stage);
+ if(stage)*stage="ATTEST_DUPLICATE_HANDLE";
  require(DuplicateHandle(GetCurrentProcess(),pipe,GetCurrentProcess(),&c->proof,0,FALSE,DUPLICATE_SAME_ACCESS));
+ if(stage)*stage="ATTEST_FD_ADOPTION";
  c->fd=uv_open_osfhandle(pipe);require(c->fd>=0);return c;
 }
 struct Listener{Policy p;HANDLE pending=INVALID_HANDLE_VALUE,stop=INVALID_HANDLE_VALUE;bool closed=false,busy=false;std::mutex mutex;~Listener(){if(pending!=INVALID_HANDLE_VALUE)CloseHandle(pending);if(stop!=INVALID_HANDLE_VALUE)CloseHandle(stop);}};
