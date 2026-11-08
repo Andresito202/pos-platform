@@ -1254,6 +1254,8 @@ export const MerchantDestinationsGetResultSchema = z.strictObject({
     destination_reference:z.string().min(4).max(160),
     qr_asset_id:z.string().uuid().nullable(),
     qr_sha256:z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+    qr_png_base64:z.string().min(76).max(1_400_000)
+      .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).optional(),
     version:z.number().int().positive(),
   })).max(3),
 });
