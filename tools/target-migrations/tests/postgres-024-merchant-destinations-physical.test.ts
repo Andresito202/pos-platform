@@ -89,10 +89,15 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
      has_table_privilege('pos_platform_app','payments.merchant_qr_assets','DELETE') d`);
   expect(local.rows[0]).toEqual({r:false,i:false,d:false});
  });
- test("database refuses to delete already persisted QR evidence",async()=>{
-  await pool.query("SET ROLE pos_schema_owner");
+ test("database registers enabled immutable evidence guard and denies app DELETE",async()=>{
+  const triggers=await pool.query(`SELECT tgname,tgenabled FROM pg_trigger
+    WHERE tgrelid='payments.merchant_qr_assets'::regclass
+      AND tgname='merchant_asset_immutable'`);
+  expect(triggers.rows).toEqual([{tgname:"merchant_asset_immutable",tgenabled:"O"}]);
+  const client=await pool.connect();
   try{
-   await expect(pool.query("DELETE FROM payments.merchant_qr_assets")).rejects.toThrow();
-  }finally{await pool.query("RESET ROLE");}
+   await client.query("SET ROLE pos_platform_app");
+   await expect(client.query("DELETE FROM payments.merchant_qr_assets")).rejects.toThrow();
+  }finally{await client.query("RESET ROLE");client.release();}
  });
 });
