@@ -69,6 +69,17 @@ describe("QR-002 near-live company feed on Windows",()=>{
   expect(invalid.outcome).toBe("UNAVAILABLE");
   expect(invalid.errors).toContain("QR002_FEED_TOO_LARGE");
  });
+ it("does not create duplicate pollers if lifecycle start is repeated",async()=>{
+  const interval=vi.spyOn(globalThis,"setInterval");
+  globalThis.fetch=vi.fn(async()=>response({notices:[item]})) as typeof fetch;
+  const sync=new MerchantNoticeFeedSyncComponent("https://central.example.test",device,()=>{});
+  const before=interval.mock.calls.length;
+  try{
+   await sync.start();
+   await sync.start();
+   expect(interval.mock.calls.length-before).toBe(1);
+  }finally{await sync.stop();}
+ });
  it("rejects insecure Central URL",()=>{
   expect(()=>new MerchantNoticeFeedSyncComponent("http://central.example.test",device,()=>{}))
     .toThrow("QR002_HTTPS_ORIGIN_REJECTED");
