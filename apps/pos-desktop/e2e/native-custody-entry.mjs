@@ -5,7 +5,7 @@ import {randomBytes} from "node:crypto";
 if(!process.env.CAMACHO_CUSTODY_TEST_DIRECTORY)throw Error("DEDICATED_TEST_PROFILE_REQUIRED");
 app.setPath("userData",resolve(process.env.CAMACHO_CUSTODY_TEST_DIRECTORY));
 void app.whenReady().then(async()=>{try{
-  const {createElectronBusinessCredentialVault}=await import("../dist/native-business-custody-probe.mjs");
+  const {createElectronBusinessCredentialVault}=await import("../dist/electron-business-login.js");
   const vault=createElectronBusinessCredentialVault();
   const secret=randomBytes(48).toString("base64url");
   const fixtureAccess=Array.from({length:3},()=>randomBytes(24).toString("base64url")).join(".");
