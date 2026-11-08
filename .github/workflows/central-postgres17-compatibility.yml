@@ -28,6 +28,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 127.0.0.1:55432:5432
+          - 127.0.0.1:55433:5432
         options: >-
           --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,size=512m
           --health-cmd "pg_isready -U postgres -d postgres"
@@ -82,6 +83,15 @@ jobs:
           set -euo pipefail
           pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-005-rls.test.ts --no-file-parallelism
           echo 'PG17_005_PHYSICAL_RLS=PASS'
+      - name: Execute commercial 008 through 016 physical migration and RLS tests on PostgreSQL 17
+        shell: bash
+        env:
+          POSTGRES_TEST_URL: postgresql://postgres@127.0.0.1:55433/postgres
+        run: |
+          set -euo pipefail
+          node -e "const u=new URL(process.env.POSTGRES_TEST_URL);if(u.hostname!=='127.0.0.1'||u.port!=='55433'||u.pathname!=='/postgres')process.exit(2)"
+          pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-commercial-runner-physical.test.ts --no-file-parallelism
+          echo 'PG17_COMMERCIAL_MIGRATIONS_PHYSICAL=PASS'
       - name: Do not claim preproduction schema or BUSINESS enrollment
         if: ${{ always() }}
         shell: bash
