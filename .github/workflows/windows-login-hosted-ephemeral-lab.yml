@@ -176,6 +176,27 @@ jobs:
           }
           Remove-Item Env:POS_E2E_ROLE -ErrorAction SilentlyContinue
           Write-Host 'ISOLATED_ROLE_PERMISSION_MATRIX=PASS'
+      - name: Prove development SQLite survives complete Electron and service restarts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:POS_E2E_ROLE='ADMINISTRADOR'
+          $env:POS_E2E_PERSISTENT_DEV='1'
+          $env:POS_E2E_PERSISTENCE_SMOKE='1'
+          $env:POS_E2E_PERSISTENCE_ROOT=Join-Path $env:RUNNER_TEMP 'camacho-pos-role-persistence-proof'
+          New-Item -ItemType Directory -Path $env:POS_E2E_PERSISTENCE_ROOT -Force | Out-Null
+          try {
+            Remove-Item Env:POS_E2E_PERSISTENCE_EXPECT_EXISTING -ErrorAction SilentlyContinue
+            pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/role-isolation.spec.ts --retries=0
+            if ($LASTEXITCODE -ne 0) { throw 'DEV_SQLITE_FIRST_BOOT_FAILED' }
+            $env:POS_E2E_PERSISTENCE_EXPECT_EXISTING='1'
+            pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/role-isolation.spec.ts --retries=0
+            if ($LASTEXITCODE -ne 0) { throw 'DEV_SQLITE_REOPEN_FAILED' }
+            Write-Host 'DEV_PERSISTENT_SQLITE_TWO_INDEPENDENT_LAUNCHES=PASS'
+          } finally {
+            Remove-Item Env:POS_E2E_ROLE,Env:POS_E2E_PERSISTENT_DEV,Env:POS_E2E_PERSISTENCE_SMOKE,Env:POS_E2E_PERSISTENCE_ROOT,Env:POS_E2E_PERSISTENCE_EXPECT_EXISTING -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'camacho-pos-role-persistence-proof') -Recurse -Force -ErrorAction SilentlyContinue
+          }
       - name: Prohibit certification by fixture results
         if: ${{ always() }}
         shell: pwsh
