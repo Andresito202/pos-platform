@@ -17,6 +17,7 @@ import {IsolatedBusinessAccessTokenCodec,CommercialBusinessAccessAuthority} from
 import {IsolatedAuthorizationSnapshotIssuer} from "./isolated-authorization-snapshot-issuer.js";
 import {assertCommercialDeployment,type PostgresCommercialDeploymentContext} from "@pos-platform/database-postgres";
 import {FixedWindowRateLimiter} from "./fixed-window-rate-limiter.js";
+import {MerchantBusinessDestinationOperations} from "./merchant-destination-business-operations.js";
 
 type ObjectBody=Record<string,unknown>;
 const exact=(o:ObjectBody,keys:readonly string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -93,6 +94,7 @@ export async function prepareCommercialHttpHandler(input:{
     signing:Parameters<IsolatedBusinessAuthCoordinator["issueSessionAssertion"]>[3]};
   authorizationIssuer?:IsolatedAuthorizationSnapshotIssuer;
   authorizationTrustCandidate?:SignedAuthorizationTrustCandidate;
+  merchantDestinations?:MerchantBusinessDestinationOperations;
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
   if(input.deploymentContext){
@@ -110,6 +112,8 @@ export async function prepareCommercialHttpHandler(input:{
   if(!input.deploymentContext){const database=await pool.query<{ok:boolean}>("SELECT current_database() ~ '^pos_business_session_test_[0-9a-f]{16}$' AS ok");
   if(database.rows[0]?.ok!==true)throw Error("COMMERCIAL_HTTPS_TEMPORARY_DATABASE_REQUIRED");
   }
+  if(input.merchantDestinations && (!input.deploymentContext || !(input.merchantDestinations instanceof MerchantBusinessDestinationOperations)))
+    throw Error("QR001_PRODUCTION_ADMIN_COMPOSITION_REQUIRED");
   const origin=new URL(input.origin);
   // Public, root-signed artifact only. Restricted to this existing temporary-DB
   // server; neither production main nor the SSA distribution route mounts it.
@@ -167,8 +171,10 @@ export async function prepareCommercialHttpHandler(input:{
             (req.headers.origin && req.headers.origin!==input.origin) || Number(req.headers["content-length"]??0)!==0)throw new Rejection(400);
           sendCommercialBrowserEntry(res,input.browserEntry);return;
         }
+        const qrAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(list|upload|asset|create|publish|revoke)$/)?.[1] as
+          "list"|"upload"|"asset"|"create"|"publish"|"revoke"|undefined;
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
-          (!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
+          (!qrAction && !/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
             !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions",
               ...(native.codec instanceof CommercialBusinessAccessAuthority?["/v1/commercial/refresh","/v1/commercial/revoke"]:[]),
               ...(input.authorizationIssuer?["/v1/business-session/authorization"]:[])].includes(req.url))))throw new Rejection(400);
@@ -178,7 +184,22 @@ export async function prepareCommercialHttpHandler(input:{
           // Native back-channel: browser origins and ambient cookies are forbidden.
           if(req.headers.origin||req.headers.cookie||req.headers["sec-fetch-site"])throw new Rejection(403);
         }else if(req.headers.origin!==input.origin||req.headers["sec-fetch-site"]!=="same-origin")throw new Rejection(403);
-        const {object:o,raw}=await body(req,policy.maximumBodyBytes);
+        const {object:o,raw}=await body(req,qrAction==="upload"?Math.max(policy.maximumBodyBytes,1_420_000):policy.maximumBodyBytes);
+        if(qrAction){
+          if(!input.merchantDestinations)throw new Rejection(404);
+          const session=await browser.inspect({method:"POST",origin:req.headers.origin??null,
+            fetchSite:typeof req.headers["sec-fetch-site"]==="string"?req.headers["sec-fetch-site"]:null,
+            cookie:req.headers.cookie??null,csrfToken:typeof req.headers["x-csrf-token"]==="string"?req.headers["x-csrf-token"]:null});
+          if(!session)throw new Rejection(401);
+          try{
+            const result=await input.merchantDestinations.dispatch({session,action:qrAction,payload:o});
+            send(res,200,{result});return;
+          }catch(error){
+            if(error instanceof Error&&error.message==="QR001_ADMIN_DENIED_OR_AMBIGUOUS_COMPANY")throw new Rejection(403);
+            if(error instanceof Error&&(/INVALID_REQUEST|INVALID_QR_BASE64|INVALID_OFFICIAL_QR_PNG|INVALID_AUTHENTICATED_SCOPE/.test(error.message)))throw new Rejection(400);
+            throw error;
+          }
+        }
         const proof=()=>{
           if(!text(req.headers.authorization,8192)||!uuid(req.headers["x-request-id"])||!UuidV7Schema.safeParse(req.headers["x-correlation-id"]).success)throw new Rejection(400);
           const correlationId=req.headers["x-correlation-id"] as string;
