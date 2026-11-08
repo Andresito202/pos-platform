@@ -114,9 +114,9 @@ jobs:
       - name: Commercial SCM binding worker and manifest negative tests
         run: node --test tools/operators/windows-scm-commercial-binding.test.mjs
       - name: Commercial readiness and UUIDv7 inspection contracts
-        run: node --import tsx --test tools/operators/windows-login-lab-commercial-readiness.test.mts
+        run: pnpm --filter @pos-platform/target-migrations exec node --import tsx --test ../../tools/operators/windows-login-lab-commercial-readiness.test.mts
       - name: BUSINESS provision metadata and isolation tests
-        run: node --import tsx --test tools/operators/windows-login-lab-commercial-provision.test.mts
+        run: pnpm --filter @pos-platform/target-migrations exec node --import tsx --test ../../tools/operators/windows-login-lab-commercial-provision.test.mts
       - name: Do not claim actual SCM or Central enrollment
         run: echo 'CONTRACTS_ONLY_NO_SCM_BINDING_NO_CENTRAL_DEV003'
 
