@@ -72,7 +72,7 @@ export class MerchantNoticeFeedSyncComponent implements RuntimeComponent{
      response.headers.has("content-encoding")||response.headers.has("location"))
    throw Error("QR002_FEED_UNTRUSTED_RESPONSE");
   const declared=response.headers.get("content-length");
-  if(declared!==null&&(!/^\\d+$/.test(declared)||Number(declared)>MAX_RESPONSE_BYTES))
+  if(declared!==null&&(!/^\d+$/.test(declared)||Number(declared)>MAX_RESPONSE_BYTES))
    throw Error("QR002_FEED_TOO_LARGE");
   if(!response.body)throw Error("QR002_FEED_NO_BODY");
   const reader=response.body.getReader(),chunks:Buffer[]=[];let total=0;
