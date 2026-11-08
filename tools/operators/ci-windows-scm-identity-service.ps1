@@ -2,7 +2,7 @@
 # Real Windows SCM virtual-account and DPAPI identity probe in an ephemeral GitHub Actions VM.
 # Does not run Camacho POS runtime, connect to Central, change existing installations, or enable commercial login.
 [CmdletBinding()]
-param([switch]$Run)
+param([switch]$Run,[switch]$NativePipe)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -51,6 +51,103 @@ try {
   & $csc '/nologo' '/target:exe' '/platform:x64' ('/out:'+$exe) '/reference:System.ServiceProcess.dll' '/reference:System.Security.dll' $source
   Must ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $exe -PathType Leaf)) 'EPHEMERAL_SERVICE_COMPILATION_FAILED'
 
+  if($NativePipe){
+    $addonSource=Join-Path $repo 'packages/local-channel/native/build/Release/camacho_windows_pipe.node'
+    $scriptSource=Join-Path $repo 'tools/operators/ci-windows-scm-native-peer.mjs'
+    Must (Test-Path -LiteralPath $addonSource -PathType Leaf) 'NATIVE_ADDON_NOT_COMPILED'
+    Must (Test-Path -LiteralPath $scriptSource -PathType Leaf) 'NATIVE_TEST_SCRIPT_MISSING'
+    $node=(Get-Command node.exe -ErrorAction Stop).Source
+    $addon=Join-Path $bin 'camacho_windows_pipe.node'
+    $peerScript=Join-Path $bin 'ci-windows-scm-native-peer.mjs'
+    Copy-Item -LiteralPath $addonSource -Destination $addon -ErrorAction Stop
+    Copy-Item -LiteralPath $scriptSource -Destination $peerScript -ErrorAction Stop
+    $ident=[Security.Principal.WindowsIdentity]::GetCurrent()
+    $logons=@($ident.Groups | ForEach-Object {$_.Value} | Where-Object {$_ -match '^S-1-5-5-[0-9]+-[0-9]+
+  $arguments=@('create',$serviceName,'binPath=',($exe+' '+$results),'start=','demand','obj=',('NT SERVICE\'+$serviceName),'type=','own')
+  & sc.exe @arguments
+  Must ($LASTEXITCODE -eq 0) 'SCM_VIRTUAL_ACCOUNT_CREATE_FAILED'
+  $created=$true
+  & sc.exe sidtype $serviceName unrestricted | Out-Null
+  Must ($LASTEXITCODE -eq 0) 'SCM_SERVICE_SID_CONFIGURATION_FAILED'
+  $svc=Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
+  Must ($null -ne $svc -and $svc.StartName -eq ('NT SERVICE\'+$serviceName) -and $svc.StartMode -eq 'Manual') 'SCM_ACCOUNT_OR_MODE_REJECTED'
+  & sc.exe start $serviceName | Out-Null
+  Must ($LASTEXITCODE -eq 0) 'SCM_PROBE_START_FAILED'
+  $proof=Join-Path $results 'service-proof.txt'
+  $failure=Join-Path $results 'service-failure.txt'
+  $until=[DateTime]::UtcNow.AddSeconds(40)
+  while(-not (Test-Path -LiteralPath $proof) -and -not (Test-Path -LiteralPath $failure) -and [DateTime]::UtcNow -lt $until){Start-Sleep -Milliseconds 250}
+  Must (-not (Test-Path -LiteralPath $failure)) 'SCM_PROBE_IDENTITY_OR_DPAPI_FAILED'
+  Must (Test-Path -LiteralPath $proof -PathType Leaf) 'SCM_PROBE_RECEIPT_MISSING'
+  $receipt=Get-Content -LiteralPath $proof -Raw
+  Must ($receipt.Contains('SERVICE_IDENTITY=PASS') -and $receipt.Contains('SESSION_ZERO=PASS') -and $receipt.Contains('DPAPI_CURRENTUSER=PASS')) 'SCM_PROBE_RECEIPT_UNTRUSTED'
+  $cipher=Join-Path $results 'service-dpapi-ciphertext.txt'
+  Must (Test-Path -LiteralPath $cipher -PathType Leaf) 'SCM_DPAPI_CIPHER_MISSING'
+  $bytes=[Convert]::FromBase64String((Get-Content -LiteralPath $cipher -Raw).Trim())
+  Add-Type -AssemblyName System.Security -ErrorAction Stop
+  $entropy=[Text.Encoding]::UTF8.GetBytes('CAMACHO_GITHUB_EPHEMERAL_SERVICE_IDENTITY_V1')
+  $denied=$false
+  try {
+    $unexpected=[Security.Cryptography.ProtectedData]::Unprotect($bytes,$entropy,[Security.Cryptography.DataProtectionScope]::CurrentUser)
+    if($null -ne $unexpected){[Array]::Clear($unexpected,0,$unexpected.Length)}
+  }catch [Security.Cryptography.CryptographicException] {$denied=$true}
+  finally {[Array]::Clear($bytes,0,$bytes.Length)}
+  Must $denied 'DESKTOP_COULD_UNPROTECT_SERVICE_DPAPI'
+  if($NativePipe){
+    $ready=Join-Path $results 'native-ready.json'
+    $until=[DateTime]::UtcNow.AddSeconds(30)
+    while(-not (Test-Path -LiteralPath $ready -PathType Leaf) -and [DateTime]::UtcNow -lt $until){Start-Sleep -Milliseconds 100}
+    Must (Test-Path -LiteralPath $ready -PathType Leaf) 'NATIVE_SERVICE_PIPE_NOT_LISTENING'
+    & $node $peerScript 'desktop' $policyFile
+    Must ($LASTEXITCODE -eq 0) 'NATIVE_DESKTOP_CONNECT_FAILED'
+    $serviceProof=Join-Path $results 'native-service-pass.json'
+    $desktopProof=Join-Path $results 'native-desktop-pass.json'
+    $until=[DateTime]::UtcNow.AddSeconds(10)
+    while(-not (Test-Path -LiteralPath $serviceProof -PathType Leaf) -and [DateTime]::UtcNow -lt $until){Start-Sleep -Milliseconds 100}
+    Must ((Test-Path -LiteralPath $serviceProof -PathType Leaf) -and (Test-Path -LiteralPath $desktopProof -PathType Leaf)) 'G1_TWO_OS_IDENTITY_RECEIPTS_REQUIRED'
+    $a=Get-Content -LiteralPath $serviceProof -Raw | ConvertFrom-Json
+    $d=Get-Content -LiteralPath $desktopProof -Raw | ConvertFrom-Json
+    Must ($a.status -eq 'PASS' -and $a.peer_role -eq 'DESKTOP' -and $d.status -eq 'PASS' -and $d.peer_role -eq 'SCM_SERVICE') 'G1_NATIVE_PEER_PROOF_REJECTED'
+    Write-Host 'G1_NATIVE_SCM_TO_INTERACTIVE_IDENTITY=PASS'
+    Write-Host 'G1_NATIVE_PEER_RECHECK=PASS'
+  }
+  Write-Host 'SCM_VIRTUAL_ACCOUNT_REAL=PASS'
+  Write-Host 'SCM_SERVICE_SESSION_0=PASS'
+  Write-Host 'SCM_SERVICE_DPAPI_CURRENTUSER=PASS'
+  Write-Host 'DESKTOP_DPAPI_CROSS_IDENTITY_DENIED=PASS'
+  Write-Host 'COMMERCIAL_SCM_ELECTRON_HANDSHAKE=NOT_TESTED'
+  $validated=$true
+} finally {
+  if($created){
+    try {& sc.exe stop $serviceName 2>&1 | Out-Null}catch{}
+    Start-Sleep -Milliseconds 800
+    try {& sc.exe delete $serviceName 2>&1 | Out-Null; if($LASTEXITCODE -ne 0){$cleanupOk=$false}}catch{$cleanupOk=$false}
+  }
+  if($cleanupOk){
+    try {Remove-Item -LiteralPath $lab -Recurse -Force -ErrorAction Stop}catch{$cleanupOk=$false}
+  }
+  if(-not $cleanupOk){throw 'EPHEMERAL_SERVICE_CLEANUP_NOT_PROVEN'}
+}
+Must $validated 'SERVICE_PROBE_INCOMPLETE'
+})
+    Must ($logons.Count -eq 1) 'NATIVE_INTERACTIVE_LOGON_SID_REQUIRED'
+    $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+    Must ($session -gt 0 -and $ident.User.Value -match '^S-1-5-21-') 'NATIVE_DESKTOP_IDENTITY_INVALID'
+    $policyFile=Join-Path $results 'native-policy.json'
+    $policy=@{
+      profile='CAMACHO_EPHEMERAL_NATIVE_PIPE_G1_ONLY'
+      endpoint=('\\.\pipe\camacho-pos-'+[Guid]::NewGuid().ToString()+'-scm')
+      service=$serviceSid
+      recipient=$ident.User.Value
+      logon=$logons[0]
+      session=$session
+      addon=$addon
+      results=$results
+    }|ConvertTo-Json -Compress
+    [IO.File]::WriteAllText($policyFile,$policy,[Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllLines((Join-Path $results 'native-runner.txt'),
+      [string[]]@($node,$peerScript,$policyFile),[Text.UTF8Encoding]::new($false))
+  }
   # Separate probe binary. Commercial WinSW is deliberately not installed here.
   $arguments=@('create',$serviceName,'binPath=',($exe+' '+$results),'start=','demand','obj=',('NT SERVICE\'+$serviceName),'type=','own')
   & sc.exe @arguments
