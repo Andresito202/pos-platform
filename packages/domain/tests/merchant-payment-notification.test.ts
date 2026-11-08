@@ -4,6 +4,7 @@ import {
   UnverifiedMerchantPaymentNoticeSchema,
   projectUnverifiedMerchantNotice,
   appendUnverifiedMerchantNotice,
+  compareUnverifiedNoticeToRequestedAmount,
 } from "../src/merchant-payment-notification.js";
 
 const companyA={tenantId:"11111111-1111-4111-8111-111111111111",
@@ -58,4 +59,36 @@ describe("QR-002 external business SMS is ALWAYS unverified",()=>{
   })).toThrow();
   expect(()=>projectUnverifiedMerchantNotice({...companyA,companyId:"invalid"},signal)).toThrow();
  });
+ it("compares SMS-REPORTED amount to requested price without pretending the amount is credited",()=>{
+  const claimed=projectUnverifiedMerchantNotice(companyA,{
+    ...signal,reported_amount_cop:4500,payer_display:"Juan Pérez",
+  });
+  expect(compareUnverifiedNoticeToRequestedAmount(5000,claimed)).toEqual({
+   requested_amount_cop:5000,reported_amount_cop:4500,difference_cop:-500,
+   comparison:"LESS",payer_display:"Juan Pérez",bank_confirmed:false,
+  });
+  expect(compareUnverifiedNoticeToRequestedAmount(4500,claimed).comparison).toBe("EQUAL");
+  expect(compareUnverifiedNoticeToRequestedAmount(4000,claimed).comparison).toBe("MORE");
+  // Equal SMS value is not bank proof and cannot close a sale.
+  expect(claimed.sale_confirmed).toBe(false);
+  expect(claimed.bank_confirmed).toBe(false);
+ });
+ it("never replaces missing SMS amount or payer with the amount requested at the register",()=>{
+  const unknown=projectUnverifiedMerchantNotice(companyA,signal);
+  expect(unknown.reported_amount_cop).toBeNull();
+  expect(unknown.payer_display).toBeNull();
+  expect(compareUnverifiedNoticeToRequestedAmount(4500,unknown)).toEqual({
+   requested_amount_cop:4500,reported_amount_cop:null,difference_cop:null,
+   comparison:"UNKNOWN",payer_display:null,bank_confirmed:false,
+  });
+ });
+ it("rejects impossible or fabricated SMS values and payer data",()=>{
+  for(const amount of [0,-1,3.25,100000001,Number.MAX_SAFE_INTEGER,"4500"]){
+   expect(()=>projectUnverifiedMerchantNotice(companyA,{...signal,reported_amount_cop:amount})).toThrow();
+  }
+  for(const payer of ["","X","<script>","A".repeat(81)]){
+   expect(()=>projectUnverifiedMerchantNotice(companyA,{...signal,payer_display:payer})).toThrow();
+  }
+ });
+
 });
