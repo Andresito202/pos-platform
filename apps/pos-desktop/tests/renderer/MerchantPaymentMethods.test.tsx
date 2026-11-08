@@ -21,7 +21,7 @@ beforeEach(()=>calls.clear());
 afterEach(()=>cleanup());
 describe("QR-001 cashier read-only display",()=>{
  it("shows bank-provided signed PNG and Nequi number without making a payment",async()=>{
-   const png=Buffer.from([137,80,78,71,13,10,26,10]).toString("base64").padEnd(80,"A");
+   const png=Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]),Buffer.alloc(52)]).toString("base64");
    install({status:"SUCCEEDED",result_code:"AVAILABLE",result:{
     outcome:"AVAILABLE",sequence:7,
     destinations:[{kind:"NEQUI_BUSINESS_QR",label:"QR Negocios",destination_reference:"@empresa",
