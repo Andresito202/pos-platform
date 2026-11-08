@@ -71,7 +71,7 @@ export class LocalOperatorSessionRegistry {
     }
   }
 
-  resolve(connectionId: string): Readonly<Omit<ActiveOperator, "expiresAtMs">> | null {
+  resolve(connectionId: string): Readonly<{ sessionId: string; username: LocalOperator["username"]; role: LocalOperator["role"]; expiresAt: string }> | null {
     // During a pending reauthentication there is never an active identity.
     if (this.pending.has(connectionId)) return null;
     const active = this.sessions.get(connectionId);
@@ -84,6 +84,7 @@ export class LocalOperatorSessionRegistry {
       sessionId: active.sessionId,
       username: active.username,
       role: active.role,
+      expiresAt: new Date(active.expiresAtMs).toISOString(),
     };
   }
 
