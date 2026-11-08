@@ -92,10 +92,35 @@ jobs:
           node -e "const u=new URL(process.env.POSTGRES_TEST_URL);if(u.hostname!=='127.0.0.1'||u.port!=='55433'||u.pathname!=='/postgres')process.exit(2)"
           pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-commercial-runner-physical.test.ts --no-file-parallelism
           echo 'PG17_COMMERCIAL_MIGRATIONS_PHYSICAL=PASS'
+      - name: Configure ephemeral PostgreSQL 17 TLS with a self-signed localhost CA
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="${{ job.services.postgres.id }}"
+          docker exec -u root "$container" sh -ec '
+            openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
+              -subj "/CN=localhost" \
+              -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+              -keyout /tmp/camacho-ci-postgres.key -out /tmp/camacho-ci-postgres.crt >/dev/null 2>&1
+            chown postgres:postgres /tmp/camacho-ci-postgres.key /tmp/camacho-ci-postgres.crt
+            chmod 600 /tmp/camacho-ci-postgres.key
+          '
+          docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl = 'on'"
+          docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl_cert_file = '/tmp/camacho-ci-postgres.crt'"
+          docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl_key_file = '/tmp/camacho-ci-postgres.key'"
+          docker cp "$container:/tmp/camacho-ci-postgres.crt" "$RUNNER_TEMP/pg17-ca.crt"
+          docker restart "$container"
+          for i in $(seq 1 40); do
+            if docker exec "$container" pg_isready -U postgres -d postgres >/dev/null; then break; fi
+            sleep 1
+          done
+          docker exec -u postgres "$container" psql -U postgres -d postgres -tAX -c 'SHOW ssl' | grep -Fx on
+          echo 'PG17_EPHEMERAL_TLS=PASS'
       - name: Execute uninterrupted 001 to 016 chain with physical RLS and no fixture ledger
         shell: bash
         env:
           POSTGRES_TEST_URL: postgresql://postgres@127.0.0.1:55433/postgres
+          NODE_EXTRA_CA_CERTS: ${{ runner.temp }}/pg17-ca.crt
         run: |
           set -euo pipefail
           pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-17-full-commercial-chain.test.ts --no-file-parallelism
