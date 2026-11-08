@@ -29,7 +29,7 @@ jobs:
             Add-LocalGroupMember -Group 'Users' -Member $name -ErrorAction Stop
             $userSid=(Get-LocalUser -Name $name).SID.Value
             $acl=Get-Acl -LiteralPath $dir
-            $rule=New-Object Security.AccessControl.FileSystemAccessRule($userSid,'Modify','ContainerInherit,ObjectInherit','None','Allow')
+            $rule=[Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($userSid),[Security.AccessControl.FileSystemRights]::Modify,[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
             $acl.AddAccessRule($rule)
             Set-Acl -LiteralPath $dir -AclObject $acl
             @'
