@@ -20,7 +20,7 @@ describe("operator WinSW readiness is inspection, not commercial activation",()=
  },25000);
  windowsIt("a matching SHA alone never approves an unsigned or mutable executable",()=>{
    const directory=mkdtempSync(join(tmpdir(),"pos-winsw-inspection-"));
-   const file=join(directory,"unauthorized.exe"),bytes=Buffer.from("PUBLIC_NON_EXECUTABLE_TEST_FIXTURE");
+   const file=join(directory,"unauthorized.bin"),bytes=Buffer.from("PUBLIC_NON_EXECUTABLE_TEST_FIXTURE");
    writeFileSync(file,bytes,{flag:"wx"});
    try{
      const result=spawnSync("powershell.exe",["-NoLogo","-NoProfile","-NonInteractive","-File",script,"-Json","-WinSWPath",file,"-ExpectedSha256",createHash("sha256").update(bytes).digest("hex"),"-ApprovedSignerThumbprint","0".repeat(40)],{encoding:"utf8",windowsHide:true,timeout:20000});
