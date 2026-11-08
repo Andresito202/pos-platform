@@ -6,6 +6,41 @@ un snapshot SAS efímeros en una carpeta temporal independiente. No usa Central
 ni un usuario comercial, no proporciona MFA/WebAuthn y no otorga acceso a datos
 reales. **No se debe distribuir como login comercial ni usar para cobrar**.
 
+## Cuentas locales de desarrollo con contraseña (sin licencia comercial)
+
+La validación de credenciales está disponible exclusivamente para la vista de
+laboratorio, **no** como un login comercial con persistencia de operaciones.
+No hay ninguna contraseña fija en Git. La primera ejecución genera claves
+aleatorias y guarda solamente sus hashes `scrypt` bajo
+`%LOCALAPPDATA%\\CamachoPOS\\development\\accounts.v1.json`.
+
+Una vez compilado el escritorio, crea tus cuentas y conserva las contraseñas
+que aparecen **una sola vez**:
+
+```powershell
+node tools/operators/local-development-accounts.mjs init
+```
+
+Usuarios generados: `admin.local`, `supervisor.local`, `cajero.local`,
+`superadmin.local`. Para abrir la vista de Cajero con su contraseña:
+
+```powershell
+pwsh -File tools/operators/open-local-role-preview.ps1 -Username cajero.local
+```
+
+Cambia `-Username` por cualquiera de las otras cuentas. El lanzador pregunta
+la contraseña sin mostrarla y la verifica por stdin, luego abre el perfil
+del laboratorio en Electron. No expone una credencial en argumentos de
+proceso ni en variables de entorno. El entorno de pruebas sigue siendo
+manipulable por quien controle el repositorio local, por lo que **estas cuentas
+no son una frontera de seguridad de producción**.
+
+> **Falta para trabajar con cambios persistentes:** integrar un login
+> local de desarrollo con sesiones y base SQLite persistentes, separación de
+> usuarios, ciclos de apertura/cierre, backups y un origen de firmas local
+> custodiado. El test interactivo actual elimina la base al cerrar; **no
+> debes usarlo para registrar trabajo que quieras conservar**.
+
 ## Windows PowerShell (desde la raíz del repositorio)
 
 Instala dependencias y compila el escritorio una sola vez:
