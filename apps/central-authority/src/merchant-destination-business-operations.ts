@@ -9,7 +9,7 @@ const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]
 export type MerchantBusinessSession={sessionId:string;userId:string;tenantId:string;tenantMembershipId:string};
 export interface MerchantBusinessRequest{
   readonly session:MerchantBusinessSession;
-  readonly action:"list"|"upload"|"create"|"publish"|"revoke"|"asset"|"notices"|"notice-consents";
+  readonly action:"list"|"upload"|"create"|"publish"|"revoke"|"asset"|"notices"|"notice-consents"|"notice-consent-revoke";
   readonly payload:unknown;
 }
 function object(value:unknown):Record<string,unknown>{
@@ -37,7 +37,8 @@ function expectedVersion(value:unknown):number{
  * frontend roles, foreign company ids, or tenant-wide implicit assignment.
  */
 export class MerchantBusinessDestinationOperations {
- constructor(private readonly pool:Pool,private readonly notificationReadEnabled=false){}
+ constructor(private readonly pool:Pool,private readonly notificationReadEnabled=false,
+  private readonly consentRevocationEnabled=false){}
  private async adminCompany(session:MerchantBusinessSession):Promise<string>{
   for(const value of [session.sessionId,session.userId,session.tenantId,session.tenantMembershipId])id(value);
   const client=await this.pool.connect();
@@ -109,6 +110,34 @@ export class MerchantBusinessDestinationOperations {
     return request.action==="publish"
       ?commands.publish(access,identifier,version,new Date().toISOString())
       :commands.revoke(access,identifier,version,new Date().toISOString());
+  }
+  if(request.action==="notice-consent-revoke"){
+    if(!this.notificationReadEnabled||!this.consentRevocationEnabled)
+      throw Error("QR002_CONSENT_REVOCATION_NOT_ENABLED");
+    only(input,["installation_id"]);
+    const installationId=id(input.installation_id);
+    const client=await this.pool.connect();let started=false;
+    try{
+      await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");started=true;
+      await client.query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
+      await client.query("SELECT set_config('app.company_id',$1,true)",[companyId]);
+      await client.query("SET LOCAL lock_timeout='5s'");
+      await client.query("SET LOCAL statement_timeout='10s'");
+      // Recheck MFA, role grants, tenant membership and session under row locks
+      // INSIDE the write transaction, rather than trusting adminCompany().
+      await recheck(client);
+      const result=await client.query(`UPDATE payments.merchant_notification_bridge_consents
+        SET revoked_at=clock_timestamp()
+        WHERE tenant_id=$1 AND company_id=$2 AND installation_id=$3
+          AND revoked_at IS NULL
+        RETURNING installation_id`,[tenantId,companyId,installationId]);
+      if(result.rowCount!==0&&result.rowCount!==1)throw Error("QR002_CONSENT_REVOCATION_RESULT_INVALID");
+      await client.query("COMMIT");started=false;
+      return {revoked:result.rowCount===1};
+    }catch(error){
+      if(started)await client.query("ROLLBACK").catch(()=>undefined);
+      throw error;
+    }finally{client.release();}
   }
   if(request.action==="notice-consents"){
     if(!this.notificationReadEnabled)throw Error("QR002_NOTIFICATIONS_NOT_ENABLED");
