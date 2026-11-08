@@ -4,6 +4,7 @@ import "./App.css";
 import "./commercial-precision.css";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
+import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
@@ -194,8 +195,8 @@ export function App(): React.JSX.Element {
         <section className="pos-entry-card" aria-label="Estado de acceso">
           <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
           <h1>Camacho POS Colombia</h1>
-          <h2>{loading ? "Validando sesión" : unauthenticated ? "Sin sesión comercial" : authorization.phase === "denied" ? "Acceso denegado" : authorization.phase === "expired" ? "Sesión expirada" : "Acceso no disponible"}</h2>
-          <p>{loading ? "Comprobando la sesión y los permisos efectivos." : unauthenticated ? "Contacta al administrador para habilitar el acceso comercial." : "El POS no ha podido verificar una sesión autorizada."}</p>
+          <h2>{loading ? "Validando sesión" : unauthenticated ? "Ingresar al POS" : authorization.phase === "denied" ? "Acceso denegado" : authorization.phase === "expired" ? "Sesión expirada" : "Acceso no disponible"}</h2>
+          <p>{loading ? "Comprobando la sesión y los permisos efectivos." : unauthenticated ? "Identifícate para acceder a las funciones locales autorizadas de tu perfil." : "El POS no ha podido verificar una sesión autorizada."}</p>
           {loading ? (
             <div data-testid="authorization-loading" role="status">Cargando permisos…</div>
           ) : unauthenticated ? (
@@ -209,7 +210,7 @@ export function App(): React.JSX.Element {
               No se pudo cargar la autorización: {authorization.message}
             </div>
           ) : null}
-          {unauthenticated && <LocalOperatorLoginPanel />}
+          {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={authorization.retry} />}
           <button type="button" onClick={authorization.retry} disabled={loading}>Comprobar sesión comercial</button>
           <StatusPanel />
         </section>
@@ -258,6 +259,7 @@ export function App(): React.JSX.Element {
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
             <p>Operación disponible según los permisos efectivos de la sesión.</p>
           </div>
+          <LocalOperatorSessionControl onSessionChanged={authorization.retry}/>
         </header>
 
         <section className="pos-status">
