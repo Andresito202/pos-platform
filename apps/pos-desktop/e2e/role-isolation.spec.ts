@@ -30,7 +30,7 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
     let path=resolve(process.env.LOCALAPPDATA!);
     for(const part of ["CamachoPOS","development","role-data",role!]){
       path=join(path,part);
-      mkdirSync(path,{recursive:false});
+      mkdirSync(path,{recursive:true});
       if(lstatSync(path).isSymbolicLink())throw Error("DEV_DATA_SYMLINK_REJECTED");
     }
   }
