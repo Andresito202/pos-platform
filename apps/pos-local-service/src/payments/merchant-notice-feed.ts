@@ -36,6 +36,7 @@ export class MerchantNoticeFeedSyncComponent implements RuntimeComponent{
     notices:this.currentNotices.map(item=>({...item}))};
  }
  async start():Promise<void>{
+  if(!this.stopped)return;
   this.stopped=false;
   const launch=()=>{
    if(this.stopped||this.inFlight)return;
