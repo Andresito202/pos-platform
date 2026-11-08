@@ -131,8 +131,10 @@ CREATE TRIGGER merchant_destination_insert
 CREATE FUNCTION payments.guard_merchant_ack_identity()
 RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $guard$
 BEGIN
- IF TG_OP='UPDATE' AND NEW.installation_id<>OLD.installation_id THEN
-   RAISE EXCEPTION 'merchant acknowledgement installation immutable';
+ IF TG_OP='UPDATE' THEN
+   IF NEW.installation_id<>OLD.installation_id THEN
+     RAISE EXCEPTION 'merchant acknowledgement installation immutable';
+   END IF;
  END IF;
  IF NOT EXISTS (
    SELECT 1 FROM identity.device_registry d
