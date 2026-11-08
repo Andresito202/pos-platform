@@ -1,0 +1,74 @@
+name: Windows login P0 isolated validation
+
+on:
+  push:
+    branches:
+      - feat/p0-windows-login-install-readiness
+    paths:
+      - '.github/workflows/windows-login-p0-validation.yml'
+      - 'apps/pos-local-service/**'
+      - 'apps/pos-desktop/**'
+      - 'apps/central-authority/**'
+      - 'packages/local-channel/**'
+      - 'packages/contracts/**'
+      - 'tools/target-migrations/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-login-p0-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  login-p0:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout reviewed Windows login branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck login contracts and runtime
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/contracts typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/local-channel typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/pos-local-service typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/central-authority typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/pos-desktop typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows native host identity SCM fail closed and lease regressions
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/service-descriptor.test.ts tests/windows-commercial-host-identity.test.ts tests/windows-handoff-lease-state.test.ts tests/windows-scm-runtime.test.ts tests/windows-scm-stop.test.ts tests/windows-winsw-readiness.test.ts tests/windows-dpapi.test.ts tests/native-session-close-lifecycle.test.ts --no-file-parallelism
+      - name: Windows channel and DPAPI ownership
+        run: pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-production.test.ts tests/windows-handoff.test.ts tests/windows-native-pipe.test.ts tests/windows-service-signer.test.ts --no-file-parallelism
+      - name: Central login contracts and authorization
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/central-login-preflight.test.ts tests/central-certification-preflight.test.ts tests/business-login-coordinator.test.ts tests/native-authorization-code-exchange.test.ts tests/central-session-assertion-issuer.test.ts --no-file-parallelism
+      - name: Electron login and recovery contracts
+        run: pnpm --filter @pos-platform/pos-desktop exec vitest run tests/desktop-commercial-startup-secrecy.test.ts tests/scm-channel-start.test.ts tests/commercial-account.test.ts tests/native-business-login.test.ts tests/native-commercial-service-login.test.ts tests/renderer/session-recovery.test.tsx --no-file-parallelism
+      - name: Explicit certification boundary
+        shell: pwsh
+        run: |
+          Write-Output 'ISOLATED_WINDOWS_COMPONENTS_ONLY'
+          Write-Output 'NO_SCM_SERVICE_INSTALLATION_OR_HUMAN_MFA_PERFORMED'
+          Write-Output 'NO_BUSINESS_LOGIN_PRODUCTION_CERTIFICATION'
