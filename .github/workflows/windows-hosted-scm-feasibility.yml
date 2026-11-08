@@ -5,6 +5,7 @@ on:
     branches: [feat/p0-windows-login-install-readiness]
     paths:
       - '.github/workflows/windows-hosted-scm-feasibility.yml'
+      - 'packages/local-channel/src/windows-handoff-native.ts'
   workflow_dispatch:
 
 permissions:
@@ -63,16 +64,6 @@ jobs:
           & powershell.exe -NoProfile -NonInteractive -Command "Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; Get-Acl -LiteralPath '$env:WINDIR' | Out-Null; 'WINPS_SECURITY_MODULE_OK'"
           if($LASTEXITCODE -ne 0){throw 'WINDOWS_POWERSHELL_SECURITY_MODULE_UNAVAILABLE'}
           Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PSModulePath='+$env:PSModulePath)
-      - name: Instrument native error category only in disposable CI checkout
-        shell: pwsh
-        run: |
-          $path='packages/local-channel/src/windows-handoff-native.ts'
-          $source=[IO.File]::ReadAllText($path)
-          $from='if(r.error||r.status!==0)throw Error("HANDOFF_NATIVE_REJECTED");'
-          $to='if(r.error||r.status!==0){const raw=(r.stderr||String(r.error||"")).replace(/[A-Za-z]:\\\\[^\\s]+/g,"<PATH>").replace(/S-1-[0-9-]+/g,"<SID>"); const line=raw.split(/\\r?\\n/).filter(Boolean).slice(0,3).join(" ").slice(0,350);throw Error("HANDOFF_NATIVE_REJECTED_DIAGNOSTIC:"+("EXIT_"+r.status)+":"+line);}'
-          if(-not $source.Contains($from)){throw 'DIAGNOSTIC_ANCHOR_NOT_FOUND'}
-          [IO.File]::WriteAllText($path,$source.Replace($from,$to),[Text.UTF8Encoding]::new($false))
-          Write-Output 'DIAGNOSTIC_INSTRUMENTATION_EPHEMERAL_ONLY'
       - name: Real Windows DPAPI receiver with proper owner ACL and tampering regressions
         shell: pwsh
         run: |
