@@ -5,6 +5,7 @@ import * as z from "zod";
 
 const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_DATA_DIRECTORY",
+  "POS_LOCAL_OPERATOR_AUTH_STORE",
   "POS_INSTALLATION_ID",
   "POS_DEVICE_ID",
   "POS_SERVICE_VERSION",
@@ -29,6 +30,7 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
 
 const ServiceConfigSchema = z.strictObject({
   data_directory: z.string().min(1),
+  local_operator_auth_store: z.string().refine(isAbsolute).optional(),
   installation_id: z.uuid(),
   device_id: z.uuid(),
   service_version: ContractVersionSchema,
@@ -79,6 +81,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
 
   const parsed = ServiceConfigSchema.parse({
     data_directory: environment.POS_DATA_DIRECTORY,
+    local_operator_auth_store: environment.POS_LOCAL_OPERATOR_AUTH_STORE,
     installation_id: environment.POS_INSTALLATION_ID,
     device_id: environment.POS_DEVICE_ID,
     service_version: environment.POS_SERVICE_VERSION,
@@ -100,6 +103,9 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     license_capacity_provision_file: environment.POS_LICENSE_CAPACITY_PROVISION_FILE,
     authorization_trust_provision_file:environment.POS_AUTHORIZATION_TRUST_PROVISION_FILE,
   });
+  if (parsed.local_operator_auth_store !== undefined && environment.NODE_ENV !== "development") {
+    throw new Error("LOCAL_OPERATOR_AUTH_DEVELOPMENT_ONLY");
+  }
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");
   return { ...parsed, data_directory: resolve(parsed.data_directory) };
 }
