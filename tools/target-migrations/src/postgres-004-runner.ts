@@ -1,3 +1,4 @@
+import {isSupportedMigrationPostgresVersion} from "./postgres-compatibility.js";
 import { sql } from "kysely";
 import type { SqlExecutor } from "./database.js";
 import { executeRaw, postgresDatabase, queryRows } from "./database.js";
@@ -16,7 +17,7 @@ function sameChecksum(actual:Buffer,expected:Buffer):boolean { return Buffer.fro
 async function acquireLock(db:SqlExecutor):Promise<void>{ await sql`SELECT pg_advisory_lock(hashtextextended(${POSTGRES_MIGRATION_LOCK_RESOURCE},0))`.execute(db); }
 async function releaseLock(db:SqlExecutor):Promise<void>{ await sql`SELECT pg_advisory_unlock(hashtextextended(${POSTGRES_MIGRATION_LOCK_RESOURCE},0))`.execute(db); }
 async function executionRows(db:SqlExecutor):Promise<ExecutionRow[]> { const result=await sql<ExecutionRow>`SELECT execution_id,checksum,status,body_committed_at FROM platform.target_migration_executions WHERE migration_id=${POSTGRES_004_MIGRATION_ID} ORDER BY started_at DESC`.execute(db); return result.rows; }
-async function verifyRuntime(db:SqlExecutor,expectedDatabase:string):Promise<void>{ const row=(await queryRows<{database:string;version:string;session_user:string;current_user:string}>(db,"SELECT current_database() database,current_setting('server_version_num') version,session_user,current_user"))[0]; invariant(row?.database===expectedDatabase&&row.version==="160014","004 target mismatch"); invariant(row.session_user==="pos_migrator"&&row.current_user==="pos_schema_owner","004 migrator identity mismatch"); }
+async function verifyRuntime(db:SqlExecutor,expectedDatabase:string):Promise<void>{ const row=(await queryRows<{database:string;version:string;session_user:string;current_user:string}>(db,"SELECT current_database() database,current_setting('server_version_num') version,session_user,current_user"))[0]; invariant(row?.database===expectedDatabase&&isSupportedMigrationPostgresVersion(row.version),"004 target mismatch"); invariant(row.session_user==="pos_migrator"&&row.current_user==="pos_schema_owner","004 migrator identity mismatch"); }
 async function verifyPredecessors(db:SqlExecutor):Promise<void>{
   const descriptors=[POSTGRES_001_DESCRIPTOR,POSTGRES_002_DESCRIPTOR,POSTGRES_003_DESCRIPTOR];
   for(const descriptor of descriptors){
