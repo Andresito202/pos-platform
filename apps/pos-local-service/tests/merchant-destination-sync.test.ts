@@ -1,5 +1,5 @@
 import {describe,expect,it,vi,afterEach} from "vitest";
-import {MerchantDestinationHttpsTransport,canReuseMerchantDestinationSnapshot} from "../src/payments/merchant-destination-sync.js";
+import {MerchantDestinationHttpsTransport,canReuseMerchantDestinationSnapshot,canRecoverMerchantDestinationAcknowledgement} from "../src/payments/merchant-destination-sync.js";
 import type {DeviceCredentialProvider} from "../src/sync/device-credential.js";
 
 const original=globalThis.fetch;
@@ -21,6 +21,34 @@ describe("QR-001 low-bandwidth trusted company revision check",()=>{
    expect(canReuseMerchantDestinationSnapshot(state,12,12,Date.parse("2026-11-07T12:45:00Z"))).toBe(false);
    expect(canReuseMerchantDestinationSnapshot(null,12,12,now)).toBe(false);
    expect(canReuseMerchantDestinationSnapshot({snapshot:{sequence:12,expires_at:"invalid"}},12,12,now)).toBe(false);
+ });
+});
+describe("QR-001 durable ACK crash recovery",()=>{
+ const at=Date.parse("2026-11-07T12:00:00Z");
+ const recipient={kind:"BREB_KEY" as const,label:"Bre-B",destination_reference:"@comercio",
+   qr_asset_id:null,qr_sha256:null,version:1};
+ const snapshot={
+   tenant_id:"11111111-1111-4111-8111-111111111111",
+   company_id:"33333333-3333-4333-8333-333333333333",
+   sequence:11,issued_at:"2026-11-07T11:00:00Z",
+   expires_at:"2026-11-07T13:00:00Z",destination:recipient,destinations:[recipient],
+ };
+ const local={snapshot,received_at:"2026-11-07T11:01:00Z"};
+ it("recovers a lost ACK for unchanged bank destination after SQLite commit",()=>{
+   expect(canRecoverMerchantDestinationAcknowledgement(local,{
+     ...snapshot,issued_at:"2026-11-07T11:30:00Z",
+   },null,11,at)).toBe(true);
+   expect(canRecoverMerchantDestinationAcknowledgement(local,snapshot,10,11,at)).toBe(true);
+ });
+ it("never acknowledges changed recipient, a new revision or expired local evidence",()=>{
+   expect(canRecoverMerchantDestinationAcknowledgement(local,{
+     ...snapshot,destination:{...recipient,destination_reference:"@attacker"},
+       destinations:[{...recipient,destination_reference:"@attacker"}],
+   },null,11,at)).toBe(false);
+   expect(canRecoverMerchantDestinationAcknowledgement(local,{...snapshot,sequence:12},null,12,at)).toBe(false);
+   expect(canRecoverMerchantDestinationAcknowledgement(local,snapshot,11,11,at)).toBe(false);
+   expect(canRecoverMerchantDestinationAcknowledgement(local,snapshot,null,11,at+60*60_000)).toBe(false);
+   expect(canRecoverMerchantDestinationAcknowledgement(null,snapshot,null,11,at)).toBe(false);
  });
 });
 describe("QR-001 signed-device HTTPS client",()=>{
