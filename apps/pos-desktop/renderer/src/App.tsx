@@ -18,40 +18,6 @@ import { useAuthorizationCapabilities } from "./hooks/useAuthorizationCapabiliti
 import { useLocalOperatorSession } from "./hooks/useLocalOperatorSession.js";
 import { orderScreensByRole } from "./roleNavigation.js";
 
-type PlannedScreenDefinition = {
-  id: string;
-  label: string;
-  section: "Administración" | "Plataforma";
-  description: string;
-  actions: readonly string[];
-  requiredPermissions: readonly string[];
-};
-
-const plannedScreens: readonly PlannedScreenDefinition[] = [
-  { id: "dashboard", label: "Dashboard", section: "Administración", description: "Resumen operativo, indicadores y alertas.", actions: ["Ver indicadores", "Ver alertas", "Actualizar resumen"], requiredPermissions: [CanonicalPermission.AUDIT_EVENT_READ] },
-  { id: "admin-audit", label: "Auditoría administrativa", section: "Plataforma", description: "Trazabilidad de acciones administrativas y de plataforma.", actions: ["Consultar eventos", "Filtrar eventos"], requiredPermissions: [CanonicalPermission.AUDIT_EVENT_READ] },
-];
-
-function PlannedScreen({ screen }: { screen: PlannedScreenDefinition }): React.JSX.Element {
-  if (screen.id === "dashboard") return <AdministrativeControlPanel kind="admin" />;
-  if (screen.id === "admin-audit") return <AdministrativeControlPanel kind="audit" />;
-
-  return (
-    <section data-testid={`planned-screen-${screen.id}`}>
-      <h2>{screen.label}</h2>
-      <p>{screen.description}</p>
-      <p className="pos-planned-state">Superficie de navegación materializada · las operaciones requieren contrato ejecutable y autorización backend.</p>
-      <div className="pos-action-grid">
-        {screen.actions.map((action) => (
-          <button key={action} type="button" disabled title="La operación requiere un contrato de servicio ejecutable.">
-            {action}
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function hasAny(permissions: ReadonlySet<string>, required: readonly string[]): boolean {
   return required.some((permission) => permissions.has(permission));
 }
@@ -61,7 +27,6 @@ type Screen = {
   label: string;
   section: "Operación" | "Catálogo e inventario" | "Administración" | "Plataforma";
   render: () => React.JSX.Element;
-  planned?: boolean;
 };
 
 export function App(): React.JSX.Element {
@@ -182,14 +147,17 @@ export function App(): React.JSX.Element {
       result.push({ id: "hardware", label: "Impresora y cajón", section: "Administración", render: () => <HardwarePanel /> });
     }
 
-    for (const planned of plannedScreens) {
-      if (!hasAny(permissions, planned.requiredPermissions)) continue;
+    if (permissions.has(CanonicalPermission.AUDIT_EVENT_READ)) {
       result.push({
-        id: planned.id,
-        label: planned.label,
-        section: planned.section,
-        planned: planned.id !== "dashboard" && planned.id !== "admin-audit",
-        render: () => <PlannedScreen screen={planned} />,
+        id: "dashboard",
+        label: "Dashboard",
+        section: "Administración",
+        render: () => <AdministrativeControlPanel kind="admin" />,
+      }, {
+        id: "admin-audit",
+        label: "Auditoría administrativa",
+        section: "Plataforma",
+        render: () => <AdministrativeControlPanel kind="audit" />,
       });
     }
 
@@ -255,7 +223,7 @@ export function App(): React.JSX.Element {
                   <button
                     key={screen.id}
                     type="button"
-                    className={`pos-nav-button${screen.planned ? " pos-nav-button-planned" : ""}`}
+                    className="pos-nav-button"
                     aria-current={selectedScreen?.id === screen.id ? "page" : undefined}
                     onClick={() => navigateTo(screen.id, selectedScreen?.id ?? null)}
                   >
