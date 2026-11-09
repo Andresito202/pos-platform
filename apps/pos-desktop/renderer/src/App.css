@@ -185,46 +185,6 @@ button {
   }
 }
 
-.pos-nav-button-planned {
-  border: 1px dashed rgb(255 255 255 / 24%);
-}
-
-.pos-nav-button-planned::after {
-  content: " · próximamente";
-  color: var(--camacho-on-dark-muted);
-  font-size: 10px;
-}
-
-.pos-planned-state {
-  padding: 10px 12px;
-  border: 1px solid var(--camacho-border);
-  border-radius: 8px;
-  background: var(--camacho-blue-soft);
-  color: var(--camacho-muted);
-  font-size: 13px;
-}
-
-.pos-action-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 10px;
-  margin-top: 16px;
-}
-
-.pos-action-grid button {
-  min-height: 42px;
-  border: 1px solid var(--camacho-border);
-  border-radius: 9px;
-  background: var(--camacho-surface);
-  color: var(--camacho-muted);
-  text-align: left;
-}
-
-.pos-action-grid button:disabled {
-  cursor: not-allowed;
-  opacity: .72;
-}
-
 .pos-sale-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(320px,.85fr);gap:18px}
 .pos-sale-products,.pos-sale-cart{min-width:0}
 .pos-section-heading{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
@@ -379,14 +339,10 @@ button {
 .pos-admin-panel, .pos-admin-surface, .pos-admin-card,
 .pos-customer-panel { min-width: 0; }
 
-.pos-nav-button, .pos-action-grid button,
+.pos-nav-button,
 .pos-product-name-value, .pos-product-presentation, .pos-product-price,
 .pos-admin-card strong, .pos-admin-security-list span {
   overflow-wrap: anywhere;
-}
-
-.pos-action-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr));
 }
 
 .pos-touch-grid {
