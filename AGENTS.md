@@ -6,13 +6,13 @@ Este repositorio se desarrolla sobre **una única línea activa**. La existencia
 
 ### Línea activa vigente
 
-- Rama activa: `claude/pos-camacho-bloque-4c-ld43py`
+- Rama de trabajo activa: verificar la decisión vigente del propietario y el tablero antes de modificar código; no deducirla de un documento histórico.
 - Rama canónica del producto: `main`
 - El trabajo nuevo debe continuar sobre la rama activa vigente, salvo una decisión explícita de gobernanza que cambie esa línea.
 
 ## Prohibido crear trabajo paralelo por iniciativa propia
 
-Una IA, Claude Code, agente o colaborador **NO DEBE**:
+Una IA, agente o colaborador **NO DEBE**:
 
 - abrir otra rama porque considere que su enfoque es mejor;
 - crear un segundo diseño para el mismo problema;
@@ -78,10 +78,6 @@ Los componentes críticos —contratos, migrations cerradas, reglas de ownership
 - No eliminar evidencia histórica sin reconciliación.
 - No integrar a `main` sin PR, CI del HEAD exacto, autorización y verificación post-merge.
 - No declarar `PASS`, `TESTED` o `VERIFIED` por inferencia.
-
-## Regla para Claude Code
-
-Claude Code debe tratar este archivo como una restricción de continuidad del proyecto. Antes de ejecutar una tarea debe auditar la línea activa y continuar desde el estado existente. Si detecta una solución alternativa, debe documentarla como hallazgo y no implementarla en paralelo.
 
 ## Regla para cualquier otra IA/agente
 

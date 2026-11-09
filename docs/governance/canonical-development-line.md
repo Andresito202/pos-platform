@@ -1,25 +1,14 @@
 # Línea única de desarrollo canónico
 
-## Estado
+## Estado y vigencia
 
-**VIGENTE — 2026-09-16**
+**Registro histórico del 2026-09-16.** Este documento no designa la rama activa actual.
 
-Este documento establece la regla operativa para evitar que el proyecto vuelva a desarrollar el mismo objetivo en ramas competidoras.
+## Línea canónica
 
-## Línea de implementación activa
+`main` es la única rama canónica del producto. La rama de implementación debe verificarse mediante la decisión actual del propietario, el PR vigente y Git.
 
-La única rama autorizada para **implementación activa** es:
-
-`claude/pos-camacho-bloque-4c-ld43py`
-
-HEAD auditado al registrar esta regla:
-
-`bf39de720904f0b4aecf3541515c5b84cdb67f44`
-
-`main` continúa siendo la rama canónica del producto conforme a `docs/governance/repository-governance.md`. Esta distinción es deliberada:
-
-- `main` = producto oficialmente integrado.
-- `claude/pos-camacho-bloque-4c-ld43py` = única línea de implementación activa hasta que el trabajo autorizado se integre en `main`.
+El HEAD histórico auditado fue `bf39de720904f0b4aecf3541515c5b84cdb67f44`; los nombres del proveedor anterior se retiraron del árbol actual, pero siguen rastreables en el historial Git.
 
 ## Regla absoluta de desarrollo
 
@@ -62,7 +51,7 @@ Sólo puede reabrirse mediante nueva evidencia concreta, por ejemplo:
 
 Cuando se reabre, debe registrarse **qué evidencia invalida el estado anterior y qué pruebas deben volver a ejecutarse**.
 
-Una opinión de Claude, Codex, ChatGPT o cualquier otro agente no constituye por sí sola evidencia suficiente para reabrir una capacidad congelada.
+Una opinión de cualquier agente no constituye por sí sola evidencia suficiente para reabrir una capacidad congelada.
 
 ## Orden de trabajo obligatorio
 

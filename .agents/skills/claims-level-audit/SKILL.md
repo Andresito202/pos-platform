@@ -10,7 +10,7 @@ verifica el nivel real:
 1. `DOCUMENTED` — existe en docs/ con contenido específico, no solo mencionado.
 2. `MATERIALIZED` — el código/artefacto existe en el filesystem y compila/corre.
 3. `TESTED` — corriste el test tú mismo en este turno y viste el resultado (no infieras de un run anterior).
-4. `REVIEWED` — alguien (humano) lo aprobó explícitamente, no basta con que Claude lo generó.
+4. `REVIEWED` — alguien (humano) lo aprobó explícitamente, no basta con que un agente lo generó.
 5. `CANONICALLY_APPLIED` — está en `main`, con PR mergeado y SHA verificado en GitHub real (no local).
 6. `PRODUCTION_READY` — corrió en el entorno productivo objetivo, no solo local/CI.
 
