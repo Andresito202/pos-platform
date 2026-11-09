@@ -19,8 +19,9 @@ async function loadPreload(): Promise<Record<string, (payload: unknown) => Promi
   vi.resetModules();
   exposeInMainWorld.mockClear();
   invoke.mockClear();
+  delete process.env.POS_DESIGN_REVIEW_REGISTER_ID;
   await import("../src/preload.js");
-  const call = exposeInMainWorld.mock.calls.at(-1);
+  const call = exposeInMainWorld.mock.calls.find((entry) => entry[0] === RENDERER_API_KEY);
   if (!call) throw new Error("preload no llamó a exposeInMainWorld");
   return call[1] as Record<string, (payload: unknown) => Promise<unknown>>;
 }
@@ -32,13 +33,24 @@ beforeEach(() => {
 describe("preload contextBridge wiring", () => {
   it("exposes the api under the agreed renderer key", async () => {
     await loadPreload();
-    expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
-    expect(exposeInMainWorld.mock.calls[0]?.[0]).toBe(RENDERER_API_KEY);
+    expect(exposeInMainWorld.mock.calls.some((entry) => entry[0] === RENDERER_API_KEY)).toBe(true);
   });
 
   it("exposes exactly the declared methods and nothing else", async () => {
     const api = await loadPreload();
     expect(Object.keys(api).sort()).toEqual([...RENDERER_API_METHODS].sort());
+  });
+
+  it("exposes an optional design-review register hint without granting permissions", async () => {
+    process.env.POS_DESIGN_REVIEW_REGISTER_ID = "11111111-1111-4111-8111-111111111111";
+    vi.resetModules();
+    exposeInMainWorld.mockClear();
+    await import("../src/preload.js");
+    const hintsCall = exposeInMainWorld.mock.calls.find((entry) => entry[0] === "posDesktopHints");
+    expect(hintsCall?.[1]).toEqual({
+      designReviewRegisterId: "11111111-1111-4111-8111-111111111111",
+    });
+    delete process.env.POS_DESIGN_REVIEW_REGISTER_ID;
   });
 
   it("never exposes node, process or require to the renderer", async () => {

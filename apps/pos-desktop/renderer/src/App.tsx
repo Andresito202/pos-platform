@@ -1,5 +1,5 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import "./commercial-precision.css";
 import { StatusPanel } from "./components/StatusPanel.js";
@@ -14,6 +14,9 @@ import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { FiscalPanel } from "./components/FiscalPanel.js";
 import { AdministrativeControlPanel } from "./components/AdministrativeControlPanel.js";
+import { useAuthorizationCapabilities } from "./hooks/useAuthorizationCapabilities.js";
+import { useLocalOperatorSession } from "./hooks/useLocalOperatorSession.js";
+import { orderScreensByRole } from "./roleNavigation.js";
 
 type PlannedScreenDefinition = {
   id: string;
@@ -60,7 +63,6 @@ function PlannedScreen({ screen }: { screen: PlannedScreenDefinition }): React.J
     </section>
   );
 }
-import { useAuthorizationCapabilities } from "./hooks/useAuthorizationCapabilities.js";
 
 function hasAny(permissions: ReadonlySet<string>, required: readonly string[]): boolean {
   return required.some((permission) => permissions.has(permission));
@@ -76,16 +78,38 @@ type Screen = {
 
 export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
+  const [sessionEpoch, setSessionEpoch] = useState(0);
+  const localSession = useLocalOperatorSession(sessionEpoch);
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
   const [visitedScreens, setVisitedScreens] = useState<ReadonlySet<string>>(new Set());
   const [receiptTarget, setReceiptTarget] = useState<string | null>(null);
   const [fiscalTarget, setFiscalTarget] = useState<string | null>(null);
   const [inventoryTarget, setInventoryTarget] = useState<string | null>(null);
+
+  const refreshAccess = useCallback((): void => {
+    setSessionEpoch((value) => value + 1);
+    authorization.retry();
+  }, [authorization.retry]);
+
   const navigateTo = useCallback((id: string, from: string | null): void => {
     setVisitedScreens((visited) => new Set([...visited, ...(from === null ? [] : [from]), id]));
     setActiveScreen(id);
   }, []);
 
+  useEffect(() => {
+    if (authorization.phase !== "ready") {
+      setActiveScreen(null);
+      setVisitedScreens(new Set());
+      setReceiptTarget(null);
+      setFiscalTarget(null);
+      setInventoryTarget(null);
+    }
+  }, [authorization.phase]);
+
+  useEffect(() => {
+    setActiveScreen(null);
+    setVisitedScreens(new Set());
+  }, [localSession.username, localSession.role]);
 
   const screens = useMemo<Screen[]>(() => {
     if (authorization.phase !== "ready") return [];
@@ -181,8 +205,8 @@ export function App(): React.JSX.Element {
       });
     }
 
-    return result;
-  }, [authorization, receiptTarget, fiscalTarget, inventoryTarget, navigateTo]);
+    return orderScreensByRole(result, localSession.role);
+  }, [authorization, receiptTarget, fiscalTarget, inventoryTarget, navigateTo, localSession.role]);
 
   if (authorization.phase !== "ready") {
     const loading = authorization.phase === "loading";
@@ -210,8 +234,8 @@ export function App(): React.JSX.Element {
               No se pudo cargar la autorización: {authorization.message}
             </div>
           ) : null}
-          {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={authorization.retry} />}
-          <button type="button" onClick={authorization.retry} disabled={loading}>Actualizar acceso</button>
+          {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={refreshAccess} />}
+          <button type="button" onClick={refreshAccess} disabled={loading}>Actualizar acceso</button>
           <StatusPanel />
         </section>
       </main>
@@ -221,7 +245,11 @@ export function App(): React.JSX.Element {
   const selectedScreen = screens.find((screen) => screen.id === activeScreen) ?? screens[0] ?? null;
 
   return (
-    <main className="pos-shell" data-visual-area={selectedScreen?.section === "Plataforma" ? "platform" : selectedScreen?.section === "Administración" ? "administration" : "operation"}>
+    <main
+      className="pos-shell"
+      data-visual-area={selectedScreen?.section === "Plataforma" ? "platform" : selectedScreen?.section === "Administración" ? "administration" : "operation"}
+      data-operator-role={localSession.role ?? "none"}
+    >
       <aside className="pos-sidebar" aria-label="Navegación principal">
         <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
@@ -259,7 +287,7 @@ export function App(): React.JSX.Element {
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
             <p>Operación disponible según los permisos efectivos de la sesión.</p>
           </div>
-          <LocalOperatorSessionControl onSessionChanged={authorization.retry}/>
+          <LocalOperatorSessionControl onSessionChanged={refreshAccess}/>
         </header>
 
         <section className="pos-status">

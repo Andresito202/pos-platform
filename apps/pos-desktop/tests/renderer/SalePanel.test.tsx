@@ -171,7 +171,8 @@ describe("SalePanel — vertical comercial", () => {
     expect(request.payload["cash_register_id"]).toBe(REGISTER);
     expect(request.payload["lines"]).toEqual([{ product_id: PRODUCT, presentation_id: PRESENTATION, quantity: "1.000000", identifier: "7701234567890" }]);
     expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
-    expect(screen.getByTestId("payable-amount").textContent).toBe("3500.000000");
+    expect(screen.getByTestId("payable-amount").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("payable-amount").textContent).toMatch(/3\.500/);
   });
 
   it("sale.create NO envía cash_shift_id: la resolución no vive en el renderer", async () => {
@@ -258,7 +259,8 @@ describe("SalePanel — vertical comercial", () => {
     const request = calls.get("payment.register.cash")![0];
     expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
     expect(request).toMatchObject({ payload: { amount: "2000.000000", tendered_amount: "2000.000000" } });
-    expect(screen.getByTestId("payable-amount").textContent).toBe("3500.000000");
+    expect(screen.getByTestId("payable-amount").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("payable-amount").textContent).toMatch(/3\.500/);
     expect(chime).not.toHaveBeenCalled();
   });
 
@@ -311,7 +313,8 @@ describe("SalePanel — vertical comercial", () => {
     fireEvent.click(screen.getByTestId("charge-cash-button"));
     await screen.findByTestId("payment-partial");
 
-    expect(screen.getByTestId("confirmed-coverage").textContent).toBe("2000.000000");
+    expect(screen.getByTestId("confirmed-coverage").getAttribute("data-amount")).toBe("2000.000000");
+    expect(screen.getByTestId("confirmed-coverage").textContent).toMatch(/2\.000/);
     expect(chime).not.toHaveBeenCalled();
   });
 
@@ -411,9 +414,10 @@ describe("SalePanel · cierre de turno", () => {
     fireEvent.click(screen.getByTestId("close-shift-button"));
     await waitFor(() => { expect(screen.getByTestId("shift-close-result")).toBeTruthy(); });
 
-    expect(screen.getByTestId("shift-expected-cash").textContent).toBe("50000.000000");
-    expect(screen.getByTestId("shift-counted-amount").textContent).toBe("48000.000000");
-    expect(screen.getByTestId("shift-difference").textContent).toBe("-2000.000000");
+    expect(screen.getByTestId("shift-expected-cash").getAttribute("data-amount")).toBe("50000.000000");
+    expect(screen.getByTestId("shift-counted-amount").getAttribute("data-amount")).toBe("48000.000000");
+    expect(screen.getByTestId("shift-difference").getAttribute("data-amount")).toBe("-2000.000000");
+    expect(screen.getByTestId("shift-difference").textContent).toMatch(/-?\$.*2\.000/);
     // El turno deja de estar abierto y la caja vuelve a admitir apertura.
     expect(screen.queryByTestId("shift-open")).toBeNull();
     expect(screen.getByTestId("shift-close-result")).toBeTruthy();
@@ -508,7 +512,8 @@ describe("SalePanel · transferencia", () => {
     // payment.get se consulta de verdad: es la única fuente de la versión.
     expect(calls.get("payment.get")).toHaveLength(1);
     expect(screen.getByTestId("transfer-status").textContent).toBe("CREATED");
-    expect(screen.getByTestId("transfer-expected-amount").textContent).toBe("3500.000000");
+    expect(screen.getByTestId("transfer-expected-amount").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("transfer-expected-amount").textContent).toMatch(/3\.500/);
   });
 
   it("registrar NO es cobrar: no suena, no completa y queda pendiente", async () => {
@@ -555,7 +560,8 @@ describe("SalePanel · transferencia", () => {
     expect(conf.payload["payment_id"]).toBe(PAYMENT);
     expect(conf.payload["expected_version"]).toBe(4);
     // La cobertura viene del servicio, no de la pantalla.
-    expect(screen.getByTestId("transfer-confirmed-coverage").textContent).toBe("3500.000000");
+    expect(screen.getByTestId("transfer-confirmed-coverage").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("transfer-confirmed-coverage").textContent).toMatch(/3\.500/);
     expect(chime).toHaveBeenCalledTimes(1);
   });
 

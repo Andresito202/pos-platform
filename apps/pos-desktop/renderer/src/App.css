@@ -511,8 +511,27 @@ button {
   color: #e9f0f6; background: radial-gradient(ellipse at 27% 75%, #143735 0%, transparent 48%), #090f19;
 }
 .pos-entry-brand { min-width: 0; display: grid; justify-items: center; gap: 36px; }
-.pos-entry-logo { width: min(100%, 480px); height: 115px;
-  background: url("../../../../docs/brand/camacho-pos-colombia-logo-960.png") center / contain no-repeat;
+.pos-entry-logo { width: min(100%, 480px); height: 210px;
+  background-color: #fff;
+  background-image: url("../../../../docs/brand/camacho-pos-colombia-login.png");
+  background-position: center;
+  background-size: contain;
+  background-repeat: no-repeat;
+  border: 1px solid #dce6ec;
+  border-radius: 10px;
+}
+.pos-entry-brand {
+  position: relative;
+  isolation: isolate;
+}
+.pos-entry-brand::before {
+  content: "";
+  position: absolute;
+  inset: 8% 4%;
+  z-index: -1;
+  opacity: .28;
+  background: url("./assets/login-waves.svg") center / cover no-repeat;
+  pointer-events: none;
 }
 
 .pos-entry-card { max-width: 540px; width: 100%; padding: clamp(28px, 4vw, 54px); border: 1px solid #58c2a44d;

@@ -1,6 +1,15 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { readDesignReviewRegisterId } from "../desktop-hints.js";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
+import {
+  defaultQuantityInput,
+  formatCopMicros,
+  formatCopPesos,
+  formatQuantityDisplay,
+  formatScale6Display,
+  parseCopMicros,
+} from "../money-display.js";
 import { ProductAvatar } from "./ProductAvatar.js";
 
 const paymentButtons = [
@@ -9,6 +18,11 @@ const paymentButtons = [
   { id: "card", label: "Tarjeta", icon: new URL("../assets/payment-icons/credit-card.svg", import.meta.url).href },
   { id: "qr", label: "QR integrado", icon: new URL("../assets/payment-icons/qr-code.svg", import.meta.url).href },
   { id: "credit", label: "Fiado / crédito", icon: new URL("../assets/payment-icons/notebook-pen.svg", import.meta.url).href },
+] as const;
+
+const transferProviderLogos = [
+  { id: "nequi", label: "Nequi", src: "./payment-denominations/logos/nequi_original.png" },
+  { id: "daviplata", label: "Daviplata", src: "./payment-denominations/logos/daviplata_logo_manual_vigente.png" },
 ] as const;
 
 function PaymentMethodContent({ icon, label }: { icon: string; label: string }): React.JSX.Element {
@@ -36,22 +50,6 @@ const cashDenominations = [
   { value: 1000, kind: "monedas", label: "Moneda de $1.000" },
 ] as const;
 
-function parseCopMicros(value: string): bigint | null {
-  const match = /^(\d{1,12})(?:\.(\d{1,6}))?$/.exec(value.trim());
-  if (!match) return null;
-  return BigInt(match[1]!) * 1_000_000n + BigInt((match[2] ?? "").padEnd(6, "0"));
-}
-
-function formatCopMicros(value: bigint): string {
-  const pesos = (value / 1_000_000n).toLocaleString("es-CO");
-  const decimals = (value % 1_000_000n).toString().padStart(6, "0").replace(/0+$/, "");
-  return `${pesos}${decimals ? `,${decimals}` : ""}`;
-}
-
-function formatCopPesos(value: bigint): string {
-  return `${value.toLocaleString("es-CO")}`;
-}
-
 export function SalePanel({ permissions, onReceipt, onInvoice }: {
   permissions: ReadonlySet<string>;
   onReceipt?: ((saleId: string) => void) | undefined;
@@ -64,10 +62,10 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   const completed = sale.payment?.sale_completed === true
     || (sale.transfer?.saleId === sale.sale?.saleId && sale.transferConfirmation?.sale_completed === true);
   const [registerId, setRegisterId] = useState("");
-  const [opening, setOpening] = useState("0.000000");
+  const [opening, setOpening] = useState("0");
   const [barcode, setBarcode] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
-  const [quantity, setQuantity] = useState("1.000000");
+  const [quantity, setQuantity] = useState("1");
   const [counted, setCounted] = useState("");
   const [manualTendered, setManualTendered] = useState("");
   const [denominationCounts, setDenominationCounts] = useState<Record<number, number>>({});
@@ -82,6 +80,20 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   const previewPayable = parseCopMicros(paymentAmount || sale.sale?.payableAmount || "");
   const previewDelta = receivedTotal > 0n && previewPayable !== null
     ? receivedTotal * 1_000_000n - previewPayable : null;
+  const activePrecision = sale.foundItem?.unit_precision
+    ?? sale.catalogItems.find((item) => item.unit_precision !== null)?.unit_precision
+    ?? null;
+
+  useEffect(() => {
+    const assigned = readDesignReviewRegisterId();
+    if (assigned !== null) setRegisterId((current) => (current === "" ? assigned : current));
+  }, []);
+
+  useEffect(() => {
+    if (sale.foundItem !== null) {
+      setQuantity(defaultQuantityInput(sale.foundItem.unit_precision));
+    }
+  }, [sale.foundItem]);
 
   const appendTendered = (key: string): void => {
     if (key === "Borrar") {
@@ -109,7 +121,9 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
       {sale.shift === null ? (
         <div data-testid="shift-closed" className="pos-shift-card">
           <input data-testid="cash-register-input" aria-label="ID de la caja" value={registerId}
-            onChange={(e) => { setRegisterId(e.target.value); }} placeholder="ID de la caja" disabled={sale.busy} />
+            onChange={(e) => { setRegisterId(e.target.value); }}
+            placeholder={readDesignReviewRegisterId() === null ? "ID de la caja" : "Caja asignada al entorno"}
+            disabled={sale.busy} />
           <input data-testid="opening-amount-input" aria-label="Base inicial" value={opening}
             onChange={(e) => { setOpening(e.target.value); }} placeholder="Base inicial" disabled={sale.busy} />
           <button data-testid="open-shift-button" onClick={() => { void sale.openShift(registerId.trim(), opening.trim()); }}
@@ -145,11 +159,16 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
             {sale.catalogItems.length > 0 ? (
               sale.catalogItems.map((item) => (
                 <button type="button" className="pos-product-tile" key={item.presentation_id} data-testid={`catalog-product-${item.presentation_id}`}
-                  onClick={() => { sale.addCatalogItem(item, quantity.trim()); }} disabled={sale.busy || sale.unresolved || sale.sale !== null}>
+                  onClick={() => {
+                    const qty = quantity.trim() === "" ? defaultQuantityInput(item.unit_precision) : quantity.trim();
+                    sale.addCatalogItem(item, qty);
+                  }} disabled={sale.busy || sale.unresolved || sale.sale !== null}>
                   <ProductAvatar item={item} />
                   <strong className="pos-product-name-value">{item.name}</strong>
                   <span className="pos-product-presentation">{item.presentation_name}</span>
-                  <span className="pos-product-price">{item.price_amount}</span>
+                  <span className="pos-product-price" data-amount={item.price_amount ?? ""}>
+                    {item.price_amount === null ? "Sin precio" : formatScale6Display(item.price_amount)}
+                  </span>
                 </button>
               ))
             ) : sale.foundItem !== null ? (
@@ -159,8 +178,8 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                 <ProductAvatar item={sale.foundItem} />
                 <strong className="pos-product-name-value" data-testid="found-item-name">{sale.foundItem.name}</strong>
                 <span className="pos-product-presentation">{sale.foundItem.presentation_name}</span>
-                <span className="pos-product-price" data-testid="found-item-price">
-                  {sale.foundItem.price_amount ?? "Sin precio"}
+                <span className="pos-product-price" data-testid="found-item-price" data-amount={sale.foundItem.price_amount ?? ""}>
+                  {sale.foundItem.price_amount === null ? "Sin precio" : formatScale6Display(sale.foundItem.price_amount)}
                 </span>
               </button>
             ) : (
@@ -188,7 +207,8 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
             </div>
             <div className="pos-weighing-row">
               <label>Cantidad<input data-testid="quantity-input" aria-label="Cantidad" value={quantity}
-                onChange={(e) => { setQuantity(e.target.value); }} disabled={sale.busy} /></label>
+                onChange={(e) => { setQuantity(e.target.value); }} disabled={sale.busy}
+                inputMode={activePrecision === 0 ? "numeric" : "decimal"} /></label>
               <button data-testid="read-scale-button" type="button" disabled
                 title="La lectura real depende del adaptador de balanza del Hardware Service.">Leer balanza</button>
               {sale.foundItem !== null ? (
@@ -206,8 +226,11 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
           <ul data-testid="cart" className="pos-cart-list">
             {sale.lines.map((line, index) => (
               <li key={`${line.presentationId}-${String(index)}`} data-testid="cart-line">
-                <span><strong>{line.name}</strong><small>{line.presentationName} · {line.quantity}</small></span>
-                <strong>{line.priceAmount}</strong>
+                <span>
+                  <strong>{line.name}</strong>
+                  <small>{line.presentationName} · {formatQuantityDisplay(line.quantity, activePrecision)}</small>
+                </span>
+                <strong data-amount={line.priceAmount}>{formatScale6Display(line.priceAmount)}</strong>
                 <button aria-label={`Quitar ${line.name} del carrito`} disabled={sale.busy || sale.unresolved || sale.sale !== null}
                   onClick={() => sale.removeLine(index)}>Quitar</button>
               </li>
@@ -219,7 +242,12 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
 
           {sale.sale !== null && (
             <div data-testid="sale-created" className="pos-payment-card">
-              <div className="pos-total"><span>Total a pagar</span><strong data-testid="payable-amount">{sale.sale.payableAmount}</strong></div>
+              <div className="pos-total">
+                <span>Total a pagar</span>
+                <strong data-testid="payable-amount" data-amount={sale.sale.payableAmount}>
+                  {formatScale6Display(sale.sale.payableAmount)}
+                </strong>
+              </div>
               <span className="pos-payment-reference">Venta {sale.sale.saleId}</span>
               <h3>Medio de pago</h3>
               <label>Importe de este pago<input data-testid="payment-amount-input" aria-label="Importe de este pago"
@@ -240,6 +268,20 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                     </button>
                   )
                 ))}
+              </div>
+
+              <div className="pos-transfer-providers" data-testid="transfer-provider-logos" aria-label="Medios de transferencia manual">
+                {transferProviderLogos.map((logo) => (
+                  <img
+                    key={logo.id}
+                    className="pos-transfer-provider-logo"
+                    src={logo.src}
+                    alt={logo.label}
+                    data-testid={`transfer-logo-${logo.id}`}
+                    onError={(event) => { event.currentTarget.hidden = true; }}
+                  />
+                ))}
+                <p>Los logos identifican la transferencia manual. No habilitan cobro integrado ni QR en línea.</p>
               </div>
 
               <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
@@ -312,15 +354,20 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
 
       {sale.payment !== null && (
         sale.payment.sale_completed ? (
-          <div data-testid="sale-completed" className="pos-result-success">Venta cobrada · cambio {sale.payment.change_amount ?? "0.000000"}</div>
+          <div data-testid="sale-completed" className="pos-result-success">
+            Venta cobrada · cambio{" "}
+            <span data-amount={sale.payment.change_amount ?? "0.000000"}>
+              {formatScale6Display(sale.payment.change_amount ?? "0.000000")}
+            </span>
+          </div>
         ) : (
-          !completed && <div data-testid="payment-partial">Pago registrado ({sale.payment.outcome}) · cobertura <span data-testid="confirmed-coverage">{sale.payment.confirmed_coverage ?? "0.000000"}</span> · la venta aún no está cobrada</div>
+          !completed && <div data-testid="payment-partial">Pago registrado ({sale.payment.outcome}) · cobertura <span data-testid="confirmed-coverage" data-amount={sale.payment.confirmed_coverage ?? "0.000000"}>{formatScale6Display(sale.payment.confirmed_coverage ?? "0.000000")}</span> · la venta aún no está cobrada</div>
         )
       )}
 
       {sale.transfer !== null && (
         <div data-testid="transfer-registered" className="pos-result-pending">
-          Transferencia registrada · pago <span data-testid="transfer-payment-id">{sale.transfer.paymentId}</span> · estado <span data-testid="transfer-status">{sale.transfer.status}</span> · reportado <span data-testid="transfer-expected-amount">{sale.transfer.expectedAmount}</span>
+          Transferencia registrada · pago <span data-testid="transfer-payment-id">{sale.transfer.paymentId}</span> · estado <span data-testid="transfer-status">{sale.transfer.status}</span> · reportado <span data-testid="transfer-expected-amount" data-amount={sale.transfer.expectedAmount ?? ""}>{formatScale6Display(sale.transfer.expectedAmount)}</span>
           {sale.transfer.status === "CREATED" && sale.transferConfirmation === null && <div data-testid="transfer-pending">Pendiente de confirmación</div>}
           {sale.transfer.status === null && <p>El pago quedó registrado. Su estado y versión requieren consulta autorizada.</p>}
           <button data-testid="confirm-transfer-button" onClick={() => { void sale.confirmTransfer(); }} disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM) || sale.transfer.version === null || sale.transfer.status !== "CREATED"}>Confirmar transferencia</button>
@@ -340,7 +387,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
 
       {sale.transferConfirmation !== null && (
         sale.transferConfirmation.sale_completed ? (
-          <div data-testid="transfer-sale-completed" className="pos-result-success">Venta cobrada por transferencia · cobertura <span data-testid="transfer-confirmed-coverage">{sale.transferConfirmation.confirmed_coverage}</span></div>
+          <div data-testid="transfer-sale-completed" className="pos-result-success">Venta cobrada por transferencia · cobertura <span data-testid="transfer-confirmed-coverage" data-amount={sale.transferConfirmation.confirmed_coverage ?? ""}>{formatScale6Display(sale.transferConfirmation.confirmed_coverage)}</span></div>
         ) : (
           !completed && <div data-testid="transfer-partial">Transferencia {sale.transferConfirmation.outcome} · la venta aún no está cobrada</div>
         )
@@ -348,7 +395,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
 
       {sale.closedShift !== null && (
         sale.closedShift.outcome === "CLOSED" ? (
-          <div data-testid="shift-close-result">Turno cerrado · esperado <span data-testid="shift-expected-cash">{sale.closedShift.expected_cash}</span> · contado <span data-testid="shift-counted-amount">{sale.closedShift.counted_amount}</span> · diferencia <strong data-testid="shift-difference">{sale.closedShift.difference_amount}</strong></div>
+          <div data-testid="shift-close-result">Turno cerrado · esperado <span data-testid="shift-expected-cash" data-amount={sale.closedShift.expected_cash ?? ""}>{formatScale6Display(sale.closedShift.expected_cash)}</span> · contado <span data-testid="shift-counted-amount" data-amount={sale.closedShift.counted_amount ?? ""}>{formatScale6Display(sale.closedShift.counted_amount)}</span> · diferencia <strong data-testid="shift-difference" data-amount={sale.closedShift.difference_amount ?? ""}>{formatScale6Display(sale.closedShift.difference_amount)}</strong></div>
         ) : <div data-testid="shift-close-rejected">{sale.closedShift.outcome}</div>
       )}
 

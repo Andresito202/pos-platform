@@ -49,8 +49,8 @@ export function ProductAvatar({
   /** Catalog listing tiles and barcode lookup have distinct, valid contracts. */
   readonly item: CatalogItemListItem | CatalogItemResult;
 }): React.JSX.Element {
-  // The item is intentionally not used to infer a business profile: the avatar
-  // is driven by the configured business type, not by guessed product metadata.
+  // No product photography is fabricated here. Until a verified catalog image
+  // reference exists, the avatar stays a professional symbolic fallback.
   void item;
   const symbol = businessType === undefined ? "□" : avatarSymbols[businessType];
   return (
@@ -58,6 +58,7 @@ export function ProductAvatar({
       className={`pos-product-avatar pos-product-avatar-${businessType ?? "generic"}`}
       aria-hidden="true"
       data-testid="product-avatar"
+      title="Sin imagen de catálogo verificada"
     >
       <span>{symbol}</span>
     </span>

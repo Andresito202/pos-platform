@@ -53,10 +53,14 @@ sembrado vía `RegisterProductUseCase`. No toca datos de
 pwsh -File tools/operators/open-commercial-design-review.ps1
 ```
 
-Tras el login local (`cajero.local` o `admin.local`), el lanzador imprime
-`DESIGN_REVIEW_REGISTER_ID`. Úsalo en Caja y ventas para recorrer carrito →
-cobro → denominaciones con operaciones y permisos reales. No certifica login
-BUSINESS ni Central.
+Tras el login local (`cajero.local`, `supervisor.local`, `admin.local` o
+`superadmin.local`), el lanzador imprime `DESIGN_REVIEW_REGISTER_ID` y además
+exporta `POS_DESIGN_REVIEW_REGISTER_ID` al proceso de Electron para precargar
+la caja asignada. Recorre carrito → cobro → denominaciones con operaciones y
+permisos reales. No certifica login BUSINESS ni Central.
+
+Inicio visual por rol (permisos siguen mandando): CAJERO → Caja; SUPERVISOR →
+Inventario; ADMINISTRADOR → Dashboard; SUPERADMINISTRADOR → Dashboard/Auditoría.
 
 La provisión firmada se genera **en runtime** bajo el directorio aislado
 (`trust/license-signing.private.pem`, `trust/license-capacity-provision.json`).
@@ -68,8 +72,11 @@ producción.
 
 ### Evidencia de pruebas (agente Linux, no certificación Windows)
 
-- Unitarias `@pos-platform/pos-desktop`: **249 PASS / 0 FAIL**.
+- Unitarias `@pos-platform/pos-desktop`: **264 PASS / 0 FAIL** (incluye navegación
+  por rol, COP display, preload hint de caja design-review).
 - Typecheck y build de escritorio: PASS observados.
+- Restricciones backend local-operator: **4 PASS**
+  (`local-operator-authorization.test.ts`).
 - E2E Playwright en Linux (**no** ocultar): **6 PASS**, **5 SKIP**, **5 FAIL**:
   - FAIL `e2e/native-custody.spec.ts` — custody OS quedó en `MODULE_IMPORT`
     (`cleared/restored` falsos) en Linux.
@@ -80,6 +87,8 @@ producción.
 - El arranque Electron de revisión comercial **debe verificarse en Windows**
   con el comando de un solo paso. Un PASS de unitarias Linux no certifica el
   runtime comercial Windows.
+- Matriz de permisos, archivos recuperados y pendientes de capturas:
+  ver `ROLE-UX-CONSOLIDATION.md`.
 
 ## Windows PowerShell (desde la raíz del repositorio)
 

@@ -103,6 +103,7 @@ try {
   }
   if ($DesignReview) {
     $values['POS_LICENSE_CAPACITY_PROVISION_FILE'] = $licenseProvisionFile
+    $values['POS_DESIGN_REVIEW_REGISTER_ID'] = $registerId
   }
   foreach ($pair in $values.GetEnumerator()) {
     [Environment]::SetEnvironmentVariable($pair.Key, $pair.Value, 'Process')
