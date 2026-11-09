@@ -10,19 +10,15 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 `Camacho POS Colombia` es la identidad comercial. `POS Platform`, `pos-platform` y `@pos-platform/*` son identificadores técnicos internos.
 
-## Estado y regla de continuidad — 2026-09-16
+## Estado y regla de continuidad
 
 > **UNA SOLA LÍNEA. UN SOLO OBJETIVO ACTIVO. SE CONSTRUYE SOBRE LO EXISTENTE.**
 
-La rama canónica del producto es `main`. La única línea activa de desarrollo es:
+La rama canónica del producto es `main`. La rama de trabajo activa debe comprobarse en la decisión vigente del propietario y el tablero del proyecto; las referencias históricas de ramas no son instrucciones actuales.
 
-`claude/pos-camacho-bloque-4c-ld43py`
+No se permite abrir una arquitectura paralela, duplicar módulos ni rehacer capacidades sin evidencia de defecto o requisito autorizado. Primero se audita lo construido.
 
-Claude Code y cualquier otra IA/agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
-
-No se permite abrir una rama paralela, duplicar una arquitectura, rehacer un módulo o inventar un trabajo alternativo porque una IA considere que es “mejor”. Primero se audita lo construido. Sólo se modifica lo existente cuando hay evidencia de defecto, incompatibilidad, requisito nuevo autorizado o gate fallido.
-
-Reglas completas para agentes: [`AGENTS.md`](AGENTS.md) y [`CLAUDE.md`](CLAUDE.md).
+Reglas vigentes para agentes: [`AGENTS.md`](AGENTS.md).
 
 ## Fuentes de verdad
 
