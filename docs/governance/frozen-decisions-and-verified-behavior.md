@@ -16,7 +16,7 @@ La evidencia de ejecución indicada en este documento se identifica siempre por 
 
 Estado actual de la línea de implementación al crear este registro:
 
-- rama: `claude/pos-camacho-bloque-4c-ld43py`
+- línea histórica: identificada por HEAD auditado; no designa la rama activa actual
 - último HEAD funcional auditado antes de esta documentación: `bf39de720904f0b4aecf3541515c5b84cdb67f44`
 - verificación funcional amplia disponible inmediatamente antes de `bf39de7`: `d91dddcdc979a1afe1b2cfdcabb568cafd52c81b`
 
@@ -186,7 +186,7 @@ Antes de modificar una entrada `FROZEN_VERIFIED`:
 9. actualizar esta entrada con la nueva evidencia;
 10. sólo entonces implementar.
 
-## Regla para Claude / Codex / ChatGPT
+## Regla para cualquier agente
 
 La identidad del agente no cambia la autoridad técnica.
 

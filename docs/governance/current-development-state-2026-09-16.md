@@ -1,12 +1,14 @@
+> **Archivo histórico de 2026-09-16; no representa la rama de trabajo actual.**
+
 # Estado de desarrollo vigente — 2026-09-16
 
 ## 1. Línea única
 
 - Canónica: `main`.
-- Activa: `claude/pos-camacho-bloque-4c-ld43py`.
+- Activa en la fecha de la auditoría: ver el commit histórico indicado por la gobernanza. No designa la rama actual.
 - No existe autorización para crear otra línea de desarrollo en paralelo.
 
-Toda IA debe continuar desde esta línea y auditar primero lo ya construido.
+Todo agente debe verificar primero la decisión vigente de rama y auditar el trabajo construido.
 
 ## 2. Base que se considera construida
 

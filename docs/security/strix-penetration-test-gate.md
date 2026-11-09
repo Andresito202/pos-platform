@@ -12,13 +12,12 @@ los gates `SEC-G01..SEC-G10`, que siguen `PLANNED`.
 
 El escaneo **no se está ejecutando**. Faltan secretos de repositorio.
 
-Lo que la CLI declara en su propio banner, transcrito del log del job del
-2026-09-06:
+Extracto pertinente de requisitos declarados por la CLI en el log del job del
+2026-09-06 (se omiten ejemplos alternativos de proveedores):
 
 ```
 Required environment variables:
-• STRIX_LLM - Model name to use (e.g., 'openrouter/z-ai/glm-5.3' or
-  'anthropic/claude-opus-4-7')
+• STRIX_LLM - Model name to use (e.g., 'openrouter/z-ai/glm-5.3')
 
 Optional environment variables:
 • LLM_API_BASE - Custom API base URL if using local models (e.g., Ollama, LMStudio)
