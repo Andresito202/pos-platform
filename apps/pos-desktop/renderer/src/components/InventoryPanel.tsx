@@ -1,3 +1,4 @@
+import { InventoryCsvImport } from "./InventoryCsvImport.js";
 import { CanonicalPermission } from "@pos-platform/contracts";
 import { useEffect, useState } from "react";
 import {
@@ -58,6 +59,9 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
   return (
     <section data-testid="inventory-panel">
       <h2>Existencia</h2>
+      <InventoryCsvImport enabled={permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && !inventory.busy && !inventory.pending} />
+      {inventory.pending && <div role="status"><p>Hay un movimiento pendiente de confirmación. No cierres esta pantalla hasta resolverlo.</p>
+        <button type="button" disabled={inventory.busy} onClick={() => void inventory.retryPending()}>Reintentar el mismo movimiento</button></div>}
       <div className="pos-form-grid">
 
       <label className="pos-field">ID de presentación
@@ -67,7 +71,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         value={presentationId}
         onChange={(e) => { setPresentationId(e.target.value); }}
         placeholder="ID de presentación"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
       </label>
       <label className="pos-field">Fecha de negocio
@@ -77,7 +81,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         value={businessDate}
         onChange={(e) => { setBusinessDate(e.target.value); }}
         placeholder="Fecha de negocio"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
       </label>
 
@@ -87,7 +91,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         data-testid="receive-movement-select"
         value={receiveType}
         onChange={(e) => { setReceiveType(e.target.value as ReceiveMovement); }}
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       >
         {RECEIVE_MOVEMENTS.map((movement) => (
           <option key={movement} value={movement}>{movementLabels[movement]}</option>
@@ -101,7 +105,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         value={receiveQuantity}
         onChange={(e) => { setReceiveQuantity(e.target.value); }}
         placeholder="Cantidad"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
       </label>
       <label className="pos-field">Motivo de entrada
@@ -111,7 +115,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         value={receiveReason}
         onChange={(e) => { setReceiveReason(e.target.value); }}
         placeholder="Motivo"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
       </label>
       <button
@@ -121,7 +125,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
             target, receiveType, receiveQuantity, receiveReason.trim(), businessDate.trim(),
           );
         }}
-        disabled={inventory.busy || !permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || target === "" || receiveQuantity.trim() === ""}
+        disabled={inventory.busy || inventory.pending || !permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || target === "" || receiveQuantity.trim() === ""}
       >
         Recibir
       </button>
@@ -132,7 +136,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         data-testid="adjust-movement-select"
         value={adjustType}
         onChange={(e) => { setAdjustType(e.target.value as AdjustMovement); }}
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       >
         {ADJUST_MOVEMENTS.map((movement) => (
           <option key={movement} value={movement}>{movementLabels[movement]}</option>
@@ -146,7 +150,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         value={adjustQuantity}
         onChange={(e) => { setAdjustQuantity(e.target.value); }}
         placeholder="Cantidad"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
       </label>
       <label className="pos-field">Motivo del ajuste
@@ -156,7 +160,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         value={adjustReason}
         onChange={(e) => { setAdjustReason(e.target.value); }}
         placeholder="Motivo"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
       </label>
       <button
@@ -166,7 +170,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
             target, adjustType, adjustQuantity, adjustReason.trim(), businessDate.trim(),
           );
         }}
-        disabled={inventory.busy || !permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) || target === "" || adjustQuantity.trim() === ""}
+        disabled={inventory.busy || inventory.pending || !permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) || target === "" || adjustQuantity.trim() === ""}
       >
         Ajustar
       </button>

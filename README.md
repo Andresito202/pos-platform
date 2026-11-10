@@ -91,3 +91,9 @@ La limpieza elimina duplicación demostrada, no capacidades útiles por estar in
 - [Verificación de roles](apps/pos-desktop/e2e/ROLE-UX-CONSOLIDATION.md).
 
 Los informes antiguos son evidencia de su fecha y commit, no el estado actual del producto. Una prueba aprobada no equivale a operación productiva observada.
+
+## Cargue de existencias y validación de integraciones (2026-11-10)
+
+Inventario ofrece plantilla CSV UTF-8 editable en Excel, vista previa y confirmación por fila contra `inventory.stock.receive`. La plantilla de catálogo sigue siendo distinta: crear productos no carga stock. No hay lectura nativa XLSX. Los identificadores de lote/fila deben conservarse en los reintentos; cambiar cantidades con la misma identidad produce conflicto en el servicio, no una segunda entrada.
+
+La auditoría de Factus, licencias e inventario y sus límites están en [Estado de integraciones](docs/product/integration-verification-20261110.md). **No está acreditado el despliegue comercial completo.**

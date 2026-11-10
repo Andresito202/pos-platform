@@ -1,4 +1,5 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { InventoryMovementResultSchema } from "@pos-platform/contracts";
 import type {
   InventoryMovementResult,
   InventoryStockGetResult,
@@ -30,17 +31,42 @@ export type AdjustMovement =
 
 export interface InventoryAdminState {
   readonly busy: boolean;
+  readonly pending: boolean;
   readonly movement: InventoryMovementResult | null;
   readonly stock: InventoryStockGetResult | null;
   readonly error: string | null;
 }
 
 export function useInventoryAdmin(): InventoryAdminState & {
+  retryPending(): Promise<void>;
   receive(presentationId: string, movementType: ReceiveMovement, quantity: string, reasonCode: string, businessDate: string): Promise<void>;
   adjust(presentationId: string, movementType: AdjustMovement, quantity: string, reasonCode: string, businessDate: string): Promise<void>;
   getStock(presentationId: string): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(false);
+  const inFlight = useRef(false);
+  const pendingOperation = useRef<{ messageType: "inventory.stock.receive" | "inventory.stock.adjust"; payload: Record<string, string>; key: string } | null>(null);
+  const retryPending = useCallback(async (): Promise<void> => {
+    const operation = pendingOperation.current;
+    if (!operation || inFlight.current) return;
+    inFlight.current = true; setBusy(true); setError(null); setMovement(null);
+    try {
+      const response = await callCommercial<InventoryMovementResult>(operation.messageType, operation.payload, operation.key);
+      const parsed = InventoryMovementResultSchema.safeParse(response.result);
+      if (response.status === "REJECTED" && response.result === null) {
+        setError(response.result_code);
+      } else if ((response.status === "SUCCEEDED" || response.status === "REJECTED") && parsed.success) {
+        setMovement(parsed.data);
+      } else {
+        setError("Resultado incierto. Reintenta la operación pendiente sin crear otra entrada.");
+        return;
+      }
+      pendingOperation.current = null; setPending(false);
+    } catch {
+      setError("No se recibió confirmación. Reintenta la operación pendiente sin cambiar los datos.");
+    } finally { inFlight.current = false; setBusy(false); }
+  }, []);
   const [movement, setMovement] = useState<InventoryMovementResult | null>(null);
   const [stock, setStock] = useState<InventoryStockGetResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -53,37 +79,16 @@ export function useInventoryAdmin(): InventoryAdminState & {
     reasonCode: string,
     businessDate: string,
   ): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    setMovement(null);
-    try {
-      const normalized = toScale6(quantity);
-      if (normalized === null) {
-        setError("QUANTITY_NOT_SCALE6");
-        return;
-      }
-      const response = await callCommercial<InventoryMovementResult>(
-        messageType,
-        {
-          presentation_id: presentationId,
-          movement_type: movementType,
-          quantity: normalized,
-          reason_code: reasonCode,
-          business_date: businessDate,
-        },
-        newIdempotencyKey(),
-      );
-      if (response.result === null) {
-        setError(response.result_code);
-        return;
-      }
-      setMovement(response.result);
-    } catch (thrown) {
-      setError(thrown instanceof Error ? thrown.message : String(thrown));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+    if (inFlight.current || pendingOperation.current) return;
+    const normalized = toScale6(quantity);
+    if (normalized === null) { setError("QUANTITY_NOT_SCALE6"); return; }
+    pendingOperation.current = { messageType, key: newIdempotencyKey(), payload: {
+      presentation_id: presentationId, movement_type: movementType, quantity: normalized,
+      reason_code: reasonCode, business_date: businessDate,
+    } };
+    setPending(true);
+    await retryPending();
+  }, [retryPending]);
 
   const receive = useCallback((
     presentationId: string,
@@ -123,5 +128,5 @@ export function useInventoryAdmin(): InventoryAdminState & {
     }
   }, []);
 
-  return { busy, movement, stock, error, receive, adjust, getStock };
+  return { busy, pending, movement, stock, error, receive, adjust, getStock, retryPending };
 }
