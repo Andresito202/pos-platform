@@ -24,11 +24,11 @@ Formulario manual: bloqueo de doble envío y retención de payload/clave para re
 
 Factus Pay dispone de creación/consulta de recaudos, verificador y recepción de webhook. Esto acredita rutas de código, no un pago real. No están disponibles en este entorno las variables de sandbox fiscal, POSTGRES_TEST_URL ni los archivos de provisión de Factus Pay. No se llamó /auth ni se emitió una factura, cobró dinero o modificó una licencia comercial.
 
-Central expone rutas de emisión, asignación y revocación de activaciones bajo sesión GLOBAL y controles de permisos. `PlatformClient` no conecta todas esas operaciones a las pantallas: administra planes, no acredita una consola completa de licencias/bloqueos. Los indicadores vacíos del panel no son métricas reales. Un superadministrador local de desarrollo no sustituye la sesión GLOBAL autenticada con MFA.
+Central expone rutas de emisión, asignación y revocación de activaciones bajo sesión GLOBAL y controles de permisos. `PlatformClient` conecta planes y ahora consulta/revoca activaciones; todavía no conecta emisión y asignación desde el panel. Esto no acredita una consola completa de licencias/bloqueos. Los indicadores vacíos del panel no son métricas reales. Un superadministrador local de desarrollo no sustituye la sesión GLOBAL autenticada con MFA.
 
 ## Criterios de cierre aún no cumplidos
 
-1. Consola GLOBAL conectada a consulta y acciones de licencias, con resultados del backend y pruebas de permisos.
+1. Completar emisión/asignación desde la consola GLOBAL y ejecutar consulta/revocación contra PostgreSQL y una sesión GLOBAL real.
 2. Factura sandbox aceptada y consulta del documento con evidencia del proveedor; pago sandbox y webhook real con conciliación, duplicados y aislamiento.
 3. Recuperación durable de operaciones manuales inciertas; revisar igualmente reintentos fiscales tras UNCERTAIN.
 4. Login BUSINESS/SCM y revocación acreditados en entorno compatible, no solamente unit tests.
@@ -36,3 +36,11 @@ Central expone rutas de emisión, asignación y revocación de activaciones bajo
 6. Consolidación de Android comercial, empaquetado y E2E de venta/offline/sincronización/dispositivos por plataforma.
 
 La configuración final de VPS y dominio no resuelve estos puntos por sí sola. El estado correcto es desarrollo integrado parcialmente verificado, no listo para distribuir.
+
+## Incremento: consulta y revocación desde superadministración
+
+El portal GLOBAL muestra una pestaña Licencias con activaciones reales, estados y acción de revocación confirmada. El nuevo POST `/v1/platform/licenses/activations` acepta exclusivamente `{after: UUID|null}` y devuelve páginas de hasta 50 registros, con cursor. Exige sesión GLOBAL, CSRF, HTTPS y permiso LICENSE_REVOKE igual que la acción de revocación. La autoridad vuelve a verificar sesión, credenciales vigentes y permiso dentro de la transacción antes y después de la lectura. No devuelve claves, firmas ni payloads de autorización.
+
+La revocación reutiliza el endpoint existente, no cambia su semántica ni el protocolo de distribución: revocado en Central NO significa bloqueo instantáneo de un equipo offline. No cancela la licencia de toda la empresa, no libera cupos automáticamente y no incluye un botón de reactivación inexistente. La pantalla identifica empresa/licencia/dispositivo mediante sus IDs reales; los nombres comerciales aún no se consultan.
+
+Validación de este incremento: 286 pruebas desktop aprobadas, cuatro pruebas unitarias de la consulta Central aprobadas, TypeScript renderer y build renderer aprobados. La prueba de Central usa pool y autoridad de sesión simulados: comprueba límites, proyección, argumentos, rechazo y rollback; no acredita ejecución física de SQL/RLS. El typecheck completo de Central está bloqueado por la dependencia `@simplewebauthn/server` ausente del entorno de caché (17 diagnósticos TS2307). No se ha rebajado el contrato ni simulado esa dependencia para anunciar éxito. Falta PostgreSQL provisionado para acreditar el recorrido HTTPS/MFA/CSRF/SQL completo.

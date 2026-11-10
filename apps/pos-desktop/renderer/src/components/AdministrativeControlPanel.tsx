@@ -1,3 +1,4 @@
+import { PlatformActivations } from "./PlatformActivations.js";
 import { useState } from "react";
 import { useAdministrativeAudit } from "../hooks/useAdministrativeAudit.js";
 import { useAdminMetrics } from "../hooks/useAdminMetrics.js";
@@ -7,9 +8,10 @@ import {BusinessLicenseOffers} from "./BusinessLicenseOffers.js";
 
 type ControlKind = "admin" | "superadmin" | "audit";
 
-type Tab = "overview" | "monitoring" | "security";
+type Tab = "overview" | "monitoring" | "security" | "licenses";
 
 const tabLabels: Record<Tab, string> = {
+  licenses: "Licencias",
   overview: "Resumen",
   monitoring: "Seguimiento",
   security: "Seguridad",
@@ -74,7 +76,7 @@ export function AdministrativeControlPanel({ kind,platform,platformEditor }: { k
       </header>
 
       <nav className="pos-admin-tabs" aria-label={`Navegación de ${model.title}`}>
-        {(Object.keys(tabLabels) as Tab[]).map((item) => (
+        {(Object.keys(tabLabels) as Tab[]).filter(item => item !== "licenses" || (kind === "superadmin" && platform)).map((item) => (
           <button
             key={item}
             type="button"
@@ -167,6 +169,7 @@ export function AdministrativeControlPanel({ kind,platform,platformEditor }: { k
         </div>
       ) : null}
 
+      {kind==="superadmin"&&tab==="licenses"&&platform&&<PlatformActivations client={platform.client}/>}
       {kind==="superadmin"&&tab==="overview"&&platformEditor}
       {kind==="admin"&&tab==="overview"&&<BusinessLicenseOffers/>}
       {tab === "security" && (

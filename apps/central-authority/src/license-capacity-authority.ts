@@ -1,6 +1,6 @@
 import {createHash,createPublicKey,sign,type KeyObject} from "node:crypto";
 import {LicenseAllocationRequestSchema,LicenseActivationPolicySchema,LicenseCapacityClaimsSchema,canonicalSessionTrustJson,uuidV7,UuidSchema,
-  SignedLicenseCapacityRevocationSchema,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
+  LicenseActivationPageRequestSchema,LicenseActivationPageSchema,SignedLicenseCapacityRevocationSchema,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
 import {PostgresDeviceProofReplayVerifier,type DeviceProofRequest,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {requireLicenseAdministrator} from "./license-administration.js";
 
@@ -144,6 +144,21 @@ export class LicenseCapacityAuthority{
       await c.query(`INSERT INTO identity.device_authentication_events(id,device_id,credential_id,tenant_id,company_id,installation_id,result,reason_code,correlation_id,occurred_at,evidence_checksum)
         VALUES($1,$2,$3,$4,$5,$6,'ACCEPTED','LICENSE_CAPACITY_ACTIVATED',$7,clock_timestamp(),$8)`,[uuidV7(),binding.deviceId,binding.credentialId,binding.tenantId,binding.companyId,binding.installationId,input.correlationId,checksum(claims).toString("hex")]);
       return {artifact:{claims,signature:signature.toString("base64url")},key,idempotent:false};
+    });
+  }
+  async listActivations(sessionId:string,input:unknown){
+    UuidSchema.parse(sessionId);const request=LicenseActivationPageRequestSchema.parse(input);
+    return this.transaction(async c=>{
+      await requireLicenseAdministrator(c,sessionId,this.limits.reauthenticationMs,"LICENSE_REVOKE");
+      const rows=(await c.query(`SELECT id,license_id,company_id,device_id,activation_status,issued_at,revoked_at
+        FROM licensing.license_activations WHERE ($1::uuid IS NULL OR id>$1::uuid) ORDER BY id LIMIT 51`,[request.after])).rows;
+      const page=rows.slice(0,50);
+      const result=LicenseActivationPageSchema.parse({activations:page.map(a=>({activationId:a.id,licenseId:a.license_id,
+        companyId:a.company_id,deviceId:a.device_id,status:a.activation_status,
+        issuedAt:a.issued_at===null?null:(a.issued_at as Date).toISOString(),revokedAt:a.revoked_at===null?null:(a.revoked_at as Date).toISOString()})),
+        nextCursor:rows.length>50?page[49]!.id:null});
+      await requireLicenseAdministrator(c,sessionId,this.limits.reauthenticationMs,"LICENSE_REVOKE");
+      return result;
     });
   }
   async revoke(sessionId:string,activationId:string,correlationId:string){

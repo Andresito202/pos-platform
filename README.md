@@ -97,3 +97,7 @@ Los informes antiguos son evidencia de su fecha y commit, no el estado actual de
 Inventario ofrece plantilla CSV UTF-8 editable en Excel, vista previa y confirmación por fila contra `inventory.stock.receive`. La plantilla de catálogo sigue siendo distinta: crear productos no carga stock. No hay lectura nativa XLSX. Los identificadores de lote/fila deben conservarse en los reintentos; cambiar cantidades con la misma identidad produce conflicto en el servicio, no una segunda entrada.
 
 La auditoría de Factus, licencias e inventario y sus límites están en [Estado de integraciones](docs/product/integration-verification-20261110.md). **No está acreditado el despliegue comercial completo.**
+
+## Superadministración de licencias
+
+El portal GLOBAL incorpora la pestaña **Licencias**: consulta paginada de activaciones y revocación con confirmación, conectadas a Central y protegidas por LICENSE_REVOKE. No se ofrece esta autoridad a una sesión local de desarrollo. Revocación central y recepción del bloqueo por una caja offline son estados diferentes. Emisión/asignación desde la interfaz y verificación física del flujo siguen pendientes; consultar el estado de integraciones enlazado arriba.

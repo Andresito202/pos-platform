@@ -24,3 +24,15 @@ export const LicenseActivationProvisionSchema=z.strictObject({
   reauthentication_ms:z.number().int().positive(),sql_lock_ms:z.number().int().positive(),sql_statement_ms:z.number().int().positive(),
   requests_per_window:z.number().int().positive(),maximum_buckets:z.number().int().positive(),request_window_ms:z.number().int().positive(),
 }).refine(p=>p.sql_statement_ms>p.sql_lock_ms,"Statement timeout must exceed lock timeout");
+
+/** Minimal GLOBAL control-plane projection: never keys, signatures or claims. */
+export const LicenseActivationPageRequestSchema=z.strictObject({after:UuidSchema.nullable()});
+export const LicenseActivationSummarySchema=z.strictObject({
+  activationId:UuidSchema,licenseId:UuidSchema,companyId:UuidSchema,deviceId:UuidSchema,
+  status:z.enum(["PENDING","ACTIVE","REVOKED"]),issuedAt:UtcDateTimeSchema.nullable(),revokedAt:UtcDateTimeSchema.nullable(),
+});
+export const LicenseActivationPageSchema=z.strictObject({
+  activations:z.array(LicenseActivationSummarySchema).max(50),nextCursor:UuidSchema.nullable(),
+});
+export type LicenseActivationSummary=z.infer<typeof LicenseActivationSummarySchema>;
+export type LicenseActivationPage=z.infer<typeof LicenseActivationPageSchema>;

@@ -1,4 +1,4 @@
-import {LicenseOfferDraftSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
+import {LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
 export type PublishedOffer=LicenseOfferDraft&{version:number;status:"DRAFT"|"ACTIVE";published_at?:string|null};
 const decode=(value:string)=>Uint8Array.from(atob(value.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
 const encode=(value:ArrayBuffer)=>btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
@@ -48,5 +48,13 @@ export class PlatformClient{
   save(offer:LicenseOfferDraft,expectedVersion:number,correlationId:string){return this.post("license-offers/save",{offer,expectedVersion,correlationId});}
   initializePreproduction(){return this.post("license-offers/initialize-preproduction",{});}
   publish(planId:string,expectedVersion:number,correlationId:string){return this.post("license-offers/publish",{planId,expectedVersion,correlationId});}
+  async activations(after:string|null=null){
+    return LicenseActivationPageSchema.parse(await this.post("licenses/activations",LicenseActivationPageRequestSchema.parse({after})));
+  }
+  async revokeActivation(activationId:string,correlationId:string){
+    const result=await this.post("licenses/revoke-activation",{activationId:UuidSchema.parse(activationId),correlationId:UuidSchema.parse(correlationId)});
+    if(result.status!=="REVOKED"||typeof result.idempotent!=="boolean")throw Error("Central no confirmó la revocación. Actualiza el estado antes de reintentar.");
+    return {status:"REVOKED" as const,idempotent:result.idempotent};
+  }
   async logout(){try{await this.post("logout",{});}finally{this.csrf=null;}}
 }
