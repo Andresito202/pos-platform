@@ -202,6 +202,38 @@ describe("SalePanel — vertical comercial", () => {
     }
   });
 
+  it("selecting a payment method never registers money before explicit confirmation", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByTestId("select-payment-transfer"));
+    expect(calls.get("payment.register.transfer")).toBeUndefined();
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+    fireEvent.click(screen.getByTestId("select-payment-cash"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Efectivo recibido (COP)" }), { target: { value: "4000" } });
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar cobro en efectivo" }));
+    await screen.findByTestId("sale-completed");
+    expect(calls.get("payment.register.cash")).toHaveLength(1);
+    expect(calls.get("payment.register.cash")![0]).toMatchObject({ payload: { tendered_amount: "4000.000000" } });
+  });
+
+  it("keeps denomination counting optional and preserves its amount when collapsed", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    const toggle = screen.getByRole("button", { name: "Ver billetes y monedas" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Añadir billete de $5.000" })).toBeNull();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Añadir billete de $5.000" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("$5.000");
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar billetes y monedas" }));
+    expect(screen.queryByRole("button", { name: "Añadir billete de $5.000" })).toBeNull();
+    expect(screen.getByTestId("tendered-display").textContent).toBe("$5.000");
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+  });
+
   it("el cobro en efectivo usa el contrato y el importe emitido por el servicio", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
     render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
@@ -241,7 +273,7 @@ describe("SalePanel — vertical comercial", () => {
     await openShift(); await addProduct(); await createSale();
     fireEvent.click(screen.getByTestId("charge-cash-button"));
     await waitFor(() => expect(screen.getByTestId("sale-error").textContent).toBe("response lost"));
-    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
     await screen.findByTestId("sale-completed");
     expect(charge).toHaveBeenCalledTimes(2);
     expect(charge.mock.calls[1]?.[0]).toEqual(charge.mock.calls[0]?.[0]);
@@ -275,7 +307,7 @@ describe("SalePanel — vertical comercial", () => {
     await waitFor(() => expect((screen.getByTestId("retry-pending-operation") as HTMLButtonElement).disabled).toBe(false));
     fireEvent.change(screen.getByTestId("payment-amount-input"), { target: { value: "2000" } });
     fireEvent.click(screen.getByTestId("charge-cash-button"));
-    await waitFor(() => expect(screen.getByTestId("sale-error").textContent).toBe("OPERATION_OUTCOME_UNRESOLVED"));
+    expect((screen.getByTestId("charge-cash-button") as HTMLButtonElement).disabled).toBe(true);
     expect(charge).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByTestId("retry-pending-operation"));
     await screen.findByTestId("sale-completed");
@@ -490,6 +522,7 @@ describe("SalePanel · transferencia", () => {
   }
 
   async function registerTransfer(): Promise<void> {
+    fireEvent.click(screen.getByTestId("select-payment-transfer"));
     fireEvent.click(screen.getByTestId("register-transfer-button"));
     await waitFor(() => { expect(screen.getByTestId("transfer-registered")).toBeTruthy(); });
   }
@@ -669,6 +702,7 @@ describe("SalePanel · transferencia", () => {
     expect(screen.getByTestId("transfer-payment-id").textContent).toBe(PAYMENT);
     expect(calls.get("payment.get")).toBeUndefined();
     expect((screen.getByTestId("confirm-transfer-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("select-payment-cash"));
     expect((screen.getByTestId("charge-cash-button") as HTMLButtonElement).disabled).toBe(true);
   });
 

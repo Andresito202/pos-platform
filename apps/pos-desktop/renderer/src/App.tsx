@@ -3,6 +3,7 @@ import { CanonicalPermission } from "@pos-platform/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import "./commercial-precision.css";
+import "./workspace.css";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
 import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
@@ -34,6 +35,7 @@ type Screen = {
 export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
   const [sessionEpoch, setSessionEpoch] = useState(0);
+  const [navigationOpen, setNavigationOpen] = useState(true);
   const localSession = useLocalOperatorSession(sessionEpoch);
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
   const [visitedScreens, setVisitedScreens] = useState<ReadonlySet<string>>(new Set());
@@ -171,11 +173,13 @@ export function App(): React.JSX.Element {
       <main className="pos-entry" aria-busy={loading}>
         <section className="pos-entry-brand" aria-label="Camacho POS Colombia">
           <BrandMark variant="entry" />
+          <h2>Acceso seguro al<br />punto de venta</h2>
+          <p>Inicia sesión para continuar con tu operación.</p>
         </section>
         <section className="pos-entry-card" aria-label="Estado de acceso">
           <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
-          <h1>Camacho POS Colombia</h1>
-          <h2>{loading ? "Validando sesión" : unauthenticated ? "Ingresar al POS" : authorization.phase === "denied" ? "Acceso denegado" : authorization.phase === "expired" ? "Sesión expirada" : "Acceso no disponible"}</h2>
+          <h1>Iniciar sesión</h1>
+          <h2>{loading ? "Validando sesión" : unauthenticated ? "Accede con tu cuenta local para continuar" : authorization.phase === "denied" ? "Acceso denegado" : authorization.phase === "expired" ? "Sesión expirada" : "Acceso no disponible"}</h2>
           <p>{loading ? "Comprobando la sesión y los permisos efectivos." : unauthenticated ? "Identifícate para acceder a las funciones locales autorizadas de tu perfil." : "El POS no ha podido verificar una sesión autorizada."}</p>
           {loading ? (
             <div data-testid="authorization-loading" role="status">Cargando permisos…</div>
@@ -203,10 +207,11 @@ export function App(): React.JSX.Element {
   return (
     <main
       className="pos-shell"
+      data-navigation-open={navigationOpen}
       data-visual-area={selectedScreen?.section === "Plataforma" ? "platform" : selectedScreen?.section === "Administración" ? "administration" : "operation"}
       data-operator-role={localSession.role ?? "none"}
     >
-      <aside className="pos-sidebar" aria-label="Navegación principal">
+      <aside id="pos-navigation" className="pos-sidebar" aria-label="Navegación principal" hidden={!navigationOpen}>
         <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
         <BrandMark variant="sidebar" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
@@ -234,15 +239,20 @@ export function App(): React.JSX.Element {
             );
           })}
         </nav>
+        <LocalOperatorSessionControl onSessionChanged={refreshAccess}/>
       </aside>
 
       <div className="pos-content" id="pos-workspace" tabIndex={-1}>
         <header className="pos-header">
+          <button className="pos-navigation-toggle" type="button" aria-controls="pos-navigation"
+            aria-expanded={navigationOpen} aria-label={navigationOpen ? "Ocultar menú" : "Mostrar menú"}
+            onClick={() => setNavigationOpen(open => !open)}>
+            <img src={navigationOpen ? new URL("./assets/payment-icons/chevron-left.svg", import.meta.url).href : new URL("./assets/payment-icons/chevron-right.svg", import.meta.url).href} alt="" />
+          </button>
           <div>
             <p className="pos-product-name">Camacho POS Colombia · {selectedScreen?.section ?? "Sesión autorizada"}</p>
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
           </div>
-          <LocalOperatorSessionControl onSessionChanged={refreshAccess}/>
         </header>
 
         <section className="pos-status">

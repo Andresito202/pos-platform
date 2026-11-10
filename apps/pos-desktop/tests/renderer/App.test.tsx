@@ -309,7 +309,7 @@ describe("App", () => {
 
   it("renders the POS Local heading", () => {
     render(<App />);
-    expect(screen.getByRole("heading", { name: /Camacho POS Colombia/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Iniciar sesión" })).toBeTruthy();
   });
 
   it("renders the status panel in loading state initially", () => {
@@ -440,6 +440,24 @@ describe("Role-ordered navigation keeps permissions authoritative", () => {
       },
     });
   }
+
+  it("collapses navigation without unmounting the sale and keeps logout inside the menu", async () => {
+    authenticateLocal("CAJERO", "cajero.local");
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED", result_code: "AVAILABLE",
+      result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE"] },
+    });
+    render(<App />);
+    const sale = await screen.findByTestId("sale-panel");
+    const logout = await screen.findByRole("button", { name: "Cerrar sesión" });
+    expect(logout.closest("aside")?.id).toBe("pos-navigation");
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar menú" }));
+    expect(screen.queryByRole("button", { name: "Cerrar sesión" })).toBeNull();
+    expect(screen.getByTestId("sale-panel")).toBe(sale);
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar menú" }));
+    expect(screen.getByRole("button", { name: "Cerrar sesión" })).toBe(logout);
+    expect(screen.getByTestId("sale-panel")).toBe(sale);
+  });
 
   it("opens Caja for CAJERO when sales permissions are effective", async () => {
     authenticateLocal("CAJERO", "cajero.local");

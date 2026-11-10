@@ -59,6 +59,8 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   const completed = sale.payment?.sale_completed === true
     || (sale.transfer?.saleId === sale.sale?.saleId && sale.transferConfirmation?.sale_completed === true);
   const [registerId, setRegisterId] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">("cash");
+  const [showDenominations, setShowDenominations] = useState(false);
   const [opening, setOpening] = useState("0");
   const [barcode, setBarcode] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
@@ -219,7 +221,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
         </section>
 
         <section className="pos-sale-cart" aria-label="Venta actual">
-          <h2>Venta actual</h2>
+          <h2>Carrito <small>({sale.lines.length} líneas)</small></h2>
           <ul data-testid="cart" className="pos-cart-list">
             {sale.lines.map((line, index) => (
               <li key={`${line.presentationId}-${String(index)}`} data-testid="cart-line">
@@ -250,20 +252,14 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
               <label>Importe de este pago<input data-testid="payment-amount-input" aria-label="Importe de este pago"
                 value={paymentAmount} placeholder={sale.sale.payableAmount} onChange={(event) => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} /></label>
               <div className="pos-payment-methods">
-                {paymentButtons.map((method) => (
-                  method.id === "cash" ? (
-                    <button key={method.id} type="button" data-testid="charge-cash-button"
-                      onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
-                      disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}><PaymentMethodContent icon={method.icon} label={method.label} /></button>
-                  ) : (
-                    <button key={method.id} type="button" data-testid="register-transfer-button"
-                      onClick={() => { void sale.registerTransfer(paymentAmount || undefined); }}
-                      disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}><PaymentMethodContent icon={method.icon} label={method.label} /></button>
-                  )
-                ))}
+                {paymentButtons.map(method => <button key={method.id} type="button"
+                  data-testid={`select-payment-${method.id}`} aria-pressed={paymentMethod === method.id}
+                  onClick={() => setPaymentMethod(method.id)} disabled={sale.busy || sale.unresolved || completed}>
+                  <PaymentMethodContent icon={method.icon} label={method.id === "cash" ? "Efectivo" : "Transferencia"} />
+                </button>)}
               </div>
 
-              <div className="pos-transfer-providers" data-testid="transfer-provider-logos" aria-label="Medios de transferencia manual">
+              {paymentMethod === "transfer" && <div className="pos-transfer-providers" data-testid="transfer-provider-logos" aria-label="Medios de transferencia manual">
                 {transferProviderLogos.map((logo) => (
                   <img
                     key={logo.id}
@@ -275,11 +271,17 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                   />
                 ))}
                 <p>Los logos identifican la transferencia manual. No habilitan cobro integrado ni QR en línea.</p>
-              </div>
+              </div>}
 
-              <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
-                <div><span>Efectivo recibido</span><strong data-testid="tendered-display">{tendered || "0"}</strong></div>
-                <p>Selecciona cada billete o moneda que recibiste. El número indica cuántas unidades llevas.</p>
+              {paymentMethod === "cash" && <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
+                <label>Efectivo recibido (COP)<input aria-label="Efectivo recibido (COP)" inputMode="numeric" value={manualTendered}
+                  onChange={event=>{const value=event.target.value; if (/^\d{0,12}$/.test(value)) setManualTendered(value.replace(/^0+(?=\d)/, ""));}}
+                  disabled={sale.busy || sale.unresolved || completed} placeholder="0" /></label>
+                <strong data-testid="tendered-display">{formatCopPesos(receivedTotal)}</strong>
+                <button type="button" aria-expanded={showDenominations} aria-controls="pos-denominations"
+                  onClick={()=>setShowDenominations(open=>!open)}>{showDenominations ? "Ocultar billetes y monedas" : "Ver billetes y monedas"}</button>
+                <div id="pos-denominations" hidden={!showDenominations}>
+                <p>El conteo de billetes se suma al importe ingresado manualmente.</p>
                 {(["billetes", "monedas"] as const).map((kind) => (
                   <div className="pos-denomination-section" key={kind}>
                     <h4>{kind === "billetes" ? "Billetes" : "Monedas"}</h4>
@@ -314,6 +316,8 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                     </div>
                   </div>
                 ))}
+                </div>
+                <details className="pos-cash-keypad"><summary>Teclado numérico</summary>
                 <p className="pos-cash-keypad-label">Importe adicional o ingreso manual (COP)</p>
                 <div className="pos-calculator-grid">
                   {calculatorKeys.map((key) => (
@@ -321,6 +325,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                       disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}>{key}</button>
                   ))}
                 </div>
+                </details>
                 <div className="pos-cash-summary">
                   <div><span>Dinero recibido</span><strong>{formatCopPesos(receivedTotal)}</strong></div>
                   <div><span>A cobrar en este pago</span><strong>{previewPayable !== null ? formatCopMicros(previewPayable) : "No disponible"}</strong></div>
@@ -331,8 +336,18 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                     </div>
                   )}
                 </div>
+              </div>}
+              <div className="pos-checkout-action">
+                {paymentMethod === "cash" ? <button type="button" className="pos-primary-action" data-testid="charge-cash-button"
+                  onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
+                  disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}>
+                  {sale.busy ? "Procesando…" : "Confirmar cobro en efectivo"}</button>
+                : <button type="button" className="pos-primary-action" data-testid="register-transfer-button"
+                  onClick={() => { void sale.registerTransfer(paymentAmount || undefined); }}
+                  disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}>
+                  {sale.busy ? "Procesando…" : "Reportar transferencia"}</button>}
               </div>
-              <p className="pos-payment-note">Cuenta el efectivo recibido y pulsa Efectivo para registrar el pago.</p>
+              <p className="pos-payment-note">{paymentMethod === "cash" ? "Confirma después de contar el efectivo recibido." : "Reportar no confirma el ingreso. Un operador autorizado debe verificarlo."}</p>
             </div>
           )}
         </section>
@@ -397,7 +412,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
         El resultado de una operación sigue pendiente. El reintento conserva los datos y el importe originales. Resuélvala antes de iniciar otra.
         <button data-testid="retry-pending-operation" disabled={sale.busy} onClick={() => { void sale.retryPending(); }}>Reintentar operación pendiente</button>
       </div>}
-      <button data-testid="reset-button" onClick={() => { if (sale.reset()) { setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); } }} disabled={sale.busy}>Nueva venta</button>
+      <button data-testid="reset-button" onClick={() => { if (sale.reset()) { setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); setPaymentMethod("cash"); setShowDenominations(false); } }} disabled={sale.busy}>Nueva venta</button>
     </section>
   );
 }

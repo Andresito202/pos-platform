@@ -67,6 +67,12 @@ Electron ejecuta `dist/start.bundle.mjs` y carga `dist/renderer/index.html`. Cam
 
 Android tiene requisitos de NDK, firma y runtime propios: seguir [su procedimiento](apps/pos-android/README.md). El lanzador de login local es para desarrollo; los lanzadores de previsualización y revisión visual no acreditan autenticación comercial.
 
+## Rediseño basado en referencias del propietario
+
+Login con usuario escrito y contraseña visible opcional; navegación plegable con flechas y cierre de sesión dentro del menú; carrito compacto; selección del medio separada de la confirmación; billetes y teclado opcionales. Se conservan canal, casos de uso y permisos existentes. La transferencia se reporta: no se presenta como ingreso bancario confirmado.
+
+Incremento validado con 277 pruebas desktop, TypeScript renderer y build. La comparación visual está bloqueada por la conexión del navegador a la vista previa; no se declara fidelidad 1:1 ni rediseño completo. Ver [QA de diseño](design-qa.md).
+
 ## Evidencia y pendientes
 
 La separación de roles de `a21c3e79` tuvo 273 pruebas desktop y 19 focalizadas de backend aprobadas, además de TypeScript renderer/local-service y build renderer. Se usaron dependencias de caché; no fue una instalación reproducida con frozen-lockfile ni una certificación Windows.

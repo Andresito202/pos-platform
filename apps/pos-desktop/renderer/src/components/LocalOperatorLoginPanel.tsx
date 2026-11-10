@@ -3,12 +3,7 @@ import { LocalOperatorResponseSchema } from "@pos-platform/contracts";
 import { buildEnvelope, getPosService } from "../pos-service.js";
 
 type Operator = { username: string; role: string; expiresAt: string | null };
-const users = [
-  {id:"admin.local",label:"Administrador"},
-  {id:"supervisor.local",label:"Supervisor"},
-  {id:"cajero.local",label:"Cajero"},
-  {id:"superadmin.local",label:"Superadministrador"},
-] as const;
+
 
 async function requestOperator(
   method: "local.operator.login" | "local.operator.session" | "local.operator.logout",
@@ -26,8 +21,9 @@ async function requestOperator(
  * functions until those independent permissions have been granted by the service.
  */
 export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=>void}): React.JSX.Element {
-  const [username,setUsername]=useState("admin.local");
+  const [username,setUsername]=useState("");
   const [password,setPassword]=useState("");
+  const [passwordVisible,setPasswordVisible]=useState(false);
   const [operator,setOperator]=useState<Operator|null>(null);
   const [loading,setLoading]=useState(true);
   const [supported,setSupported]=useState(false);
@@ -54,6 +50,7 @@ export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=
     if(busy || loading)return;
     const submittedPassword=password;
     setPassword("");
+    setPasswordVisible(false);
     setBusy(true);
     setMessage("");
     try {
@@ -96,16 +93,18 @@ export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=
         </>
       ) : (
         <form onSubmit={event=>void submit(event)}>
-          <h3>Ingresar al POS</h3>
           <label htmlFor="pos-local-username">Usuario</label>
-          <select id="pos-local-username" autoComplete="username" value={username}
-            onChange={event=>setUsername(event.target.value)} disabled={busy}>
-            {users.map(user=><option key={user.id} value={user.id}>{user.label} · {user.id}</option>)}
-          </select>
+          <input id="pos-local-username" autoComplete="username" value={username}
+            onChange={event=>setUsername(event.target.value)} disabled={busy} required
+            placeholder="Ingresa tu usuario" maxLength={64} autoCapitalize="none" spellCheck={false}/>
           <label htmlFor="pos-local-password">Contraseña</label>
-          <input id="pos-local-password" type="password" autoComplete="current-password"
+          <div className="pos-password-field"><input id="pos-local-password" type={passwordVisible ? "text" : "password"} autoComplete="current-password"
             value={password} onChange={event=>setPassword(event.target.value)}
-            disabled={busy} required maxLength={512}/>
+            disabled={busy} required maxLength={512} placeholder="Ingresa tu contraseña"/>
+            <button type="button" aria-label={passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
+              aria-pressed={passwordVisible} onClick={()=>setPasswordVisible(value=>!value)} disabled={busy}>
+              <img src={passwordVisible ? new URL("../assets/payment-icons/eye-off.svg", import.meta.url).href : new URL("../assets/payment-icons/eye.svg", import.meta.url).href} alt="" />
+            </button></div>
           <button type="submit" disabled={busy}>{busy?"Verificando…":"Ingresar"}</button>
         </form>
       )}
