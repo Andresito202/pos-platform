@@ -6,6 +6,7 @@
   line-height: 1.5;
   color: var(--camacho-ink);
   background: var(--camacho-surface);
+  --camacho-brand-yellow: #ffc400;
   --camacho-navy: #10283d;
   --camacho-navy-hover: #203d54;
   --camacho-blue: #2577b0;

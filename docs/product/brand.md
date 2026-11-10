@@ -80,13 +80,20 @@ Antes del lanzamiento comercial se debe completar, como mínimo:
 7. definición tributaria y facturación de la empresa;
 8. claims comerciales alineados con el estado técnico real.
 
-## Activo de marca
+## Activo de marca vigente — 2026-11-10
 
-El logotipo vigente autorizado es la composición horizontal «Camacho POS | Colombia», con terminal de pago, azul marino y acento verde. Fondo transparente.
+Única identidad: composición amarilla/naranja de Camacho POS Colombia aportada por el propietario. Se retiran del árbol los dos PNG azul/verde anteriores. Los originales permanecen en el historial Git, sin copias de respaldo en el producto.
 
-- `docs/brand/camacho-pos-colombia-logo.png`: principal, 1600 × 884 px.
-- `docs/brand/camacho-pos-colombia-logo-960.png`: encabezado e interfaz, 960 × 530 px.
+| Archivo en docs/brand | Uso |
+|---|---|
+| camacho-pos-colombia-login.png | Horizontal: login, portales, README y navegación compacta |
+| camacho-pos-colombia-apilado.png | Apilado: barra lateral de escritorio |
+| camacho-pos-colombia-android.png | Icono original de Android; fuente única del empaquetador AAPT2 |
+| camacho-pos-colombia-symbol.png | Icono de pestaña de las tres entradas web/renderer |
 
-Ambos archivos proceden del paquete de reemplazo autorizado, sin redibujar ni modificar la imagen. Las rutas se conservan para mantener las referencias del README y del renderer. El activo cuadrado autorizado se conserva separado; no sustituye al horizontal en estas superficies.
+Una marca no implica un único PNG para todas las proporciones. No deformar, recortar ni redibujar los originales. El componente compartido BrandMark conserva proporciones con object-fit: contain y selecciona el apilado en la navegación de escritorio. Todos los módulos montados en App comparten esa navegación. Central usa el horizontal en su acceso HTTPS. Los APK de laboratorio mantienen sus nombres de diagnóstico: cambiar el icono no los convierte en producto comercial.
 
-El renderer muestra la composición sobre una base clara para mantener legibles las letras azul marino en la barra lateral oscura. El historial Git conserva versiones anteriores, pero el árbol vigente utiliza únicamente los archivos de esta composición.
+Los colores de estado conservan su significado: verde para éxito, rojo para error y azul para foco. El amarillo de marca se usa como acento, no como texto sobre blanco.
+
+Windows y Linux comparten el renderer Electron. Android sigue pendiente de integración de pantallas comerciales; no tiene paridad visual/funcional acreditada por este cambio.
+

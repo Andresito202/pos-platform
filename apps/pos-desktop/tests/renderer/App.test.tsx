@@ -589,7 +589,8 @@ describe("Entry and navigation preserve authorization boundaries", () => {
   it("keeps the branded entry screen fail-closed while authorization is pending", () => {
     const { container } = render(<App />);
     expect(screen.getByTestId("authorization-loading")).toBeTruthy();
-    expect(container.querySelector(".pos-entry-logo")).toBeTruthy();
+    expect(container.querySelector(".pos-brand--entry")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Camacho POS Colombia" }).getAttribute("src")).toContain("camacho-pos-colombia-login.png");
     expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Iniciar sesión" })).toBeNull();
   });

@@ -14,6 +14,17 @@ El arranque comercial Windows y DPAPI permanecen intactos. La firma de laborator
 
 La continuidad de custodia añade un **candidato de laboratorio**: Android Keystore protege con AES-256-GCM una semilla aleatoria; el padre nativo entrega sus 32 bytes en memoria por el pipe heredado al Node propio. `AndroidKeystoreKeyProvider` deriva claves por contexto y reutiliza `EncryptedFileSecretStore`. La prueba guarda únicamente un sello de diagnóstico cifrado; no crea una identidad de dispositivo ni credencial comercial. El cierre final limpia las claves del diagnóstico inmediatamente después de comprobar el sello. La semilla en claro existe en RAM durante el uso; la clave AES de envoltura es no exportable. `OS_BOUND` describe esta custodia en reposo, no aprobación del perfil productivo ni autenticación de una persona. Falta aprobar el perfil SEC-004 y el aprovisionamiento confiable antes de local-security/outbox/comercio. Si falta la clave de envoltura o su archivo, o falla su autenticación, no se regeneran silenciosamente.
 
+## Identidad visual compartida — 2026-11-10
+
+Los dos APK de diagnóstico usan el icono original amarillo/naranja de
+`docs/brand/camacho-pos-colombia-android.png`. El empaquetador compila el recurso
+con AAPT2 desde ese archivo único; no mantiene una copia editada en Android.
+Se conservan los nombres y paquetes de laboratorio para no confundirlos con el POS comercial.
+Este cambio requiere compilar e instalar el APK para observarse en el dispositivo;
+no se ha verificado todavía en Android. El renderer comercial de escritorio no está
+incluido en estos APK. La integración de sus pantallas y de los deltas Android pendientes
+se sigue en el [backlog único](../../docs/product/backlog.md).
+
 ## Procedimiento único
 
 Requisitos: dependencias pnpm existentes, Node Windows, Docker y el kit privado Hardware LAB ya provisionado. Descargar el [NDK oficial r27d Linux](https://dl.google.com/android/repository/android-ndk-r27d-linux.zip) y proporcionar su ruta; el script verifica SHA-256 antes de extraerlo únicamente en el volumen Docker `camacho-android-ndk-r27d`.
@@ -66,3 +77,4 @@ powershell -NoProfile -File apps/pos-android/test-service-device.ps1 `
 ```
 
 El script verifica inicio, Activity en segundo plano, parada ordenada, nuevo proceso Node y restauración del sello cifrado después de reiniciar únicamente el host propio. `-ExistingCustodyOnly` permite comprobar una instalación en lugar sin repetir la prueba completa: exige un sello previo, inicia, verifica su restauración y detiene el servicio. No ejecuta la prueba SQLite anterior ni impresiones. No se abre canal comercial ni se asignan IDs de tenant/dispositivo/usuario. Evidencia y decisiones pendientes en [custodia Android](../../docs/testing/android-custody-2026-10-22.md).
+

@@ -1,151 +1,87 @@
 <p align="center">
-  <img src="docs/brand/camacho-pos-colombia-logo-960.png"
-       alt="Camacho POS Colombia"
-       width="640">
+  <img src="docs/brand/camacho-pos-colombia-login.png" alt="Camacho POS Colombia" width="640">
 </p>
 
 # Camacho POS Colombia
 
-Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first para operación comercial real en Colombia.
+POS local-first para operación comercial en Colombia. El servicio local mantiene SQLite/WAL como único escritor; las pantallas consumen casos de uso a través del canal autorizado. La nube complementa la operación local mediante identidad, administración y sincronización.
 
-`Camacho POS Colombia` es la identidad comercial. `POS Platform`, `pos-platform` y `@pos-platform/*` son identificadores técnicos internos.
+**Estado: consolidación en desarrollo. No es todavía una distribución comercial certificada para todas las plataformas.**
 
-## Estado y regla de continuidad — 2026-11-09
+## Una sola línea de trabajo
 
-La única línea activa de consolidación es `cursor/commercial-design-review-0d11`, elegida sobre la rama ya existente por la orden del propietario de unificar el trabajo. `main` sigue siendo el destino canónico de entrega, no otra línea de desarrollo.
+- Rama activa existente: `cursor/commercial-design-review-0d11`.
+- Entrega hacia `main`: [PR #106](https://github.com/Andresito202/pos-platform/pull/106), Draft, sin fusionar.
+- No abrir otras ramas, shells ni diseños alternativos. El nombre histórico de la rama no convierte el lanzador de revisión visual en el arranque comercial.
+- PR #92, #94, #95 y #99 cerradas como reemplazadas por #106: sus HEAD eran ancestros del incremento `a21c3e79`. El cierre no certifica sus capacidades.
+- Android, balanza y QR tienen deltas exclusivos pendientes de evaluar e incorporar selectivamente. No se consideran integrados por compartir repositorio.
 
-La base inspeccionada `6a02c858` contiene el historial Windows P0 y login local, y restaura la pantalla de Caja dañada en `e31e008a`. Esto no acredita login BUSINESS ni una versión distribuible. No volver a elegir una base por su nombre o por ser más antigua.
+La rama elegida contiene el historial de login local y Windows P0 y recupera `SalePanel.tsx`, que estaba sustituido por un marcador en `e31e008a`. `main` es el destino de entrega, no otra línea de desarrollo simultánea.
 
-Las otras ramas dejan de ser frentes de desarrollo para esta consolidación. Sus cambios exclusivos se evalúan para incorporar, corregir o retirar; no se fusionan completos por defecto. El inventario y los límites están al inicio del [backlog](docs/product/backlog.md); las reglas para toda IA están en [AGENTS.md](AGENTS.md).
+## Dónde se trabaja
 
-Esta orden sustituye las referencias anteriores a una rama activa distinta. Se preservan los contratos de seguridad y la evidencia histórica con su SHA.
+| Superficie | Código real | Estado y límite |
+|---|---|---|
+| Windows / Linux | `apps/pos-desktop` | Electron + React; componentes comerciales conectados. Distribución y operación por sistema requieren verificación propia. |
+| Servicio local | `apps/pos-local-service` | Canal, sesiones, casos de uso, SQLite, outbox y hardware. Los controles SCM/DPAPI de Windows siguen vigentes. |
+| Android | `apps/pos-android` | Runtime nativo y APK de diagnóstico; todavía no contiene las pantallas React comerciales. No equivale al APK independiente de impresión instalado en el equipo. |
+| Nube | `apps/central-authority` | Autoridad e integración central; existencia del código no acredita despliegue productivo. |
+| Portales web | `apps/pos-desktop/renderer/src/platform-entry.tsx` y `pricing-entry.tsx` | Administración GLOBAL y ofertas; comparten marca, no la autoridad de una sesión local. |
+| Dominio compartido | `packages/` | Contratos, aplicación, dominio, persistencia y adapters. |
 
-## Actualización de consolidación — 2026-11-10
+## Pantallas y permisos
 
-- Única rama activa: `cursor/commercial-design-review-0d11`; código de separación de roles publicado en `a21c3e79`.
-- Única PR de entrega de esta consolidación: [#106](https://github.com/Andresito202/pos-platform/pull/106), ahora dirigida a `main` y en Draft. No fusionada.
-- PR #92, #94, #95 y #99 cerradas como reemplazadas por #106. Se verificó cada HEAD: todos son ancestros de a21c3e79, sin commits ausentes. No se presentan como fusionadas ni como certificaciones completadas.
-- Los refs de las ramas predecesoras aún existen. Las ramas divergentes de Android/balanza/QR y sus PR conservan trabajo exclusivo pendiente de decisión; no son destinos de desarrollo nuevo.
-- Perfiles locales: sólo CAJERO opera Caja. SUPERVISOR y ADMINISTRADOR conservan revisión de transferencias sin carrito; el backend rechaza sus intentos de crear ventas.
-- Evidencia del incremento: 273 pruebas desktop y 19 de autorización/credenciales/sesiones locales aprobadas; TypeScript renderer/local-service y build de renderer aprobados. Dependencias de caché, no instalación frozen-lockfile; prueba visual bloqueada por el entorno. Ver `apps/pos-desktop/e2e/ROLE-UX-CONSOLIDATION.md`.
-- Siguen pendientes: autorización comercial BUSINESS/SCM de extremo a extremo, evaluación de deltas exclusivos, retiro de refs redundantes, identificación de la instalación del PC y rediseño visual completo.
-- Las referencias inferiores a PR abiertas o líneas activas anteriores son históricas y quedan sustituidas por esta actualización para el trabajo actual.
+Las pantallas reales están en `apps/pos-desktop/renderer/src/components/`. `App.tsx` monta la navegación autorizada; `SalePanel` usa `useCommercialSale`, que invoca el canal existente. No se crea un POS visual separado.
 
-## Fuentes de verdad
+| Perfil local de desarrollo | Área principal | Caja/carrito |
+|---|---|---|
+| Cajero | Venta, cobro, clientes y comprobantes según permisos | Sí |
+| Supervisor | Inventario, catálogo y revisión de transferencias | No |
+| Administrador | Administración, auditoría y gestión autorizada | No |
+| Superadministrador | Administración de plataforma | No |
 
-El README es un resumen. No autoriza por sí mismo trabajo nuevo.
+La separación local se aplica también en backend: supervisor, administrador y superadministrador no pueden crear ventas. Las sesiones comerciales firmadas dependen de sus permisos emitidos por Central; esta matriz local no sustituye SSA/SAS ni certifica BUSINESS.
 
-1. `docs/governance/repository-governance.md` — ramas, PR, integración y evidencia Git.
-2. `docs/governance/tablero-materializacion.md` — niveles de evidencia por capacidad.
-3. `docs/product/backlog.md` — prioridad, dependencia, bloqueo y orden de trabajo.
-4. `docs/architecture/` y `docs/adr/` — arquitectura, ownership y decisiones.
-5. Contratos y código existente — comportamiento real que debe preservarse.
+## Marca y diseño
 
-Si dos fuentes normativas contradicen su estado, **se detiene la implementación y se reconcilian primero**.
+La identidad vigente es el logo amarillo/naranja aportado por el propietario. Se usan sus variantes horizontal, apilada e icono Android, con proporciones intactas y fondo claro. Los dos PNG azul/verde anteriores se retiran del árbol activo.
 
-## Qué está construido y se considera base, no terreno para rehacer
+`BrandMark.tsx` y `brand.css` centralizan la marca del renderer. Central usa el mismo horizontal. El empaquetador Android consume el icono original desde `docs/brand`, sin mantener otra copia. La especificación y el inventario están en [Marca](docs/product/brand.md).
 
-La fundación local y comercial ya existente incluye, según la evidencia registrada en el árbol:
+El diseño debe funcionar sobre operaciones reales: controles visibles según rol, importes COP legibles, estados de error/pendiente explícitos y acciones táctiles accesibles. Un logo nuevo o un build correcto no acreditan una revisión visual completa.
 
-- POS Local Service con SQLite/WAL y single-writer.
-- Lifecycle local, identidad de dispositivo/licencia, auditoría e idempotencia.
-- Canal local autenticado/versionado con controles de MAC, anti-replay y allowlist.
-- Sesión/SSA, snapshot de autorización y autorización RBAC fail-closed donde el runtime vigente los instancia.
-- Núcleo comercial: Sales, Cash, Payments, Customers, Catalog, Tax e Inventory en los alcances ya implementados.
-- Outbox/sync durable con claim, respuesta, retry/backoff y dead-letter.
-- Electron + React + Vite como shell/renderer, con los niveles de evidencia que marque el tablero; no se debe asumir que shell significa POS comercial completo.
-- PostgreSQL migrations 001/002/003 con sus gates históricos cerrados; SQLite 003 continúa sin equivalencia inventada.
-- CI de foundation, supply chain, CodeQL y gobernanza de `main`.
+## Desarrollo y comprobaciones
 
-**Estas piezas no se rehacen por iniciativa de una IA.** Si una auditoría encuentra un defecto, se corrige el componente existente y se preserva su contrato salvo decisión arquitectónica explícita.
+Usar pnpm 9.15.0 y las versiones fijadas en `package.json` / `pnpm-lock.yaml`.
 
-## Trabajo actual e integración
-
-El inventario remoto, las dependencias de PR y el orden vigente están en [Backlog maestro — reconciliación operativa](docs/product/backlog.md#reconciliación-operativa--2026-10-17-americabogota). Ésta es la única cola operativa; los documentos de septiembre conservan evidencia histórica sobre sus SHAs.
-
-La línea activa ya contiene `main@591ad4c` y los deltas probados de #94/#95, con 0 commits pendientes de main. También corrige el rate limit de enrolamiento. PR #92 conserva la integración acumulada hacia main y #93 sigue dependiendo de su base final. La evidencia ejecutada, las limitaciones de transporte del entorno y la cola restante están en el backlog.
-
-PR #89 y #91 fueron fusionadas el 2026-10-05; PR #78 quedó cerrada sin merge propio. No debe seguir presentándose como el trabajo pendiente actual.
-
-La inspección confirma credenciales de dispositivos enrolados y prueba firmada en sync, además de claves de sesión inyectadas en el arranque. Su existencia no acredita aprovisionamiento, sincronización, login ni administración completos en el entorno real. Las verificaciones pendientes y sus rutas están en el backlog.
-
-Los jobs recientes consultados de TARGET y CodeQL no iniciaron runner ni pasos. No se declara PASS, ni fallo de tests por ese resultado. La política de integración sigue en [Gobernanza](docs/governance/repository-governance.md); esta reconciliación no autoriza merges.
-
-## Arquitectura canónica
-
-```text
-Renderer React
-    │
-    │ preload allowlisted
-    ▼
-Electron main
-    │
-    │ canal local autenticado/versionado
-    ▼
-POS Local Service
-    ├── dominio/casos de uso locales
-    ├── SQLite/WAL — único writer
-    ├── outbox/sync
-    ├── auditoría/idempotencia
-    ├── dispositivo/licencia
-    └── backup/diagnóstico
-```
-
-La arquitectura central futura no reemplaza al POS local. Los providers externos no definen el dominio canónico.
-
-## Niveles de evidencia
-
-El tablero vigente usa esta escalera:
-
-`DOCUMENTED → IMPLEMENTED → TESTED → RUNTIME_VERIFIED → CALLER_REACHABLE → END_TO_END → PRODUCTION`
-
-No se salta un peldaño. `main` y CI son ejes de integración, no sustitutos de la evidencia de runtime.
-
-Regla estricta: **si no se ejecutó, no se declara PASS; si no se observó el runtime requerido, no se declara VERIFIED.**
-
-## Qué falta después del bloque actual
-
-Una vez cerrado D-2 y su gate, el siguiente trabajo se determina desde el backlog y los ADR vigentes. No se selecciona por preferencia de la IA.
-
-Entre las capacidades que siguen sin representar un producto POS terminado están, según su evidencia actual:
-
-- superficie completa de caja para el operador;
-- administración real de usuarios/roles y controles avanzados de autorización;
-- autoridad central productiva y despliegue;
-- hardware y sus adapters físicos;
-- empaquetado/instalación y operación productiva;
-- observabilidad y pruebas de carga donde correspondan;
-- seguridad `SEC-G01..SEC-G10` cuando sus prerequisitos estén desbloqueados;
-- trust bootstrap/G1, que permanece separado y no se declara resuelto por D-2.
-
-Esto no constituye un nuevo backlog. Son áreas pendientes ya conocidas; su orden se toma de las fuentes normativas.
-
-## Gobernanza
-
-El repositorio es privado. `main` no tiene branch protection preventiva nativa en el plan actual; existe un control compensatorio detectivo de gobernanza.
-
-Las ramas históricas no son líneas activas. No se reutilizan ni se integran completas. La auditoría de deprecación de ramas registra qué trabajo fue integrado, qué quedó como evidencia y qué no debe reutilizarse.
-
-## Desarrollo local
-
-Los comandos y sus resultados sólo se consideran evidencia cuando fueron ejecutados realmente en el entorno correspondiente. GitHub no demuestra `git status`, procesos locales, Docker ni PostgreSQL local.
-
-Comandos base existentes incluyen:
-
-```powershell
-pnpm typecheck
+```sh
+pnpm install --frozen-lockfile
+pnpm --filter @pos-platform/pos-desktop test
+pnpm --filter @pos-platform/pos-desktop typecheck
+pnpm --filter @pos-platform/pos-desktop build
+pnpm --filter @pos-platform/pos-local-service typecheck
 pnpm architecture:check
-pnpm test:contracts
-pnpm test:domain
-pnpm test:application
-pnpm test:fiscal-adapters
-pnpm test:runtime
-pnpm test:migrations:sqlite
-pnpm test:migrations:postgres
 ```
 
-No inventar comandos: verificar `package.json` antes de documentar o ejecutar uno nuevo.
+Electron ejecuta `dist/start.bundle.mjs` y carga `dist/renderer/index.html`. Cambiar TSX sin reconstruir no actualiza una ventana ya abierta. `start:production` exige aprovisionamiento y controles de arranque válidos; no se deben desactivar para mostrar las pantallas.
 
-## Principio final
+Android tiene requisitos de NDK, firma y runtime propios: seguir [su procedimiento](apps/pos-android/README.md). El lanzador de login local es para desarrollo; los lanzadores de previsualización y revisión visual no acreditan autenticación comercial.
 
-**Una sola línea de desarrollo. Un solo objetivo activo. Una sola fuente de verdad por decisión. Se corrige lo demostrado y se continúa sobre lo construido.**
+## Evidencia y pendientes
+
+La separación de roles de `a21c3e79` tuvo 273 pruebas desktop y 19 focalizadas de backend aprobadas, además de TypeScript renderer/local-service y build renderer. Se usaron dependencias de caché; no fue una instalación reproducida con frozen-lockfile ni una certificación Windows.
+
+Pendientes del producto: integración de deltas exclusivos Android/balanza/QR; login BUSINESS y SCM completo; pantallas comerciales Android; empaquetado por plataforma; revisión visual en resoluciones reales; ventas, persistencia, offline, impresión y dispositivos de extremo a extremo. La instalación y las modificaciones sin publicar del PC no se han inspeccionado desde esta sesión.
+
+La limpieza elimina duplicación demostrada, no capacidades útiles por estar incompletas. No se eliminan bases de datos, migraciones ni pruebas históricas para reducir el árbol.
+
+## Documentación operativa
+
+- [AGENTS.md](AGENTS.md): reglas para colaboradores y otras IA.
+- [Backlog único](docs/product/backlog.md): prioridad y decisiones de integración/retiro.
+- [Gobernanza](docs/governance/repository-governance.md): publicación, PR y entrega a main.
+- [Tablero de materialización](docs/governance/tablero-materializacion.md): niveles de evidencia; sus filas históricas conservan su SHA.
+- [Arquitectura](docs/architecture/) y [ADR](docs/adr/): contratos y decisiones.
+- [Verificación de roles](apps/pos-desktop/e2e/ROLE-UX-CONSOLIDATION.md).
+
+Los informes antiguos son evidencia de su fecha y commit, no el estado actual del producto. Una prueba aprobada no equivale a operación productiva observada.

@@ -1,3 +1,4 @@
+import { BrandMark } from "./components/BrandMark.js";
 import { CanonicalPermission } from "@pos-platform/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
@@ -169,7 +170,7 @@ export function App(): React.JSX.Element {
     return (
       <main className="pos-entry" aria-busy={loading}>
         <section className="pos-entry-brand" aria-label="Camacho POS Colombia">
-          <div className="pos-entry-logo" role="img" aria-label="Camacho POS Colombia" />
+          <BrandMark variant="entry" />
         </section>
         <section className="pos-entry-card" aria-label="Estado de acceso">
           <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
@@ -207,7 +208,7 @@ export function App(): React.JSX.Element {
     >
       <aside className="pos-sidebar" aria-label="Navegación principal">
         <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
-        <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
+        <BrandMark variant="sidebar" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">{localSession.role === "CAJERO" ? "Caja" : localSession.role === "SUPERVISOR" ? "Supervisión" : localSession.role === "ADMINISTRADOR" ? "Administración" : localSession.role === "SUPERADMINISTRADOR" ? "Plataforma" : "Mi negocio"}</p>
         <nav className="pos-nav">

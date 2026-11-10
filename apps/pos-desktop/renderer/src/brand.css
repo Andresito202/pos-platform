@@ -1,0 +1,10 @@
+/* One identity, original aspect ratios. No cropping, stretching or decorative motion. */
+.pos-brand { display: block; overflow: hidden; background: #fff; border-radius: 8px; }
+.pos-brand img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.pos-brand--sidebar { width: 100%; height: 176px; padding: 8px; margin-bottom: 12px; }
+.pos-brand--entry { width: min(100%, 460px); aspect-ratio: 16 / 9; padding: 12px; }
+.pos-brand--header { width: min(100%, 240px); aspect-ratio: 16 / 9; padding: 6px; }
+@media (max-width: 1024px) {
+  .pos-brand--sidebar { width: min(100%, 224px); height: 112px; }
+  .pos-brand--entry { width: min(100%, 340px); }
+}

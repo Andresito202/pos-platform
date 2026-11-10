@@ -69,7 +69,16 @@ fun registerProbeApk(name: String, runtimeVariant: Boolean) = tasks.register(nam
             check(file("${installed}/preparation.json").isFile)
             writeText(manifest.readText().replace("<application ","<application android:extractNativeLibs=\"true\" "))
         } else manifest
-        run(aapt.path, "link", "-o", "${out}/resources.apk", "--manifest", effectiveManifest.path, "-I", api.path,*assets.toTypedArray())
+        val brandIcon = file("../../docs/brand/camacho-pos-colombia-android.png")
+        check(brandIcon.isFile) { "Canonical Android brand icon missing" }
+        val brandResources = file("${out}/brand-res")
+        val iconResource = file("${brandResources}/drawable-nodpi/camacho_pos.png")
+        iconResource.parentFile.mkdirs()
+        brandIcon.copyTo(iconResource, overwrite = true)
+        val compiledBrand = file("${out}/brand-res.zip")
+        run(aapt.path, "compile", "--dir", brandResources.path, "-o", compiledBrand.path)
+        run(aapt.path, "link", "-o", "${out}/resources.apk", "--manifest", effectiveManifest.path,
+            "-I", api.path, "-R", compiledBrand.path, *assets.toTypedArray())
         val dex = file("${out}/dex").apply { mkdirs() }
         val stdlib = configurations.runtimeClasspath.get().files.filter { it.name.startsWith("kotlin-stdlib-") && !it.name.contains("jdk") }
         run(java, "-cp", dexTool.asPath, "com.android.tools.r8.D8", "--min-api", "28", "--lib", api.path,
@@ -104,3 +113,4 @@ fun registerProbeApk(name: String, runtimeVariant: Boolean) = tasks.register(nam
 }
 registerProbeApk("probeApk",false)
 registerProbeApk("runtimeProbeApk",true)
+

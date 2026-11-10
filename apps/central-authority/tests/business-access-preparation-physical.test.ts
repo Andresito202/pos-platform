@@ -1724,7 +1724,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
       ...(native?{nativeValidation:{requests:native,codec,signing}}:{}),
       ...(authorization?{authorizationIssuer:authorization(codec)}:{}),
       ...(authorizationTrustCandidate?{authorizationTrustCandidate}:{}),
-      ...(browserEntry?{browserEntry:{rpId,factorId,tenantId,membershipId,logoPng:await readFile(new URL("../../../docs/brand/camacho-pos-colombia-logo-960.png",import.meta.url))}}:{}),
+      ...(browserEntry?{browserEntry:{rpId,factorId,tenantId,membershipId,logoPng:await readFile(new URL("../../../docs/brand/camacho-pos-colombia-login.png",import.meta.url))}}:{}),
       policy:{mode:"ISOLATED_VALIDATION",maximumBodyBytes:32*1024,requestsPerMinute}});
     try{await work((path,payload,headers={},raw)=>postLabHttps(server,tls!.cert,"/v1/commercial/"+path,payload,headers,raw),codec,server,coordinator,signing);}
     finally{await closeLabHttps(server);}

@@ -1,3 +1,11 @@
+## Marca y limpieza del árbol — 2026-11-10
+
+En la misma línea activa: identidad amarilla/naranja unificada en BrandMark (login, barra lateral, administración web y ofertas), acceso HTTPS Central y recursos de Android. Se retiran los dos PNG azul/verde y tres SVG sin consumidor de controles de pago retirados. No se eliminan adapters de pagos ni hardware. Se centralizan estilos de marca y se eliminan reglas responsive duplicadas. Caja mantiene sus operaciones y mejora etiquetas de apertura y presentación de la referencia de venta.
+
+README reescrito con rutas reales, perfiles, estado por plataforma y limitaciones actuales. El empaquetador Android compila el icono original con AAPT2; compilación APK e instalación siguen sin ejecutarse en este entorno. Android no tiene todavía las pantallas comerciales React integradas. La limpieza de ramas divergentes y de cambios locales del PC no está terminada.
+
+Verificación de este incremento: 273 pruebas desktop aprobadas (31 archivos), TypeScript renderer y build de las tres entradas aprobados. Vite 6.4.3 / Vitest 4.1.11 de caché, distintos de las versiones declaradas 6.4.5 / 4.1.12; no se acredita instalación frozen-lockfile. XML Android revisado y PNG Central bajo el límite de 1 MiB; no se ejecutaron Gradle/AAPT2, Central HTTPS E2E, Windows ni prueba visual de navegador. Esta evidencia no es certificación comercial.
+
 ## Actualización de consolidación — 2026-11-10
 
 - Única rama activa: `cursor/commercial-design-review-0d11`; código de separación de roles publicado en `a21c3e79`.
@@ -1121,3 +1129,4 @@ Una tarea no está cerrada hasta que:
 7. no queda una rama activa sin objetivo o condición de bloqueo;
 8. no se deja una fuente normativa contando un estado incompatible;
 9. ninguna remediación reduce o elimina silenciosamente detalle contractual previamente aprobado.
+

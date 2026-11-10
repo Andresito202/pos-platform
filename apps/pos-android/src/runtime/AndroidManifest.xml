@@ -2,7 +2,7 @@
   <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <!-- No network, USB, drawer, business session or external storage permission. -->
-  <application android:label="Camacho Node Runtime Probe" android:allowBackup="false" android:debuggable="false" android:usesCleartextTraffic="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+  <application android:icon="@drawable/camacho_pos" android:label="Camacho Node Runtime Probe" android:allowBackup="false" android:debuggable="false" android:usesCleartextTraffic="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
     <service android:name="co.camachopos.android.LocalRuntimeService" android:exported="false" />
     <!-- No external callback until the real domain/signer/DAL and D3 profile are verified. -->
     <activity android:name="co.camachopos.android.BusinessAuthorizationCallbackActivity" android:exported="false" android:noHistory="true" />
@@ -11,3 +11,4 @@
     </activity>
   </application>
 </manifest>
+

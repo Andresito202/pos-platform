@@ -117,12 +117,14 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
       <h2>Caja</h2>
       {sale.shift === null ? (
         <div data-testid="shift-closed" className="pos-shift-card">
+          <div className="pos-shift-intro"><h3>Comienza tu turno</h3><p>Indica la caja asignada y el efectivo inicial.</p></div>
+          <label>Caja asignada
           <input data-testid="cash-register-input" aria-label="ID de la caja" value={registerId}
             onChange={(e) => { setRegisterId(e.target.value); }}
             placeholder={readDesignReviewRegisterId() === null ? "ID de la caja" : "Caja asignada al entorno"}
-            disabled={sale.busy} />
-          <input data-testid="opening-amount-input" aria-label="Base inicial" value={opening}
-            onChange={(e) => { setOpening(e.target.value); }} placeholder="Base inicial" disabled={sale.busy} />
+            disabled={sale.busy} /></label>
+          <label>Base inicial (COP)<input data-testid="opening-amount-input" aria-label="Base inicial" value={opening}
+            onChange={(e) => { setOpening(e.target.value); }} placeholder="Base inicial" inputMode="decimal" disabled={sale.busy} /></label>
           <button data-testid="open-shift-button" onClick={() => { void sale.openShift(registerId.trim(), opening.trim()); }}
             disabled={sale.busy || !permissions.has(CanonicalPermission.CASH_SHIFT_OPEN) || registerId.trim() === ""}>Abrir turno</button>
         </div>
@@ -217,7 +219,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
         </section>
 
         <section className="pos-sale-cart" aria-label="Venta actual">
-          <h2>Carrito</h2>
+          <h2>Venta actual</h2>
           <ul data-testid="cart" className="pos-cart-list">
             {sale.lines.map((line, index) => (
               <li key={`${line.presentationId}-${String(index)}`} data-testid="cart-line">
@@ -243,7 +245,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                   {formatScale6Display(sale.sale.payableAmount)}
                 </strong>
               </div>
-              <span className="pos-payment-reference">Venta {sale.sale.saleId}</span>
+              <details className="pos-payment-reference"><summary>Referencia de la venta</summary>{sale.sale.saleId}</details>
               <h3>Medio de pago</h3>
               <label>Importe de este pago<input data-testid="payment-amount-input" aria-label="Importe de este pago"
                 value={paymentAmount} placeholder={sale.sale.payableAmount} onChange={(event) => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} /></label>

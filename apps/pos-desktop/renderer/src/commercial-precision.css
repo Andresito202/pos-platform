@@ -25,21 +25,13 @@ fieldset { min-width: 0; border: 1px solid var(--camacho-border); border-radius:
 legend { padding: 0 6px; font-weight: 600; }
 .pos-shell { grid-template-columns: 218px minmax(0, 1fr); }
 .pos-sidebar { padding: 18px 14px; border-right: 0; }
-.pos-brand-mark {
-  height: 92px;
-  width: 100%;
-  border: 0;
-  border-radius: 3px;
-  background-color: #fff;
-  box-shadow: none;
-  animation: none;
-}
+
 .pos-brand-name { font-size: 14px; text-align: left; margin-top: 18px; }
 .pos-subtitle { text-align: left; font-size: 12px; margin-bottom: 24px; }
 .pos-nav { gap: 20px; }
 .pos-nav-section { gap: 4px; }
 .pos-nav-button { min-height: 40px; border-radius: 2px; font-size: 14px; padding: 9px 12px; transition: none; }
-.pos-nav-button[aria-current="page"] { background: #255472; color: #fff; box-shadow: inset 3px 0 #4fd0a2; }
+.pos-nav-button[aria-current="page"] { background: #255472; color: #fff; box-shadow: inset 3px 0 var(--camacho-brand-yellow); }
 .pos-content { padding: 28px; }
 .pos-header { padding-bottom: 20px; }
 .pos-header h1 { font-size: 30px; letter-spacing: -.02em; }
@@ -77,7 +69,7 @@ legend { padding: 0 6px; font-weight: 600; }
 .pos-primary-action:disabled { background: #d8e0e5; color: #435867; }
 .pos-sale-layout { grid-template-columns: minmax(0, 1fr) minmax(300px, 340px); gap: 20px; align-items: start; }
 .pos-sale-products { padding: 18px; background: #fff; border: 1px solid var(--camacho-border); border-radius: var(--camacho-radius); }
-.pos-sale-cart { padding: 20px; background: #fff; border-radius: var(--camacho-radius); border-top: 3px solid var(--camacho-green); }
+.pos-sale-cart { padding: 20px; background: #fff; border-radius: var(--camacho-radius); border-top: 3px solid var(--camacho-brand-yellow); }
 .pos-cart-list li { align-items: center; flex-wrap: wrap; padding: 12px 0; font-variant-numeric: tabular-nums; }
 .pos-cart-list:empty::before { border: 0; border-radius: 0; min-height: 170px; color: var(--camacho-muted); }
 .pos-product-tools { grid-template-columns: minmax(0, 1fr) auto; }
@@ -97,7 +89,14 @@ legend { padding: 0 6px; font-weight: 600; }
 .pos-product-avatar span { line-height: 1; font-weight: 650; }
 .pos-product-empty { background: #fff; border: 0; border-radius: 0; color: var(--camacho-muted); }
 .pos-weighing-card, .pos-payment-card { border-radius: var(--camacho-radius); box-shadow: none; background: #fff; }
-.pos-shift-card { background: #fff; border-color: var(--camacho-border); border-radius: var(--camacho-radius); }
+.pos-shift-card { background: #fff; border-color: var(--camacho-border); border-radius: var(--camacho-radius); align-items: end; }
+.pos-shift-intro { flex: 1 0 100%; }
+.pos-shift-intro h3 { margin: 0 0 4px; }
+.pos-shift-intro p { margin: 0; color: var(--camacho-muted); }
+.pos-shift-card label { display: grid; gap: 6px; flex: 1 1 190px; min-width: 0; font-weight: 600; }
+.pos-shift-card label input { width: 100%; min-width: 0; flex: none; }
+.pos-payment-reference { overflow-wrap: anywhere; }
+.pos-payment-reference summary { cursor: pointer; padding: 8px 0; }
 .pos-total { font-variant-numeric: tabular-nums; }
 .pos-total strong { font-size: 28px; }
 .pos-payment-methods button, .pos-calculator-grid button { border-radius: var(--camacho-radius); min-height: 44px; }
@@ -230,19 +229,7 @@ legend { padding: 0 6px; font-weight: 600; }
   border-radius: 16px;
   animation: none;
 }
-.pos-entry-logo {
-  width: min(100%, 340px);
-  height: 198px;
-  margin: 0;
-  padding: 14px;
-  background-color: #fff;
-  background-image: url("../../../../docs/brand/camacho-pos-colombia-login.png");
-  background-position: center;
-  background-repeat: no-repeat;
-  background-size: 89% auto;
-  border: 1px solid #dce6ec;
-  border-radius: 10px;
-}
+
 .pos-entry-card {
   position: relative;
   overflow: visible;
@@ -254,7 +241,7 @@ legend { padding: 0 6px; font-weight: 600; }
   background: #fff;
   border: 1px solid #cfdae0;
   border-radius: 14px;
-  border-top: 3px solid var(--camacho-green);
+  border-top: 3px solid var(--camacho-brand-yellow);
   box-shadow: 0 12px 42px rgb(16 40 61 / 8%);
   animation: none;
 }
@@ -284,20 +271,11 @@ legend { padding: 0 6px; font-weight: 600; }
   .pos-entry { grid-template-columns: 1fr; gap: 24px; justify-items: center; }
   .pos-entry-brand { width: 100%; min-height: 240px; padding: 28px; }
   .pos-entry-card { width: 100%; max-width: 600px; }
-  .pos-entry-logo { width: min(260px, 100%); height: 145px; }
+  
   .pos-denomination-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 800px) {
-  .pos-shell { grid-template-columns: minmax(0, 1fr); }
-  .pos-sidebar { position: relative; height: auto; overflow: visible; }
-  .pos-brand-mark { width: 190px; height: 86px; margin: 0 0 12px; }
   .pos-brand-name, .pos-subtitle { display: none; }
-  .pos-nav { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-  .pos-content { padding: 20px; }
-  .pos-entry { grid-template-columns: 1fr; gap: 24px; justify-items: center; }
-  .pos-entry-brand { width: 100%; min-height: 240px; padding: 28px; }
-  .pos-entry-card { width: 100%; max-width: 600px; }
-  .pos-entry-logo { width: min(260px, 100%); height: 145px; }
 }
 @media (max-width: 600px) {
   .pos-content { padding: 16px; }
@@ -309,7 +287,7 @@ legend { padding: 0 6px; font-weight: 600; }
   .pos-data-table { min-width: 650px; }
   .pos-entry { gap: 16px; padding: 16px; }
   .pos-entry-brand { min-height: 190px; padding: 22px; }
-  .pos-entry-logo { width: min(210px, 100%); height: 112px; }
+  
   .pos-entry-card { padding: 26px 22px; }
   .pos-denomination-grid { grid-template-columns: minmax(0, 1fr); }
   .pos-transfer-providers { grid-template-columns: minmax(0, 1fr); }

@@ -1,3 +1,4 @@
+import { BrandMark } from "./components/BrandMark.js";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {createRoot} from "react-dom/client";
 import "./App.css";
@@ -27,7 +28,7 @@ export function PlatformAdministrationPortal(){
     finally{setOffers([]);setAuthenticated(false);setBusy(false);}
   }
   if(!authenticated||!client)return <main className="pos-entry">
-    <section className="pos-entry-brand"><div className="pos-entry-logo" role="img" aria-label="Camacho POS Colombia"/></section>
+    <section className="pos-entry-brand"><BrandMark variant="entry" /></section>
     <section className="pos-entry-card"><span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span><h1>Administración de plataforma</h1>
       <p>Se exige contraseña, autenticador y permiso GLOBAL. La sesión comercial del POS no concede este acceso.</p>
       {!client?<p role="alert">Abre este panel en el origen HTTPS administrado de Central.</p>:<form onSubmit={e=>{e.preventDefault();void login(e.currentTarget);}}>
@@ -37,7 +38,7 @@ export function PlatformAdministrationPortal(){
         <button type="button" disabled={!busy} onClick={()=>controller.current?.abort()}>Cancelar</button>
       </form>}{error&&<p role="alert">{error}</p>}{notice&&<p role="status">{notice}</p>}
     </section></main>;
-  return <main className="pos-main"><AdministrativeControlPanel kind="superadmin" platform={{client,offers,onChanged:refresh}} platformEditor={<PlatformOfferEditor client={client} offers={offers} onChanged={refresh}/>}/>
+  return <main className="pos-main"><BrandMark variant="header" /><AdministrativeControlPanel kind="superadmin" platform={{client,offers,onChanged:refresh}} platformEditor={<PlatformOfferEditor client={client} offers={offers} onChanged={refresh}/>}/>
     <button type="button" disabled={busy} onClick={()=>void logout()}>Cerrar sesión GLOBAL</button>{error&&<p role="alert">{error}</p>}</main>;
 }
 const root=document.getElementById("root");if(!root)throw Error("Elemento raíz no disponible");createRoot(root).render(<PlatformAdministrationPortal/>);
