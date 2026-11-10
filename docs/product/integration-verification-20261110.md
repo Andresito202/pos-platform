@@ -24,11 +24,11 @@ Formulario manual: bloqueo de doble envío y retención de payload/clave para re
 
 Factus Pay dispone de creación/consulta de recaudos, verificador y recepción de webhook. Esto acredita rutas de código, no un pago real. No están disponibles en este entorno las variables de sandbox fiscal, POSTGRES_TEST_URL ni los archivos de provisión de Factus Pay. No se llamó /auth ni se emitió una factura, cobró dinero o modificó una licencia comercial.
 
-Central expone rutas de emisión, asignación y revocación de activaciones bajo sesión GLOBAL y controles de permisos. `PlatformClient` conecta planes y ahora consulta/revoca activaciones; todavía no conecta emisión y asignación desde el panel. Esto no acredita una consola completa de licencias/bloqueos. Los indicadores vacíos del panel no son métricas reales. Un superadministrador local de desarrollo no sustituye la sesión GLOBAL autenticada con MFA.
+Central expone rutas de emisión, asignación y revocación de activaciones bajo sesión GLOBAL y controles de permisos. `PlatformClient` conecta planes, consulta/revocación de activaciones y emisión/asignación mediante referencias registradas en Central. Esto no acredita el recorrido físico completo de licencias/bloqueos. Los indicadores vacíos del panel no son métricas reales. Un superadministrador local de desarrollo no sustituye la sesión GLOBAL autenticada con MFA.
 
 ## Criterios de cierre aún no cumplidos
 
-1. Completar emisión/asignación desde la consola GLOBAL y ejecutar consulta/revocación contra PostgreSQL y una sesión GLOBAL real.
+1. Ejecutar emisión/asignación/consulta/revocación contra PostgreSQL y una sesión GLOBAL real; sustituir la captura manual de referencias por selectores de registros autorizados.
 2. Factura sandbox aceptada y consulta del documento con evidencia del proveedor; pago sandbox y webhook real con conciliación, duplicados y aislamiento.
 3. Recuperación durable de operaciones manuales inciertas; revisar igualmente reintentos fiscales tras UNCERTAIN.
 4. Login BUSINESS/SCM y revocación acreditados en entorno compatible, no solamente unit tests.
@@ -44,3 +44,13 @@ El portal GLOBAL muestra una pestaña Licencias con activaciones reales, estados
 La revocación reutiliza el endpoint existente, no cambia su semántica ni el protocolo de distribución: revocado en Central NO significa bloqueo instantáneo de un equipo offline. No cancela la licencia de toda la empresa, no libera cupos automáticamente y no incluye un botón de reactivación inexistente. La pantalla identifica empresa/licencia/dispositivo mediante sus IDs reales; los nombres comerciales aún no se consultan.
 
 Validación de este incremento: 286 pruebas desktop aprobadas, cuatro pruebas unitarias de la consulta Central aprobadas, TypeScript renderer y build renderer aprobados. La prueba de Central usa pool y autoridad de sesión simulados: comprueba límites, proyección, argumentos, rechazo y rollback; no acredita ejecución física de SQL/RLS. El typecheck completo de Central está bloqueado por la dependencia `@simplewebauthn/server` ausente del entorno de caché (17 diagnósticos TS2307). No se ha rebajado el contrato ni simulado esa dependencia para anunciar éxito. Falta PostgreSQL provisionado para acreditar el recorrido HTTPS/MFA/CSRF/SQL completo.
+
+## Incremento: emisión y asignación desde el portal GLOBAL
+
+La pestaña Licencias incluye emisión/recuperación de contrato desde un paymentId y asignación de cajas a una credencial aprovisionada. Usa `/v1/platform/licenses/issue` y `/v1/platform/licenses/allocate`, ya existentes; no crea pagos ni cambia importes, políticas, firmas o autoridad. El backend mantiene LICENSE_ISSUE, pago confirmado, capacidad pagada, pertenencia de sucursales y vínculo del dispositivo. La interfaz valida UUID, cajas duplicadas, respuesta y confirmación explícita de asignación. Máximo de captura: 100 cajas por solicitud en la interfaz; no representa capacidad concedida.
+
+El reintento de emisión conserva el pago como referencia natural. La asignación conserva el mismo payload y clave al reintentar; una respuesta incierta impide editar el borrador, mientras que un rechazo HTTP explícito permite corregirlo. Cambiar de pestaña no desmonta los formularios. La memoria de solicitudes no es durable ante recarga o cierre; no se acredita ese escenario. El panel distingue contrato, asignación PENDING y activación: emitir no prueba activación ni concede permisos al usuario. Para contratos recuperados, no presenta el NOT_ACTIVATED histórico del endpoint como estado actual del dispositivo.
+
+La operación requiere referencias reales (pago/licencia/credencial/sucursal/caja); no hay aún selectores con nombres de empresa y dispositivo. Esto es una integración funcional para administración con referencias conocidas, no una afirmación de UX comercial terminada.
+
+Validación: 290 pruebas desktop, TypeScript renderer y build aprobados. Los cuatro tests nuevos verifican rutas/payloads, validación, confirmación, rechazo, reintento idéntico y doble clic. Se corrigió una carrera en el test de navegación del supervisor: esperaba inmediatamente un componente cargado con lazy import; ahora espera su aparición. Los proveedores y el canal HTTP se simulan en estas pruebas. No se emitió ninguna licencia comercial desde esta sesión ni se llamó Factus real.

@@ -1,3 +1,4 @@
+import { PlatformLicenseFulfillment } from "./PlatformLicenseFulfillment.js";
 import { PlatformActivations } from "./PlatformActivations.js";
 import { useState } from "react";
 import { useAdministrativeAudit } from "../hooks/useAdministrativeAudit.js";
@@ -169,7 +170,7 @@ export function AdministrativeControlPanel({ kind,platform,platformEditor }: { k
         </div>
       ) : null}
 
-      {kind==="superadmin"&&tab==="licenses"&&platform&&<PlatformActivations client={platform.client}/>}
+      {kind==="superadmin"&&platform&&<div hidden={tab!=="licenses"}><PlatformLicenseFulfillment client={platform.client}/><PlatformActivations client={platform.client}/></div>}
       {kind==="superadmin"&&tab==="overview"&&platformEditor}
       {kind==="admin"&&tab==="overview"&&<BusinessLicenseOffers/>}
       {tab === "security" && (

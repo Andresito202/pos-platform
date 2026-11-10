@@ -1,4 +1,5 @@
-import {LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
+import {LicenseAllocationRequestSchema,LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
+export class PlatformRequestError extends Error { constructor(message:string,readonly status:number){super(message);this.name="PlatformRequestError";} }
 export type PublishedOffer=LicenseOfferDraft&{version:number;status:"DRAFT"|"ACTIVE";published_at?:string|null};
 const decode=(value:string)=>Uint8Array.from(atob(value.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
 const encode=(value:ArrayBuffer)=>btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
@@ -15,8 +16,8 @@ export class PlatformClient{
       ...(signal?{signal}:{}),headers:{"content-type":"application/json",...(csrf?{"x-csrf-token":csrf}:{})},body:JSON.stringify(body)});
     if(!response.ok){
       if(response.status===409){const problem=await response.json() as {code?:unknown};if(problem.code==='LICENSE_OFFER_VERSION_CONFLICT')throw Error("Otro administrador cambió la versión. Recupera el catálogo antes de reintentar.");}
-      throw Error(response.status===429?"Demasiados intentos; espera antes de continuar.":response.status===401||response.status===403?
-        "Central rechazó la sesión o los permisos.":response.status===409?"La operación requiere políticas comerciales aprobadas.":"Central no pudo completar la operación.");
+      throw new PlatformRequestError(response.status===429?"Demasiados intentos; espera antes de continuar.":response.status===401||response.status===403?
+        "Central rechazó la sesión o los permisos.":response.status===409?"La operación requiere políticas comerciales aprobadas.":"Central no pudo completar la operación.",response.status);
     }
     return await response.json() as Record<string,unknown>;
   }
@@ -48,6 +49,19 @@ export class PlatformClient{
   save(offer:LicenseOfferDraft,expectedVersion:number,correlationId:string){return this.post("license-offers/save",{offer,expectedVersion,correlationId});}
   initializePreproduction(){return this.post("license-offers/initialize-preproduction",{});}
   publish(planId:string,expectedVersion:number,correlationId:string){return this.post("license-offers/publish",{planId,expectedVersion,correlationId});}
+  async issueLicense(paymentId:string,correlationId:string){
+    const result=await this.post("licenses/issue",{paymentId:UuidSchema.parse(paymentId),correlationId:UuidSchema.parse(correlationId)});
+    if(!UuidSchema.safeParse(result.licenseId).success||typeof result.contractStatus!=="string"||!result.contractStatus||
+      result.activationStatus!=="NOT_ACTIVATED"||typeof result.idempotent!=="boolean")throw Error("Central no confirmó la emisión. Reintenta con el mismo pago.");
+    return {licenseId:String(result.licenseId),contractStatus:result.contractStatus,idempotent:result.idempotent};
+  }
+  async allocateLicense(request:unknown){
+    const body=LicenseAllocationRequestSchema.parse(request);
+    const result=await this.post("licenses/allocate",body);
+    if(!UuidSchema.safeParse(result.activationId).success||!["PENDING","ACTIVE","REVOKED"].includes(String(result.status))||
+      typeof result.idempotent!=="boolean")throw Error("Central no confirmó la asignación. Conserva la misma solicitud para reintentar.");
+    return {activationId:String(result.activationId),status:result.status as "PENDING"|"ACTIVE"|"REVOKED",idempotent:result.idempotent};
+  }
   async activations(after:string|null=null){
     return LicenseActivationPageSchema.parse(await this.post("licenses/activations",LicenseActivationPageRequestSchema.parse({after})));
   }

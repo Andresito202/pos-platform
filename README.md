@@ -100,4 +100,4 @@ La auditoría de Factus, licencias e inventario y sus límites están en [Estado
 
 ## Superadministración de licencias
 
-El portal GLOBAL incorpora la pestaña **Licencias**: consulta paginada de activaciones y revocación con confirmación, conectadas a Central y protegidas por LICENSE_REVOKE. No se ofrece esta autoridad a una sesión local de desarrollo. Revocación central y recepción del bloqueo por una caja offline son estados diferentes. Emisión/asignación desde la interfaz y verificación física del flujo siguen pendientes; consultar el estado de integraciones enlazado arriba.
+El portal GLOBAL incorpora la pestaña **Licencias**: consulta paginada de activaciones y revocación con confirmación, conectadas a Central y protegidas por LICENSE_REVOKE. No se ofrece esta autoridad a una sesión local de desarrollo. Revocación central y recepción del bloqueo por una caja offline son estados diferentes. La interfaz también conecta emisión desde pago confirmado y asignación de cajas mediante referencias registradas en Central. La verificación física del flujo y los selectores por nombre siguen pendientes; consultar el estado de integraciones enlazado arriba.

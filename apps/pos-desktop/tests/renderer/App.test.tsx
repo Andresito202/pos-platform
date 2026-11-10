@@ -496,7 +496,7 @@ describe("Role-ordered navigation keeps permissions authoritative", () => {
     expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
     expect(screen.queryByTestId("sale-panel")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Revisar transferencias" }));
-    expect(screen.getByTestId("transfer-review-panel")).toBeTruthy();
+    expect(await screen.findByTestId("transfer-review-panel")).toBeTruthy();
     expect(screen.queryByTestId("cart")).toBeNull();
     expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
   });
