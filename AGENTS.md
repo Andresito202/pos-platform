@@ -137,3 +137,10 @@ Si el agente no puede determinar cuál es la línea activa, **no debe crear una 
 5. REVIEW: revisar diff, permisos, errores, regresiones y ausencia de duplicación.
 6. EVIDENCE: registrar SHA, entorno y nivel realmente observado.
 7. SHIP: publicar en la misma línea; integrar a main sólo mediante el flujo de gobernanza vigente.
+
+## Coordinación con Grok y otras IA — 2026-11-10
+
+- Andrés decide cuándo delegar. La primera tarea de evaluación de una IA será de lectura sobre un SHA concreto: diagnóstico con archivo/línea, reproducción y límites de acceso; sin ramas, commits ni rediseño propio.
+- El asistente coordinador verifica el código y las pruebas, no acepta un resumen como evidencia de ejecución. Una propuesta sólo pasa a implementación con alcance y archivos delimitados por la dirección del proyecto.
+- No trabajar simultáneamente en los mismos archivos ni declarar un cambio aplicado al PC cuando sólo existe en GitHub.
+- Política solicitada de perfiles locales: CAJERO opera Caja; SUPERVISOR y ADMINISTRADOR revisan operaciones sin carrito ni permisos heredados de venta/cobro. La autorización BUSINESS firmada requiere su propia verificación; no sustituirla por una identidad local de desarrollo.

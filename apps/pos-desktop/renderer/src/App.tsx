@@ -7,6 +7,7 @@ import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js
 import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
+import { TransferReviewPanel } from "./components/TransferReviewPanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
 import { HardwarePanel } from "./components/HardwarePanel.js";
 import { CatalogPanel } from "./components/CatalogPanel.js";
@@ -65,21 +66,12 @@ export function App(): React.JSX.Element {
   }, [localSession.username, localSession.role]);
 
   const screens = useMemo<Screen[]>(() => {
-    if (authorization.phase !== "ready") return [];
+    if (authorization.phase !== "ready" || !localSession.ready) return [];
 
     const { permissions } = authorization;
     const result: Screen[] = [];
 
-    if (hasAny(permissions, [
-      CanonicalPermission.CASH_SHIFT_OPEN,
-      CanonicalPermission.CASH_SHIFT_CLOSE,
-      CanonicalPermission.SALES_SALE_CREATE,
-      CanonicalPermission.PAYMENTS_PAYMENT_REGISTER,
-      CanonicalPermission.PAYMENTS_TRANSFER_REPORT,
-      CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM,
-      CanonicalPermission.PAYMENTS_PAYMENT_READ,
-      CanonicalPermission.PAYMENTS_PAYMENT_CANCEL,
-    ])) {
+    if (permissions.has(CanonicalPermission.SALES_SALE_CREATE)) {
       result.push({
         id: "sales",
         label: "Caja y ventas",
@@ -88,6 +80,13 @@ export function App(): React.JSX.Element {
           onReceipt={permissions.has(CanonicalPermission.SALES_RECEIPT_READ) ? (id) => { setReceiptTarget(id); navigateTo("receipts", "sales"); } : undefined}
           onInvoice={permissions.has(CanonicalPermission.FISCAL_DOCUMENT_ISSUE) ? (id) => { setFiscalTarget(id); navigateTo("fiscal", "sales"); } : undefined} />,
       });
+    }
+
+    if (permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ) && hasAny(permissions, [
+      CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM, CanonicalPermission.PAYMENTS_PAYMENT_CANCEL,
+    ])) {
+      result.push({ id: "payment-review", label: "Revisar transferencias", section: "Administración",
+        render: () => <TransferReviewPanel permissions={permissions} /> });
     }
 
     if (permissions.has(CanonicalPermission.FISCAL_DOCUMENT_ISSUE)) {
@@ -162,10 +161,10 @@ export function App(): React.JSX.Element {
     }
 
     return orderScreensByRole(result, localSession.role);
-  }, [authorization, receiptTarget, fiscalTarget, inventoryTarget, navigateTo, localSession.role]);
+  }, [authorization, receiptTarget, fiscalTarget, inventoryTarget, navigateTo, localSession.role, localSession.ready]);
 
-  if (authorization.phase !== "ready") {
-    const loading = authorization.phase === "loading";
+  if (authorization.phase !== "ready" || !localSession.ready) {
+    const loading = authorization.phase === "loading" || (authorization.phase === "ready" && !localSession.ready);
     const unauthenticated = authorization.phase === "unauthenticated";
     return (
       <main className="pos-entry" aria-busy={loading}>
@@ -210,7 +209,7 @@ export function App(): React.JSX.Element {
         <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
-        <p className="pos-subtitle">Acceso según permisos efectivos</p>
+        <p className="pos-subtitle">{localSession.role === "CAJERO" ? "Caja" : localSession.role === "SUPERVISOR" ? "Supervisión" : localSession.role === "ADMINISTRADOR" ? "Administración" : localSession.role === "SUPERADMINISTRADOR" ? "Plataforma" : "Mi negocio"}</p>
         <nav className="pos-nav">
           {(["Operación", "Catálogo e inventario", "Administración", "Plataforma"] as const).map((section) => {
             const sectionScreens = screens.filter((screen) => screen.section === section);
@@ -241,7 +240,6 @@ export function App(): React.JSX.Element {
           <div>
             <p className="pos-product-name">Camacho POS Colombia · {selectedScreen?.section ?? "Sesión autorizada"}</p>
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
-            <p>Operación disponible según los permisos efectivos de la sesión.</p>
           </div>
           <LocalOperatorSessionControl onSessionChanged={refreshAccess}/>
         </header>
@@ -272,3 +270,4 @@ export function App(): React.JSX.Element {
     </main>
   );
 }
+

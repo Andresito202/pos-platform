@@ -14,10 +14,7 @@ import { ProductAvatar } from "./ProductAvatar.js";
 
 const paymentButtons = [
   { id: "cash", label: "Efectivo", icon: new URL("../assets/payment-icons/banknote.svg", import.meta.url).href },
-  { id: "transfer", label: "Transferencia / Nequi / Daviplata / QR manual", icon: new URL("../assets/payment-icons/landmark.svg", import.meta.url).href },
-  { id: "card", label: "Tarjeta", icon: new URL("../assets/payment-icons/credit-card.svg", import.meta.url).href },
-  { id: "qr", label: "QR integrado", icon: new URL("../assets/payment-icons/qr-code.svg", import.meta.url).href },
-  { id: "credit", label: "Fiado / crédito", icon: new URL("../assets/payment-icons/notebook-pen.svg", import.meta.url).href },
+  { id: "transfer", label: "Reportar transferencia", icon: new URL("../assets/payment-icons/landmark.svg", import.meta.url).href },
 ] as const;
 
 const transferProviderLogos = [
@@ -142,7 +139,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
       <div className="pos-sale-layout">
         <section className="pos-sale-products" aria-label="Productos para venta">
           <div className="pos-section-heading">
-            <div><h2>Productos</h2><p>Catálogo táctil real: cada tarjeta usa nombre, presentación y precio del catálogo activo.</p></div>
+            <div><h2>Productos</h2><p>Busca o escanea un producto para agregarlo a la venta.</p></div>
             <div className="pos-product-tools">
               <input data-testid="catalog-search-input" aria-label="Buscar producto" value={catalogQuery}
                 onChange={(e) => { setCatalogQuery(e.target.value); }} placeholder="Buscar producto, código o barras" disabled={sale.busy} />
@@ -198,19 +195,17 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
 
           <div className="pos-weighing-card" data-testid="product-capture">
             <div>
-              <strong>Captura de cantidad</strong>
+              <strong>Cantidad para agregar</strong>
               <span>
                 {sale.foundItem !== null
-                  ? `${sale.foundItem.unit_code} · precisión ${sale.foundItem.unit_precision}`
-                  : "La precisión final la valida el catálogo al crear la venta"}
+                  ? `Unidad: ${sale.foundItem.unit_code}`
+                  : "Elige la cantidad y selecciona un producto"}
               </span>
             </div>
             <div className="pos-weighing-row">
               <label>Cantidad<input data-testid="quantity-input" aria-label="Cantidad" value={quantity}
                 onChange={(e) => { setQuantity(e.target.value); }} disabled={sale.busy}
                 inputMode={activePrecision === 0 ? "numeric" : "decimal"} /></label>
-              <button data-testid="read-scale-button" type="button" disabled
-                title="La lectura real depende del adaptador de balanza del Hardware Service.">Leer balanza</button>
               {sale.foundItem !== null ? (
                 <button data-testid="add-item-button" onClick={() => { sale.addFoundItem(quantity.trim()); }}
                   disabled={sale.busy || sale.unresolved || sale.sale !== null || sale.foundItem.price_amount === null}>Agregar al carrito</button>
@@ -258,14 +253,10 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                     <button key={method.id} type="button" data-testid="charge-cash-button"
                       onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
                       disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}><PaymentMethodContent icon={method.icon} label={method.label} /></button>
-                  ) : method.id === "transfer" ? (
+                  ) : (
                     <button key={method.id} type="button" data-testid="register-transfer-button"
                       onClick={() => { void sale.registerTransfer(paymentAmount || undefined); }}
                       disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}><PaymentMethodContent icon={method.icon} label={method.label} /></button>
-                  ) : (
-                    <button key={method.id} type="button" disabled title="Interfaz reservada; falta el contrato de pago integrado.">
-                      <PaymentMethodContent icon={method.icon} label={method.label} /><small>En materialización</small>
-                    </button>
                   )
                 ))}
               </div>
@@ -339,7 +330,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                   )}
                 </div>
               </div>
-              <p className="pos-payment-note">La selección solo cuenta efectivo. El cambio definitivo lo calcula el servicio al confirmar el cobro; no se registra un pago por tocar una denominación.</p>
+              <p className="pos-payment-note">Cuenta el efectivo recibido y pulsa Efectivo para registrar el pago.</p>
             </div>
           )}
         </section>
@@ -408,3 +399,4 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
     </section>
   );
 }
+

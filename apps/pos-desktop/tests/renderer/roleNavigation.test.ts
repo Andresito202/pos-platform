@@ -37,12 +37,15 @@ describe("roleNavigation", () => {
     expect(orderScreensByRole(screens, "SUPERADMINISTRADOR").map((s) => s.id)).toEqual([
       "dashboard",
       "admin-audit",
-      "sales",
-      "catalog",
-      "inventory",
-      "customers",
-      "receipts",
     ]);
     expect(homeScreenId(screens, "SUPERADMINISTRADOR")).toBe("dashboard");
   });
+  it.each(["SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)("never exposes a cart to %s", role => {
+    expect(orderScreensByRole(screens, role).map(s => s.id)).not.toContain("sales");
+    expect(homeScreenId([{ id: "sales" }], role)).toBeNull();
+  });
+  it("does not invent a payment review surface absent from capabilities", () => {
+    expect(orderScreensByRole(screens, "SUPERVISOR").map(s => s.id)).not.toContain("payment-review");
+  });
 });
+

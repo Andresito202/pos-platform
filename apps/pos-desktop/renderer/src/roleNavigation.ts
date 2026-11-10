@@ -1,8 +1,8 @@
 /**
- * Visual navigation preference by local operator role.
+ * Workspace surfaces by local operator role.
  *
- * Permissions remain the sole authorization source. Role only reorders screens
- * that are already authorized; it never grants access to a screen.
+ * Backend permissions authorize operations. This list narrows and orders the
+ * already-authorized screens for each workspace; it never grants permission.
  */
 export type LocalOperatorRole =
   | "CAJERO"
@@ -12,11 +12,11 @@ export type LocalOperatorRole =
 
 export const ROLE_SCREEN_ORDER: Readonly<Record<LocalOperatorRole, readonly string[]>> = {
   CAJERO: ["sales", "customers", "catalog", "receipts", "fiscal"],
-  SUPERVISOR: ["inventory", "catalog", "sales", "customers", "receipts", "fiscal"],
+  SUPERVISOR: ["inventory", "payment-review", "catalog", "customers", "receipts", "fiscal"],
   ADMINISTRADOR: [
     "dashboard",
     "admin-audit",
-    "sales",
+    "payment-review",
     "catalog",
     "inventory",
     "customers",
@@ -34,7 +34,7 @@ export function orderScreensByRole<T extends { id: string }>(
 ): T[] {
   if (role === null || screens.length === 0) return [...screens];
   const preference = ROLE_SCREEN_ORDER[role];
-  return [...screens].sort((left, right) => {
+  return screens.filter(screen => preference.includes(screen.id)).sort((left, right) => {
     const leftRank = preference.indexOf(left.id);
     const rightRank = preference.indexOf(right.id);
     const normalizedLeft = leftRank === -1 ? Number.MAX_SAFE_INTEGER : leftRank;
@@ -50,3 +50,4 @@ export function homeScreenId(
   const ordered = orderScreensByRole(screens, role);
   return ordered[0]?.id ?? null;
 }
+

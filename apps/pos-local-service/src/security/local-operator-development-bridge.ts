@@ -26,7 +26,11 @@ const CASHIER = [
 ] as const;
 
 const SUPERVISOR = [
-  ...CASHIER,
+  // Supervision is not a cashier superset: no shift, sale or collection grants.
+  CanonicalPermission.SALES_RECEIPT_READ,
+  CanonicalPermission.PAYMENTS_PAYMENT_READ,
+  CanonicalPermission.CATALOG_PRODUCT_READ,
+  CanonicalPermission.CUSTOMERS_CUSTOMER_READ,
   CanonicalPermission.INVENTORY_STOCK_READ,
   CanonicalPermission.INVENTORY_STOCK_RECEIVE,
   CanonicalPermission.INVENTORY_STOCK_ADJUST,
@@ -102,3 +106,4 @@ export function localOperatorAuthorization(
   };
   return { userId, snapshot: { claims, signature: "", activatedAt: issuedAt } };
 }
+

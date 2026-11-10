@@ -4,23 +4,24 @@
 > BUSINESS/SSA/SAS, capacidad comercial Central ni readiness operativo.
 
 **Base:** `cursor/commercial-design-review-0d11`  
-**PR:** #106 (base comercial; no `main`)  
-**Alcance:** navegación por rol (solo orden visual), identidad COP/denominaciones/logos, Caja legible, fallback de catálogo.  
+**PR:** #106 — consolidación hacia `main`, pendiente de integración  
+**Alcance actual:** separación de Caja y supervisión en permisos locales y navegación, revisión de transferencias conectada al hook existente y limpieza de controles no operativos.  
 **No tocado:** licenciamiento, autenticación comercial BUSINESS/SSA/SAS, reglas de negocio, keys.
 
 ## Matriz real de permisos locales (backend)
 
 Fuente: `apps/pos-local-service/src/security/local-operator-development-bridge.ts`  
-Los permisos autorizan. El rol sólo ordena la UX.
+Los permisos del servicio autorizan. El rol local limita y ordena las pantallas ya autorizadas; no concede permisos. La sesión comercial sin rol local conserva sus capacidades firmadas y requiere revisión específica de sus asignaciones en Central.
 
 | Permiso | CAJERO | SUPERVISOR | ADMINISTRADOR | SUPERADMINISTRADOR |
 | --- | --- | --- | --- | --- |
-| CASH_SHIFT_OPEN / CLOSE | sí | sí | sí | no |
-| SALES_SALE_CREATE | sí | sí | sí | no |
+| CASH_SHIFT_OPEN / CLOSE | sí | no | no | no |
+| SALES_SALE_CREATE | sí | no | no | no |
 | SALES_RECEIPT_READ | sí | sí | sí | no |
-| PAYMENTS_PAYMENT_REGISTER / READ | sí | sí | sí | no |
-| PAYMENTS_TRANSFER_REPORT | sí | sí | sí | no |
-| PAYMENTS_TRANSFER_CONFIRM / CANCEL | no | sí | sí | no |
+| PAYMENTS_PAYMENT_REGISTER | sí | no | no | no |
+| PAYMENTS_PAYMENT_READ | sí | sí | sí | no |
+| PAYMENTS_TRANSFER_REPORT | sí | no | no | no |
+| PAYMENTS_TRANSFER_CONFIRM / PAYMENTS_PAYMENT_CANCEL | no | sí | sí | no |
 | CATALOG_PRODUCT_READ | sí | sí | sí | no |
 | CATALOG_PRODUCT_REGISTER | no | sí | sí | no |
 | CUSTOMERS_CUSTOMER_READ | sí | sí | sí | no |
@@ -36,8 +37,8 @@ Los permisos autorizan. El rol sólo ordena la UX.
 | Rol | Pantalla inicial | Notas |
 | --- | --- | --- |
 | CAJERO | Caja y ventas | Sin Dashboard ni Inventario administrativo |
-| SUPERVISOR | Inventario | Superficie operativa ya implementada |
-| ADMINISTRADOR | Dashboard | No abre carrito automáticamente |
+| SUPERVISOR | Inventario | Sin Caja ni carrito; revisión de transferencias separada |
+| ADMINISTRADOR | Dashboard | Sin Caja ni carrito; conserva revisión y control |
 | SUPERADMINISTRADOR | Dashboard / Auditoría | Sólo superficies con `AUDIT_EVENT_READ`; sin simular licencias/empresas |
 
 Logout o cambio de usuario: `activeScreen` + `visitedScreens` se restablecen.
@@ -61,14 +62,14 @@ No se fusionaron ramas completas. No se sustituyeron componentes funcionales por
 - Logos Nequi y Daviplata visibles en bloque de transferencia manual (no habilitan QR/tarjeta/crédito).
 - CSP: `img-src 'self' data:` (sin debilitar script/default).
 - Caja design-review: `POS_DESIGN_REVIEW_REGISTER_ID` → preload `posDesktopHints` → prefills el input (sin IPC nuevo de permisos).
-- Métodos no implementados siguen deshabilitados.
+- Se retiraron de Caja los botones reservados para tarjeta, QR integrado y crédito, y el botón siempre deshabilitado de balanza. No se eliminó ningún adapter de hardware ni método conectado.
 
 ## Catálogo / imágenes
 
 - No hay fotografías de producto verificadas en las ramas auditadas.
 - `ProductAvatar` permanece como fallback simbólico profesional (sin fingir foto real).
 
-## Resultados de pruebas (Linux agente)
+## Resultados históricos de pruebas (Linux agente; anteriores a esta corrección)
 
 | Prueba | Resultado observado |
 | --- | --- |
@@ -120,3 +121,32 @@ No basta «Servicio local: conectado». En Windows debe verse:
 3. Logos Nequi/Daviplata en transferencia manual.
 4. Navegación inicial distinta por rol, autorizada sólo por permisos backend.
 5. Flujo real caja → carrito → cobro (sin confirmaciones simuladas).
+
+
+## Corrección de separación de roles — 2026-11-10
+
+Base remota: `8d929231f7689465760de1d6b7c1d84d9234d045`. Cambio en la misma rama, sin crear otra.
+
+- Causa: SUPERVISOR heredaba todos los permisos de CAJERO y ADMINISTRADOR heredaba SUPERVISOR; App abría SalePanel incluso con permisos de consulta/confirmación de pagos. La navegación sólo ordenaba pantallas.
+- Corrección: capacidades locales de supervisión explícitas; Caja exige SALES_SALE_CREATE; las pantallas locales se limitan por rol. Se espera la consulta inicial de identidad antes de montar áreas operativas.
+- TransferReviewPanel reutiliza useCommercialSale, payment.get, payment.transfer.confirm y payment.cancel. No duplica casos de uso ni crea otro POS. Conserva expected_version, idempotencia y resolución de resultados inciertos del hook existente.
+- La consulta todavía requiere la referencia técnica del pago. No se ha implementado una bandeja de pendientes ni una notificación bancaria. El importe mostrado se etiqueta como reportado, no recibido.
+- La limpieza textual y de controles no constituye un rediseño comercial terminado.
+
+### Pruebas observadas en esta sesión
+
+Se reprodujo antes de corregir: 1 fallo de navegación de administrador y 2 fallos de permisos supervisor/administrador. Después:
+
+| Comando desde paquete correspondiente | Resultado |
+|---|---|
+| `vitest run --config vitest.config.ts` (desktop) | 31 archivos, 273 pruebas PASS, exit 0 |
+| `vitest run src/commercial/local-operator-authorization.test.ts src/security/local-operator-session-registry.test.ts src/security/local-operator-password.test.ts src/security/local-operator-password-gate.test.ts` (local-service) | 4 archivos, 19 pruebas PASS, exit 0 |
+| `tsc -p tsconfig.renderer.json` (desktop) | PASS, exit 0 |
+| `tsc -p tsconfig.json` (local-service) | PASS, exit 0 |
+| `vite build` (desktop) | Renderer compilado, exit 0; no equivale al build completo de Electron |
+
+Incluye petición directa sale.create: el handler y CreateSaleUseCase reales rechazan supervisor, administrador y superadministrador antes de acceder a los stores. Incluye consulta/confirmación/cancelación de transferencia y versión del backend sin crear una venta desde supervisión.
+
+Entorno de validación: snapshot de fuentes remotas y dependencias disponibles en caché, con Vitest 4.1.11 y Vite 6.4.3 (el repositorio declara 4.1.12 y 6.4.5). No se ejecutó una instalación limpia con frozen-lockfile; no se modificó lockfile para disimularlo.
+
+Intento visual Chromium/Playwright: BLOQUEADO al iniciar navegador, process_singleton_posix socket() Operation not permitted. No hay capturas validadas, ni PASS responsive, ni E2E Windows de este incremento. No se retiraron los controles SCM ni se certificó BUSINESS.

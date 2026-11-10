@@ -405,6 +405,22 @@ describe("App", () => {
 
 
 describe("Role-ordered navigation keeps permissions authoritative", () => {
+  it("does not mount the cart while supervisor identity is still loading", async () => {
+    let complete: ((value: unknown) => void) | undefined;
+    vi.mocked(window.posService["local.operator.session"]).mockImplementation(() => new Promise(resolve => { complete = resolve; }));
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED", result_code: "AVAILABLE",
+      result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE", "INVENTORY_STOCK_READ"] },
+    });
+    render(<App />);
+    await waitFor(() => expect(window.posService["local.operator.session"]).toHaveBeenCalled());
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
+    expect(screen.getByTestId("authorization-loading")).toBeTruthy();
+    const result = localOperatorResult("AUTHENTICATED");
+    complete!({ ...result, result: { ...result.result, username: "supervisor.local", role: "SUPERVISOR" } });
+    await screen.findByTestId("inventory-panel");
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
+  });
   function authenticateLocal(role: "CAJERO" | "SUPERVISOR" | "ADMINISTRADOR" | "SUPERADMINISTRADOR", username: string): void {
     vi.mocked(window.posService["local.operator.session"]).mockResolvedValue({
       protocol_version: "1.0.0",
@@ -451,7 +467,7 @@ describe("Role-ordered navigation keeps permissions authoritative", () => {
       result_code: "AVAILABLE",
       result: {
         outcome: "AVAILABLE",
-        permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ", "INVENTORY_STOCK_READ", "PAYMENTS_PAYMENT_CANCEL"],
+        permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ", "INVENTORY_STOCK_READ", "PAYMENTS_PAYMENT_READ", "PAYMENTS_PAYMENT_CANCEL"],
       },
     });
     render(<App />);
@@ -459,6 +475,11 @@ describe("Role-ordered navigation keeps permissions authoritative", () => {
       expect(screen.getByRole("button", { name: "Inventario" }).getAttribute("aria-current")).toBe("page");
       expect(screen.getByTestId("inventory-panel")).toBeTruthy();
     });
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Revisar transferencias" }));
+    expect(screen.getByTestId("transfer-review-panel")).toBeTruthy();
+    expect(screen.queryByTestId("cart")).toBeNull();
     expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
   });
 
@@ -478,6 +499,7 @@ describe("Role-ordered navigation keeps permissions authoritative", () => {
       expect(screen.getByRole("heading", { name: "Dashboard", level: 1 })).toBeTruthy();
     });
     expect(screen.queryByTestId("sale-panel")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
   });
 
   it("shows only authorized audit surfaces for SUPERADMINISTRADOR", async () => {
@@ -583,3 +605,4 @@ describe("Entry and navigation preserve authorization boundaries", () => {
     expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
   });
 });
+

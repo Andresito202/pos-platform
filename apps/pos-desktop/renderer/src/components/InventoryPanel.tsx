@@ -19,6 +19,16 @@ const ADJUST_MOVEMENTS: readonly AdjustMovement[] = [
   "TRANSFER_OUT",
 ];
 
+const movementLabels: Record<ReceiveMovement | AdjustMovement, string> = {
+  OPENING_COUNT: "Inventario inicial",
+  PURCHASE_RECEIPT: "Recepción de compra",
+  TRANSFER_IN: "Traslado recibido",
+  ADJUSTMENT_POSITIVE: "Ajuste de entrada",
+  ADJUSTMENT_NEGATIVE: "Ajuste de salida",
+  SHRINKAGE: "Merma o pérdida",
+  TRANSFER_OUT: "Traslado enviado",
+};
+
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -80,7 +90,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         disabled={inventory.busy}
       >
         {RECEIVE_MOVEMENTS.map((movement) => (
-          <option key={movement} value={movement}>{movement}</option>
+          <option key={movement} value={movement}>{movementLabels[movement]}</option>
         ))}
       </select>
       </label>
@@ -125,7 +135,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         disabled={inventory.busy}
       >
         {ADJUST_MOVEMENTS.map((movement) => (
-          <option key={movement} value={movement}>{movement}</option>
+          <option key={movement} value={movement}>{movementLabels[movement]}</option>
         ))}
       </select>
       </label>
