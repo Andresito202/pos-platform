@@ -4,12 +4,28 @@
 
 Este repositorio se desarrolla sobre **una única línea activa**. La existencia de una idea técnicamente interesante no autoriza a abrir otra línea.
 
-### Línea activa vigente
+### Línea activa vigente — decisión del propietario 2026-11-09
 
-- Rama activa: `feat/p0-windows-login-install-readiness`, issue #98 / PR #99. Continúa `feat/android-commercial-runtime@913ea8cc` (PR #96 Draft), sin trabajo paralelo sobre ella. **Orden posterior del propietario (2026-10-30): cerrar definitivamente el frente de certificación externa gratuita y avanzar a materialización funcional del POS**, empezando por login/autorización Windows–Central, interoperabilidad SCM/DPAPI y arranque comercial seguro. Ampliar módulos solo tras cerrar las dependencias reales y de acuerdo con el tablero; no abrir ramas paralelas.
-- Predecesora de laboratorio: `claude/pos-camacho-bloque-4c-ld43py@b907d20f`; [PR #92](https://github.com/Andresito202/pos-platform/pull/92) se conserva draft, sin merge ni trabajo paralelo sobre ella.
-- Rama canónica del producto: `main`
-- El trabajo nuevo debe continuar sobre la rama activa vigente, salvo una decisión explícita de gobernanza que cambie esa línea.
+- Única rama activa: `cursor/commercial-design-review-0d11`. Se continúa esta rama existente; no crear, renombrar ni abrir otra para la consolidación.
+- Rama canónica de entrega: `main`, mediante el flujo de PR y verificación existente. No desarrollar en paralelo en main.
+- Base inspeccionada: `6a02c858a38a18d801532706eac34e440befea72`. Contiene como ancestros Windows P0 `f277416f`, login local `7f44c05d` e integración `e31e008a`; restaura SalePanel, que en e31e008a contiene únicamente FULL_CONTENT_WILL_BE_INSERTED.
+- Esta elección conserva el historial y no certifica runtime, licencias ni login BUSINESS. El nombre histórico de la rama no impone el launcher DesignReview como producto.
+- Dirección: Andrés define alcance y decisiones de producto; el asistente coordina diagnóstico y diseño con él. Otras IA ejecutan tareas delimitadas en esta misma línea, sin variantes propias ni escrituras concurrentes sobre los mismos archivos.
+- Las órdenes anteriores que señalan otra rama activa quedan sustituidas para trabajo futuro por esta decisión; su evidencia técnica y controles de seguridad conservan su alcance.
+- Objetivo único: consolidar el POS existente, conectar login y pantallas a servicios reales, corregir lo defectuoso y retirar lo redundante tras comprobar cobertura. No rehacer el POS.
+
+### Contrato de consolidación y retiro
+
+1. Trabajar sobre `apps/pos-desktop`, su renderer y `apps/pos-local-service` existentes. No crear otro shell, otro App ni pantallas desconectadas.
+2. Seguir cada operación UI → hook → preload/canal → handler → caso de uso → persistencia. Un botón o captura no acredita el flujo.
+3. No sustituir componentes por marcadores, contenido prometido o formularios sin operación conectada.
+4. No presentar local-operator-development-bridge como autorización BUSINESS; no trasladar semillas, claves o provisión DesignReview a producción.
+5. Revisar cambios exclusivos de Android/balanza/QR por capacidad y dependencias. La divergencia Git no demuestra que sean inútiles ni que deban integrarse completos.
+6. Cada frente debe terminar con decisión verificable: incorporar y probar; corregir y probar; o retirar por duplicación, sustitución o cancelación demostrada. No mantener variantes activas indefinidamente.
+7. Antes de borrar una rama/carpeta, comprobar trabajo exclusivo, PR dependientes y datos locales. Borrar refs no equivale a borrar evidencia del historial. No borrar main.
+8. No afirmar que GitHub identifica la ventana del PC o sus cambios sin publicar. El working tree y dist de Windows siguen pendientes de inspección.
+9. El diseño se realiza sobre los componentes conectados después de fijar su identidad y capacidades. No abrir una maqueta como segunda aplicación.
+
 
 ## Decisión obligatoria de cierre de certificación — 2026-10-30
 

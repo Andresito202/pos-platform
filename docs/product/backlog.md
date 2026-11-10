@@ -1,3 +1,70 @@
+## Consolidación única — orden del propietario 2026-11-09
+
+Única línea activa: `cursor/commercial-design-review-0d11`; entrega canónica en `main`. Esta sección sustituye prioridades de rama anteriores, no su evidencia histórica. Sin nuevas ramas ni diseños paralelos.
+
+### Evidencia remota observada
+
+- Se inspeccionaron las 29 ramas remotas y su relación con P0 `f277416f`.
+- La línea elegida `6a02c858` está 62 commits por delante de P0, sin commits de P0 ausentes; login local e integración forman parte de su ascendencia.
+- Integración `e31e008a`: SalePanel.tsx contiene solamente FULL_CONTENT_WILL_BE_INSERTED. La línea elegida lo restaura con un componente conectado a useCommercialSale.
+- Electron ejecuta dist/start.bundle.mjs y carga dist/renderer/index.html; editar fuente sin recompilar o abrir otro checkout puede mostrar otra UI. No se verificó cuál ocurrió en el PC.
+- PR #106 apunta a integración, no a main. No fusionarlo con la expectativa de consolidar el producto canónico.
+- El único check devuelto para el HEAD 6a02c858 fue Strix AI penetration test / success. Eso NO demuestra build, E2E ni certificación funcional de ese HEAD.
+- Las pruebas declaradas en ROLE-UX-CONSOLIDATION.md son evidencia histórica de su autor; no se reejecutaron en esta auditoría.
+- local-operator-development-bridge autoriza perfiles de desarrollo; no emite SSA/SAS ni sustituye BUSINESS.
+- Sin inspección del PC: cambios locales, dist, procesos y diseños atribuidos a Antigravity NO EVALUADOS.
+
+### Cola única de ejecución
+
+1. Verificar build y regresiones del árbol elegido; reparar defectos reproducibles sin sustituir capacidades reales.
+2. Identificar y conectar el flujo comercial de login existente a las pantallas; mantener separados identidad local de desarrollo y autorización BUSINESS, sin retirar controles para obtener acceso aparente.
+3. Auditar diferencias exclusivas de Android/balanza/QR y demás ramas por archivos y dependencias; decidir incorporación o retiro explícito. No confundir número de commits con funcionalidad.
+4. Reducir lanzadores de uso habitual a una entrada identificable de producto, conservando pruebas aisladas como pruebas; mostrar commit, perfil y procedencia sin exponer secretos.
+5. Retirar código muerto, superficies ficticias y refs redundantes cuando exista evidencia de cobertura y se hayan resuelto PR dependientes. Las ramas no canónicas no son destinos de trabajo nuevo.
+6. Rediseñar en los componentes existentes y probar login → permisos → caja → cobro → comprobante → cierre/persistencia. No crear otra aplicación.
+
+### Inventario remoto para retiro controlado
+
+Comparación de historia respecto de P0, no auditoría funcional completa ni autorización para perder trabajo único. Main no se retira. Las ramas divergentes pueden tener cambios ya equivalentes sin compartir commits: comprobar diff y comportamiento antes de decidir.
+
+| Rama | HEAD observado | Disposición |
+|---|---|---|
+| `audit/branch-deprecation-record` | `bf39de72` | Ancestro de P0; revisar dependencias antes de retirar ref |
+| `_audit-temp` | `bf39de72` | Ancestro de P0; revisar dependencias antes de retirar ref |
+| `chore/remove-claude-project-config-20261108` | `9276e857` | Divergente; revisar capacidades exclusivas |
+| `claude/fiscal-adapter-gate` | `c7eaa2dd` | Divergente; revisar capacidades exclusivas |
+| `claude/handler-response-typing` | `ad7c711a` | Divergente; revisar capacidades exclusivas |
+| `claude/ledger-wip-lineage-correction` | `6651596a` | Divergente; revisar capacidades exclusivas |
+| `claude/pos-camacho-bloque-4c-ld43py` | `b907d20f` | Ancestro de P0; revisar dependencias antes de retirar ref |
+| `claude/sale-cash-shift-binding` | `940f5d70` | Divergente; revisar capacidades exclusivas |
+| `cursor/commercial-design-review-0d11` | `6a02c858` | LÍNEA ÚNICA |
+| `domain/cash-open-vertical-20260901` | `503aeb14` | Divergente; revisar capacidades exclusivas |
+| `feat/android-commercial-runtime` | `58622911` | Divergente; revisar capacidades exclusivas |
+| `feat/brand-camacho-pos-2026-11-04` | `faabd8a5` | Divergente; revisar capacidades exclusivas |
+| `feat/caja-denominaciones-20261104` | `e6bb3b62` | Divergente; revisar capacidades exclusivas |
+| `feat/commercial-ui-integration-20261108` | `e31e008a` | Continuación; comprobar cobertura en línea única |
+| `feat/factus-pay-webhook-ingress` | `9804cdc1` | Divergente; revisar capacidades exclusivas |
+| `feat/local-password-auth-foundation-20261108` | `7f44c05d` | Continuación; comprobar cobertura en línea única |
+| `feat/m60wl-tek-atlas-scale-profile-20261106` | `429e4127` | Divergente; revisar capacidades exclusivas |
+| `feat/nequi-breb-static-qr-phase1` | `6cb6bf42` | Divergente; revisar capacidades exclusivas |
+| `feat/p0-windows-login-install-readiness` | `f277416f` | Antecesora incluida |
+| `feat/payment-qr-provider-foundation` | `5b363823` | Divergente; revisar capacidades exclusivas |
+| `feat/selective-pr79-payment-cash-sale` | `d495915c` | Divergente; revisar capacidades exclusivas |
+| `feat/ui-sidebar-collapse-front-1` | `27012c1c` | Continuación; comprobar cobertura en línea única |
+| `fix/runtime-status-envelope` | `024987b0` | Divergente; revisar capacidades exclusivas |
+| `fix/session-trust-rate-limit-order` | `b08efb8f` | Ancestro de P0; revisar dependencias antes de retirar ref |
+| `main` | `591ad4c1` | Destino canónico |
+| `test/device-enrollment-challenge-time-boundary` | `41e2b1a8` | Ancestro de P0; revisar dependencias antes de retirar ref |
+| `test/qr002-certification-20261108` | `36b52702` | Divergente; revisar capacidades exclusivas |
+| `wip/local-catalog-inventory-payment-20260906` | `a10249fe` | Divergente; revisar capacidades exclusivas |
+| `wip/sql003-contract-gap-20260825` | `dd07f9d4` | Divergente; revisar capacidades exclusivas |
+
+### Estado de este incremento
+
+Organización de la línea y diagnóstico remoto. Sin fusión de código, sin borrado de ramas, sin ejecución Windows y sin declarar unificación funcional terminada.
+
+---
+
 # Backlog maestro
 
 > Los prefijos de proveedor se retiraron por solicitud del propietario. Las etiquetas históricas abreviadas se identifican por sus SHAs y PR; no son nombres completos de rama.

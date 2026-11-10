@@ -10,19 +10,15 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 `Camacho POS Colombia` es la identidad comercial. `POS Platform`, `pos-platform` y `@pos-platform/*` son identificadores técnicos internos.
 
-## Estado y regla de continuidad — 2026-10-21
+## Estado y regla de continuidad — 2026-11-09
 
-> **UNA SOLA LÍNEA. UN SOLO OBJETIVO ACTIVO. SE CONSTRUYE SOBRE LO EXISTENTE.**
+La única línea activa de consolidación es `cursor/commercial-design-review-0d11`, elegida sobre la rama ya existente por la orden del propietario de unificar el trabajo. `main` sigue siendo el destino canónico de entrega, no otra línea de desarrollo.
 
-La rama canónica del producto es `main`. La única línea activa de desarrollo es:
+La base inspeccionada `6a02c858` contiene el historial Windows P0 y login local, y restaura la pantalla de Caja dañada en `e31e008a`. Esto no acredita login BUSINESS ni una versión distribuible. No volver a elegir una base por su nombre o por ser más antigua.
 
-`feat/p0-windows-login-install-readiness`, por orden expresa del propietario de 2026-10-29 ([issue #98](https://github.com/Andresito202/pos-platform/issues/98), [PR #99](https://github.com/Andresito202/pos-platform/pull/99)). Continúa `feat/android-commercial-runtime@913ea8cc`; PR #96 y PR #92 permanecen Draft. Objetivo exclusivo: cierre técnico del login Windows–Central y laboratorio aislado, sin desarrollar otros módulos ni debilitar controles.
+Las otras ramas dejan de ser frentes de desarrollo para esta consolidación. Sus cambios exclusivos se evalúan para incorporar, corregir o retirar; no se fusionan completos por defecto. El inventario y los límites están al inicio del [backlog](docs/product/backlog.md); las reglas para toda IA están en [AGENTS.md](AGENTS.md).
 
-Cualquier IA o agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
-
-No se permite abrir una rama paralela, duplicar una arquitectura, rehacer un módulo o inventar un trabajo alternativo porque una IA considere que es “mejor”. Primero se audita lo construido. Sólo se modifica lo existente cuando hay evidencia de defecto, incompatibilidad, requisito nuevo autorizado o gate fallido.
-
-Reglas completas para agentes: [`AGENTS.md`](AGENTS.md).
+Esta orden sustituye las referencias anteriores a una rama activa distinta. Se preservan los contratos de seguridad y la evidencia histórica con su SHA.
 
 ## Fuentes de verdad
 
