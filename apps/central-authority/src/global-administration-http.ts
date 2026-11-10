@@ -79,7 +79,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         if(!exact(b,[])){sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});return;}
         const closed=await sessions.close(request);sendCommercialJson(res,closed?200:401,{closed:closed!==null},sessions.clearCookie());return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/initialize-preproduction","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/initialize-preproduction","/v1/platform/license-offers/save","/v1/platform/license-offers/publish","/v1/platform/quotes/issue","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
       const session=await sessions.authorize(request,(path==="/v1/platform/licenses/revoke-activation"||path==="/v1/platform/licenses/activations")?CentralAdministrationOperation.LICENSE_REVOKE:
         path?.startsWith("/v1/platform/licenses/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
@@ -96,6 +96,10 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(path==="/v1/platform/license-offers/publish"&&exact(b,["planId","expectedVersion","correlationId"])){
         sendCommercialJson(res,200,await offers.publish(session,String(b.planId),Number(b.expectedVersion),String(b.correlationId)));return;}
       if(path==="/v1/platform/quotes/issue"){sendCommercialJson(res,200,await quotes.issue(session,b));return;}
+      if(path==="/v1/platform/licenses/assignment-context"){
+        if(!input.licenseAuthority){sendCommercialJson(res,409,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;}
+        sendCommercialJson(res,200,await input.licenseAuthority.assignmentContext(session,b));return;
+      }
       if(path==="/v1/platform/licenses/activations"){
         if(!input.licenseAuthority){sendCommercialJson(res,409,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;}
         sendCommercialJson(res,200,await input.licenseAuthority.listActivations(session,b));return;

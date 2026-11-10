@@ -12,6 +12,28 @@ function fill(r: ReturnType<typeof request>) {
   fireEvent.click(screen.getByRole("button", { name: "Revisar asignación" }));
 }
 describe("GLOBAL license fulfillment", () => {
+  it("loads real company/branch options and clears them when license changes", async () => {
+    const r=request(),context={licenseId:r.license_id,company:{id:uuidV7(),name:"Comercio Real"},branches:[{id:r.allocations[0]!.branch_id,name:"Sucursal Norte"}],credentials:[{id:r.credential_id,deviceId:uuidV7(),expiresAt:"2027-01-01T00:00:00Z"}],branchesTruncated:false,credentialsTruncated:false};
+    const client={assignmentContext:vi.fn().mockResolvedValue(context),issueLicense:vi.fn(),allocateLicense:vi.fn()};
+    render(<PlatformLicenseFulfillment client={client as unknown as PlatformClient}/>);
+    fireEvent.change(screen.getByLabelText("Licencia a asignar"),{target:{value:r.license_id}});
+    fireEvent.click(screen.getByRole("button",{name:"Cargar empresa y dispositivos"}));
+    await screen.findByText("Comercio Real");expect(client.assignmentContext).toHaveBeenCalledWith(r.license_id);
+    fireEvent.change(screen.getByLabelText("Dispositivo registrado"),{target:{value:r.credential_id}});
+    fireEvent.change(screen.getByLabelText("Sucursal 1"),{target:{value:r.allocations[0]!.branch_id}});
+    expect(screen.getByRole("option",{name:/Sucursal Norte/})).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Licencia a asignar"),{target:{value:uuidV7()}});
+    expect(screen.queryByText("Comercio Real")).toBeNull();
+    expect((screen.getByLabelText("Credencial del dispositivo") as HTMLInputElement).value).toBe("");
+    expect(client.allocateLicense).not.toHaveBeenCalled();
+  });
+  it("rejects assignment options for another license and invalid input before transport", async () => {
+    const licenseId=uuidV7(),fetcher=vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({licenseId:uuidV7(),company:{id:uuidV7(),name:"Other"},branches:[],credentials:[],branchesTruncated:false,credentialsTruncated:false})));
+    const client=new PlatformClient({protocol:"https:",origin:"https://central.example.test"},fetcher);
+    await expect(client.assignmentContext("invalid")).rejects.toThrow();expect(fetcher).not.toHaveBeenCalled();
+    await expect(client.assignmentContext(licenseId)).rejects.toThrow("otra licencia");
+    expect(JSON.parse(String(fetcher.mock.calls[0]![1]!.body))).toEqual({licenseId});
+  });
   it("uses exact authoritative endpoints and rejects invalid input/results", async () => {
     const fetcher=vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ licenseId:uuidV7(),contractStatus:"ACTIVE",activationStatus:"NOT_ACTIVATED",idempotent:false })));
     const client=new PlatformClient({protocol:"https:",origin:"https://central.example.test"},fetcher);

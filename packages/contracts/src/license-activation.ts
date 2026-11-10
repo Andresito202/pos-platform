@@ -36,3 +36,12 @@ export const LicenseActivationPageSchema=z.strictObject({
 });
 export type LicenseActivationSummary=z.infer<typeof LicenseActivationSummarySchema>;
 export type LicenseActivationPage=z.infer<typeof LicenseActivationPageSchema>;
+
+export const LicenseAssignmentContextRequestSchema=z.strictObject({licenseId:UuidSchema});
+export const LicenseAssignmentContextSchema=z.strictObject({
+  licenseId:UuidSchema,company:z.strictObject({id:UuidSchema,name:z.string().min(1).max(1024)}),
+  branches:z.array(z.strictObject({id:UuidSchema,name:z.string().min(1).max(1024)})).max(100),
+  credentials:z.array(z.strictObject({id:UuidSchema,deviceId:UuidSchema,expiresAt:UtcDateTimeSchema})).max(100),
+  branchesTruncated:z.boolean(),credentialsTruncated:z.boolean(),
+});
+export type LicenseAssignmentContext=z.infer<typeof LicenseAssignmentContextSchema>;

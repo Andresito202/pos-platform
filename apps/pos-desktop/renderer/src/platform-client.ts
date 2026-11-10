@@ -1,4 +1,4 @@
-import {LicenseAllocationRequestSchema,LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
+import {LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseAllocationRequestSchema,LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
 export class PlatformRequestError extends Error { constructor(message:string,readonly status:number){super(message);this.name="PlatformRequestError";} }
 export type PublishedOffer=LicenseOfferDraft&{version:number;status:"DRAFT"|"ACTIVE";published_at?:string|null};
 const decode=(value:string)=>Uint8Array.from(atob(value.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
@@ -49,6 +49,11 @@ export class PlatformClient{
   save(offer:LicenseOfferDraft,expectedVersion:number,correlationId:string){return this.post("license-offers/save",{offer,expectedVersion,correlationId});}
   initializePreproduction(){return this.post("license-offers/initialize-preproduction",{});}
   publish(planId:string,expectedVersion:number,correlationId:string){return this.post("license-offers/publish",{planId,expectedVersion,correlationId});}
+  async assignmentContext(licenseId:string){
+    const result=LicenseAssignmentContextSchema.parse(await this.post("licenses/assignment-context",LicenseAssignmentContextRequestSchema.parse({licenseId})));
+    if(result.licenseId!==licenseId)throw Error("Central devolvió otra licencia. No se cargaron opciones.");
+    return result;
+  }
   async issueLicense(paymentId:string,correlationId:string){
     const result=await this.post("licenses/issue",{paymentId:UuidSchema.parse(paymentId),correlationId:UuidSchema.parse(correlationId)});
     if(!UuidSchema.safeParse(result.licenseId).success||typeof result.contractStatus!=="string"||!result.contractStatus||

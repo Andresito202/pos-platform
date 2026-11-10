@@ -1,11 +1,12 @@
 import { useRef, useState } from "react";
-import { LicenseAllocationRequestSchema, UuidSchema, uuidV7 } from "@pos-platform/contracts";
+import { LicenseAllocationRequestSchema, type LicenseAssignmentContext, UuidSchema, uuidV7 } from "@pos-platform/contracts";
 import { PlatformRequestError, type PlatformClient } from "../platform-client.js";
 
 type Allocation = ReturnType<typeof LicenseAllocationRequestSchema.parse>;
 export function PlatformLicenseFulfillment({ client }: { client: PlatformClient }): React.JSX.Element {
   const [payment, setPayment] = useState("");
   const [license, setLicense] = useState("");
+  const [context, setContext] = useState<LicenseAssignmentContext | null>(null);
   const [credential, setCredential] = useState("");
   const [registers, setRegisters] = useState([{ branch: "", register: "" }]);
   const [draft, setDraft] = useState<Allocation | null>(null);
@@ -22,8 +23,18 @@ export function PlatformLicenseFulfillment({ client }: { client: PlatformClient 
     const id = UuidSchema.safeParse(payment.trim());
     if (!id.success) { setError("Introduce el identificador válido del pago confirmado en Central."); return; }
     lock.current = true; setBusy(true); setError(null); setIssued(null);
-    try { const result = await client.issueLicense(id.data, uuidV7()); setIssued(result); if (!draft) setLicense(result.licenseId); }
+    try { const result = await client.issueLicense(id.data, uuidV7()); setIssued(result); if (!draft) { setLicense(result.licenseId); setContext(null); setCredential(""); setRegisters([{ branch: "", register: "" }]); } }
     catch (failure) { setError(failure instanceof Error ? failure.message : "No se confirmó la emisión. Reintenta con el mismo pago."); }
+    finally { lock.current = false; setBusy(false); }
+  }
+  async function loadContext() {
+    if (lock.current || draft) return;
+    const id = UuidSchema.safeParse(license.trim());
+    if (!id.success) { setError("Introduce una licencia válida antes de consultar sus opciones."); return; }
+    lock.current = true; setBusy(true); setError(null); setContext(null);
+    setCredential(""); setRegisters([{ branch: "", register: "" }]);
+    try { setContext(await client.assignmentContext(id.data)); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : "No se pudieron cargar las opciones de la licencia."); }
     finally { lock.current = false; setBusy(false); }
   }
   function prepare() {
@@ -59,10 +70,20 @@ export function PlatformLicenseFulfillment({ client }: { client: PlatformClient 
     <h4>Asignación al dispositivo</h4>
     <p>Usa los identificadores registrados en Central. La credencial corresponde al dispositivo aprovisionado; no es una contraseña ni una clave privada.</p>
     <fieldset disabled={busy || draft !== null} className="pos-form-grid"><legend>Licencia, dispositivo y cajas</legend>
-      <label className="pos-field">Licencia<input aria-label="Licencia a asignar" value={license} maxLength={36} onChange={event => setLicense(event.target.value)} /></label>
-      <label className="pos-field">Credencial del dispositivo<input aria-label="Credencial del dispositivo" value={credential} maxLength={36} onChange={event => setCredential(event.target.value)} /></label>
+      <label className="pos-field">Licencia<input aria-label="Licencia a asignar" value={license} maxLength={36} onChange={event => { setLicense(event.target.value); setContext(null); setCredential(""); setRegisters([{ branch: "", register: "" }]); }} /></label>
+      <button type="button" onClick={() => void loadContext()}>Cargar empresa y dispositivos</button>
+      {context && <div><p>Empresa: <strong>{context.company.name}</strong></p>
+        {(context.branchesTruncated || context.credentialsTruncated) && <p role="status">Se muestran las primeras 100 opciones por lista; la consulta es parcial.</p>}
+        {context.credentials.length === 0 && <p>No hay credenciales vigentes de dispositivos activos para esta empresa.</p>}
+        {context.branches.length === 0 && <p>No hay sucursales activas para esta empresa.</p>}
+      </div>}
+      {context ? <label className="pos-field">Dispositivo registrado<select aria-label="Dispositivo registrado" value={credential} onChange={event => setCredential(event.target.value)}>
+        <option value="">Seleccionar dispositivo</option>{context.credentials.map(item => <option key={item.id} value={item.id}>Dispositivo {item.deviceId} · credencial {item.id}</option>)}
+      </select></label> : <label className="pos-field">Credencial del dispositivo<input aria-label="Credencial del dispositivo" value={credential} maxLength={36} onChange={event => setCredential(event.target.value)} /></label>}
       {registers.map((row, index) => <div key={index} className="pos-form-grid">
-        <label className="pos-field">Sucursal {index + 1}<input aria-label={`Sucursal ${index + 1}`} value={row.branch} maxLength={36} onChange={event => setRegisters(current => current.map((item, at) => at === index ? { ...item, branch: event.target.value } : item))} /></label>
+        {context ? <label className="pos-field">Sucursal {index + 1}<select aria-label={`Sucursal ${index + 1}`} value={row.branch} onChange={event => setRegisters(current => current.map((item, at) => at === index ? { ...item, branch: event.target.value, register: "" } : item))}>
+          <option value="">Seleccionar sucursal</option>{context.branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name} · {branch.id}</option>)}
+        </select></label> : <label className="pos-field">Sucursal {index + 1}<input aria-label={`Sucursal ${index + 1}`} value={row.branch} maxLength={36} onChange={event => setRegisters(current => current.map((item, at) => at === index ? { ...item, branch: event.target.value } : item))} /></label>}
         <label className="pos-field">Caja {index + 1}<input aria-label={`Caja ${index + 1}`} value={row.register} maxLength={36} onChange={event => setRegisters(current => current.map((item, at) => at === index ? { ...item, register: event.target.value } : item))} /></label>
         <button type="button" disabled={registers.length === 1} onClick={() => setRegisters(current => current.filter((_, at) => at !== index))}>Quitar caja {index + 1}</button>
       </div>)}

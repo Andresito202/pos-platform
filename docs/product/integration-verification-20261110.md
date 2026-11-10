@@ -28,7 +28,7 @@ Central expone rutas de emisión, asignación y revocación de activaciones bajo
 
 ## Criterios de cierre aún no cumplidos
 
-1. Ejecutar emisión/asignación/consulta/revocación contra PostgreSQL y una sesión GLOBAL real; sustituir la captura manual de referencias por selectores de registros autorizados.
+1. Ejecutar emisión/asignación/consulta/revocación contra PostgreSQL y una sesión GLOBAL real; completar consulta de pagos/licencias y referencias de cajas; los selectores de sucursal y credencial ya consultan opciones autorizadas.
 2. Factura sandbox aceptada y consulta del documento con evidencia del proveedor; pago sandbox y webhook real con conciliación, duplicados y aislamiento.
 3. Recuperación durable de operaciones manuales inciertas; revisar igualmente reintentos fiscales tras UNCERTAIN.
 4. Login BUSINESS/SCM y revocación acreditados en entorno compatible, no solamente unit tests.
@@ -51,6 +51,16 @@ La pestaña Licencias incluye emisión/recuperación de contrato desde un paymen
 
 El reintento de emisión conserva el pago como referencia natural. La asignación conserva el mismo payload y clave al reintentar; una respuesta incierta impide editar el borrador, mientras que un rechazo HTTP explícito permite corregirlo. Cambiar de pestaña no desmonta los formularios. La memoria de solicitudes no es durable ante recarga o cierre; no se acredita ese escenario. El panel distingue contrato, asignación PENDING y activación: emitir no prueba activación ni concede permisos al usuario. Para contratos recuperados, no presenta el NOT_ACTIVATED histórico del endpoint como estado actual del dispositivo.
 
-La operación requiere referencias reales (pago/licencia/credencial/sucursal/caja); no hay aún selectores con nombres de empresa y dispositivo. Esto es una integración funcional para administración con referencias conocidas, no una afirmación de UX comercial terminada.
+La operación requiere referencias reales (pago/licencia/credencial/sucursal/caja); la consulta posterior incorpora nombre de empresa, sucursales y credenciales; el registro de dispositivos no contiene nombre comercial. Esto es una integración funcional para administración con referencias conocidas, no una afirmación de UX comercial terminada.
 
 Validación: 290 pruebas desktop, TypeScript renderer y build aprobados. Los cuatro tests nuevos verifican rutas/payloads, validación, confirmación, rechazo, reintento idéntico y doble clic. Se corrigió una carrera en el test de navegación del supervisor: esperaba inmediatamente un componente cargado con lazy import; ahora espera su aparición. Los proveedores y el canal HTTP se simulan en estas pruebas. No se emitió ninguna licencia comercial desde esta sesión ni se llamó Factus real.
+
+## Incremento: opciones de asignación vinculadas a la licencia
+
+POST `/v1/platform/licenses/assignment-context` acepta únicamente `licenseId` bajo HTTPS, CSRF, sesión GLOBAL y LICENSE_ISSUE. Deriva tenant y empresa desde licencia/pago/cotización; no admite esos identificadores del navegador como autoridad. Consulta sucursales activas de esa empresa y credenciales DEVICE_TRUST vigentes de dispositivos activos con el vínculo completo de instalación, empresa y claves. Verifica la autorización antes y después de la consulta. Responde únicamente IDs, nombres de empresa/sucursal y vencimiento de credencial; nunca material criptográfico ni firmas.
+
+La interfaz permite cargar esas opciones, muestra el nombre real de empresa y sucursales, y limpia credencial/cajas cuando cambia la licencia. Cada lista está limitada a 100 opciones; indica explícitamente si hay más. No se representa la consulta parcial como un catálogo completo. Continúa disponible la captura manual sin consulta. La asignación definitiva vuelve a aplicar todas las comprobaciones existentes; esta vista de opciones no concede capacidad.
+
+Límites: el registro central de dispositivos no define un nombre visible, por lo que se muestran sus IDs reales. No se encontró catálogo central de nombres de cajas en la autoridad consultada: la caja sigue requiriendo su referencia local, cuya existencia/alcance valida Cash en el runtime. La licencia y el pago tampoco cuentan aún con selector por nombre. No se añadieron datos ficticios ni nuevos registros de caja para rellenar la pantalla.
+
+Validación: 292 pruebas desktop aprobadas, siete pruebas focalizadas de Central (cuatro anteriores + tres nuevas) aprobadas, TypeScript renderer y build aprobados. Incluye limpiar opciones al cambiar licencia, rechazar contexto de otra licencia, derivar el scope exclusivamente del servidor y no consultar tras denegación. Las pruebas de SQL usan dobles; permanece pendiente ejecución con PostgreSQL/RLS y sesión GLOBAL reales. No cambia el estado de certificación comercial, Factus, Windows/Android ni QA visual.

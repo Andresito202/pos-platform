@@ -1,6 +1,6 @@
 import {createHash,createPublicKey,sign,type KeyObject} from "node:crypto";
 import {LicenseAllocationRequestSchema,LicenseActivationPolicySchema,LicenseCapacityClaimsSchema,canonicalSessionTrustJson,uuidV7,UuidSchema,
-  LicenseActivationPageRequestSchema,LicenseActivationPageSchema,SignedLicenseCapacityRevocationSchema,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
+  LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseActivationPageRequestSchema,LicenseActivationPageSchema,SignedLicenseCapacityRevocationSchema,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
 import {PostgresDeviceProofReplayVerifier,type DeviceProofRequest,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {requireLicenseAdministrator} from "./license-administration.js";
 
@@ -144,6 +144,37 @@ export class LicenseCapacityAuthority{
       await c.query(`INSERT INTO identity.device_authentication_events(id,device_id,credential_id,tenant_id,company_id,installation_id,result,reason_code,correlation_id,occurred_at,evidence_checksum)
         VALUES($1,$2,$3,$4,$5,$6,'ACCEPTED','LICENSE_CAPACITY_ACTIVATED',$7,clock_timestamp(),$8)`,[uuidV7(),binding.deviceId,binding.credentialId,binding.tenantId,binding.companyId,binding.installationId,input.correlationId,checksum(claims).toString("hex")]);
       return {artifact:{claims,signature:signature.toString("base64url")},key,idempotent:false};
+    });
+  }
+  async assignmentContext(sessionId:string,input:unknown){
+    UuidSchema.parse(sessionId);const request=LicenseAssignmentContextRequestSchema.parse(input);
+    return this.transaction(async c=>{
+      await requireLicenseAdministrator(c,sessionId,this.limits.reauthenticationMs);
+      const license=(await c.query("SELECT tenant_id FROM licensing.licenses WHERE id=$1",[request.licenseId])).rows[0];
+      if(!license)throw Error("LICENSE_NOT_FOUND");
+      await c.query("SELECT set_config('app.tenant_id',$1,true)",[license.tenant_id]);
+      const company=(await c.query(`SELECT co.id,co.trade_name FROM licensing.licenses l
+        JOIN payments.payments p ON l.commercial_reference='SUBSCRIPTION_PAYMENT:'||p.id::text AND p.status='CONFIRMED'
+        JOIN payments.payment_groups g ON g.id=p.payment_group_id AND g.collection_subject_type='SUBSCRIPTION_QUOTE'
+        JOIN subscriptions.license_quotes q ON q.id=g.collection_subject_id AND q.tenant_id=l.tenant_id AND q.plan_id=l.plan_id
+        JOIN organization.companies co ON co.id=q.company_id AND co.tenant_id=q.tenant_id AND co.status='ACTIVE'
+        JOIN tenancy.tenants t ON t.id=co.tenant_id AND t.status='ACTIVE'
+        WHERE l.id=$1 AND l.contract_status IN ('ACTIVE','PAST_DUE')`,[request.licenseId])).rows;
+      if(company.length!==1)throw Error("LICENSE_PAID_CURRENT_BINDING_REQUIRED");
+      const co=company[0]!;
+      const branches=(await c.query(`SELECT id,name FROM organization.branches
+        WHERE tenant_id=$1 AND company_id=$2 AND status='ACTIVE' ORDER BY id LIMIT 101`,[license.tenant_id,co.id])).rows;
+      const credentials=(await c.query(`SELECT dc.credential_id,dc.device_id,dc.expires_at FROM identity.device_credentials dc
+        JOIN identity.device_registry d ON d.device_id=dc.device_id AND d.installation_id=dc.installation_id
+          AND d.tenant_id=dc.tenant_id AND d.company_id=dc.company_id AND d.device_key_id=dc.device_key_id AND d.trust_key_id=dc.trust_key_id
+        WHERE dc.tenant_id=$1 AND dc.company_id=$2 AND dc.status='ACTIVE' AND d.status='ACTIVE'
+          AND dc.key_purpose='DEVICE_TRUST' AND dc.issued_at<=clock_timestamp() AND dc.expires_at>clock_timestamp()
+        ORDER BY dc.credential_id LIMIT 101`,[license.tenant_id,co.id])).rows;
+      const result=LicenseAssignmentContextSchema.parse({licenseId:request.licenseId,company:{id:co.id,name:co.trade_name},
+        branches:branches.slice(0,100).map(b=>({id:b.id,name:b.name})),branchesTruncated:branches.length>100,
+        credentials:credentials.slice(0,100).map(d=>({id:d.credential_id,deviceId:d.device_id,expiresAt:(d.expires_at as Date).toISOString()})),credentialsTruncated:credentials.length>100});
+      await requireLicenseAdministrator(c,sessionId,this.limits.reauthenticationMs);
+      return result;
     });
   }
   async listActivations(sessionId:string,input:unknown){
