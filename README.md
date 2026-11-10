@@ -20,6 +20,17 @@ Las otras ramas dejan de ser frentes de desarrollo para esta consolidación. Sus
 
 Esta orden sustituye las referencias anteriores a una rama activa distinta. Se preservan los contratos de seguridad y la evidencia histórica con su SHA.
 
+## Actualización de consolidación — 2026-11-10
+
+- Única rama activa: `cursor/commercial-design-review-0d11`; código de separación de roles publicado en `a21c3e79`.
+- Única PR de entrega de esta consolidación: [#106](https://github.com/Andresito202/pos-platform/pull/106), ahora dirigida a `main` y en Draft. No fusionada.
+- PR #92, #94, #95 y #99 cerradas como reemplazadas por #106. Se verificó cada HEAD: todos son ancestros de a21c3e79, sin commits ausentes. No se presentan como fusionadas ni como certificaciones completadas.
+- Los refs de las ramas predecesoras aún existen. Las ramas divergentes de Android/balanza/QR y sus PR conservan trabajo exclusivo pendiente de decisión; no son destinos de desarrollo nuevo.
+- Perfiles locales: sólo CAJERO opera Caja. SUPERVISOR y ADMINISTRADOR conservan revisión de transferencias sin carrito; el backend rechaza sus intentos de crear ventas.
+- Evidencia del incremento: 273 pruebas desktop y 19 de autorización/credenciales/sesiones locales aprobadas; TypeScript renderer/local-service y build de renderer aprobados. Dependencias de caché, no instalación frozen-lockfile; prueba visual bloqueada por el entorno. Ver `apps/pos-desktop/e2e/ROLE-UX-CONSOLIDATION.md`.
+- Siguen pendientes: autorización comercial BUSINESS/SCM de extremo a extremo, evaluación de deltas exclusivos, retiro de refs redundantes, identificación de la instalación del PC y rediseño visual completo.
+- Las referencias inferiores a PR abiertas o líneas activas anteriores son históricas y quedan sustituidas por esta actualización para el trabajo actual.
+
 ## Fuentes de verdad
 
 El README es un resumen. No autoriza por sí mismo trabajo nuevo.
