@@ -537,6 +537,14 @@ describe("FiscalPanel", () => {
 
     await waitFor(() => { expect(screen.getByTestId("fiscal-uncertain")).toBeTruthy(); });
     expect(screen.getByTestId("fiscal-uncertain-status").textContent).toBe("UNKNOWN_OUTCOME");
+    expect((screen.getByTestId("issue-identified-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("issue-anonymous-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId("fiscal-sale-id-input"), { target: { value: "77777777-7777-4777-8777-777777777777" } });
+    expect((screen.getByTestId("issue-identified-button") as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByTestId("fiscal-uncertain")).toBeNull();
+    fillSale();
+    expect((screen.getByTestId("issue-identified-button") as HTMLButtonElement).disabled).toBe(true);
+
     expect(screen.queryByTestId("fiscal-issued")).toBeNull();
     expect(screen.queryByTestId("fiscal-blocked")).toBeNull();
   });

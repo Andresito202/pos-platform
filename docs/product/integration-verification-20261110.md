@@ -74,3 +74,11 @@ El formulario manual ya no descarta su clave y payload ante una respuesta sin re
 La regresión descubrió una respuesta simulada incorrecta en AdminPanels: SUCCEEDED con INSUFFICIENT_STOCK. Se ajustó a REJECTED, como devuelve el handler real. Validación: 300 pruebas desktop aprobadas, TypeScript renderer y build aprobados; ocho casos nuevos de respuestas inconsistentes, identidad de reintento, cierre y concurrencia.
 
 **Limitación crítica vigente:** el pendiente vive en el componente. La revocación/revalidación de acceso puede desmontarlo; cerrar/recargar también lo pierde. No se guardó en localStorage con username porque ese dato no identifica de manera suficiente usuario/tenant/sucursal/dispositivo. Falta un diario durable de solicitudes ligado a identidad y scope verificados por el servicio. No afirmar recuperación completa ni certificar inventario frente a reinicio con esta protección parcial.
+
+## Emisión fiscal: bloqueo por resultado incierto — 11 de noviembre
+
+Se corrigió una contradicción entre el comentario y la interfaz: UNCERTAIN/REQUIRES_RECONCILIATION mostraban aviso pero dejaban activos ambos botones de emisión. El hook ahora bloquea la venta/tipo de documento al recibir esos resultados, perder la respuesta o recibir un sobre incoherente. Hay exclusión síncrona de doble envío. La pantalla deshabilita ambos botones para la venta afectada; cambiar a otra venta no borra el bloqueo anterior ni muestra su resultado bajo el nuevo ID. Solo se presenta éxito con respuesta coherente y validada por el contrato.
+
+Validación: **305 pruebas desktop aprobadas**, TypeScript renderer y build aprobados. Cinco casos nuevos de hook y una ampliación de la prueba de panel verifican bloqueo, retorno a la venta original, aislamiento entre ventas, pérdida de respuesta y doble clic. Pruebas de frontend con doble del canal: no equivalen a emisión externa.
+
+Límite vigente: el bloqueo de interfaz vive en memoria del componente. Al reiniciar, el backend sigue siendo la autoridad y mantiene sus estados de documento; no hay conciliación automática nueva, botón ficticio para conciliar ni evidencia de factura emitida en Factus externo. La recuperación durable y conciliación física siguen pendientes.

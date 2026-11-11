@@ -27,7 +27,8 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
   useEffect(() => { if (initialSaleId !== null) setSaleId(initialSaleId); }, [initialSaleId]);
   const [customerId, setCustomerId] = useState("");
 
-  const issued = fiscal.issued;
+  const issued = fiscal.resultSaleId === saleId.trim() ? fiscal.issued : null;
+  const blocked = fiscal.isBlocked(saleId.trim(), "SALES_INVOICE");
 
   return (
     <section data-testid="fiscal-panel">
@@ -57,7 +58,7 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
             kind: "IDENTIFIED", customerId: customerId.trim(),
           });
         }}
-        disabled={fiscal.busy || saleId.trim() === "" || customerId.trim() === ""}
+        disabled={fiscal.busy || blocked || saleId.trim() === "" || customerId.trim() === ""}
       >
         Emitir con adquiriente
       </button>
@@ -72,7 +73,7 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
             kind: "NOT_IDENTIFIED", reason: "ANONYMOUS_COUNTER_SALE",
           });
         }}
-        disabled={fiscal.busy || saleId.trim() === ""}
+        disabled={fiscal.busy || blocked || saleId.trim() === ""}
       >
         Emitir sin identificar
       </button>
@@ -118,7 +119,8 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
         </div>
       )}
 
-      {fiscal.error !== null && <div data-testid="fiscal-error">{fiscal.error}</div>}
+      {blocked && <p role="alert">Esta venta tiene una emisión sin resultado concluyente. No vuelvas a emitir hasta conciliar el documento con el proveedor. Esta pantalla no dispone todavía de conciliación automática.</p>}
+      {fiscal.resultSaleId === saleId.trim() && fiscal.error !== null && <div data-testid="fiscal-error">{fiscal.error}</div>}
     </section>
   );
 }
