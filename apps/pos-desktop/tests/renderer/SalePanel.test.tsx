@@ -281,6 +281,39 @@ describe("SalePanel — vertical comercial", () => {
   });
 
 
+  it.each([
+    { status: "REJECTED", result_code: "UNAUTHORIZED", result: null },
+    { status: "REJECTED", result_code: "VERSION_CONFLICT", result: null },
+    { status: "UNKNOWN", result_code: "UNKNOWN_OUTCOME", result: null },
+  ])("retains the exact cash request after loss and a nonconclusive retry: %j", async response => {
+    install(BASE_OVERRIDES);
+    const charge = vi.fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(cashResult("IDEMPOTENT", true));
+    Object.defineProperty(window.posService, "payment.register.cash", { value: charge });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await waitFor(() => expect(screen.getByTestId("sale-error").textContent).toBe("response lost"));
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await waitFor(() => expect(screen.getByTestId("sale-error").textContent).toBe(response.result_code));
+    const closing = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(closing);
+    expect(closing.defaultPrevented).toBe(true);
+    expect(screen.getByTestId("retry-pending-operation")).toBeTruthy();
+    expect((screen.getByTestId("charge-cash-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await screen.findByTestId("sale-completed");
+    const recoveredClose = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(recoveredClose);
+    expect(recoveredClose.defaultPrevented).toBe(false);
+    expect(charge).toHaveBeenCalledTimes(3);
+    expect(charge.mock.calls[1]?.[0]).toEqual(charge.mock.calls[0]?.[0]);
+    expect(charge.mock.calls[2]?.[0]).toEqual(charge.mock.calls[0]?.[0]);
+    expect(chime).not.toHaveBeenCalled();
+  });
+
   it("supports a partial cash payment without calculating a new total in the renderer", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", false) });
     render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);

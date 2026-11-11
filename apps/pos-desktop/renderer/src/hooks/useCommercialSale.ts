@@ -133,17 +133,29 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   const [unresolved, setUnresolved] = useState(false);
   const pendingMutation = useRef<{
     signature: string;
+    uncertain: boolean;
     messageType: Parameters<typeof buildEnvelope>[0];
     request: CommercialEnvelope;
     apply: (result: unknown) => void;
   } | null>(null);
   const sendMutation = useCallback(async <T,>(pending: NonNullable<typeof pendingMutation.current>): Promise<CommercialResponse<T>> => {
-    const response = await getPosService()[pending.messageType](pending.request) as CommercialResponse<T>;
-    if (response.status === "REJECTED" || (response.status === "SUCCEEDED" && response.result !== null)) {
-      pendingMutation.current = null;
-      setUnresolved(false);
+    try {
+      const response = await getPosService()[pending.messageType](pending.request) as CommercialResponse<T>;
+      // A rejection now says nothing about an earlier transmission whose
+      // response was lost. Keep that original identity until recovered.
+      const confirmed = response.status === "SUCCEEDED" && response.result !== null;
+      const initialRejection = response.status === "REJECTED" && !pending.uncertain;
+      if (confirmed || initialRejection) {
+        pendingMutation.current = null;
+        setUnresolved(false);
+      } else {
+        pending.uncertain = true;
+      }
+      return response;
+    } catch (error) {
+      pending.uncertain = true;
+      throw error;
     }
-    return response;
   }, []);
   // A lost response does not authorize a new financial operation. Retain the
   // original envelope until the service returns a definitive outcome.
@@ -154,7 +166,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     if (pendingMutation.current !== null && pendingMutation.current.signature !== signature) {
       throw new Error("OPERATION_OUTCOME_UNRESOLVED");
     }
-    pendingMutation.current ??= { signature, messageType, request: buildEnvelope(messageType, payload, newIdempotencyKey()), apply: applyMutation.current };
+    pendingMutation.current ??= { signature, uncertain: false, messageType, request: buildEnvelope(messageType, payload, newIdempotencyKey()), apply: applyMutation.current };
     setUnresolved(true);
     return sendMutation<T>(pendingMutation.current);
   }, [sendMutation]);
@@ -200,6 +212,16 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
       if (trackOperationBusy) { busyRef.current = false; setBusy(false); }
     }
   }, []);
+
+  useEffect(() => {
+    if (!unresolved) return;
+    const preventLoss = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", preventLoss);
+    return () => window.removeEventListener("beforeunload", preventLoss);
+  }, [unresolved]);
 
   const retryPending = useCallback(async (): Promise<void> => {
     const pending = pendingMutation.current;
