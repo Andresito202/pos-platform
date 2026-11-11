@@ -1,3 +1,4 @@
+import {fixtureRepositoryCommit} from "./fixture-repository-commit.js";
 import {expect} from "vitest";
 import {createHash,generateKeyPairSync,randomBytes,sign,verify} from "node:crypto";
 import {execFileSync} from "node:child_process";
@@ -19,8 +20,8 @@ import {createGlobalAdministrationHandler} from "../../src/global-administration
 export async function exerciseLicenseCapacity(f:{owner:Pool;runtime:Pool;user:string;grant:string;db:string;server:string;buyer:{tenant:string;company:string}}){
   const {owner,runtime,user,buyer}=f,tool=resolve("../../tools/target-migrations"),u=new URL(f.server);u.pathname="/"+f.db;u.username="pos_migrator";u.password="";
   const migrate=()=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--license-activations"],{cwd:tool,encoding:"utf8",windowsHide:true,
-    env:{...process.env,POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:f.db,REPOSITORY_COMMIT:execFileSync("git",["rev-parse","HEAD"],{cwd:tool,encoding:"utf8",windowsHide:true}).trim(),POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"}}));
-  expect(migrate().some((r:any)=>r.migrationId==='022_license_activations'&&r.status==='APPLIED')).toBe(true);
+    env:{...process.env,POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:f.db,REPOSITORY_COMMIT:fixtureRepositoryCommit(tool),POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"}}));
+  expect(migrate().some((r:any)=>r.migrationId==='022_license_activations'&&['APPLIED','ALREADY_APPLIED'].includes(r.status))).toBe(true);
   expect(migrate().every((r:any)=>r.status==='ALREADY_APPLIED')).toBe(true);
   expect((await runtime.query("SELECT has_table_privilege(current_user,'licensing.trusted_signing_keys','INSERT') AS writable")).rows[0].writable).toBe(false);
   const password=randomBytes(24).toString("hex"),factor=id(),material=id(),passwordId=id(),credentialId=randomBytes(32).toString("base64url"),origin="https://business.example.test";
@@ -29,9 +30,11 @@ export async function exerciseLicenseCapacity(f:{owner:Pool;runtime:Pool;user:st
   await owner.query("INSERT INTO identity.user_credentials(id,user_id,credential_type,verifier,status,created_at) VALUES($1,$2,'PASSWORD',$3,'ACTIVE',now())",[passwordId,user,await createPlatformPasswordVerifier(password,"owasp-19m-t2-p1")]);
   await owner.query("INSERT INTO identity.mfa_factors(id,user_id,factor_type,secret_reference,status,enrolled_at,verified_at) VALUES($1,$2,'WEBAUTHN',$3,'ACTIVE',now(),now())",[factor,user,"webauthn:v1:"+material]);
   await owner.query("INSERT INTO identity.webauthn_credential_material(id,factor_id,credential_id,public_key_cose_base64url) VALUES($1,$2,$3,$4)",[material,factor,credentialId,cose.toString("base64url")]);
-  const roleId=(await owner.query('SELECT role_id FROM "authorization".role_permission_grants WHERE id=$1',[f.grant])).rows[0].role_id,permission=id(),issueGrant=id();
-  await owner.query('INSERT INTO "authorization".permissions(id,code,module,description,status,created_at) VALUES($1,\'LICENSE_ISSUE\',\'LICENSING\',\'Test only\',\'ACTIVE\',now())',[permission]);
-  await owner.query('INSERT INTO "authorization".role_permission_grants(id,role_id,permission_id,grant_version,status,valid_from,created_at) VALUES($1,$2,$3,1,\'ACTIVE\',now(),now())',[issueGrant,roleId,permission]);
+  const roleId=(await owner.query('SELECT role_id FROM "authorization".role_permission_grants WHERE id=$1',[f.grant])).rows[0].role_id;
+  let permission=(await owner.query(`SELECT id FROM "authorization".permissions WHERE code='LICENSE_ISSUE'`)).rows[0]?.id;
+  if(!permission){permission=id();await owner.query(`INSERT INTO "authorization".permissions(id,code,module,description,status,created_at) VALUES($1,'LICENSE_ISSUE','LICENSING','Test only','ACTIVE',now())`,[permission]);}
+  if(!(await owner.query(`SELECT id FROM "authorization".role_permission_grants WHERE role_id=$1 AND permission_id=$2 AND status='ACTIVE'`,[roleId,permission])).rowCount)
+    await owner.query(`INSERT INTO "authorization".role_permission_grants(id,role_id,permission_id,grant_version,status,valid_from,created_at) VALUES($1,$2,$3,1,'ACTIVE',now(),now())`,[id(),roleId,permission]);
   const globalPolicy={mode:"ISOLATED_VALIDATION" as const,origin,rpId:"business.example.test",policyReference:"TEST_ONLY",rejectionVerifier:await createPlatformPasswordVerifier("rejection-test","owasp-19m-t2-p1"),
     challengeLifetimeMs:60000,sessionLifetimeMs:300000,maximumMfaAgeMs:60000,maximumReauthenticationAgeMs:300000,browserLifetimeMs:300000,idleTimeoutMs:300000,lockTimeoutMs:2000,statementTimeoutMs:10000};
   const sessions=new GlobalAdministrationSessions(runtime,globalPolicy);
@@ -85,6 +88,12 @@ export async function exerciseLicenseCapacity(f:{owner:Pool;runtime:Pool;user:st
   await new Promise<void>(yes=>api.listen(0,"127.0.0.1",yes));
   try{const fresh=proof(),headers={authorization:fresh.authorization,"x-request-id":fresh.requestId,"x-correlation-id":fresh.correlationId};
     const globalHeaders={origin,"sec-fetch-site":"same-origin",cookie:login.setCookie.split(";",1)[0]!,"x-csrf-token":login.csrfToken};
+    const context=await postLabHttps(api,tls.cert,"/v1/platform/licenses/assignment-context",{licenseId:license.licenseId},globalHeaders);
+    expect(context.status).toBe(200);
+    expect(context.body).toMatchObject({licenseId:license.licenseId,company:{id:buyer.company},branches:expect.arrayContaining([{id:branch,name:"Test"}]),credentials:expect.arrayContaining([expect.objectContaining({id:d.credential,deviceId:d.deviceId})])});
+    expect((await postLabHttps(api,tls.cert,"/v1/platform/licenses/assignment-context",{licenseId:license.licenseId,tenantId:id()},globalHeaders)).status).toBe(400);
+    expect((await postLabHttps(api,tls.cert,"/v1/platform/licenses/assignment-context",{licenseId:license.licenseId},{...globalHeaders,"x-csrf-token":"wrong"})).status).toBe(401);
+    expect((await postLabHttps(api,tls.cert,"/v1/platform/licenses/activations",{after:null},globalHeaders)).status).toBe(401);
     expect((await postLabHttps(api,tls.cert,"/v1/platform/licenses/allocate",request,globalHeaders)).body).toMatchObject({activationId:pending.activationId,idempotent:true});
     expect((await postLabHttps(api,tls.cert,"/v1/platform/licenses/allocate",request,{...globalHeaders,cookie:globalHeaders.cookie.replace("__Host-camacho_platform=","__Host-camacho_business=")})).status).toBe(401);
     expect((await postLabHttps(api,tls.cert,LICENSE_ACTIVATION_PATH,JSON.parse(fresh.body),{...headers,origin})).status).toBe(403);
@@ -102,7 +111,9 @@ export async function exerciseLicenseCapacity(f:{owner:Pool;runtime:Pool;user:st
     }finally{if(dirname(resolve(dir))!==resolve(tmpdir())||!basename(dir).startsWith("pos-central-capacity-"))throw Error("CLEANUP_REJECTED");await rm(dir,{recursive:true,force:true});}
     expect((await postLabHttps(api,tls.cert,"/v1/platform/licenses/revoke-activation",{activationId:pending.activationId,correlationId:id()},globalHeaders)).status).toBe(401);
     const revokePermission=id();await owner.query('INSERT INTO "authorization".permissions(id,code,module,description,status,created_at) VALUES($1,\'LICENSE_REVOKE\',\'LICENSING\',\'Test only\',\'ACTIVE\',now())',[revokePermission]);
-    await owner.query('INSERT INTO "authorization".role_permission_grants(id,role_id,permission_id,grant_version,status,valid_from,created_at) VALUES($1,$2,$3,1,\'ACTIVE\',now(),now())',[id(),roleId,revokePermission]);
+    await owner.query(`INSERT INTO "authorization".role_permission_grants(id,role_id,permission_id,grant_version,status,valid_from,created_at) VALUES($1,$2,$3,1,'ACTIVE',now(),now())`,[id(),roleId,revokePermission]);
+    const listed=await postLabHttps(api,tls.cert,"/v1/platform/licenses/activations",{after:null},globalHeaders);
+    expect(listed.status).toBe(200);expect(listed.body).toMatchObject({activations:expect.arrayContaining([expect.objectContaining({activationId:pending.activationId,status:"ACTIVE"})])});
     const revoked=await Promise.all([authority.revoke(sid,pending.activationId,id()),authority.revoke(sid,pending.activationId,id())]);
     expect(revoked.filter(r=>!r.idempotent)).toHaveLength(1);
     const revocation=await authority.activate(proof());expect(revocation).toHaveProperty("revocation");

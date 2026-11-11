@@ -1,3 +1,5 @@
+import {labOpenSslExecutable} from "./helpers/lab-https.js";
+import {fixtureRepositoryCommit} from "./helpers/fixture-repository-commit.js";
 import {afterAll,beforeAll,it,expect} from "vitest";
 import {createPostgresPool,type Pool} from "@pos-platform/database-postgres";
 import {uuidV7,addLicenseCalendarMonths,type LicenseOfferDraft,type SubscriptionQuoteRequest} from "@pos-platform/contracts";
@@ -55,7 +57,7 @@ beforeAll(async()=>{
         VALUES($1,$2,'POSTGRESQL',1,$3,'APPLIED',now(),now(),now(),now(),now(),'TEMPORARY_FIXTURE_PREDECESSOR')`,[id(),n,createHash("sha256").update(await sql(n+".up.sql")).digest()]);
   }finally{await c.query("RESET ROLE");c.release();}
   u.username="pos_migrator";u.password="";const env={...process.env,POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:db,
-    REPOSITORY_COMMIT:execFileSync("git",["rev-parse","HEAD"],{cwd:tool,encoding:"utf8",windowsHide:true}).trim(),POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"};
+    REPOSITORY_COMMIT:fixtureRepositoryCommit(tool),POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"};
   const cli=(args:string[])=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts",...args],{cwd:tool,env,encoding:"utf8",windowsHide:true}));
   expect(cli(["--subscriptions"]).filter((r:{status:string})=>r.status==="APPLIED")).toHaveLength(12);
   expect(cli(["--subscriptions"]).every((r:{status:string})=>r.status==="ALREADY_APPLIED")).toBe(true);
@@ -139,7 +141,7 @@ it.runIf(Boolean(server))("quotes: revocation committed during a lock wait canno
 it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody binding, negative responses, replay evidence and revocation",async()=>{
   const migrationUrl=new URL(server!);migrationUrl.pathname="/"+db;migrationUrl.username="pos_migrator";migrationUrl.password="";
   const applyPayments=()=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--subscription-payments"],{cwd:tool,windowsHide:true,encoding:"utf8",env:{...process.env,
-    POSTGRES_MIGRATOR_URL:migrationUrl.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:execFileSync("git",["rev-parse","HEAD"],{cwd:tool,encoding:"utf8",windowsHide:true}).trim(),
+    POSTGRES_MIGRATOR_URL:migrationUrl.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:fixtureRepositoryCommit(tool),
     POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"}}));
   const migrated=applyPayments();expect(migrated.filter((x:{status:string})=>x.status==="APPLIED")).toHaveLength(1);
   expect(applyPayments().every((x:{status:string})=>x.status==="ALREADY_APPLIED")).toBe(true);
@@ -158,7 +160,7 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
   try{
     dir=await mkdtemp(join(tmpdir(),"pos-factus-api-"));
     const host="pay-api-sandbox.factus.com.co";
-    execFileSync("C:/Program Files/Git/usr/bin/openssl.exe",["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN="+host,
+    execFileSync(labOpenSslExecutable(),["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN="+host,
       "-addext","subjectAltName=DNS:"+host,"-keyout",join(dir,"tls.key"),"-out",join(dir,"tls.crt")],{stdio:"ignore",windowsHide:true});
     const cert=await readFile(join(dir,"tls.crt"));
     api=createServer({key:await readFile(join(dir,"tls.key")),cert},async(req,res)=>{
@@ -370,10 +372,10 @@ it.runIf(Boolean(server))("FACTUS API: TLS/SQL quote correlation, custody bindin
   }
 },30000);
 
-it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, purpose isolation, live permissions, recovery and logout",async()=>{
+it.runIf(Boolean(server))("GLOBAL HTTP/SQL: password/WebAuthn, cookie, live permissions and logout; Electron gate only on Windows",async()=>{
   const u=new URL(server!);u.pathname="/"+db;u.username="pos_migrator";u.password="";
   const migrate=()=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--license-catalog"],{cwd:tool,windowsHide:true,encoding:"utf8",env:{...process.env,
-    POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:execFileSync("git",["rev-parse","HEAD"],{cwd:tool,encoding:"utf8",windowsHide:true}).trim(),
+    POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:fixtureRepositoryCommit(tool),
     POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"}}));
   expect(migrate().some((r:{status:string;migrationId:string})=>r.migrationId==="023_license_offer_terms"&&r.status==="APPLIED")).toBe(true);
   expect(migrate().every((r:{status:string})=>r.status==="ALREADY_APPLIED")).toBe(true);
@@ -424,7 +426,7 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
   let dir:string|undefined,tls:Server|undefined;
   try{
     dir=await mkdtemp(join(tmpdir(),"pos-global-api-"));
-    execFileSync("C:/Program Files/Git/usr/bin/openssl.exe",["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN="+rpId,
+    execFileSync(labOpenSslExecutable(),["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN="+rpId,
       "-addext","subjectAltName=DNS:"+rpId+",DNS:camachoposcolombia.com,DNS:central.camachoposcolombia.com","-keyout",join(dir,"tls.key"),"-out",join(dir,"tls.crt")],{stdio:"ignore",windowsHide:true});
     const cert=await readFile(join(dir,"tls.crt")),httpLimits={maximumBodyBytes:16384,maximumPendingFlows:10,requestsPerWindow:100,maximumBuckets:10,
       requestWindowMs:60000,loginWindowMs:60000,maximumLoginPerAddress:20,maximumLoginPerAccount:20};
@@ -538,6 +540,9 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
     handler=createGlobalAdministrationHandler({pool:runtime,policy:p,limits:httpLimits});
     expect((await call("session",{},cookie,csrf)).body).toMatchObject({authenticated:true,scope:"GLOBAL",permissions:["LICENSE_PLAN_MANAGE"]});
     expect((await call("session",{},cookie,"a".repeat(43))).status).toBe(401);
+    // Electron helper uses a Windows named pipe. Keep HTTP/SQL checks portable;
+    // never count this browser gate as executed on another operating system.
+    if(process.platform==="win32"){
     const planCode="CAMACHO_MONTHLY";
     const observed=await exercisePlatformAdministrationBrowser({origin:browserOrigin,fingerprint:new X509Certificate(cert).fingerprint256,
       email:login.email,password,credentialId:Buffer.from(credentialId,"base64url").toString("base64"),
@@ -552,6 +557,7 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
         {status:"ACTIVE",version:2,price_minor:5990000,included_registers:1,additional_register_price_minor:1990000,support_price_minor:1490000}]);
     const browserRows=await owner.query("SELECT s.revoked_at IS NOT NULL AS revoked FROM identity.sessions s JOIN identity.browser_sessions b ON b.session_id=s.id WHERE b.origin=$1",[browserOrigin]);
     expect(browserRows.rows).toHaveLength(2);expect(browserRows.rows.every(r=>r.revoked)).toBe(true);
+    }else{console.info("WINDOWS_ELECTRON_PLATFORM_GATE_NOT_EXECUTED");}
     await owner.query("UPDATE identity.user_credentials SET status='REVOKED',revoked_at=clock_timestamp(),version=version+1 WHERE id=$1",[credential]);
     expect((await call("session",{},cookie,csrf)).status).toBe(401);
     expect((await call("logout",{},cookie,csrf)).body.closed).toBe(true); // Must close even after credential revocation.
@@ -565,7 +571,7 @@ it.runIf(Boolean(server))("GLOBAL: real password/WebAuthn to canonical cookie, p
 it.runIf(Boolean(server))("pricing V2: runner 023, reversible empty schema, immutable quotes, stale/concurrent edits and publication rollback",async()=>{
   const u=new URL(server!);u.pathname="/"+db;u.username="pos_migrator";u.password="";
   const migrate=()=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts","--license-catalog"],{cwd:tool,encoding:"utf8",windowsHide:true,
-    env:{...process.env,POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8",windowsHide:true}).trim(),
+    env:{...process.env,POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:db,REPOSITORY_COMMIT:fixtureRepositoryCommit(tool),
       POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"}}));
   migrate();expect(migrate().every((r:{status:string})=>r.status==='ALREADY_APPLIED')).toBe(true);
   const existingV2=Number((await owner.query("SELECT count(*) AS n FROM licensing.plans WHERE offer_profile='CAMACHO_LICENSE_OFFER_V2'")).rows[0].n);
@@ -648,6 +654,6 @@ it.runIf(Boolean(server))("quotes: concurrent replay, inactive buyer, bad terms,
   await expect(service.issue(globalSession,r)).rejects.toThrow("GLOBAL_MFA_PERMISSION_REQUIRED");
 },30000);
 
-it.runIf(Boolean(server))("capacity: canonical GLOBAL allocation, paid quota, DeviceProof, audit rollback and real Windows SQLite gate",async()=>{
+it.runIf(Boolean(server))("capacity: canonical GLOBAL allocation, paid quota, DeviceProof, audit rollback and SQLite gate (platform runtime under test)",async()=>{
   await exerciseLicenseCapacity({owner,runtime,user,grant,db,server:server!,buyer});
 },60000);

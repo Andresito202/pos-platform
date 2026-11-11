@@ -5,10 +5,12 @@ import {join,basename,dirname,resolve} from "node:path";
 import {request} from "node:https";
 import type {Server} from "node:https";
 
+export function labOpenSslExecutable(){return process.env.OPENSSL_EXECUTABLE??(existsSync("C:/Program Files/Git/usr/bin/openssl.exe")?"C:/Program Files/Git/usr/bin/openssl.exe":"openssl");}
+
 /** Ephemeral TLS identity only for reserved .test name. Never installed in OS trust. */
 export function labTls(){
   const directory=mkdtempSync(join(tmpdir(),"camacho-auth-tls-"));
-  const executable=process.env.OPENSSL_EXECUTABLE??(existsSync("C:/Program Files/Git/usr/bin/openssl.exe")?"C:/Program Files/Git/usr/bin/openssl.exe":"openssl");
+  const executable=labOpenSslExecutable();
   try{
     execFileSync(executable,["req","-x509","-newkey","rsa:3072","-nodes","-days","1","-subj","/CN=business.example.test",
       "-addext","subjectAltName=DNS:business.example.test","-keyout",join(directory,"key.pem"),"-out",join(directory,"cert.pem")],{stdio:"ignore"});

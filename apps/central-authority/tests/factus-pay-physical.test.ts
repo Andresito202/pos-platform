@@ -1,3 +1,5 @@
+import {labOpenSslExecutable} from "./helpers/lab-https.js";
+import {fixtureRepositoryCommit} from "./helpers/fixture-repository-commit.js";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { createPostgresPool, PostgresFactusPayWebhookInboxRepository, type Pool } from "@pos-platform/database-postgres";
 import { uuidV7 } from "@pos-platform/contracts";
@@ -53,7 +55,7 @@ beforeAll(async()=>{
   }finally{await c.query("RESET ROLE");c.release();}
   u.username="pos_migrator";u.password="";
   const env={...process.env,POSTGRES_MIGRATOR_URL:u.href,POSTGRES_EXPECTED_DATABASE:db,
-    REPOSITORY_COMMIT:execFileSync("git",["rev-parse","HEAD"],{cwd:tool,encoding:"utf8",windowsHide:true}).trim(),
+    REPOSITORY_COMMIT:fixtureRepositoryCommit(tool),
     POSTGRES_MIGRATION_LOCK_TIMEOUT_MS:"5000",POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS:"20000"};
   const cli=(args:string[])=>JSON.parse(execFileSync(process.execPath,["--import","tsx","src/postgres-commercial-cli.ts",...args],{cwd:tool,windowsHide:true,env,encoding:"utf8"}));
   const first=cli(["--factus-pay"]),again=cli(["--factus-pay"]);
@@ -73,7 +75,7 @@ beforeAll(async()=>{
     implementation_status,verification_status,created_at) VALUES($1,$2,'FACTUS_PAY','TEST',1,'IMPLEMENTED','MOCK_TESTED',now())`,[adapter,provider]);
   a=await seed(provider,adapter);b=await seed(provider,adapter);
   dir=await mkdtemp(join(tmpdir(),"pos-factus-ingress-"));
-  execFileSync("C:/Program Files/Git/usr/bin/openssl.exe",["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN="+host,"-addext","subjectAltName=DNS:"+host,"-keyout",join(dir,"tls.key"),"-out",join(dir,"tls.crt")],{stdio:"ignore",windowsHide:true});
+  execFileSync(labOpenSslExecutable(),["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN="+host,"-addext","subjectAltName=DNS:"+host,"-keyout",join(dir,"tls.key"),"-out",join(dir,"tls.crt")],{stdio:"ignore",windowsHide:true});
   const provision=join(dir,"ingress.json");await writeFile(provision,JSON.stringify({profile:"CAMACHO_FACTUS_PAY_INGRESS_V1",policy_reference:"TEMPORARY_TEST_ONLY",
     migration_checksum:manifest["018_factus_pay_webhook_inbox"],max_body_bytes:16384,lock_timeout_ms:1000,statement_timeout_ms:5000,rate_limit:{maximum:100,buckets:10,window_ms:60000}}));
   cert=await readFile(join(dir,"tls.crt"));server=createServer({key:await readFile(join(dir,"tls.key")),cert},await prepareFactusPayRuntime(runtime,provision));

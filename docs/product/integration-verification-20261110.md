@@ -1,5 +1,7 @@
 # Estado verificable de integraciones — 10 de noviembre de 2026
 
+**Actualización 11 de noviembre:** el bloqueo de dependencias WebAuthn se resolvió y ocho escenarios HTTP/SQL aprobaron en PostgreSQL 16.14 real. [Evidencia y límites](../testing/central-physical-20261111.md). Las menciones de PostgreSQL no disponible más abajo describen el estado previo. Factus externo y Electron Windows siguen pendientes.
+
 Base inspeccionada: ad5e057bd150fe74073465d87d6c1cf3382745ae, rama única de trabajo `cursor/commercial-design-review-0d11`. Este incremento modifica inventario en los componentes reales. No crea otro producto ni cambia autorizaciones comerciales.
 
 ## Inventario
