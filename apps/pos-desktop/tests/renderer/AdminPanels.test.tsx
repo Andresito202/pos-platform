@@ -242,7 +242,7 @@ describe("InventoryPanel", () => {
 
   it("enseña la existencia disponible cuando el movimiento se rechaza por faltante", async () => {
     install({
-      status: "SUCCEEDED",
+      status: "REJECTED",
       result_code: "INSUFFICIENT_STOCK",
       result: {
         outcome: "INSUFFICIENT_STOCK",

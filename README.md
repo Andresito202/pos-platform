@@ -105,3 +105,5 @@ El portal GLOBAL incorpora la pestaña **Licencias**: consulta paginada de activ
 ## Verificación física de Central — 11 de noviembre de 2026
 
 TypeScript completo de Central aprobado tras instalar la dependencia WebAuthn fijada. Ocho escenarios físicos de pagos y suscripciones aprobaron con PostgreSQL 16.14 aislado, HTTPS local y comprobación de capacidad en SQLite. Incluyen las consultas de activaciones y opciones de asignación. El proveedor Factus se simula mediante servidor TLS local: no acredita su sandbox externo ni facturación electrónica real. Electron Windows no se ejecutó en Linux. Alcance y reproducción: [Evidencia de Central](docs/testing/central-physical-20261111.md).
+
+Los movimientos manuales de inventario conservan su solicitud ante respuestas no concluyentes mientras la pantalla permanece montada. Esto no sustituye la recuperación durable tras cierre o pérdida de sesión; ese escenario continúa pendiente y está detallado en el estado de integraciones.

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { InventoryMovementResultSchema } from "@pos-platform/contracts";
 import type {
   InventoryMovementResult,
@@ -46,6 +46,13 @@ export function useInventoryAdmin(): InventoryAdminState & {
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(false);
   const inFlight = useRef(false);
+  const uncertain = useRef(false);
+  useEffect(() => {
+    if (!pending) return;
+    const preventLoss = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    window.addEventListener("beforeunload", preventLoss);
+    return () => window.removeEventListener("beforeunload", preventLoss);
+  }, [pending]);
   const pendingOperation = useRef<{ messageType: "inventory.stock.receive" | "inventory.stock.adjust"; payload: Record<string, string>; key: string } | null>(null);
   const retryPending = useCallback(async (): Promise<void> => {
     const operation = pendingOperation.current;
@@ -54,16 +61,21 @@ export function useInventoryAdmin(): InventoryAdminState & {
     try {
       const response = await callCommercial<InventoryMovementResult>(operation.messageType, operation.payload, operation.key);
       const parsed = InventoryMovementResultSchema.safeParse(response.result);
-      if (response.status === "REJECTED" && response.result === null) {
-        setError(response.result_code);
-      } else if ((response.status === "SUCCEEDED" || response.status === "REJECTED") && parsed.success) {
-        setMovement(parsed.data);
+      const success = response.status === "SUCCEEDED" && parsed.success &&
+        response.result_code === parsed.data.outcome && ["POSTED", "IDEMPOTENT"].includes(parsed.data.outcome) &&
+        parsed.data.stock_sequence !== null && parsed.data.quantity_after !== null;
+      const definitiveRejection = !uncertain.current && response.status === "REJECTED" && parsed.success &&
+        response.result_code === parsed.data.outcome && ["PRESENTATION_NOT_FOUND", "INSUFFICIENT_STOCK"].includes(parsed.data.outcome);
+      if (success || definitiveRejection) {
+        setMovement(parsed.data!);
       } else {
-        setError("Resultado incierto. Reintenta la operación pendiente sin crear otra entrada.");
+        uncertain.current = true;
+        setError("Resultado no concluyente. Conserva esta pantalla y reintenta el mismo movimiento; no registres otra entrada.");
         return;
       }
       pendingOperation.current = null; setPending(false);
     } catch {
+      uncertain.current = true;
       setError("No se recibió confirmación. Reintenta la operación pendiente sin cambiar los datos.");
     } finally { inFlight.current = false; setBusy(false); }
   }, []);
@@ -82,6 +94,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     if (inFlight.current || pendingOperation.current) return;
     const normalized = toScale6(quantity);
     if (normalized === null) { setError("QUANTITY_NOT_SCALE6"); return; }
+    uncertain.current = false;
     pendingOperation.current = { messageType, key: newIdempotencyKey(), payload: {
       presentation_id: presentationId, movement_type: movementType, quantity: normalized,
       reason_code: reasonCode, business_date: businessDate,
@@ -107,6 +120,8 @@ export function useInventoryAdmin(): InventoryAdminState & {
   ) => post("inventory.stock.adjust", presentationId, movementType, quantity, reasonCode, businessDate), [post]);
 
   const getStock = useCallback(async (presentationId: string): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setStock(null);
@@ -124,6 +139,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);
