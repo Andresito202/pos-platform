@@ -86,6 +86,10 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
         </div>
       )}
 
+      {issued?.outcome === "FISCAL_REJECTED" && <div data-testid="fiscal-rejected" role="alert">
+        <strong>Documento rechazado por el proveedor fiscal</strong>
+        <p>El envío terminó, pero el documento no fue aceptado. Revisa el rechazo antes de corregirlo; no se volverá a emitir automáticamente.</p>
+      </div>}
       {issued !== null && issued.outcome === "BLOCKED" && (
         <div data-testid="fiscal-blocked">
           <span data-testid="fiscal-blocked-code">{issued.block_code}</span>
@@ -119,7 +123,7 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
         </div>
       )}
 
-      {blocked && <p role="alert">Esta venta tiene una emisión sin resultado concluyente. No vuelvas a emitir hasta conciliar el documento con el proveedor. Esta pantalla no dispone todavía de conciliación automática.</p>}
+      {blocked && <p role="alert">Esta venta no admite otra emisión desde esta pantalla. Revisa el resultado y resuelve el rechazo o la conciliación con el proveedor; no hay corrección ni conciliación automática.</p>}
       {fiscal.resultSaleId === saleId.trim() && fiscal.error !== null && <div data-testid="fiscal-error">{fiscal.error}</div>}
     </section>
   );

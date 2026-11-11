@@ -476,6 +476,10 @@ describe("SqliteFiscalDocumentStore — máquina de estados", () => {
       numberingRangeId: RANGE_ID, idempotencyKey: `${saleId}:${DOCUMENT_TYPE}`,
       payloadJson: "{}", payloadChecksum: "a".repeat(64),
     });
+    for (const foreignScope of [{ ...SCOPE, companyId: randomUUID() }, { ...SCOPE, branchId: randomUUID() }]) {
+      expect(store.findOpenForSale(foreignScope, saleId, DOCUMENT_TYPE)).toBeNull();
+      expect(store.findByIdempotencyKey(foreignScope, PROVIDER, ENVIRONMENT, document.idempotencyKey)).toBeNull();
+    }
     store.markInProgress(SCOPE, document.id, NOW_ISO);
     const reloaded = store.findByIdempotencyKey(SCOPE, PROVIDER, ENVIRONMENT, document.idempotencyKey);
     expect(reloaded?.transportStatus).toBe("IN_PROGRESS");
@@ -519,8 +523,8 @@ describe("SqliteFiscalDocumentStore — máquina de estados", () => {
       providerOperationId: "op", providerDocumentId: null, issuedPrefix: null, issuedNumber: null, cufe: null,
       providerStatusCode: null, providerStatus: null, providerHttpStatus: null,
     });
-    // Rechazado: ya no está "vivo", así que una segunda venta... perdón, un
-    // segundo intento de la misma venta debe poder abrirse.
+    // La consulta de abiertos excluye rechazos; el caso de uso recupera
+    // primero la identidad persistida para no transmitir otra vez.
     expect(store.findOpenForSale(SCOPE, saleId, DOCUMENT_TYPE)).toBeNull();
   });
 });
@@ -675,6 +679,23 @@ describe("IssueElectronicDocumentUseCase — permiso (F5, cruce del canal)", () 
     expect(result.kind).toBe("UNAUTHORIZED");
     expect(port.callCount).toBe(0);
     expect((database.native.prepare("SELECT count(*) AS n FROM fiscal_electronic_document").get() as { n: number }).n).toBe(0);
+  });
+});
+
+describe("IssueElectronicDocumentUseCase — rechazo fiscal persistido", () => {
+  it("never labels a provider rejection as issued, including subsequent reads", async () => {
+    const port = new FakeIssuancePort(evidenced({ normalizedResult: "REJECTED", externalIdentity: {providerOperationId:"rejected-operation",providerDocumentId:null,prefix:null,number:null,cufe:null} }));
+    const { database, useCase } = await buildEnv(port);
+    seedRange(database);
+    const saleId = seedSale(database);
+    seedCatalogLine(database, saleId, 1);
+    seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
+    const first = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
+    expect(first.kind).toBe("FISCAL_REJECTED");
+    const again = await useCase.execute(auth(), baseInput(saleId), SIGNAL);
+    expect(again.kind).toBe("FISCAL_REJECTED");
+    expect(port.callCount).toBe(1);
+    expect(database.native.prepare("SELECT transport_status, normalized_result FROM fiscal_electronic_document").get()).toMatchObject({transport_status:"COMPLETED",normalized_result:"REJECTED"});
   });
 });
 

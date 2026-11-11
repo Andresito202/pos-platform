@@ -8,7 +8,7 @@ const customer={kind:"IDENTIFIED" as const,customerId:"018f0000-0000-7000-8000-0
 const uncertain={status:"REJECTED",result_code:"UNCERTAIN",result:{outcome:"UNCERTAIN",document_id:null,transport_status:"UNKNOWN_OUTCOME",normalized_result:null,cufe:null,issued_prefix:null,issued_number:null,attempt_count:1,block_code:null,reasons:[]}};
 beforeEach(()=>{call.mockReset();});
 describe("fiscal uncertain results",()=>{
- it.each([uncertain,{...uncertain,result_code:"REQUIRES_RECONCILIATION",result:{...uncertain.result,outcome:"REQUIRES_RECONCILIATION"}},{...uncertain,status:"SUCCEEDED"},{status:"UNKNOWN",result_code:"UNKNOWN",result:null}])("blocks reissue per sale, including malformed status: %j",async response=>{
+ it.each([{...uncertain,result_code:"FISCAL_REJECTED",result:{...uncertain.result,outcome:"FISCAL_REJECTED",transport_status:"COMPLETED",normalized_result:"REJECTED"}},uncertain,{...uncertain,result_code:"REQUIRES_RECONCILIATION",result:{...uncertain.result,outcome:"REQUIRES_RECONCILIATION"}},{...uncertain,status:"SUCCEEDED"},{status:"UNKNOWN",result_code:"UNKNOWN",result:null}])("blocks reissue per sale, including malformed status: %j",async response=>{
   call.mockResolvedValue(response);const {result}=renderHook(()=>useFiscalIssuance());
   await act(async()=>{await result.current.issue("sale-a","SALES_INVOICE",customer);});
   expect(result.current.isBlocked("sale-a","SALES_INVOICE")).toBe(true);

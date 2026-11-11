@@ -109,3 +109,5 @@ TypeScript completo de Central aprobado tras instalar la dependencia WebAuthn fi
 Los movimientos manuales de inventario conservan su solicitud ante respuestas no concluyentes mientras la pantalla permanece montada. Esto no sustituye la recuperación durable tras cierre o pérdida de sesión; ese escenario continúa pendiente y está detallado en el estado de integraciones.
 
 La pantalla fiscal bloquea una nueva emisión de la venta ante resultado incierto, conciliación requerida o respuesta no verificable. El bloqueo visual no sustituye los estados durables del backend ni acredita conciliación con Factus; no hay conciliación automática implementada por este incremento.
+
+La emisión fiscal distingue aceptación y rechazo: `FISCAL_REJECTED` no se presenta como `ISSUED`, y repetir la solicitud recupera el rechazo persistido sin reenviar. Validación de este incremento: 33 pruebas fiscales y 306 desktop aprobadas; no equivale a certificación del sandbox externo. El botón de carrito «En espera» está acordado y pendiente de implementación durable; su alcance figura en el documento de integraciones.

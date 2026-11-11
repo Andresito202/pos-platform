@@ -52,7 +52,7 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
     const identity = JSON.stringify([saleId, documentType]);
     if (inFlight.current) return;
     if (blocked.current.has(identity)) {
-      setError("Esta venta requiere conciliación antes de otra emisión.");
+      setError("Esta venta requiere revisión del resultado fiscal antes de otra emisión.");
       return;
     }
     inFlight.current = true;
@@ -85,7 +85,7 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
         setError("Respuesta fiscal no verificable. Consulta el documento antes de emitir de nuevo.");
         return;
       }
-      if (["UNCERTAIN", "REQUIRES_RECONCILIATION"].includes(parsed.data.outcome)) blocked.current.add(identity);
+      if (["UNCERTAIN", "REQUIRES_RECONCILIATION", "FISCAL_REJECTED"].includes(parsed.data.outcome)) blocked.current.add(identity);
       setIssued(parsed.data);
     } catch (thrown) {
       blocked.current.add(identity);

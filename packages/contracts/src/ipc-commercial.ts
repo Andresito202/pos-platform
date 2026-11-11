@@ -820,6 +820,7 @@ export const FiscalDocumentIssueOutcomeSchema = z.enum([
   "UNAUTHORIZED",
   "ALREADY_ISSUED",
   "ISSUED",
+  "FISCAL_REJECTED",
   "REQUIRES_RECONCILIATION",
   "NOT_ELIGIBLE",
   "BLOCKED",

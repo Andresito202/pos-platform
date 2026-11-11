@@ -82,3 +82,15 @@ Se corrigió una contradicción entre el comentario y la interfaz: UNCERTAIN/REQ
 Validación: **305 pruebas desktop aprobadas**, TypeScript renderer y build aprobados. Cinco casos nuevos de hook y una ampliación de la prueba de panel verifican bloqueo, retorno a la venta original, aislamiento entre ventas, pérdida de respuesta y doble clic. Pruebas de frontend con doble del canal: no equivalen a emisión externa.
 
 Límite vigente: el bloqueo de interfaz vive en memoria del componente. Al reiniciar, el backend sigue siendo la autoridad y mantiene sus estados de documento; no hay conciliación automática nueva, botón ficticio para conciliar ni evidencia de factura emitida en Factus externo. La recuperación durable y conciliación física siguen pendientes.
+
+## Rechazo fiscal distinguido de emisión — 11 de noviembre
+
+Se reprodujo un defecto del servicio: persistía normalized_result=REJECTED pero devolvía ISSUED. La corrección introduce FISCAL_REJECTED en el contrato IPC, el handler y la pantalla. COMPLETED describe el transporte, no la aceptación fiscal. Una segunda solicitud recupera primero la identidad persistida: devuelve el rechazo sin transmitir otra vez ni colisionar con el índice único. Un documento CANCELLED exige revisión. Las consultas por identidad y por venta también filtran empresa y sucursal, además del tenant.
+
+Validación: 33 pruebas de emisión fiscal aprobadas, incluyendo rechazo persistido, una sola llamada al proveedor e aislamiento de consultas entre empresas/sucursales; 306 pruebas desktop aprobadas; TypeScript del servicio local y renderer, y build renderer aprobados. El rechazo se comprobó con un proveedor simulado: no acredita Factus externo ni corrige automáticamente una factura rechazada.
+
+## Requisito acordado: cliente en espera
+
+Pendiente de implementación después del cierre de integraciones en curso. En el carrito del cajero debe existir un botón pequeño «En espera». Debe conservar productos, cantidades, cliente y descuentos válidos al atender otra venta; permitir listar y recuperar pendientes sin mezclar carritos ni perder cambios. Debe usar ventas persistidas del servicio con aislamiento por negocio/sucursal/caja y autorización, no una copia únicamente en memoria del navegador. Suspender no equivale a cobrar, confirmar pago, emitir factura ni cancelar. No debe liberar ni duplicar un pago en curso: ese caso requiere una decisión explícita del servicio.
+
+Pruebas de aceptación pendientes: alternar entre dos clientes, recuperar después de reiniciar, cantidades/descuentos correctos, doble clic sin duplicados, permisos/aislamiento, pago en curso y rechazo de recuperación concurrente. Esta sección registra el alcance autorizado; no afirma que la función esté disponible.
