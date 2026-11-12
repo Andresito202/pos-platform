@@ -20,6 +20,12 @@ export function HardwarePanel({permissions}:{permissions:ReadonlySet<string>}):R
   return <section data-testid="hardware-panel">
     <h2>Impresora y cajón</h2>
     <p>Una cola instalada no confirma un modelo compatible. Un trabajo aceptado no confirma impresión ni apertura física.</p>
+    {permitted(CanonicalPermission.HARDWARE_READ) && <section aria-label="Perfil de balanza en laboratorio">
+      <h3>Báscula USB — referencia de laboratorio</h3>
+      <p>TEK ATLAS (modelo comunicado), CH340 USB VID 0x1A86 / PID 0x7523, ASCII CRLF a 9600 8N1 sobre M60WL Android 9.</p>
+      <p>En el laboratorio externo, Print Mini y Firefox/MásControl recibieron pesos. <strong>Camacho POS todavía no tiene ese adaptador nativo conectado a ventas.</strong> Este bloque no detecta ni activa un dispositivo.</p>
+      <p>El VID/PID corresponde al adaptador CH340 y no identifica una báscula única. Se requiere selección, autorización USB, perfil validado y prueba física de Camacho POS antes de habilitarla comercialmente.</p>
+    </section>}
     {permitted(CanonicalPermission.HARDWARE_READ) && <button disabled={busy} onClick={()=>void run({action:"diagnose"})}>Detectar y diagnosticar</button>}
     {permitted(CanonicalPermission.HARDWARE_READ) && <button disabled={busy} onClick={()=>void run({action:"list"})}>Consultar asociaciones y trabajos</button>}
     {permitted(CanonicalPermission.HARDWARE_CONFIGURE) && <fieldset disabled={busy}><legend>Asociación autorizada</legend>
