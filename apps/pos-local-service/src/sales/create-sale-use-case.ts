@@ -29,6 +29,8 @@ export interface CreateSaleRequestLine {
 }
 
 export interface CreateSaleRequest {
+  /** Trusted counter adapter policy; not an IPC input. */
+  readonly requireOpenCashShift?: boolean;
   /** Caja seleccionada, o `null` cuando la venta no pasa por caja. */
   readonly cashRegisterId: string | null;
   readonly idempotencyKey: string;
@@ -74,7 +76,8 @@ export type CreateSaleResult =
       readonly available: string;
       readonly requested: string;
     }
-  | { readonly kind: "IDEMPOTENCY_CONFLICT" };
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "CASH_SHIFT_NOT_OPEN" };
 
 function requestChecksum(request: CreateSaleRequest, operatorUserId: string): string {
   return createHash("sha256")
@@ -314,6 +317,8 @@ export class CreateSaleUseCase {
     // participa: §25.3 le niega propiedad sobre la caja, y dos terminales pueden
     // trabajar la misma caja legítimamente.
     //
+    // El adaptador IPC de mostrador exige requireOpenCashShift: la transacción
+    // rechaza caja ausente/cerrada antes de escribir. Para otros llamadores internos:
     // Sin caja nombrada la venta nace sin turno, con el par en `NULL`: el
     // esquema lo admite y hay canales que no pasan por caja. Con caja nombrada
     // pero sin turno activo tampoco se vincula, y el cobro en efectivo lo
@@ -332,6 +337,7 @@ export class CreateSaleUseCase {
 
     // 9. Persistencia atómica
     const storeInput = {
+      requireOpenCashShift: request.requireOpenCashShift === true,
       saleId,
       operationId,
       scope,
@@ -404,6 +410,8 @@ export class CreateSaleUseCase {
     if (outcome.kind === "IDEMPOTENCY_CONFLICT") {
       return { kind: "IDEMPOTENCY_CONFLICT" };
     }
+
+    if (outcome.kind === "CASH_SHIFT_NOT_OPEN") return outcome;
 
     return {
       kind: outcome.kind === "CREATED" ? "CREATED" : "IDEMPOTENT",

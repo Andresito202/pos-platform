@@ -1,3 +1,4 @@
+import { formatScale6Display, formatQuantityDisplay } from "../money-display.js";
 import { useEffect, useState } from "react";
 import { useReceipt } from "../hooks/useReceipt.js";
 
@@ -83,33 +84,33 @@ export function ReceiptPanel({ initialSaleId = null }: { initialSaleId?: string 
                 {" · "}
                 <span data-testid="receipt-line-presentation">{line.presentation_name}</span>
                 {" · "}
-                <span data-testid="receipt-line-quantity">{line.quantity}</span>
+                <span data-testid="receipt-line-quantity">{formatQuantityDisplay(line.quantity, null)}</span>
                 {" "}{line.unit_code}{" × "}
-                <span data-testid="receipt-line-unit-price">{line.unit_price_amount}</span>
+                <span data-testid="receipt-line-unit-price">{formatScale6Display(line.unit_price_amount)}</span>
                 {" = "}
-                <span data-testid="receipt-line-total">{line.line_total_amount}</span>
+                <span data-testid="receipt-line-total">{formatScale6Display(line.line_total_amount)}</span>
               </li>
             ))}
           </ul>
 
           <div>
-            Subtotal <span data-testid="receipt-subtotal">{receipt.receipt.subtotal_amount}</span>
+            Subtotal <span data-testid="receipt-subtotal">{formatScale6Display(receipt.receipt.subtotal_amount)}</span>
             {" · descuento "}
-            <span data-testid="receipt-discount">{receipt.receipt.discount_amount}</span>
+            <span data-testid="receipt-discount">{formatScale6Display(receipt.receipt.discount_amount)}</span>
             {" · impuesto "}
-            <span data-testid="receipt-tax">{receipt.receipt.tax_amount}</span>
+            <span data-testid="receipt-tax">{formatScale6Display(receipt.receipt.tax_amount)}</span>
           </div>
           <div>
             {/* El ajuste de redondeo se muestra en vez de absorberse: es la
                 diferencia entre lo que suman las líneas y lo que se cobró. */}
             Redondeo{" "}
             <span data-testid="receipt-rounding">
-              {receipt.receipt.commercial_rounding_adjustment}
+              {formatScale6Display(receipt.receipt.commercial_rounding_adjustment)}
             </span>
           </div>
           <div>
             Total pagado{" "}
-            <strong data-testid="receipt-payable">{receipt.receipt.payable_amount}</strong>
+            <strong data-testid="receipt-payable">{formatScale6Display(receipt.receipt.payable_amount)}</strong>
             {" "}<span data-testid="receipt-currency">{receipt.receipt.currency_code}</span>
           </div>
 
@@ -118,9 +119,9 @@ export function ReceiptPanel({ initialSaleId = null }: { initialSaleId?: string 
               <li key={`${payment.payment_method}-${String(index)}`} data-testid="receipt-payment">
                 <span data-testid="receipt-payment-method">{payment.payment_method}</span>
                 {" "}
-                <span data-testid="receipt-payment-amount">{payment.confirmed_amount}</span>
+                <span data-testid="receipt-payment-amount">{formatScale6Display(payment.confirmed_amount)}</span>
                 {payment.change_amount !== null && (
-                  <> · cambio <span data-testid="receipt-payment-change">{payment.change_amount}</span></>
+                  <> · cambio <span data-testid="receipt-payment-change">{formatScale6Display(payment.change_amount)}</span></>
                 )}
               </li>
             ))}

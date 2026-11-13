@@ -679,7 +679,9 @@ describe("la vertical comercial atraviesa el socket real hasta SQLite", () => {
       const product = await send(mutating("catalog.product.register", payload, "d19:valid"));
       expect(product.result["outcome"]).toBe("REGISTERED");
       expect(database.native.prepare("SELECT tax_rate FROM catalog_fiscal_attribute WHERE presentation_id=?").get(product.result["presentation_id"])).toEqual({ tax_rate: "19.000000" });
-      const sale = await send(mutating("sale.create", { cash_register_id: null, channel: "POS", business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
+      seedRegister(database);
+      expect((await send(mutating("cash.shift.open", { cash_register_id: REGISTER, opening_amount:"0.000000", business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300 },"d19:shift"))).result.outcome).toBe("OPENED");
+      const sale = await send(mutating("sale.create", { cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
         document_series: "D19", currency_code: "COP", lines: [{ product_id: product.result["product_id"], presentation_id: product.result["presentation_id"], quantity: "1.000000", identifier: payload.barcode }] }, "d23:valid"));
       expect(sale.result["outcome"]).toBe("CREATED");
       expect(database.native.prepare("SELECT identifier_snapshot FROM sales_sale_items WHERE sale_id=?").get(sale.result["sale_id"])).toEqual({ identifier_snapshot: payload.barcode });
@@ -1553,14 +1555,25 @@ describe("la transferencia recorre reportar → leer versión → atestiguar", (
 it("waiting cart crosses authenticated channel and is consumed atomically by the real sale use case",async()=>{
   await withRealChannel(async(send,database)=>{
     const ids=await prepareCounter(send,database,"waiting");
+    const customer = await send(mutating("customer.register", {
+      identification_document_code:"13",identification:"1020304050",verification_digit:null,
+      legal_organization_code:"2",company:null,names:"Cliente de espera",tribute_code:"ZZ",
+      fiscal_responsibility_codes:["R-99-PN"],email:null,phone:null,address:null,country_code:null,municipality_code:null,
+    },"waiting-customer"));
+    expect(customer.result.outcome).toBe("REGISTERED");
+    const customerId=customer.result.customer_id;
     const cartId=randomUUID();
-    const save=mutating("cart.waiting.save",{cart_id:cartId,expected_version:0,cart:{label:"Cliente A",cash_register_id:REGISTER,
+    const save=mutating("cart.waiting.save",{cart_id:cartId,expected_version:0,cart:{label:"Cliente A",customer_id:customerId,cash_register_id:REGISTER,
       lines:[{...ids,name:"Café",presentationName:"Bolsa",priceAmount:"1.000000",currencyCode:"COP",quantity:"2.000000",identifier:BARCODE}]}},"waiting-save");
+    const invalid=structuredClone(save);
+    (invalid.payload as any).cart.customer_id=randomUUID();
+    expect((await send(invalid)).result.outcome).toBe("NOT_FOUND");
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_waiting_carts")).toBe(0);
     expect((await send(save)).result.outcome).toBe("SAVED");
     expect((await send(save)).result.outcome).toBe("SAVED");
     expect((await send(reading("cart.waiting.list",{}))).result.carts).toHaveLength(1);
     const recovered=await send(reading("cart.waiting.get",{cart_id:cartId}));
-    expect(recovered.result.carts).toMatchObject([{active_shift:{version:1}}]);
+    expect(recovered.result.carts).toMatchObject([{active_shift:{version:1},payload:{customer_id:customerId}}]);
     expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
     const request=mutating("sale.create",{cash_register_id:REGISTER,waiting_cart:{id:cartId,version:1},channel:"POS",
       business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,document_series:"A",currency_code:"COP",
@@ -1574,5 +1587,28 @@ it("waiting cart crosses authenticated channel and is consumed atomically by the
     expect((await send(reading("cart.waiting.list",{}))).result.carts).toEqual([]);
     expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
     expect(stockOf(database,ids.presentationId)).toBe("12.000000");
+  });
+});
+
+
+it("counter channel rejects a missing or closing shift, with no numbering or sale writes, and replays after closure", async () => {
+  await withRealChannel(async (send,database) => {
+    const ids=await prepareCounter(send,database,"shift-required");
+    const request=mutating("sale.create",{cash_register_id:REGISTER,channel:"POS",
+      business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,document_series:"A",currency_code:"COP",
+      lines:[{product_id:ids.productId,presentation_id:ids.presentationId,quantity:"1.000000",identifier:BARCODE}]
+    },"shift-required-sale");
+    const noBox=structuredClone(request); (noBox.payload as any).cash_register_id=null;
+    (noBox.payload as any).channel="OTHER_CHANNEL";
+    expect((await send(noBox)).result.outcome).toBe("CASH_SHIFT_NOT_OPEN");
+    database.native.prepare("UPDATE cash_shift SET status='CLOSING' WHERE cash_register_id=?").run(REGISTER);
+    expect((await send(request)).result.outcome).toBe("CASH_SHIFT_NOT_OPEN");
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_document_series_counter")).toBe(0);
+    database.native.prepare("UPDATE cash_shift SET status='OPEN' WHERE cash_register_id=?").run(REGISTER);
+    expect((await send(request)).result.outcome).toBe("CREATED");
+    database.native.prepare("UPDATE cash_shift SET status='CLOSING' WHERE cash_register_id=?").run(REGISTER);
+    expect((await send(request)).result.outcome).toBe("IDEMPOTENT");
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
   });
 });

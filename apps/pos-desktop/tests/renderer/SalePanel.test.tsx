@@ -123,6 +123,24 @@ beforeEach(() => {
 });
 
 describe("SalePanel — vertical comercial", () => {
+  it("explains an invalid register beside the opening form without sending a mutation", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    fireEvent.change(screen.getByTestId("cash-register-input"),{target:{value:"Caja 1"}});
+    fireEvent.click(screen.getByTestId("open-shift-button"));
+    expect(screen.getByRole("alert").textContent).toContain("identificador válido");
+    expect(calls.get("cash.shift.open")).toBeUndefined();
+    expect(screen.getByTestId("shift-closed")).toBeTruthy();
+  });
+  it("shows an inactive register rejection without pretending the shift opened", async () => {
+    install({...BASE_OVERRIDES,"cash.shift.open":{status:"REJECTED",result_code:"REGISTER_INACTIVE",result:null}});
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    fireEvent.change(screen.getByTestId("cash-register-input"),{target:{value:REGISTER}});
+    fireEvent.click(screen.getByTestId("open-shift-button"));
+    await waitFor(()=>expect(screen.getByRole("alert").textContent).toContain("inactiva"));
+    expect(screen.getByTestId("shift-closed")).toBeTruthy();
+  });
+
   it("se monta con la caja cerrada", () => {
     install(BASE_OVERRIDES);
     render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
@@ -379,8 +397,9 @@ describe("SalePanel — vertical comercial", () => {
     expect(save.mock.calls[1]?.[0]).toEqual(save.mock.calls[0]?.[0]);
   });
 
-  it("holds a cart, serves another customer and recovers original quantities", async () => {
-    install(BASE_OVERRIDES);
+  it("links the real customer, holds a cart and restores both identity and quantities", async () => {
+    const customer = succeeded({outcome:"FOUND",customer_id:PAYMENT,names:"Cliente real",company:null});
+    install({...BASE_OVERRIDES,"customer.find":customer,"customer.get":customer});
     let saved:any;
     const save=vi.fn(async (request:any)=>{
       saved={id:request.payload.cart_id,version:1,updated_at:new Date().toISOString(),line_count:request.payload.cart.lines.length,payload:request.payload.cart};
@@ -390,10 +409,17 @@ describe("SalePanel — vertical comercial", () => {
     Object.defineProperty(window.posService,"cart.waiting.get",{value:vi.fn(async()=>({status:"SUCCEEDED",result_code:"FOUND",result:{outcome:"FOUND",carts:[saved],has_more:false}}))});
     render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)}/>);
     await openShift();await addProduct();
+    fireEvent.change(screen.getByLabelText("Documento del cliente"),{target:{value:"1020304050"}});
+    fireEvent.click(screen.getByRole("button",{name:"Buscar cliente"}));
+    await screen.findByRole("button",{name:"Vincular al carrito"});
+    fireEvent.click(screen.getByRole("button",{name:"Vincular al carrito"}));
+    expect(calls.get("customer.find")?.[0]).toMatchObject({payload:{identification_document_code:"13",identification:"1020304050"}});
     fireEvent.change(screen.getByLabelText("Referencia del cliente en espera"),{target:{value:"Cliente A"}});
     fireEvent.click(screen.getByTestId("hold-cart"));
     await waitFor(()=>expect(screen.queryAllByTestId("cart-line")).toHaveLength(0));
     expect(save).toHaveBeenCalledTimes(1);
+    expect(saved.payload.customer_id).toBe(PAYMENT);
+    expect(screen.queryByRole("button",{name:"Quitar cliente"})).toBeNull();
     expect(calls.get("sale.create")).toBeUndefined();
     await addProduct();
     expect((screen.getByRole("button",{name:/Cliente A · 1 líneas/}) as HTMLButtonElement).disabled).toBe(true);
@@ -401,6 +427,8 @@ describe("SalePanel — vertical comercial", () => {
     fireEvent.click(screen.getByRole("button",{name:/Cliente A · 1 líneas/}));
     await screen.findByTestId("cart-line");
     expect((screen.getByLabelText("Referencia del cliente en espera") as HTMLInputElement).value).toBe("Cliente A");
+    expect(screen.getByRole("button",{name:"Quitar cliente"})).toBeTruthy();
+    await waitFor(()=>expect(calls.get("customer.get")?.length).toBeGreaterThanOrEqual(2));
     await createSale();
     expect(calls.get("sale.create")?.[0]).toMatchObject({payload:{waiting_cart:{id:saved.id,version:1},lines:[{quantity:"1.000000"}]}});
     expect((screen.getByTestId("hold-cart") as HTMLButtonElement).disabled).toBe(true);
@@ -638,6 +666,20 @@ describe("SalePanel · transferencia", () => {
     expect(screen.getByTestId("transfer-status").textContent).toBe("CREATED");
     expect(screen.getByTestId("transfer-expected-amount").getAttribute("data-amount")).toBe("3500.000000");
     expect(screen.getByTestId("transfer-expected-amount").textContent).toMatch(/3\.500/);
+  });
+
+  it.each([['nequi', 'NEQUI'], ['daviplata', 'DAVIPLATA']])("registra %s separado sin dar el pago por confirmado", async (button, provider) => {
+    await reachSale({ "payment.register.transfer": registered("REGISTERED"), "payment.get": fetched(3) });
+    fireEvent.click(screen.getByTestId(`select-payment-${button}`));
+    fireEvent.click(screen.getByTestId("register-transfer-button"));
+    await screen.findByTestId("transfer-registered");
+    const request = calls.get("payment.register.transfer")![0] as { payload: Record<string, unknown> };
+    expect(PaymentRegisterTransferRequestSchema.safeParse(request).success).toBe(true);
+    expect(request.payload["provider_code"]).toBe(provider);
+    expect(request.payload["amount"]).toBe("3500.000000");
+    expect(calls.get("payment.transfer.confirm")).toBeUndefined();
+    expect(screen.queryByTestId("transfer-sale-completed")).toBeNull();
+    expect(chime).not.toHaveBeenCalled();
   });
 
   it("registrar NO es cobrar: no suena, no completa y queda pendiente", async () => {

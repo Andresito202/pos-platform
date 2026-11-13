@@ -112,6 +112,8 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   canReadPayment: boolean;
 }): CommercialSaleState & {
   waitingCarts: readonly WaitingCart[];
+  customerId: string | null;
+  selectCustomer(customerId: string | null): void;
   waitingLabel: string;
   setWaitingLabel(value: string): void;
   listWaiting(): Promise<void>;
@@ -126,7 +128,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   removeLine(index: number): void;
   createSale(): Promise<void>;
   chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
-  registerTransfer(paymentAmount?: string): Promise<void>;
+  registerTransfer(paymentAmount?: string, provider?: "NEQUI" | "DAVIPLATA" | null): Promise<void>;
   confirmTransfer(): Promise<void>;
   loadTransfer(paymentId: string): Promise<void>;
   cancelTransfer(): Promise<void>;
@@ -136,6 +138,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   reset(): boolean;
 } {
   const [waitingCarts,setWaitingCarts]=useState<WaitingCart[]>([]);
+  const [customerId,setCustomerId]=useState<string|null>(null);
   const [waitingLabel,setWaitingLabel]=useState("");
   const [activeWaiting,setActiveWaiting]=useState<WaitingCart|null>(null);
   const [busy, setBusy] = useState(false);
@@ -235,6 +238,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   useEffect(() => {
     if (!unresolved) return;
     const preventLoss = (event: BeforeUnloadEvent) => {
+      if (pendingMutation.current === null) return;
       event.preventDefault();
       event.returnValue = "";
     };
@@ -252,6 +256,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     cashRegisterId: string,
     openingAmount: string,
   ): Promise<void> => {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cashRegisterId)) {
+      setError("INVALID_CASH_REGISTER"); return;
+    }
     const opening = toScale6(openingAmount);
     if (opening === null) {
       setError("INVALID_OPENING_AMOUNT");
@@ -454,9 +461,8 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
    * fuente de `version`, que la confirmación exigirá. También en `IDEMPOTENT`,
    * donde el pago ya existía y su versión puede ser cualquiera.
    *
-   * `provider_code` y `provider_reference` viajan nulos porque el contrato los
-   * admite nulos y la pantalla todavía no los pide. Inventar campos que el
-   * contrato no define sería fabricar datos de un comprobante.
+   * El medio seleccionado viaja como metadata NEQUI/DAVIPLATA o null.
+   * Identifica lo reportado; no constituye confirmación del proveedor.
    */
   const loadTransfer = useCallback(async (paymentId: string): Promise<void> => {
     if (!canReadPayment) return;
@@ -474,7 +480,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     );
   }, [canReadPayment, run]);
 
-  const registerTransfer = useCallback(async (paymentAmount?: string): Promise<void> => {
+  const registerTransfer = useCallback(async (paymentAmount?: string, provider: "NEQUI" | "DAVIPLATA" | null = null): Promise<void> => {
     const current = sale;
     if (current === null) return;
     const amount = toScale6(paymentAmount ?? current.payableAmount);
@@ -486,7 +492,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
       () => callMutation("payment.register.transfer", {
         sale_id: current.saleId,
         amount,
-        provider_code: null,
+        provider_code: provider,
         provider_reference: null,
       }),
       (result) => {
@@ -564,14 +570,14 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     const id=activeWaiting?.id ?? globalThis.crypto.randomUUID();
     await run(() => callMutation("cart.waiting.save",{
       cart_id:id,expected_version:activeWaiting?.version ?? 0,
-      cart:{label:waitingLabel,cash_register_id:shift.cashRegisterId,lines},
+      cart:{label:waitingLabel,cash_register_id:shift.cashRegisterId,lines,...(customerId ? {customer_id:customerId}:{})},
     }),result=>{
       const parsed=WaitingCartResultSchema.safeParse(result);
       if(!parsed.success || parsed.data.outcome!=="SAVED" || parsed.data.carts[0]?.id!==id) {setError("WAITING_CART_RESPONSE_INVALID");return;}
-      setLines([]);setFoundItem(null);setActiveWaiting(null);setWaitingLabel("");
+      setLines([]);setFoundItem(null);setActiveWaiting(null);setWaitingLabel("");setCustomerId(null);
       setWaitingCarts(current=>[...current.filter(c=>c.id!==id),parsed.data.carts[0]!]);
     });
-  },[sale,shift,lines,activeWaiting,waitingLabel,run,callMutation]);
+  },[sale,shift,lines,activeWaiting,waitingLabel,customerId,run,callMutation]);
   const resumeCart = useCallback(async (cart:WaitingCart):Promise<void>=>{
     if(busyRef.current || pendingMutation.current || sale || lines.length>0) {setError("Guarda el carrito actual en espera antes de recuperar otro.");return;}
     if(shift && shift.cashRegisterId!==cart.payload.cash_register_id) {setError("Abre la misma caja del carrito antes de recuperarlo.");return;}
@@ -583,7 +589,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
         if(!found.active_shift) {setError("Abre la misma caja del carrito antes de recuperarlo.");return;}
         setShift({shiftId:found.active_shift.shift_id,version:found.active_shift.version,cashRegisterId:found.payload.cash_register_id});
       }
-      setLines([...found.payload.lines]);setActiveWaiting(found);setWaitingLabel(found.payload.label);setError(null);
+      setLines([...found.payload.lines]);setActiveWaiting(found);setWaitingLabel(found.payload.label);setCustomerId(found.payload.customer_id ?? null);setError(null);
     });
   },[sale,lines,shift,run]);
 
@@ -599,7 +605,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   const reset = useCallback((): boolean => {
     if (busyRef.current || pendingMutation.current !== null) { setError("OPERATION_OUTCOME_UNRESOLVED"); return false; }
     setLines([]);
-    setActiveWaiting(null);setWaitingLabel("");
+    setActiveWaiting(null);setWaitingLabel("");setCustomerId(null);
     setSale(null);
     setPayment(null);
     setFoundItem(null);
@@ -610,6 +616,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   }, []);
 
   return {
+    customerId, selectCustomer: (id) => {
+      if (!busyRef.current && !pendingMutation.current && !sale) setCustomerId(id);
+    },
     waitingCarts, waitingLabel, setWaitingLabel, listWaiting, holdCart, resumeCart, discardWaiting,
     busy, error, shift, foundItem, catalogItems, catalogHasMore, catalogBusy, lines, sale, payment, closedShift,
     transfer, transferConfirmation,

@@ -108,3 +108,34 @@ Diagnóstico para «En espera»: useCommercialSale conserva las líneas en estad
 ## Clientes en espera — incremento del 13 de noviembre
 
 Las notas anteriores que lo marcaban pendiente quedan sustituidas en su alcance por [Clientes en espera](waiting-carts.md): guardado/consulta/recuperación/eliminación conectados desde SalePanel al servicio y SQLite; conversión atómica al caso de uso existente de venta, aislamiento por operador y dispositivo, versiones y reintentos. Recupera el turno propio OPEN al consultar un carrito guardado después de reiniciar. No recupera pagos inciertos ni implementa cliente comercial/descuentos ausentes del carrito actual. No se declara E2E Electron o Android.
+
+
+## 2026-11-13 — caja, cliente en espera y base de inventario sectorial
+
+Base remota inspeccionada: c759ee40812d40fbf3477171a30bf636866a8112, rama cursor/commercial-design-review-0d11. Incremento sobre esa misma línea, sin merge a main. El SHA del incremento se identifica en el commit que contiene esta sección.
+
+Cambios materializados:
+
+- Cliente real opcional en carrito en espera: customer.find/get, referencia persistida en payload SQLite, validación del permiso y empresa al guardar. No equivale todavía a asignación automática del adquiriente de la factura final.
+- Nequi/Daviplata con controles compactos separados y provider_code de transferencia; no se simula confirmación bancaria.
+- Catálogo, comprobantes y monto administrativo presentan COP legible sin alterar el valor fuente. Prueba de recibo actualizada por el cambio de presentación esperado, no de cálculo.
+- Mostrador sale.create exige turno OPEN en la transacción que crea la venta. Un channel alternativo no evade la regla del adaptador. Se rechazan caja ausente y turno CLOSING antes de numerar/escribir; un replay de venta ya creada se conserva aunque el turno cambie. El test fiscal D19 se actualizó para publicar su caja y abrir el turno antes de vender, conforme al nuevo requisito.
+- Apertura informa errores junto al formulario y rechaza identificador inválido antes de transmitir. No resuelve todavía la pantalla administrativa de habilitación/asignación.
+- Inventario verifica precisión/unidad, cantidad positiva y rango numeric(19,6), saldo máximo y empresa. Rechazos previos a escritura y reintentos idempotentes. El frontend permite corregir rechazos definitivos sin cambiar solicitudes de resultado incierto.
+- Matriz de soporte sectorial en business-types.md: revisados contratos existentes y fuentes INVIMA. Lotes/FEFO, despiece y recetas siguen sin operación completa; la documentación no los da por implementados.
+
+Ejecución observada en Linux, Node 24.22.1:
+
+| Comprobación | Resultado |
+|---|---|
+| Desktop, 37 archivos | 319 PASS |
+| Servicio: canal real, venta, caja vinculada, inventario, espera y autorización local, 6 archivos | 127 PASS |
+| Regresión adicional caja/pagos/cantidades de recepción, 3 archivos | 65 PASS |
+| Contratos, 20 archivos | 298 PASS |
+| Local-channel, 6 archivos | 47 PASS, 4 SKIPPED |
+| TypeScript servicio y renderer | PASS |
+| Vite build renderer | PASS |
+
+Total de las suites indicadas: 856 pruebas aprobadas y 4 omitidas. Las pruebas de canal usan socket TCP loopback real en Linux, handler de producción y SQLite; no representan SCM Windows. Las pruebas de UI usan transporte simulado. No se ejecutó verificación visual en Electron/Android ni servicio bancario/Factus externo para este incremento. Dependencias disponibles de caché: Vitest 4.1.11 y Vite 6.4.3; no se acredita frozen-lockfile ni el comando completo desktop con E2E Playwright.
+
+Pendientes conservados en el backlog: asignación administrativa de caja, métricas por medio de pago, adquiriente final, sincronización entre dispositivos y autoridad de perfiles sectoriales; inventario especializado y XLSX; Factus externo, licencias BUSINESS/SCM y verificación física multiplataforma. No se declara el sistema listo para despliegue comercial integral.

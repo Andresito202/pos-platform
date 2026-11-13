@@ -67,6 +67,8 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   PRICE_NOT_FOUND: "NOT_FOUND",
   CURRENCY_MISMATCH: "VALIDATION",
   QUANTITY_PRECISION_EXCEEDED: "VALIDATION",
+  INVALID_QUANTITY: "VALIDATION",
+  STOCK_QUANTITY_OVERFLOW: "VALIDATION",
   // No hay existencia: es un conflicto con el estado del inventario, no una
   // petición mal formada.
   INSUFFICIENT_STOCK: "CONFLICT",
@@ -1504,6 +1506,12 @@ export class CommercialRequestHandler {
     const decision=evaluatePermission({actor:createActor("USER",auth.identity.userId),permission:CanonicalPermission.SALES_SALE_CREATE,
       scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(auth.snapshot.claims)});
     if(!decision.allowed) return rejected(request,"UNAUTHORIZED",denied);
+    if (request.message_type === "cart.waiting.save" && request.payload.cart.customer_id) {
+      const customer = this.commercial.getCustomer.execute(scope, auth.snapshot,
+        { by: "ID", customerId: request.payload.cart.customer_id });
+      if (customer.kind !== "FOUND") return rejected(request, customer.kind,
+        { outcome: customer.kind, carts: [], has_more: false });
+    }
     const owner={...scope,operatorId:auth.identity.userId};
     const result=request.message_type==="cart.waiting.list" ? this.commercial.waitingCarts.list(owner)
       : request.message_type==="cart.waiting.get" ? this.commercial.waitingCarts.get(owner,request.payload.cart_id)
@@ -1531,6 +1539,7 @@ export class CommercialRequestHandler {
       authenticated.identity.ssaSessionId,
       authenticated.snapshot,
       {
+        requireOpenCashShift: true,
         cashRegisterId: request.payload.cash_register_id,
         idempotencyKey: request.idempotency_key as string,
         channel: request.payload.channel,

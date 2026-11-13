@@ -10,17 +10,16 @@ import {
   formatScale6Display,
   parseCopMicros,
 } from "../money-display.js";
+import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
 import { ProductAvatar } from "./ProductAvatar.js";
 
 const paymentButtons = [
   { id: "cash", label: "Efectivo", icon: new URL("../assets/payment-icons/banknote.svg", import.meta.url).href },
+  { id: "nequi", label: "Nequi", icon: "./payment-denominations/logos/nequi_original.png" },
+  { id: "daviplata", label: "Daviplata", icon: "./payment-denominations/logos/daviplata_logo_manual_vigente.png" },
   { id: "transfer", label: "Reportar transferencia", icon: new URL("../assets/payment-icons/landmark.svg", import.meta.url).href },
 ] as const;
 
-const transferProviderLogos = [
-  { id: "nequi", label: "Nequi", src: "./payment-denominations/logos/nequi_original.png" },
-  { id: "daviplata", label: "Daviplata", src: "./payment-denominations/logos/daviplata_logo_manual_vigente.png" },
-] as const;
 
 function PaymentMethodContent({ icon, label }: { icon: string; label: string }): React.JSX.Element {
   return <span className="pos-payment-method-content">
@@ -58,8 +57,14 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   });
   const completed = sale.payment?.sale_completed === true
     || (sale.transfer?.saleId === sale.sale?.saleId && sale.transferConfirmation?.sale_completed === true);
+  const customers = useCustomerDirectory();
+  const [customerDocument, setCustomerDocument] = useState("13");
+  const [customerIdentification, setCustomerIdentification] = useState("");
+  useEffect(() => {
+    if (sale.customerId && permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ)) void customers.get(sale.customerId);
+  }, [sale.customerId, customers.get, permissions]);
   const [registerId, setRegisterId] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "nequi" | "daviplata">("cash");
   const [showDenominations, setShowDenominations] = useState(false);
   const [opening, setOpening] = useState("0");
   const [barcode, setBarcode] = useState("");
@@ -128,7 +133,8 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
           <label>Base inicial (COP)<input data-testid="opening-amount-input" aria-label="Base inicial" value={opening}
             onChange={(e) => { setOpening(e.target.value); }} placeholder="Base inicial" inputMode="decimal" disabled={sale.busy} /></label>
           <button data-testid="open-shift-button" onClick={() => { void sale.openShift(registerId.trim(), opening.trim()); }}
-            disabled={sale.busy || !permissions.has(CanonicalPermission.CASH_SHIFT_OPEN) || registerId.trim() === ""}>Abrir turno</button>
+            disabled={sale.busy || !permissions.has(CanonicalPermission.CASH_SHIFT_OPEN) || registerId.trim() === ""}>{sale.busy ? "Abriendo…" : "Abrir turno"}</button>
+          {sale.error && <p role="alert">{({REGISTER_NOT_FOUND:"La caja no está registrada en este negocio. Solicita su habilitación al administrador.",REGISTER_INACTIVE:"La caja está inactiva. Solicita su habilitación al administrador.",INCOMPATIBLE_SHIFT:"Esta caja ya tiene un turno incompatible. Revisa el turno activo antes de abrir otro.",INVALID_OPENING_AMOUNT:"Ingresa una base inicial válida, por ejemplo 50000.",INVALID_CASH_REGISTER:"Selecciona el identificador válido de la caja habilitada.",UNAUTHORIZED:"Tu sesión no tiene permiso para abrir esta caja."} as Record<string,string>)[sale.error] ?? `No se pudo abrir el turno: ${sale.error}`}</p>}
         </div>
       ) : (
         <div data-testid="shift-open" className="pos-shift-bar">
@@ -222,8 +228,24 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
 
         <section className="pos-sale-cart" aria-label="Venta actual">
           <h2>Carrito <small>({sale.lines.length} líneas)</small></h2>
+          {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) && <details className="pos-cart-customer">
+            <summary>Cliente{sale.customerId && customers.found?.customer_id === sale.customerId ? `: ${customers.found.names ?? customers.found.company ?? "seleccionado"}` : sale.customerId ? " seleccionado" : " (opcional)"}</summary>
+            <label>Documento<select aria-label="Tipo de documento del cliente" value={customerDocument} disabled={customers.busy}
+              onChange={event=>setCustomerDocument(event.target.value)}><option value="13">Cédula</option><option value="31">NIT</option><option value="22">Cédula de extranjería</option><option value="41">Pasaporte</option></select></label>
+            <label>Número<input aria-label="Documento del cliente" value={customerIdentification} disabled={customers.busy}
+              onChange={event=>setCustomerIdentification(event.target.value)}/></label>
+            <button type="button" disabled={customers.busy || !customerIdentification.trim()} onClick={()=>void customers.find(customerDocument,customerIdentification.trim())}>Buscar cliente</button>
+            {customers.error && <p role="alert">{customers.error}</p>}
+            {customers.found?.outcome === "NOT_FOUND" && <p>Cliente no encontrado. Regístralo en Clientes.</p>}
+            {customers.found?.outcome === "FOUND" && <div>
+              <span>{customers.found.names ?? customers.found.company}</span>
+              <button type="button" disabled={sale.busy || sale.unresolved || sale.sale !== null}
+                onClick={()=>sale.selectCustomer(customers.found!.customer_id)}>Vincular al carrito</button>
+            </div>}
+            {sale.customerId && <button type="button" disabled={sale.busy || sale.unresolved || sale.sale !== null} onClick={()=>sale.selectCustomer(null)}>Quitar cliente</button>}
+          </details>}
           {permissions.has(CanonicalPermission.SALES_SALE_CREATE) && <div className="pos-waiting-controls">
-            <input aria-label="Referencia del cliente en espera" placeholder="Cliente o referencia (opcional)" maxLength={80}
+            <input aria-label="Referencia del cliente en espera" placeholder="Referencia de espera (opcional)" maxLength={80}
               value={sale.waitingLabel} onChange={e=>sale.setWaitingLabel(e.target.value)} disabled={sale.busy || sale.unresolved || sale.sale!==null}/>
             <button data-testid="hold-cart" onClick={()=>void sale.holdCart()}
               disabled={sale.busy || sale.unresolved || !sale.shift || sale.lines.length===0 || sale.lines.length>200 || sale.sale!==null}>En espera</button>
@@ -267,28 +289,14 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
               <details className="pos-payment-reference"><summary>Referencia de la venta</summary>{sale.sale.saleId}</details>
               <h3>Medio de pago</h3>
               <label>Importe de este pago<input data-testid="payment-amount-input" aria-label="Importe de este pago"
-                value={paymentAmount} placeholder={sale.sale.payableAmount} onChange={(event) => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} /></label>
+                value={paymentAmount} placeholder={formatScale6Display(sale.sale.payableAmount)} onChange={(event) => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} /></label>
               <div className="pos-payment-methods">
                 {paymentButtons.map(method => <button key={method.id} type="button"
                   data-testid={`select-payment-${method.id}`} aria-pressed={paymentMethod === method.id}
                   onClick={() => setPaymentMethod(method.id)} disabled={sale.busy || sale.unresolved || completed}>
-                  <PaymentMethodContent icon={method.icon} label={method.id === "cash" ? "Efectivo" : "Transferencia"} />
+                  <PaymentMethodContent icon={method.icon} label={method.id === "transfer" ? "Transferencia" : method.label} />
                 </button>)}
               </div>
-
-              {paymentMethod === "transfer" && <div className="pos-transfer-providers" data-testid="transfer-provider-logos" aria-label="Medios de transferencia manual">
-                {transferProviderLogos.map((logo) => (
-                  <img
-                    key={logo.id}
-                    className="pos-transfer-provider-logo"
-                    src={logo.src}
-                    alt={logo.label}
-                    data-testid={`transfer-logo-${logo.id}`}
-                    onError={(event) => { event.currentTarget.hidden = true; }}
-                  />
-                ))}
-                <p>Los logos identifican la transferencia manual. No habilitan cobro integrado ni QR en línea.</p>
-              </div>}
 
               {paymentMethod === "cash" && <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
                 <label>Efectivo recibido (COP)<input aria-label="Efectivo recibido (COP)" inputMode="numeric" value={manualTendered}
@@ -360,9 +368,9 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                   disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}>
                   {sale.busy ? "Procesando…" : "Confirmar cobro en efectivo"}</button>
                 : <button type="button" className="pos-primary-action" data-testid="register-transfer-button"
-                  onClick={() => { void sale.registerTransfer(paymentAmount || undefined); }}
+                  onClick={() => { void sale.registerTransfer(paymentAmount || undefined, paymentMethod === "nequi" ? "NEQUI" : paymentMethod === "daviplata" ? "DAVIPLATA" : null); }}
                   disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}>
-                  {sale.busy ? "Procesando…" : "Reportar transferencia"}</button>}
+                  {sale.busy ? "Procesando…" : paymentMethod === "nequi" ? "Reportar pago Nequi" : paymentMethod === "daviplata" ? "Reportar pago Daviplata" : "Reportar transferencia"}</button>}
               </div>
               <p className="pos-payment-note">{paymentMethod === "cash" ? "Confirma después de contar el efectivo recibido." : "Reportar no confirma el ingreso. Un operador autorizado debe verificarlo."}</p>
             </div>

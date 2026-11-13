@@ -1,3 +1,4 @@
+import { formatScale6Display } from "../money-display.js";
 import { PlatformLicenseFulfillment } from "./PlatformLicenseFulfillment.js";
 import { PlatformActivations } from "./PlatformActivations.js";
 import { useState } from "react";
@@ -92,7 +93,7 @@ export function AdministrativeControlPanel({ kind,platform,platformEditor }: { k
       {tab === "overview" && kind === "admin" && (
         <div className="pos-admin-grid">
           <article className="pos-admin-card"><span>Ventas completadas</span><strong>{adminMetrics.metrics.sales_completed_count ?? "Sin permiso"}</strong><small>Total persistido en el scope de la sesión.</small></article>
-          <article className="pos-admin-card"><span>Ventas acumuladas</span><strong>{adminMetrics.metrics.sales_completed_amount ?? "Sin permiso"}</strong><small>Importe fiscal total persistido, escala 6.</small></article>
+          <article className="pos-admin-card"><span>Ventas acumuladas</span><strong>{adminMetrics.metrics.sales_completed_amount === null ? "Sin permiso" : formatScale6Display(adminMetrics.metrics.sales_completed_amount)}</strong><small>Importe total de las ventas registradas.</small></article>
           <article className="pos-admin-card"><span>Existencias controladas</span><strong>{adminMetrics.metrics.inventory_tracked_count ?? "Sin permiso"}</strong><small>Presentaciones con fila de existencia en la sucursal.</small></article>
           <article className="pos-admin-card"><span>Turnos abiertos</span><strong>{adminMetrics.metrics.cash_open_shift_count ?? "Sin permiso"}</strong><small>Turnos OPEN/CLOSING del scope efectivo.</small></article>
           {adminMetrics.error !== null && <div className="pos-admin-empty" role="alert"><strong>{adminMetrics.error}</strong><span>Las métricas no pudieron actualizarse.</span></div>}

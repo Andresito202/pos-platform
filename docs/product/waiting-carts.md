@@ -2,7 +2,7 @@
 
 ## Alcance implementado
 
-En SalePanel: «En espera», «Ver en espera», recuperar y eliminar con confirmación. Guarda líneas, cantidades, referencia opcional y caja en SQLite; vacía el carrito solo tras confirmar el guardado. Para cambiar entre dos clientes, guardar primero el carrito activo y después recuperar el otro. El nombre es una referencia de atención, no una asociación con customers_customers.
+En SalePanel: «En espera», «Ver en espera», recuperar y eliminar con confirmación. Guarda líneas, cantidades, referencia opcional y caja en SQLite; vacía el carrito solo tras confirmar el guardado. Para cambiar entre dos clientes, guardar primero el carrito activo y después recuperar el otro. La referencia libre sigue siendo una etiqueta de atención. Adicionalmente, el carrito permite buscar al cliente por documento mediante customer.find, vincular su customer_id y recuperarlo mediante customer.get. El guardado valida lectura autorizada y pertenencia del cliente a la empresa; no guarda una copia paralela de su ficha.
 
 Solo se suspende antes de «Continuar al cobro». Una venta creada, cobro parcial o solicitud incierta impide suspender. No se crean pagos ni se descuenta inventario al guardar. El servicio calcula precios, impuestos y existencias al crear la venta; los precios guardados para mostrar no son autoridad.
 
@@ -22,7 +22,7 @@ Cadena: SalePanel → useCommercialSale → preload/allowlist → contratos y ca
 - Crear la venta y consumir el borrador comparten una transacción SQLite. Solo éxito/resultado idempotente lo consume. Repetir la solicitud original recupera la venta; otra clave no genera una segunda venta desde ese borrador.
 - Eliminar deja un estado terminal DISCARDED, no borra ventas ni pagos y no permite resucitar el carrito mediante un reintento antiguo. Los registros terminales se conservan como protección frente a reintentos; no hay purga automática nueva.
 - Máximo 50 clientes pendientes por operador/dispositivo y 200 líneas por carrito. La lista transmite metadatos; get recupera solo el carrito seleccionado para mantener la respuesta acotada. No hay transferencia entre dispositivos ni sincronización de borradores.
-- No hay descuentos de carrito ni cliente comercial asociado en el flujo actual; no se inventaron esos campos. Las reglas comerciales existentes permanecen en el servicio.
+- La asociación del cliente se conserva en el borrador en espera. Todavía no se propaga automáticamente como adquiriente a la venta/factura final; esa integración queda pendiente. No hay descuentos de carrito. Las reglas comerciales existentes permanecen en el servicio.
 
 ## Evidencia observada
 
@@ -31,3 +31,7 @@ Cadena: SalePanel → useCommercialSale → preload/allowlist → contratos y ca
 Se observó inicialmente EPERM al escuchar un socket Unix. El arnés Linux pasó a TCP loopback efímero, siguiendo otras pruebas del repositorio; framing, MAC, autorización, handler y base siguen siendo reales. Windows conserva named pipes en el arnés. Esto no acredita SCM ni identidad nativa Windows.
 
 La prueba de interfaz usa transporte simulado; por separado se observa el canal real con efecto en SQLite. No se declara una prueba Electron→servicio completa, QA visual, Android ni producción. El typecheck general desktop que incluye E2E encontró dependencias Playwright ausentes; el typecheck de renderer y la compilación del código main sí pasaron. Dependencias de caché: no se acredita instalación frozen-lockfile.
+
+## Ampliación del 13 de noviembre
+
+Pruebas de renderer y canal real verifican búsqueda/vínculo, guardado y recuperación del customer_id y rechazo de cliente inexistente antes de guardar. La asociación no comparte carritos entre operadores ni acredita sincronización central. La evidencia original de 312 pruebas corresponde al incremento previo; consultar integration-verification-20261110.md para los resultados del incremento actual.

@@ -65,7 +65,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
         response.result_code === parsed.data.outcome && ["POSTED", "IDEMPOTENT"].includes(parsed.data.outcome) &&
         parsed.data.stock_sequence !== null && parsed.data.quantity_after !== null;
       const definitiveRejection = !uncertain.current && response.status === "REJECTED" && parsed.success &&
-        response.result_code === parsed.data.outcome && ["PRESENTATION_NOT_FOUND", "INSUFFICIENT_STOCK"].includes(parsed.data.outcome);
+        response.result_code === parsed.data.outcome && ["PRESENTATION_NOT_FOUND", "INSUFFICIENT_STOCK", "INVALID_QUANTITY", "QUANTITY_PRECISION_EXCEEDED", "STOCK_QUANTITY_OVERFLOW"].includes(parsed.data.outcome);
       if (success || definitiveRejection) {
         setMovement(parsed.data!);
       } else {

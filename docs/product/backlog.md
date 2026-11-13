@@ -900,7 +900,7 @@ Continúa no autorizado:
 | CAT-001 | P0 | DONE | Producto, identificadores, variantes, presentaciones y conversiones definidos. |
 | CAT-002 | P1 | READY | Persistencia física alineada con DEC-004/TECH-002; preparar implementación futura. |
 | CAT-003 | P1 | PLANNED | Implementar Catalog multiempresa. |
-| CAT-004 | P3 | DEFERRED | Especialización droguería. |
+| CAT-004 | P1 | IN_PROGRESS | Especialización droguería priorizada por el propietario el 2026-11-13. Auditoría realizada; lotes, vencimiento/FEFO y atributos farmacéuticos aún sin flujo operativo. Ver business-types.md. |
 
 ### Precios / promociones / impuestos
 
@@ -974,7 +974,7 @@ Continúa no autorizado:
 |---|---|---|---|
 | INV-001 | P0 | DONE | GoodsReceipt definido. |
 | INV-002 | P0 | DONE | Movimientos/reservas/ajustes/lotes/traslados/concurrencia definidos. |
-| INV-003 | P1 | PLANNED | Implementar movimientos como fuente y saldos como proyección. |
+| INV-003 | P1 | IN_PROGRESS | Movimientos/saldos SQLite operativos; precisión de unidades y aislamiento corregidos. Pendientes lotes/FEFO, recepción extendida, despiece/recetas y sincronización completa para fruver, avícola, droguería y pastelería. |
 
 ### Clientes / crédito
 
@@ -1134,3 +1134,16 @@ Una tarea no está cerrada hasta que:
 8. no se deja una fuente normativa contando un estado incompatible;
 9. ninguna remediación reduce o elimina silenciosamente detalle contractual previamente aprobado.
 
+
+
+### Continuidad — 2026-11-13: caja, clientes e integridad sectorial
+
+- Misma rama activa. No se han abierto variantes por sector.
+- Mostrador IPC exige turno OPEN al crear venta, cualquiera que sea el texto de canal o medio de pago. Validación en transacción antes de numerar; replay de una venta existente permanece idempotente. Política confiable del adaptador, no campo aceptado del renderer. Los casos de uso internos de otros canales conservan el contrato previo; esto sustituye la aceptación anterior de caja ausente/CLOSING en el adaptador POS.
+- Apertura muestra errores junto al formulario, base inválida e ID de caja mal formado; no simula apertura. La habilitación/asignación administrativa de caja y cajero sigue pendiente de autoridad, publicación y pantalla conectada.
+- Carrito en espera vinculado opcionalmente a Clientes por identidad real; vínculo final venta/factura aún pendiente.
+- Nequi y Daviplata con botones separados, compactos y proveedor registrado en transferencia. Reportar no confirma abono bancario. No se acredita nueva integración bancaria.
+- Precios en catálogo, recibos y métricas se presentan como COP sin ceros de escala sobrantes, preservando importes exactos del servicio.
+- Entradas/ajustes rechazan precisión incompatible con presentación y desbordamiento; no cruzan empresa. Motivos, auditoría, outbox e idempotencia existentes preservados.
+- Matriz de fruver/avícola/droguería/pastelería, fuentes primarias y brechas concretas en business-types.md. No se anuncia disponibilidad comercial especializada.
+- Continúan abiertos, sin considerarlos cerrados por estos cambios: administración de caja y métricas por medio de pago; asignación del cliente a factura; lotes/FEFO/recetas/despiece y sincronización; XLSX real; Factus Pay/sandbox externo; licencias BUSINESS/SCM; integración y pruebas Android/Windows; revisión visual completa.

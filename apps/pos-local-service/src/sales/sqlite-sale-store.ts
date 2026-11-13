@@ -23,6 +23,8 @@ export interface SaleLineInput {
 }
 
 export interface CreateSaleInput {
+  /** Trusted adapter policy, never accepted from renderer payload. */
+  readonly requireOpenCashShift?: boolean;
   readonly saleId: string;
   readonly operationId: string;
   readonly scope: SyncScope;
@@ -70,7 +72,8 @@ export type CreateSaleOutcome =
       readonly saleNumber: number;
       readonly calculationChecksum: string;
     }
-  | { readonly kind: "IDEMPOTENCY_CONFLICT" };
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "CASH_SHIFT_NOT_OPEN" };
 
 interface SaleRow {
   id: string;
@@ -118,6 +121,17 @@ export class SqliteSaleStore {
           saleNumber: existing.sale_number,
           calculationChecksum: existing.calculation_checksum,
         };
+      }
+
+      // Counter IPC requires OPEN even for transfers. Check in the writer transaction,
+      // after replay resolution and before numbering, audit, outbox or any sale write.
+      if (input.requireOpenCashShift) {
+        const shift = input.cashShift;
+        if (shift === null || !this.database.native.prepare(`SELECT 1 FROM cash_shift
+          WHERE tenant_id=? AND company_id=? AND branch_id=? AND cash_register_id=? AND id=? AND status='OPEN'`)
+          .get(input.scope.tenantId, input.scope.companyId, input.scope.branchId, shift.cashRegisterId, shift.shiftId)) {
+          return { kind: "CASH_SHIFT_NOT_OPEN" };
+        }
       }
 
       // 2. Contador de serie documental — incremento atómico

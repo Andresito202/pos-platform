@@ -8,6 +8,16 @@ const args = ["018f0000-0000-7000-8000-000000000001", "PURCHASE_RECEIPT", "2", "
 const posted = { status: "SUCCEEDED", result_code: "POSTED", result: { outcome: "POSTED", stock_sequence: 1, quantity_after: "2.000000", available: null } };
 beforeEach(() => { mocks.call.mockReset(); mocks.key.mockReset().mockReturnValueOnce("first").mockReturnValue("second"); });
 describe("manual inventory retries while panel is mounted", () => {
+  it.each(["QUANTITY_PRECISION_EXCEEDED","INVALID_QUANTITY","STOCK_QUANTITY_OVERFLOW"])("allows correcting a definitive inventory rejection: %s", async outcome => {
+    mocks.call.mockResolvedValueOnce({status:"REJECTED",result_code:outcome,result:{outcome,stock_sequence:null,quantity_after:null,available:null}}).mockResolvedValue(posted);
+    const {result}=renderHook(()=>useInventoryAdmin());
+    await act(async()=>{await result.current.receive(...args);});
+    expect(result.current.pending).toBe(false);
+    expect(result.current.movement?.outcome).toBe(outcome);
+    await act(async()=>{await result.current.receive(...args);});
+    expect(mocks.call.mock.calls[1]?.[2]).not.toEqual(mocks.call.mock.calls[0]?.[2]);
+  });
+
   it("retains immutable payload and key after lost reply and rejects another mutation", async () => {
     mocks.call.mockRejectedValueOnce(Error("lost reply")).mockResolvedValue(posted);
     const { result } = renderHook(() => useInventoryAdmin());

@@ -1,3 +1,4 @@
+import { formatScale6Display } from "../money-display.js";
 import { CanonicalPermission } from "@pos-platform/contracts";
 import { useRef, useState } from "react";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
@@ -75,7 +76,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
         {csv && <><p>{csv.rows.length} filas. Vista previa sin escrituras.</p>
           <div className="pos-table-scroll" tabIndex={0} role="region" aria-label="Vista previa CSV, tabla desplazable">
           <table className="pos-data-table"><caption>Vista previa del archivo, sin escrituras</caption><thead><tr><th scope="col">Fila</th><th scope="col">Código</th><th scope="col">Producto</th><th scope="col">Precio</th><th scope="col">Validación</th></tr></thead>
-            <tbody>{csv.rows.map((row) => <tr key={row.row}><td>{row.row}</td><td>{row.payload?.code}</td><td>{row.payload?.name}</td><td>{row.payload?.price_amount}</td><td>{row.errors.join(", ") || "Forma válida; el backend revalidará"}</td></tr>)}</tbody></table>
+            <tbody>{csv.rows.map((row) => <tr key={row.row}><td>{row.row}</td><td>{row.payload?.code}</td><td>{row.payload?.name}</td><td>{formatScale6Display(row.payload?.price_amount)}</td><td>{row.errors.join(", ") || "Forma válida; el backend revalidará"}</td></tr>)}</tbody></table>
           </div>
           <button disabled={csvBusy || catalog.busy || !csvMatched || csv.rows.length === 0 || csv.rows.some((row) => row.errors.length > 0) || !permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)}
             onClick={() => { void confirmCsv(); }}>Confirmar o reanudar altas CSV</button></>}
@@ -93,7 +94,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
             <caption>Presentaciones del catálogo consultado</caption>
             <thead><tr><th scope="col">Producto</th><th scope="col">Presentación</th><th scope="col" className="pos-number">Precio</th><th scope="col">ID de presentación</th></tr></thead>
             <tbody>{catalog.items.map((item) => (
-              <tr key={item.presentation_id}><td>{item.name}</td><td>{item.presentation_name}</td><td className="pos-number">{item.price_amount} {item.currency_code}</td><td className="pos-reference">{item.presentation_id}</td></tr>
+              <tr key={item.presentation_id}><td>{item.name}</td><td>{item.presentation_name}</td><td className="pos-number">{formatScale6Display(item.price_amount)} {item.currency_code}</td><td className="pos-reference">{item.presentation_id}</td></tr>
             ))}</tbody>
           </table>
         </div>

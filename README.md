@@ -111,3 +111,14 @@ Los movimientos manuales de inventario conservan su solicitud ante respuestas no
 La pantalla fiscal bloquea una nueva emisión de la venta ante resultado incierto, conciliación requerida o respuesta no verificable. El bloqueo visual no sustituye los estados durables del backend ni acredita conciliación con Factus; no hay conciliación automática implementada por este incremento.
 
 La emisión fiscal distingue aceptación y rechazo: `FISCAL_REJECTED` no se presenta como `ISSUED`, y repetir la solicitud recupera el rechazo persistido sin reenviar. Validación de este incremento: 33 pruebas fiscales y 306 desktop aprobadas; no equivale a certificación del sandbox externo. «En espera» ya guarda y recupera carritos en SQLite desde Caja, con control de versión, recuperación del turno propio abierto y eliminación con confirmación. Solo opera antes del cobro. Alcance, pruebas y límites: [Clientes en espera](docs/product/waiting-carts.md).
+
+
+## Incremento del 13 de noviembre: caja e inventario
+
+Se conserva la única rama activa. Caja permite vincular un cliente existente al carrito en espera, recuperar su referencia y separar Nequi/Daviplata de otras transferencias. Registrar una transferencia no confirma un ingreso bancario. Los precios se muestran en COP sin ceros de escala sobrantes; las cantidades contractuales no se redondean.
+
+El adaptador de mostrador exige un turno abierto antes de crear ventas; se comprueba en la transacción de SQLite y se conserva el reintento de ventas ya creadas. La apertura explica rechazos junto al formulario. Falta la habilitación/asignación desde Administración; el identificador de caja todavía debe corresponder a una caja publicada.
+
+Inventario valida precisión de presentación (entero/peso), saldo máximo y empresa antes de registrar movimientos. [Tipos de comercio](docs/product/business-types.md) identifica el soporte real y lo que falta para fruver, avícola, droguería y pastelería. Lotes, FEFO, despiece y recetas no están disponibles como flujo completo. La ficha de cliente del carrito no se propaga automáticamente a la factura final.
+
+Evidencia y límites en [verificación de integración](docs/product/integration-verification-20261110.md). Este incremento no acredita distribución comercial, sincronización completa entre dispositivos ni pruebas físicas Windows/Android.

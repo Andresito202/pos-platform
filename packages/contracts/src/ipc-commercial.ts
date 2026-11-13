@@ -315,6 +315,7 @@ export const WaitingCartLineSchema = z.strictObject({
   quantity: PositiveScale6Schema, identifier: z.string().max(200),
 });
 export const WaitingCartPayloadSchema = z.strictObject({
+  customer_id: UuidSchema.nullable().optional(),
   label: z.string().trim().max(80),
   cash_register_id: UuidSchema,
   lines: z.array(WaitingCartLineSchema).min(1).max(200),
@@ -413,6 +414,7 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
   });
 
 export const SaleCreateOutcomeSchema = z.enum([
+  "CASH_SHIFT_NOT_OPEN",
   "CREATED",
   "WAITING_CART_NOT_FOUND",
   "WAITING_CART_CONFLICT",
@@ -1090,6 +1092,9 @@ export const InventoryStockAdjustRequestSchema = createRequestEnvelopeSchema(
   });
 
 export const InventoryMovementOutcomeSchema = z.enum([
+  "INVALID_QUANTITY",
+  "QUANTITY_PRECISION_EXCEEDED",
+  "STOCK_QUANTITY_OVERFLOW",
   "POSTED",
   "IDEMPOTENT",
   "UNAUTHORIZED",
