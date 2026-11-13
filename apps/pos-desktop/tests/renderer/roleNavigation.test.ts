@@ -33,14 +33,15 @@ describe("roleNavigation", () => {
     expect(orderScreensByRole(screens, "ADMINISTRADOR").map((s) => s.id)[0]).not.toBe("sales");
   });
 
-  it("limits SUPERADMINISTRADOR visual preference to authorized audit surfaces", () => {
+  it("offers authorized business operations to SUPERADMINISTRADOR, starting at Dashboard", () => {
     expect(orderScreensByRole(screens, "SUPERADMINISTRADOR").map((s) => s.id)).toEqual([
       "dashboard",
       "admin-audit",
+      "sales", "inventory", "catalog", "customers", "receipts",
     ]);
     expect(homeScreenId(screens, "SUPERADMINISTRADOR")).toBe("dashboard");
   });
-  it.each(["SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)("never exposes a cart to %s", role => {
+  it.each(["SUPERVISOR", "ADMINISTRADOR"] as const)("never exposes a cart to %s", role => {
     expect(orderScreensByRole(screens, role).map(s => s.id)).not.toContain("sales");
     expect(homeScreenId([{ id: "sales" }], role)).toBeNull();
   });

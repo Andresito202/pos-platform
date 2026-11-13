@@ -40,7 +40,7 @@ function setup(role: LocalOperator["role"]) {
   return {sessions,read,handler};
 }
 describe("local operator backend authorization",()=>{
-  it.each(["SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)("rejects a forged sale.create request from %s in the real use case", async role => {
+  it.each(["SUPERVISOR", "ADMINISTRADOR"] as const)("rejects a forged sale.create request from %s in the real use case", async role => {
     const {sessions,handler}=setup(role);
     await sessions.login("A", "operator", "valid");
     const response=handler.handle({
@@ -52,7 +52,7 @@ describe("local operator backend authorization",()=>{
     }, "A");
     expect(response).toMatchObject({status:"REJECTED",result_code:"UNAUTHORIZED"});
   });
-  it.each(["SUPERVISOR","ADMINISTRADOR","SUPERADMINISTRADOR"] as const)("denies waiting carts to %s before accessing storage",async role=>{
+  it.each(["SUPERVISOR","ADMINISTRADOR"] as const)("denies waiting carts to %s before accessing storage",async role=>{
     const {sessions,handler}=setup(role);await sessions.login("A","operator","valid");
     const response=handler.handle({protocol_version:"1.0.0",message_type:"cart.waiting.list",request_id:randomUUID(),correlation_id:randomUUID(),payload_schema_version:"1.0.0",payload:{}},"A");
     expect(response).toMatchObject({status:"REJECTED",result_code:"UNAUTHORIZED",result:{carts:[]}});
@@ -97,12 +97,13 @@ describe("local operator backend authorization",()=>{
     expect(permissions).not.toContain(CanonicalPermission.FISCAL_DOCUMENT_ISSUE);
     expect(permissions).not.toContain(CanonicalPermission.LICENSE_PLAN_MANAGE);
   });
-  it("superadmin local is not silently promoted to a cashier",async()=>{
+  it("superadmin can operate the bound business without GLOBAL licensing authority",async()=>{
     const {sessions,read}=setup("SUPERADMINISTRADOR");
     await sessions.login("A","superadmin.local","valid");
     const permissions=read("A").result!.permissions;
-    expect(permissions).not.toContain(CanonicalPermission.SALES_SALE_CREATE);
-    expect(permissions).not.toContain(CanonicalPermission.CATALOG_PRODUCT_REGISTER);
+    expect(permissions).toContain(CanonicalPermission.SALES_SALE_CREATE);
+    expect(permissions).toContain(CanonicalPermission.CATALOG_PRODUCT_REGISTER);
+    expect(permissions).toContain(CanonicalPermission.CASH_SHIFT_OPEN);
     expect(permissions).not.toContain(CanonicalPermission.LICENSE_PLAN_MANAGE);
   });
 });

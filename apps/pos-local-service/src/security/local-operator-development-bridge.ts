@@ -51,7 +51,9 @@ export const LOCAL_OPERATOR_PERMISSIONS: Readonly<Record<LocalOperator["role"], 
   CAJERO: CASHIER,
   SUPERVISOR,
   ADMINISTRADOR: ADMINISTRATOR,
-  SUPERADMINISTRADOR: [CanonicalPermission.AUDIT_EVENT_READ],
+  // Owner decision 2026-11-13: business operation in the server-bound company.
+  // This does not grant GLOBAL authority or company switching.
+  SUPERADMINISTRADOR: [...CASHIER, ...ADMINISTRATOR],
 });
 
 function stableUserId(installationId: string, username: LocalOperator["username"]): string {

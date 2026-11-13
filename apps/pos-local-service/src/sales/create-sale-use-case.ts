@@ -77,7 +77,8 @@ export type CreateSaleResult =
       readonly requested: string;
     }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
-  | { readonly kind: "CASH_SHIFT_NOT_OPEN" };
+  | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
+  | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string };
 
 function requestChecksum(request: CreateSaleRequest, operatorUserId: string): string {
   return createHash("sha256")
@@ -411,7 +412,7 @@ export class CreateSaleUseCase {
       return { kind: "IDEMPOTENCY_CONFLICT" };
     }
 
-    if (outcome.kind === "CASH_SHIFT_NOT_OPEN") return outcome;
+    if (outcome.kind === "CASH_SHIFT_NOT_OPEN" || outcome.kind === "LICENSE_BLOCKED") return outcome;
 
     return {
       kind: outcome.kind === "CREATED" ? "CREATED" : "IDEMPOTENT",

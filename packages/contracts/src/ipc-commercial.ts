@@ -414,6 +414,7 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
   });
 
 export const SaleCreateOutcomeSchema = z.enum([
+  "LICENSE_BLOCKED",
   "CASH_SHIFT_NOT_OPEN",
   "CREATED",
   "WAITING_CART_NOT_FOUND",

@@ -38,9 +38,9 @@ Las pantallas reales están en `apps/pos-desktop/renderer/src/components/`. `App
 | Cajero | Venta, cobro, clientes y comprobantes según permisos | Sí |
 | Supervisor | Inventario, catálogo y revisión de transferencias | No |
 | Administrador | Administración, auditoría y gestión autorizada | No |
-| Superadministrador | Administración de plataforma | No |
+| Superadministrador local | Administración y operación del negocio vinculado al servicio | Sí, con permisos y turno; sin autoridad GLOBAL implícita |
 
-La separación local se aplica también en backend: supervisor, administrador y superadministrador no pueden crear ventas. Las sesiones comerciales firmadas dependen de sus permisos emitidos por Central; esta matriz local no sustituye SSA/SAS ni certifica BUSINESS.
+La separación local se aplica también en backend: supervisor y administrador no pueden crear ventas; el superadministrador local puede operar el negocio vinculado al servicio, según la decisión del propietario del 13 de noviembre. Las sesiones comerciales firmadas dependen de sus permisos emitidos por Central; esta matriz local no sustituye SSA/SAS ni certifica BUSINESS.
 
 ## Marca y diseño
 
@@ -122,3 +122,12 @@ El adaptador de mostrador exige un turno abierto antes de crear ventas; se compr
 Inventario valida precisión de presentación (entero/peso), saldo máximo y empresa antes de registrar movimientos. [Tipos de comercio](docs/product/business-types.md) identifica el soporte real y lo que falta para fruver, avícola, droguería y pastelería. Lotes, FEFO, despiece y recetas no están disponibles como flujo completo. La ficha de cliente del carrito no se propaga automáticamente a la factura final.
 
 Evidencia y límites en [verificación de integración](docs/product/integration-verification-20261110.md). Este incremento no acredita distribución comercial, sincronización completa entre dispositivos ni pruebas físicas Windows/Android.
+
+
+## Licencias y roles — continuidad del 13 de noviembre
+
+La licencia de capacidad se revalida en cada nueva venta, no solamente al abrir turno. Una caja abierta no extiende la vigencia firmada. El límite emitido por Central ya incluye los tres días (72 horas) de gracia de suscripción: el servicio no añade otros tres días. Al cumplirse el instante de vencimiento firmado, las nuevas ventas quedan bloqueadas. El replay de una venta registrada conserva su identidad; no se deshacen ventas ni se impide resolver pagos ya iniciados por este cambio.
+
+El superadministrador local puede vender y administrar catálogo/inventario dentro del negocio configurado en el servicio; no cambia libremente de empresa ni adquiere LICENSE_PLAN_MANAGE. Las licencias se administran mediante el portal y APIs GLOBAL con autorización propia. Supervisor y administrador siguen sin Caja.
+
+Las pruebas separan el bloqueo por política en canal real, la expiración de artefactos firmados en SQLite y las fronteras temporales centrales. No acreditan todavía el recorrido externo pago→renovación→descarga→desbloqueo ni revocación inmediata de equipos desconectados.

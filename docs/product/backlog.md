@@ -1147,3 +1147,14 @@ Una tarea no está cerrada hasta que:
 - Entradas/ajustes rechazan precisión incompatible con presentación y desbordamiento; no cruzan empresa. Motivos, auditoría, outbox e idempotencia existentes preservados.
 - Matriz de fruver/avícola/droguería/pastelería, fuentes primarias y brechas concretas en business-types.md. No se anuncia disponibilidad comercial especializada.
 - Continúan abiertos, sin considerarlos cerrados por estos cambios: administración de caja y métricas por medio de pago; asignación del cliente a factura; lotes/FEFO/recetas/despiece y sincronización; XLSX real; Factus Pay/sandbox externo; licencias BUSINESS/SCM; integración y pruebas Android/Windows; revisión visual completa.
+
+
+### Continuidad — 2026-11-13: superadministrador comercial y vigencia
+
+Orden posterior del propietario: superadministrador puede ver y vender en el negocio. Se actualizan permisos locales y navegación sobre las pantallas existentes; mantiene Dashboard como inicio y habilita Caja bajo permisos. Supervisor/administrador siguen sin venta; roles locales no emiten licencias BUSINESS ni autorizaciones GLOBAL. Falta el cambio autorizado de contexto entre negocios; no se simula desde frontend.
+
+Defecto corregido: LicenseCapacityGate solo se invocaba en apertura. CommercialComponent ahora inyecta el mismo verificador en SqliteSaleStore; una nueva venta lo consulta en transacción, después de resolver idempotencia y antes de numerar/escribir. No altera ventas previas ni su liquidación. Devuelve LICENSE_BLOCKED por contrato y Caja explica el rechazo.
+
+Central ya firma expiry con tres días de gracia. El verificador de capacidad rechaza el instante exacto de expiración (extremo exclusivo); no añade plazo local. La proyección reconoce PAST_DUE dentro de gracia, alineándose con la autoridad emisora. Suspensión/revocación no reciben gracia nueva; perpetuidad no deriva de un contrato moroso sin fecha.
+
+Continúan pendientes: cambio autorizado de empresa GLOBAL→BUSINESS, asignación administrativa de cajas/cajeros, pago y renovación externa de extremo a extremo, especializaciones sectoriales y sincronización. Permisos de servicio y reloj confiable siguen siendo autoridad.

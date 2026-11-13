@@ -432,7 +432,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
         ) : <div data-testid="shift-close-rejected">{sale.closedShift.outcome}</div>
       )}
 
-      {sale.error !== null && <div data-testid="sale-error">{sale.error}</div>}
+      {sale.error !== null && <div data-testid="sale-error" role={sale.shift ? "alert" : undefined}>{sale.error === "LICENSE_BLOCKED" ? "La licencia no autoriza nuevas ventas. Consulta al administrador para revisar vigencia, pago o bloqueo." : sale.error}</div>}
       {sale.unresolved && <div role="alert">
         El resultado de una operación sigue pendiente. El reintento conserva los datos y el importe originales. Resuélvala antes de iniciar otra.
         <button data-testid="retry-pending-operation" disabled={sale.busy} onClick={() => { void sale.retryPending(); }}>Reintentar operación pendiente</button>

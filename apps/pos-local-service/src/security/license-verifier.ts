@@ -51,7 +51,12 @@ export class LicenseVerifier {
   }
 
   verifyCapacity(input: unknown, binding: LicenseBinding, online: boolean): LicenseVerificationResult<LicenseCapacityClaims> {
-    return this.verifySigned(SignedLicenseCapacitySchema.parse(input), binding, online);
+    const result = this.verifySigned(SignedLicenseCapacitySchema.parse(input), binding, online);
+    // Capacity expiry already includes the centrally signed subscription grace.
+    // Its endpoint is exclusive, matching Central; no extra local grace is added.
+    if (result.decision === "VALID" && result.claims?.expires_at !== null && result.claims?.expires_at !== undefined &&
+        Date.parse(result.evaluatedAt) >= Date.parse(result.claims.expires_at)) return {...result,decision:"EXPIRED"};
+    return result;
   }
 
   private verifySigned<C extends LicenseClaims>(signed: {claims:C;signature:string}, binding: LicenseBinding, online: boolean): LicenseVerificationResult<C> {

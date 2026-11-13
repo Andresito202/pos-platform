@@ -3,7 +3,8 @@ import type {PoolClient} from "@pos-platform/database-postgres";
 /** Display state only; never a sale authorization or a renewal command. */
 export function companyLicenseTermState(status:string,from:Date,until:Date|null,evaluatedAt:Date,graceDays:3){
   if(graceDays!==3||![from,evaluatedAt,...(until?[until]:[])].every(d=>Number.isFinite(d.getTime())))throw Error("COMPANY_LICENSE_TERM_POLICY_REQUIRED");
-  if(status!=='ACTIVE')return "NOT_CURRENT";
+  if(status!=='ACTIVE' && status!=='PAST_DUE')return "NOT_CURRENT";
+  if(status==='PAST_DUE' && until===null)return "NOT_CURRENT";
   if(evaluatedAt<from)return "NOT_STARTED";
   if(until===null||evaluatedAt<until)return "CURRENT";
   return evaluatedAt.getTime()<until.getTime()+graceDays*86400000?"GRACE":"EXPIRED";

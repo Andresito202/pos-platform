@@ -1,3 +1,7 @@
+import { LicenseCapacityGate } from "../src/security/license-capacity-gate.js";
+import { LocalSecurityLifecycle } from "../src/security/security-lifecycle.js";
+import { unsignedLicenseCapacityBytes } from "../src/security/license-verifier.js";
+import type { LicenseCapacityClaims } from "@pos-platform/contracts";
 import type {Server,Socket} from "node:net";
 // Linux test transport uses actual loopback sockets; Windows keeps named pipes.
 // Business handler, framing, MAC and SQLite remain real.
@@ -322,6 +326,8 @@ interface ChannelResponse {
  */
 async function withRealChannel(
   run: (send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase) => Promise<void>,
+  licenseGate?: () => string | null,
+  serviceNow: () => Date = () => NOW,
 ): Promise<void> {
   const dir = await directory();
   const database = LocalDatabase.open({ dataDirectory: dir });
@@ -336,8 +342,8 @@ async function withRealChannel(
     { database } as never,
     { store: new DurableSyncStore(database) } as never,
     keys,
-    () => NOW,
-    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),
+    serviceNow,
+    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),licenseGate,
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
@@ -345,6 +351,7 @@ async function withRealChannel(
   const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
   const secret = randomBytes(32);
 
+  let handlerFailure: unknown;
   const server = new LocalChannelServer(
     endpoint,
     new LocalChannelAuthenticator(secret, clock),
@@ -366,7 +373,8 @@ async function withRealChannel(
       }
       // El servidor ya validó el sobre contra `IpcRequestSchema`, y el
       // handshake quedó atendido arriba: lo que llega aquí es comercial.
-      return await handler.handle(request as Parameters<typeof handler.handle>[0], context.connectionId);
+      try { return await handler.handle(request as Parameters<typeof handler.handle>[0], context.connectionId); }
+      catch(error) { handlerFailure=error; throw error; }
     },
     { min: "1.0.0", max: "1.0.0" },
     undefined,
@@ -385,7 +393,10 @@ async function withRealChannel(
     await server.start();
     await client.connect(handshakeRequest());
     await run(
-      async (request) => await client.request(request) as ChannelResponse,
+      async (request) => {
+        try { return await client.request(request) as ChannelResponse; }
+        catch(error) { throw new Error(`Channel request ${(request as {message_type:string}).message_type} failed`,{cause:handlerFailure ?? error}); }
+      },
       database,
     );
   } finally {
@@ -421,6 +432,7 @@ class FakeIssuancePort implements DocumentIssuancePort {
 async function withRealFiscalChannel(
   outcome: DocumentIssuanceOutcome,
   run: (send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase) => Promise<void>,
+  licenseGate?: () => string | null,
 ): Promise<void> {
   const dir = await directory();
   const database = LocalDatabase.open({ dataDirectory: dir });
@@ -497,7 +509,10 @@ async function withRealFiscalChannel(
     await server.start();
     await client.connect(handshakeRequest());
     await run(
-      async (request) => await client.request(request) as ChannelResponse,
+      async (request) => {
+        try { return await client.request(request) as ChannelResponse; }
+        catch(error) { throw new Error(`Channel request ${(request as {message_type:string}).message_type} failed`,{cause:error}); }
+      },
       database,
     );
   } finally {
@@ -1611,4 +1626,51 @@ it("counter channel rejects a missing or closing shift, with no numbering or sal
     expect((await send(request)).result.outcome).toBe("IDEMPOTENT");
     expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
   });
+});
+
+
+it("rechecks licensing for new sales in an already open shift, without blocking replay or renewal",async()=>{
+  let denial:string|null=null;
+  await withRealChannel(async(send,database)=>{
+    const ids=await prepareCounter(send,database,"license-live");
+    const request=mutating("sale.create",{cash_register_id:REGISTER,channel:"POS",business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,
+      document_series:"L",currency_code:"COP",lines:[{product_id:ids.productId,presentation_id:ids.presentationId,quantity:"1.000000",identifier:BARCODE}]},"license-sale-original");
+    const original=await send(request);expect(original.result.outcome).toBe("CREATED");
+    denial="LICENSE_EXPIRED";
+    expect((await send(request)).result.sale_id).toBe(original.result.sale_id);
+    const next={...request,request_id:randomUUID(),idempotency_key:"license-sale-next"};
+    expect((await send(next)).result.outcome).toBe("LICENSE_BLOCKED");
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
+    expect(database.native.prepare("SELECT last_number FROM sales_document_series_counter WHERE series='L'").get()).toEqual({last_number:1});
+    denial="LICENSE_REVOKED";expect((await send(next)).result.outcome).toBe("LICENSE_BLOCKED");
+    denial=null;expect((await send(next)).result.outcome).toBe("CREATED");
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(2);
+  },()=>denial);
+});
+
+
+it("signed license expiry and renewed artifact govern sales through the real socket and SQLite writer",async()=>{
+  let gate:LicenseCapacityGate;
+  let at=new Date(NOW);
+  await withRealChannel(async(send,database)=>{
+    new LocalSecurityLifecycle(database).registerInitialDeviceKey("LICENSE_CHANNEL_DEVICE_TEST");
+    const pair=generateKeyPairSync("ed25519");
+    let claims:LicenseCapacityClaims={profile:"CAMACHO_LICENSE_CAPACITY_V2",license_id:randomUUID(),tenant_id:TENANT,company_id:COMPANY,
+      installation_id:INSTALLATION,device_id:DEVICE,mode:"HYBRID",entitlements:["CASH_REGISTER"],
+      issued_at:NOW.toISOString(),not_before:NOW.toISOString(),expires_at:"2026-09-03T12:01:00.000Z",offline_grace_until:null,
+      key_id:"LICENSE_CHANNEL_TEST",license_version:1,plan_id:randomUUID(),plan_version:1,
+      cash_register_capacity:{included:1,paid_additional:0,allocations:[{register_id:REGISTER,branch_id:BRANCH}]}};
+    gate=new LicenseCapacityGate(database,()=>({artifact:{claims,signature:sign(null,unsignedLicenseCapacityBytes(claims),pair.privateKey).toString("base64url")},
+      keys:new Map([[claims.key_id,{key:pair.publicKey,status:"ACTIVE" as const}]])}),()=>at);
+    const ids=await prepareCounter(send,database,"signed-license");
+    const request=mutating("sale.create",{cash_register_id:REGISTER,channel:"POS",business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,
+      document_series:"SG",currency_code:"COP",lines:[{product_id:ids.productId,presentation_id:ids.presentationId,quantity:"1.000000",identifier:BARCODE}]},"signed-license-sale");
+    at=new Date("2026-09-03T12:01:00.000Z");
+    expect((await send(request)).result.outcome).toBe("LICENSE_BLOCKED");
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
+    claims={...claims,license_version:2,expires_at:"2026-10-04T00:00:00.000Z"};
+    expect((await send(request)).result.outcome).toBe("CREATED");
+    expect((await send({...request,request_id:randomUUID()})).result.outcome).toBe("IDEMPOTENT");
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
+  },()=>gate.authorize(SCOPE,REGISTER),()=>at);
 });

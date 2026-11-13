@@ -120,7 +120,7 @@ Avícola se interpreta aquí como expendio y transformación minorista de produc
 
 ### Roles y sincronización: contrato de implementación pendiente
 
-- Superadministrador: habilita capacidades y licencias por empresa/dispositivo mediante autoridad GLOBAL. No escribe saldos comerciales saltando el contexto de la empresa.
+- Superadministrador: habilita capacidades y licencias mediante autoridad GLOBAL. Puede vender con permisos comerciales, turno y licencia vigentes (orden del propietario 2026-11-13). La sesión local queda limitada al negocio configurado; no permite selección arbitraria de empresa ni otorga autoridad GLOBAL. No escribe saldos saltando el contexto de la empresa.
 - Administrador: configura catálogo, unidades, lotes, recetas y cajas dentro de su ámbito; consulta resultados. Los permisos de nuevas operaciones deben existir tanto en autoridad como en servicio.
 - Supervisor: consulta y aprueba únicamente operaciones delegadas. Sin venta ni carrito.
 - Cajero: vende bajo las restricciones del producto y el turno; no cambia reglas, saldos, lotes ni licencias.

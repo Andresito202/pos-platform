@@ -7,6 +7,9 @@ it.each([
   ['ACTIVE','2026-11-01T00:00:00Z','GRACE'],
   ['ACTIVE','2026-11-03T23:59:59Z','GRACE'],
   ['ACTIVE','2026-11-04T00:00:00Z','EXPIRED'],
+  ['PAST_DUE','2026-11-01T00:00:00Z','GRACE'],
+  ['PAST_DUE','2026-11-03T23:59:59.999Z','GRACE'],
+  ['PAST_DUE','2026-11-04T00:00:00Z','EXPIRED'],
   ['SUSPENDED','2026-10-15T00:00:00Z','NOT_CURRENT'],
   ['CANCELLED','2026-10-15T00:00:00Z','NOT_CURRENT'],
 ])('read state %s at %s = %s',(status,at,expected)=>expect(state(status,from,until,new Date(at),3)).toBe(expected));
@@ -15,3 +18,5 @@ it('perpetual use has no time expiry; bad dates/policy never become current',()=
   expect(()=>state('ACTIVE',from,until,new Date('invalid'),3)).toThrow();
   expect(()=>state('ACTIVE',from,until,from,0 as 3)).toThrow();
 });
+
+it("does not grant perpetual validity to a past-due contract",()=>expect(state("PAST_DUE",from,null,until,3)).toBe("NOT_CURRENT"));

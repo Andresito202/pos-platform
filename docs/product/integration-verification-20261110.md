@@ -139,3 +139,17 @@ Ejecución observada en Linux, Node 24.22.1:
 Total de las suites indicadas: 856 pruebas aprobadas y 4 omitidas. Las pruebas de canal usan socket TCP loopback real en Linux, handler de producción y SQLite; no representan SCM Windows. Las pruebas de UI usan transporte simulado. No se ejecutó verificación visual en Electron/Android ni servicio bancario/Factus externo para este incremento. Dependencias disponibles de caché: Vitest 4.1.11 y Vite 6.4.3; no se acredita frozen-lockfile ni el comando completo desktop con E2E Playwright.
 
 Pendientes conservados en el backlog: asignación administrativa de caja, métricas por medio de pago, adquiriente final, sincronización entre dispositivos y autoridad de perfiles sectoriales; inventario especializado y XLSX; Factus externo, licencias BUSINESS/SCM y verificación física multiplataforma. No se declara el sistema listo para despliegue comercial integral.
+
+
+## 2026-11-13 — continuación: licencia por venta y superadministrador
+
+Base: 2c3214e1e9f10fabe68f28a309789da3be1c9a43, misma rama activa. La orden posterior del propietario permite vender al superadministrador dentro del negocio; sustituye su antigua exclusión de Caja. Permanecen las pruebas de denegación para supervisor/administrador; superadministrador obtiene permisos de negocio sin LICENSE_PLAN_MANAGE local. La navegación sigue filtrando las capacidades del servicio.
+
+CommercialComponent conecta el verificador de capacidad al escritor de ventas. El test con canal real abre turno y vende, cambia la decisión de licencia a expirada/revocada y verifica que una nueva venta no se escribe ni avanza el número; el replay conserva su ID. La política del gate está inyectada en esa prueba: no es un pago externo. Por separado, SQLite con Ed25519 real comprueba validez hasta el milisegundo anterior al vencimiento y rechazo desde el instante exacto, incluso tras reiniciar. Central prueba ACTIVE/PAST_DUE a ambos lados de los tres días y niega vigencia perpetua morosa.
+
+Resultados: 99 pruebas del servicio, 318 de escritorio, 12 de vigencia central, 298 de contratos y 47 de local-channel; 4 local-channel omitidas. Total 774 aprobadas. No es comparación de cobertura total con el incremento anterior: cambia la selección de suites y se sustituyen expectativas que prohibían vender al superadministrador. TypeScript servicio/renderer/Central y Vite build renderer aprobados, usando las dependencias de caché ya documentadas; sin frozen-lockfile.
+
+Límites: login local de desarrollo no acredita BUSINESS; contexto fijado por servicio, sin selector multiempresa libre; sin verificación visual Windows/Android, prueba de carga ni recorrido externo pago→renovación→descarga. Revocación offline depende de recibir evidencia firmada; vencimiento firmado se comprueba localmente sin añadir gracia.
+
+
+Prueba adicional del mismo incremento: LicenseCapacityGate real con firma Ed25519 de pruebas, sesión autorizada, canal TCP y escritor SQLite. Una licencia expirada bloquea la nueva venta; un artefacto firmado de versión superior válido la permite, y repetirla conserva una sola fila. El reloj del servicio y el de licencia se inyectan desde la misma fuente, respetando el antirretroceso. Se prueban firma y consumo local del artefacto; no se sustituye con esto la prueba del pago ni la emisión/descarga externa.

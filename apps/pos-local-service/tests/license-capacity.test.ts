@@ -101,3 +101,14 @@ it("information: signed expiry, accepted renewal, suspension and company isolati
   f.restart();expect(f.gate().information(scope).status).toBe('SUSPENDED');
   new LocalSecurityLifecycle(f.db).revokeLicense(f.claims.license_id,'test operator revocation');expect(f.gate().information(scope).status).toBe('REVOKED');
 });
+
+
+it("signed capacity stops at the exclusive end of the three-day term, even after restart",()=>{
+  const f=fixture();
+  // Central has already added 72 hours to a nominal 2026-10-24 expiry.
+  // The local gate must not add another three days to signed 2026-10-27.
+  expect(f.gate().authorize(scope,id(8))).toBeNull();
+  f.setTime("2026-10-26T23:59:59.999Z");expect(f.gate().authorize(scope,id(8))).toBeNull();
+  f.setTime("2026-10-27T00:00:00.000Z");expect(f.gate().authorize(scope,id(8))).toBe("LICENSE_EXPIRED");
+  f.restart();expect(f.gate().authorize(scope,id(8))).toBe("LICENSE_EXPIRED");
+});

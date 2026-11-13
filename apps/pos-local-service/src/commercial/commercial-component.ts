@@ -245,7 +245,7 @@ export class CommercialComponent implements RuntimeComponent {
 
     const cashShiftStore = new SqliteCashShiftStore(database, sync, this.now);
     const masterSnapshotStore = new SqliteMasterSnapshotStore(database, this.now);
-    const saleStore = new SqliteSaleStore(database, sync, this.now);
+    const saleStore = new SqliteSaleStore(database, sync, this.now, this.licenseGate);
     // `SqliteCashShiftStore` satisface `CashPort` estructuralmente: Payments no
     // escribe caja, y `cash/` no importa de `payments/` (`DEC-016` §10).
     const customerStore = new SqliteCustomerStore(database, sync, this.now);

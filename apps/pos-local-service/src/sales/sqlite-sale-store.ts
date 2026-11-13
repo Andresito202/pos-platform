@@ -1,3 +1,4 @@
+import type { CashRegisterLicenseGate } from "../security/license-capacity-gate.js";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -73,7 +74,8 @@ export type CreateSaleOutcome =
       readonly calculationChecksum: string;
     }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
-  | { readonly kind: "CASH_SHIFT_NOT_OPEN" };
+  | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
+  | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string };
 
 interface SaleRow {
   id: string;
@@ -94,6 +96,7 @@ export class SqliteSaleStore {
     private readonly database: LocalDatabase,
     private readonly durableSync: DurableSyncStore,
     private readonly now: () => Date = () => new Date(),
+    private readonly licenseGate?: CashRegisterLicenseGate,
   ) {}
 
   create(input: CreateSaleInput): CreateSaleOutcome {
@@ -132,6 +135,15 @@ export class SqliteSaleStore {
           .get(input.scope.tenantId, input.scope.companyId, input.scope.branchId, shift.cashRegisterId, shift.shiftId)) {
           return { kind: "CASH_SHIFT_NOT_OPEN" };
         }
+      }
+
+      // A shift opened yesterday cannot extend signed license validity today.
+      // Replays above remain readable; only a new commercial sale is gated.
+      if (this.licenseGate) {
+        const register = input.cashShift?.cashRegisterId;
+        if (!register) return {kind:"LICENSE_BLOCKED",reason:"LICENSE_REGISTER_REQUIRED"};
+        const denial = this.licenseGate(input.scope, register);
+        if (denial) return {kind:"LICENSE_BLOCKED",reason:denial};
       }
 
       // 2. Contador de serie documental — incremento atómico
