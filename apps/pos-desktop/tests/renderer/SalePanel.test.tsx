@@ -348,6 +348,64 @@ describe("SalePanel — vertical comercial", () => {
     expect(screen.queryByTestId("retry-pending-operation")).toBeNull();
   });
 
+  it("recovers a saved cart and server-owned open shift in a fresh panel", async () => {
+    const cart={id:PRODUCT,version:3,updated_at:"2026-11-13T10:00:00Z",line_count:1,
+      active_shift:{shift_id:SHIFT,version:7},payload:{label:"Guardado",cash_register_id:REGISTER,
+        lines:[{productId:PRODUCT,presentationId:PRESENTATION,name:"Arroz",presentationName:"Bolsa",priceAmount:"3500.000000",currencyCode:"COP",quantity:"2.000000",identifier:"7701234567890"}]}};
+    const found={status:"SUCCEEDED",result_code:"FOUND",result:{outcome:"FOUND",carts:[cart],has_more:false}};
+    install({...BASE_OVERRIDES,"cart.waiting.list":found,"cart.waiting.get":found});
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)}/>);
+    fireEvent.click(screen.getByTestId("list-waiting"));
+    fireEvent.click(await screen.findByRole("button",{name:/Guardado · 1 líneas/}));
+    await screen.findByTestId("shift-open");await screen.findByTestId("cart-line");
+    expect(calls.get("cash.shift.open")).toBeUndefined();
+    await createSale();
+    expect(calls.get("sale.create")?.[0]).toMatchObject({payload:{cash_register_id:REGISTER,waiting_cart:{id:PRODUCT,version:3},lines:[{quantity:"2.000000"}]}});
+  });
+
+  it("does not clear a cart on lost save response and retries the same snapshot", async () => {
+    install(BASE_OVERRIDES);
+    const save=vi.fn().mockRejectedValueOnce(Error("response lost")).mockImplementationOnce(async (request:any)=>({
+      status:"SUCCEEDED",result_code:"SAVED",result:{outcome:"SAVED",has_more:false,carts:[{id:request.payload.cart_id,version:1,
+        updated_at:new Date().toISOString(),line_count:1,payload:request.payload.cart}]},
+    }));
+    Object.defineProperty(window.posService,"cart.waiting.save",{value:save});
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)}/>);
+    await openShift();await addProduct();fireEvent.click(screen.getByTestId("hold-cart"));
+    await waitFor(()=>expect(screen.getByTestId("sale-error").textContent).toBe("response lost"));
+    expect(screen.getAllByTestId("cart-line")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await waitFor(()=>expect(screen.queryAllByTestId("cart-line")).toHaveLength(0));
+    expect(save.mock.calls[1]?.[0]).toEqual(save.mock.calls[0]?.[0]);
+  });
+
+  it("holds a cart, serves another customer and recovers original quantities", async () => {
+    install(BASE_OVERRIDES);
+    let saved:any;
+    const save=vi.fn(async (request:any)=>{
+      saved={id:request.payload.cart_id,version:1,updated_at:new Date().toISOString(),line_count:request.payload.cart.lines.length,payload:request.payload.cart};
+      return {status:"SUCCEEDED",result_code:"SAVED",result:{outcome:"SAVED",carts:[saved],has_more:false}};
+    });
+    Object.defineProperty(window.posService,"cart.waiting.save",{value:save});
+    Object.defineProperty(window.posService,"cart.waiting.get",{value:vi.fn(async()=>({status:"SUCCEEDED",result_code:"FOUND",result:{outcome:"FOUND",carts:[saved],has_more:false}}))});
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)}/>);
+    await openShift();await addProduct();
+    fireEvent.change(screen.getByLabelText("Referencia del cliente en espera"),{target:{value:"Cliente A"}});
+    fireEvent.click(screen.getByTestId("hold-cart"));
+    await waitFor(()=>expect(screen.queryAllByTestId("cart-line")).toHaveLength(0));
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(calls.get("sale.create")).toBeUndefined();
+    await addProduct();
+    expect((screen.getByRole("button",{name:/Cliente A · 1 líneas/}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("reset-button"));
+    fireEvent.click(screen.getByRole("button",{name:/Cliente A · 1 líneas/}));
+    await screen.findByTestId("cart-line");
+    expect((screen.getByLabelText("Referencia del cliente en espera") as HTMLInputElement).value).toBe("Cliente A");
+    await createSale();
+    expect(calls.get("sale.create")?.[0]).toMatchObject({payload:{waiting_cart:{id:saved.id,version:1},lines:[{quantity:"1.000000"}]}});
+    expect((screen.getByTestId("hold-cart") as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("removes a draft cart line without sending a sale mutation", async () => {
     install(BASE_OVERRIDES);
     render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);

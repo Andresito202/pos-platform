@@ -1,3 +1,7 @@
+## Clientes en espera — 2026-11-13
+
+Implementado en la misma línea activa, sin nueva rama: guardar/recuperar/eliminar carritos antes del cobro, persistencia SQLite y consumo atómico al crear la venta existente. Evidencia y límites en [waiting-carts.md](waiting-carts.md). No sustituye recuperación de pagos pendientes ni cierra diseño completo, login BUSINESS, Factus externo o Android.
+
 ## Marca y limpieza del árbol — 2026-11-10
 
 En la misma línea activa: identidad amarilla/naranja unificada en BrandMark (login, barra lateral, administración web y ofertas), acceso HTTPS Central y recursos de Android. Se retiran los dos PNG azul/verde y tres SVG sin consumidor de controles de pago retirados. No se eliminan adapters de pagos ni hardware. Se centralizan estilos de marca y se eliminan reglas responsive duplicadas. Caja mantiene sus operaciones y mejora etiquetas de apertura y presentación de la referencia de venta.

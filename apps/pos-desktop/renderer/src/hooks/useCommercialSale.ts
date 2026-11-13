@@ -1,3 +1,4 @@
+import { WaitingCartResultSchema, type WaitingCart } from "@pos-platform/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CashShiftCloseResult,
@@ -110,6 +111,13 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   canReadCatalog: boolean;
   canReadPayment: boolean;
 }): CommercialSaleState & {
+  waitingCarts: readonly WaitingCart[];
+  waitingLabel: string;
+  setWaitingLabel(value: string): void;
+  listWaiting(): Promise<void>;
+  holdCart(): Promise<void>;
+  resumeCart(cart: WaitingCart): Promise<void>;
+  discardWaiting(cart: WaitingCart): Promise<void>;
   openShift(cashRegisterId: string, openingAmount: string): Promise<void>;
   listCatalogItems(query?: string, offset?: number): Promise<void>;
   addCatalogItem(item: CatalogItemListItem, quantity: string): void;
@@ -127,6 +135,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   closeShift(countedAmount: string): Promise<void>;
   reset(): boolean;
 } {
+  const [waitingCarts,setWaitingCarts]=useState<WaitingCart[]>([]);
+  const [waitingLabel,setWaitingLabel]=useState("");
+  const [activeWaiting,setActiveWaiting]=useState<WaitingCart|null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const applyMutation = useRef<(result: unknown) => void>(() => undefined);
@@ -141,6 +152,14 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   const sendMutation = useCallback(async <T,>(pending: NonNullable<typeof pendingMutation.current>): Promise<CommercialResponse<T>> => {
     try {
       const response = await getPosService()[pending.messageType](pending.request) as CommercialResponse<T>;
+      if(pending.messageType === "cart.waiting.save" && response.status === "SUCCEEDED") {
+        const parsed=WaitingCartResultSchema.safeParse(response.result);
+        const request=pending.request.payload as {cart_id:string;expected_version:number};
+        if(!parsed.success || parsed.data.outcome!=="SAVED" || response.result_code!=="SAVED" ||
+          parsed.data.carts[0]?.id!==request.cart_id || parsed.data.carts[0].version!==request.expected_version+1) {
+          pending.uncertain=true;throw new Error("WAITING_CART_RESPONSE_INVALID");
+        }
+      }
       // A rejection now says nothing about an earlier transmission whose
       // response was lost. Keep that original identity until recovered.
       const confirmed = response.status === "SUCCEEDED" && response.result !== null;
@@ -279,7 +298,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   }, [canReadCatalog, listCatalogItems]);
 
   const addCatalogItem = useCallback((item: CatalogItemListItem, quantity: string): void => {
-    if (sale !== null || pendingMutation.current !== null) return;
+    if (busyRef.current || sale !== null || pendingMutation.current !== null) return;
     const canonical = toScale6(quantity);
     if (canonical === null || canonical === "0.000000") {
       setError("INVALID_QUANTITY");
@@ -312,7 +331,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   }, [run, callMutation]);
 
   const addFoundItem = useCallback((quantity: string): void => {
-    if (pendingMutation.current !== null) return;
+    if (busyRef.current || pendingMutation.current !== null) return;
     const canonical = toScale6(quantity);
     if (canonical === null || canonical === "0.000000") {
       setError("INVALID_QUANTITY");
@@ -329,7 +348,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   }, [foundItem, sale]);
 
   const removeLine = useCallback((index: number): void => {
-    if (sale !== null || pendingMutation.current !== null) return;
+    if (busyRef.current || sale !== null || pendingMutation.current !== null) return;
     setLines((current) => current.filter((_, position) => position !== index));
   }, [sale]);
 
@@ -341,6 +360,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
         // El único selector del turno. `null` si no hay caja abierta: la venta
         // se crea igual, con el par en `NULL`, y el efectivo la rechazará.
         cash_register_id: shift?.cashRegisterId ?? null,
+        ...(activeWaiting ? {waiting_cart:{id:activeWaiting.id,version:activeWaiting.version}}:{}),
         channel: "POS",
         document_series: "POS1",
         currency_code: currency,
@@ -358,9 +378,10 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
           return;
         }
         setSale({ saleId: result.sale_id, payableAmount: result.payable_amount });
+        if(activeWaiting) setWaitingCarts(current=>current.filter(cart=>cart.id!==activeWaiting.id));
       },
     );
-  }, [lines, shift, run, callMutation]);
+  }, [lines, shift, activeWaiting, run, callMutation]);
 
   const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;
@@ -531,9 +552,54 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     if (cancelled) { setTransferConfirmation(null); await loadTransfer(current.paymentId); }
   }, [transfer, run, loadTransfer, callMutation]);
 
+  const listWaiting = useCallback(async ():Promise<void> => {
+    await run(() => callCommercial("cart.waiting.list",{}), result => {
+      const parsed=WaitingCartResultSchema.safeParse(result);
+      if(!parsed.success || parsed.data.outcome!=="FOUND") {setError("WAITING_CART_RESPONSE_INVALID");return;}
+      setWaitingCarts(parsed.data.carts);
+    });
+  },[run]);
+  const holdCart = useCallback(async ():Promise<void> => {
+    if(busyRef.current || pendingMutation.current || sale || !shift || lines.length===0) return;
+    const id=activeWaiting?.id ?? globalThis.crypto.randomUUID();
+    await run(() => callMutation("cart.waiting.save",{
+      cart_id:id,expected_version:activeWaiting?.version ?? 0,
+      cart:{label:waitingLabel,cash_register_id:shift.cashRegisterId,lines},
+    }),result=>{
+      const parsed=WaitingCartResultSchema.safeParse(result);
+      if(!parsed.success || parsed.data.outcome!=="SAVED" || parsed.data.carts[0]?.id!==id) {setError("WAITING_CART_RESPONSE_INVALID");return;}
+      setLines([]);setFoundItem(null);setActiveWaiting(null);setWaitingLabel("");
+      setWaitingCarts(current=>[...current.filter(c=>c.id!==id),parsed.data.carts[0]!]);
+    });
+  },[sale,shift,lines,activeWaiting,waitingLabel,run,callMutation]);
+  const resumeCart = useCallback(async (cart:WaitingCart):Promise<void>=>{
+    if(busyRef.current || pendingMutation.current || sale || lines.length>0) {setError("Guarda el carrito actual en espera antes de recuperar otro.");return;}
+    if(shift && shift.cashRegisterId!==cart.payload.cash_register_id) {setError("Abre la misma caja del carrito antes de recuperarlo.");return;}
+    await run(()=>callCommercial("cart.waiting.get",{cart_id:cart.id}),result=>{
+      const parsed=WaitingCartResultSchema.safeParse(result);
+      const found=parsed.success && parsed.data.outcome==="FOUND" ? parsed.data.carts[0]:undefined;
+      if(!found || found.id!==cart.id || found.payload.lines.length===0 || (shift && found.payload.cash_register_id!==shift.cashRegisterId)) {setError("WAITING_CART_NOT_FOUND");return;}
+      if(!shift) {
+        if(!found.active_shift) {setError("Abre la misma caja del carrito antes de recuperarlo.");return;}
+        setShift({shiftId:found.active_shift.shift_id,version:found.active_shift.version,cashRegisterId:found.payload.cash_register_id});
+      }
+      setLines([...found.payload.lines]);setActiveWaiting(found);setWaitingLabel(found.payload.label);setError(null);
+    });
+  },[sale,lines,shift,run]);
+
+  const discardWaiting=useCallback(async (cart:WaitingCart):Promise<void>=>{
+    if(busyRef.current || pendingMutation.current || activeWaiting?.id===cart.id) return;
+    await run(()=>callMutation("cart.waiting.discard",{cart_id:cart.id,expected_version:cart.version}),result=>{
+      const parsed=WaitingCartResultSchema.safeParse(result);
+      if(!parsed.success || parsed.data.outcome!=="DISCARDED") {setError("WAITING_CART_RESPONSE_INVALID");return;}
+      setWaitingCarts(current=>current.filter(item=>item.id!==cart.id));
+    });
+  },[run,callMutation,activeWaiting]);
+
   const reset = useCallback((): boolean => {
-    if (pendingMutation.current !== null) { setError("OPERATION_OUTCOME_UNRESOLVED"); return false; }
+    if (busyRef.current || pendingMutation.current !== null) { setError("OPERATION_OUTCOME_UNRESOLVED"); return false; }
     setLines([]);
+    setActiveWaiting(null);setWaitingLabel("");
     setSale(null);
     setPayment(null);
     setFoundItem(null);
@@ -544,6 +610,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   }, []);
 
   return {
+    waitingCarts, waitingLabel, setWaitingLabel, listWaiting, holdCart, resumeCart, discardWaiting,
     busy, error, shift, foundItem, catalogItems, catalogHasMore, catalogBusy, lines, sale, payment, closedShift,
     transfer, transferConfirmation,
     openShift, listCatalogItems, addCatalogItem, findItem, addFoundItem, removeLine, createSale, chargeCash,

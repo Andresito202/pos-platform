@@ -132,6 +132,8 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE hardware_events;
       DROP TABLE hardware_jobs;
       DROP TABLE hardware_bindings;
+      -- v19 editable carts must also be absent in this reconstructed v7 fixture.
+      DROP TABLE sales_waiting_carts;
       DELETE FROM local_schema_migrations WHERE version > 7;
       CREATE TRIGGER local_schema_migrations_no_delete
         BEFORE DELETE ON local_schema_migrations

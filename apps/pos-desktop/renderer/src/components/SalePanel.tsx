@@ -222,6 +222,23 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
 
         <section className="pos-sale-cart" aria-label="Venta actual">
           <h2>Carrito <small>({sale.lines.length} líneas)</small></h2>
+          {permissions.has(CanonicalPermission.SALES_SALE_CREATE) && <div className="pos-waiting-controls">
+            <input aria-label="Referencia del cliente en espera" placeholder="Cliente o referencia (opcional)" maxLength={80}
+              value={sale.waitingLabel} onChange={e=>sale.setWaitingLabel(e.target.value)} disabled={sale.busy || sale.unresolved || sale.sale!==null}/>
+            <button data-testid="hold-cart" onClick={()=>void sale.holdCart()}
+              disabled={sale.busy || sale.unresolved || !sale.shift || sale.lines.length===0 || sale.lines.length>200 || sale.sale!==null}>En espera</button>
+            {sale.lines.length>200 && <small>Máximo 200 líneas por carrito en espera.</small>}
+            <button data-testid="list-waiting" onClick={()=>void sale.listWaiting()} disabled={sale.busy}>Ver en espera</button>
+            {sale.waitingCarts.length>0 && <ul aria-label="Clientes en espera">{sale.waitingCarts.map(cart=><li key={cart.id}>
+              <button onClick={()=>void sale.resumeCart(cart)} disabled={sale.busy || sale.unresolved || sale.lines.length>0 || sale.sale!==null}>
+                {cart.payload.label || "Cliente en espera"} · {cart.line_count} líneas
+              </button>
+              <button aria-label={`Eliminar ${cart.payload.label || "cliente en espera"}`}
+                disabled={sale.busy || sale.unresolved || sale.lines.length>0 || sale.sale!==null}
+                onClick={()=>{if(window.confirm("¿Eliminar este carrito en espera? No se eliminarán ventas ni pagos.")) void sale.discardWaiting(cart);}}>Eliminar</button>
+            </li>)}</ul>}
+          </div>}
+
           <ul data-testid="cart" className="pos-cart-list">
             {sale.lines.map((line, index) => (
               <li key={`${line.presentationId}-${String(index)}`} data-testid="cart-line">

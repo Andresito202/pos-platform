@@ -1,9 +1,27 @@
+import type {Server,Socket} from "node:net";
+// Linux test transport uses actual loopback sockets; Windows keeps named pipes.
+// Business handler, framing, MAC and SQLite remain real.
+const loopback=vi.hoisted(()=>({server:undefined as Server|undefined}));
+vi.mock("node:net",async original=>{
+  const net=await original<typeof import("node:net")>();
+  if(process.platform==="win32")return net;
+  return {...net,createServer:(listener:(socket:Socket)=>void)=>{
+    const server=net.createServer(listener),listen=server.listen.bind(server);
+    Object.defineProperty(server,"listen",{value:(_endpoint:string,ready:()=>void)=>listen({host:"127.0.0.1",port:0},ready)});
+    loopback.server=server;return server;
+  },createConnection:()=>{
+    const address=loopback.server?.address();
+    if(!address||typeof address==="string")throw Error("TCP_TEST_LISTENER_REQUIRED");
+    return net.createConnection({host:"127.0.0.1",port:address.port});
+  }};
+});
+
 import { createPublicKey, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import {
   LocalChannelAuthenticator,
@@ -55,8 +73,8 @@ import {
  * socket, con el `CommercialRequestHandler` de producción y una base SQLite
  * real detrás, puenteados **igual que lo hace `local-channel-component.ts`**.
  *
- * Corre sobre socket POSIX —`localChannelEndpoint` lo admite con directorio de
- * prueba—, así que **se ejecuta en Linux**. El named pipe y su DACL tienen
+ * En Linux usa TCP loopback efímero mediante el adaptador de prueba;
+ * conserva framing, MAC, servidor, cliente, handler y SQLite reales. El named pipe y su DACL tienen
  * cobertura propia en `channel.test.ts`, que CI ejecuta en `windows-2022`; lo
  * que sigue siendo `REQUIRES_LOCAL_VERIFICATION` es **la identidad del proceso
  * cliente**.
@@ -1530,4 +1548,31 @@ describe("la transferencia recorre reportar → leer versión → atestiguar", (
       expect(stockOf(database, ids.presentationId)).toBe("12.000000");
     });
   }, 30_000);
+});
+
+it("waiting cart crosses authenticated channel and is consumed atomically by the real sale use case",async()=>{
+  await withRealChannel(async(send,database)=>{
+    const ids=await prepareCounter(send,database,"waiting");
+    const cartId=randomUUID();
+    const save=mutating("cart.waiting.save",{cart_id:cartId,expected_version:0,cart:{label:"Cliente A",cash_register_id:REGISTER,
+      lines:[{...ids,name:"Café",presentationName:"Bolsa",priceAmount:"1.000000",currencyCode:"COP",quantity:"2.000000",identifier:BARCODE}]}},"waiting-save");
+    expect((await send(save)).result.outcome).toBe("SAVED");
+    expect((await send(save)).result.outcome).toBe("SAVED");
+    expect((await send(reading("cart.waiting.list",{}))).result.carts).toHaveLength(1);
+    const recovered=await send(reading("cart.waiting.get",{cart_id:cartId}));
+    expect(recovered.result.carts).toMatchObject([{active_shift:{version:1}}]);
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
+    const request=mutating("sale.create",{cash_register_id:REGISTER,waiting_cart:{id:cartId,version:1},channel:"POS",
+      business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,document_series:"A",currency_code:"COP",
+      lines:[{product_id:ids.productId,presentation_id:ids.presentationId,quantity:"2.000000",identifier:BARCODE}]
+    },"waiting-sale");
+    const sale=await send(request);
+    expect(sale.result.outcome).toBe("CREATED");
+    expect(sale.result.payable_amount).toBe("36000.000000");
+    expect((await send(request)).result.outcome).toBe("IDEMPOTENT");
+    expect((await send({...request,request_id:randomUUID(),idempotency_key:"other-window"})).result.outcome).toBe("IDEMPOTENCY_CONFLICT");
+    expect((await send(reading("cart.waiting.list",{}))).result.carts).toEqual([]);
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
+    expect(stockOf(database,ids.presentationId)).toBe("12.000000");
+  });
 });

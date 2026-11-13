@@ -307,6 +307,48 @@ export const CashShiftCloseResultSchema = z.strictObject({
 
 export const CashShiftCloseResponseSchema = createResponseEnvelopeSchema(CashShiftCloseResultSchema);
 
+/** Display snapshots only. Prices are recalculated by sale.create. */
+export const WaitingCartLineSchema = z.strictObject({
+  productId: UuidSchema, presentationId: UuidSchema,
+  name: z.string().max(200), presentationName: z.string().max(200),
+  priceAmount: NonNegativeScale6Schema, currencyCode: CurrencyCodeSchema,
+  quantity: PositiveScale6Schema, identifier: z.string().max(200),
+});
+export const WaitingCartPayloadSchema = z.strictObject({
+  label: z.string().trim().max(80),
+  cash_register_id: UuidSchema,
+  lines: z.array(WaitingCartLineSchema).min(1).max(200),
+});
+export const WaitingCartSchema = z.strictObject({
+  id: UuidSchema, version: z.number().int().positive(),
+  active_shift: z.strictObject({shift_id:UuidSchema,version:z.number().int().positive()}).nullable().optional(),
+  updated_at: z.string(), line_count: z.number().int().nonnegative(),
+  payload: WaitingCartPayloadSchema.extend({lines:z.array(WaitingCartLineSchema).max(200)}),
+});
+export const WaitingCartSaveRequestSchema = createRequestEnvelopeSchema(z.strictObject({
+  cart_id: UuidSchema, expected_version: z.number().int().nonnegative(), cart: WaitingCartPayloadSchema,
+})).safeExtend({message_type:z.literal("cart.waiting.save")}).superRefine((request,context)=>{
+  forbidCallerAssertedIdentity(request,context);requireIdempotentOperation(request,context);
+});
+export const WaitingCartListRequestSchema = createRequestEnvelopeSchema(z.strictObject({})).safeExtend({
+  message_type:z.literal("cart.waiting.list"),
+}).superRefine(forbidCallerAssertedIdentity);
+export const WaitingCartGetRequestSchema = createRequestEnvelopeSchema(z.strictObject({cart_id:UuidSchema})).safeExtend({
+  message_type:z.literal("cart.waiting.get"),
+}).superRefine(forbidCallerAssertedIdentity);
+export const WaitingCartDiscardRequestSchema = createRequestEnvelopeSchema(z.strictObject({
+  cart_id:UuidSchema,expected_version:z.number().int().positive(),
+})).safeExtend({message_type:z.literal("cart.waiting.discard")}).superRefine((request,context)=>{
+  forbidCallerAssertedIdentity(request,context);requireIdempotentOperation(request,context);
+});
+export const WaitingCartResultSchema = z.strictObject({
+  outcome:z.enum(["SAVED","FOUND","DISCARDED","UNAUTHORIZED","NOT_FOUND","VERSION_CONFLICT","IDEMPOTENCY_CONFLICT","CART_LIMIT"]),
+  carts:z.array(WaitingCartSchema).max(50), has_more:z.boolean(),
+});
+export const WaitingCartResponseSchema = createResponseEnvelopeSchema(WaitingCartResultSchema);
+export type WaitingCart = z.infer<typeof WaitingCartSchema>;
+export type WaitingCartPayload = z.infer<typeof WaitingCartPayloadSchema>;
+
 // ── sale.create ──────────────────────────────────────────────────────────────
 
 export const SaleCreateLineSchema = z.strictObject({
@@ -355,6 +397,7 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
      * verificado, así que una caja ajena simplemente no resuelve turno.
      */
     cash_register_id: UuidSchema.nullable(),
+    waiting_cart: z.strictObject({ id: UuidSchema, version: z.number().int().positive() }).optional(),
     channel: SaleChannelSchema,
     business_date: BusinessDateSchema,
     timezone_id: TimezoneIdSchema,
@@ -371,6 +414,8 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
 
 export const SaleCreateOutcomeSchema = z.enum([
   "CREATED",
+  "WAITING_CART_NOT_FOUND",
+  "WAITING_CART_CONFLICT",
   "IDEMPOTENT",
   "UNAUTHORIZED",
   "CATALOG_NOT_FOUND",
@@ -1256,6 +1301,10 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
+  "cart.waiting.save",
+  "cart.waiting.list",
+  "cart.waiting.get",
+  "cart.waiting.discard",
   "payment.register.cash",
   "payment.register.transfer",
   "payment.transfer.confirm",
@@ -1291,6 +1340,10 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",
+  "pos:cart.waiting.save",
+  "pos:cart.waiting.list",
+  "pos:cart.waiting.get",
+  "pos:cart.waiting.discard",
   "pos:payment.register.cash",
   "pos:payment.register.transfer",
   "pos:payment.transfer.confirm",

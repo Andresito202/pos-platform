@@ -297,3 +297,14 @@ legend { padding: 0 6px; font-weight: 600; }
   .pos-screen label { font-size: 14px; }
   .pos-screen input, .pos-screen select { font-size: 16px; }
 }
+
+/* Waiting customers stay next to the cart, without competing with checkout. */
+.pos-waiting-controls { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; margin-bottom:.75rem; }
+.pos-waiting-controls > input { flex:1 1 12rem; min-width:0; }
+.pos-waiting-controls > button { min-height:44px; padding:.45rem .65rem; font-size:.875rem; }
+.pos-waiting-controls > ul { flex-basis:100%; list-style:none; padding:0; margin:0; display:grid; gap:.375rem; max-height:12rem; overflow:auto; }
+.pos-waiting-controls > ul button { width:100%; min-height:44px; text-align:left; overflow-wrap:anywhere; }
+
+.pos-waiting-controls > ul > li { display:flex; gap:.375rem; align-items:stretch; }
+.pos-waiting-controls > ul > li > button:first-child { flex:1; min-width:0; }
+.pos-waiting-controls > ul > li > button:last-child { width:auto; flex:0 0 auto; }

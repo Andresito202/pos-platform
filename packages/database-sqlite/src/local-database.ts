@@ -1404,6 +1404,25 @@ CREATE TRIGGER hardware_events_no_delete BEFORE DELETE ON hardware_events BEGIN 
 CREATE INDEX hardware_jobs_pending_idx ON hardware_jobs(tenant_id,branch_id,state,created_at);
 `.trim();
 
+// Local editable baskets: never a sale, stock movement or fiscal document.
+const MIGRATION_019 = `
+CREATE TABLE sales_waiting_carts (
+ id TEXT PRIMARY KEY NOT NULL CHECK(length(id)=36),
+ tenant_id TEXT NOT NULL, company_id TEXT NOT NULL, branch_id TEXT NOT NULL,
+ device_id TEXT NOT NULL, operator_id TEXT NOT NULL, cash_register_id TEXT NOT NULL,
+ version INTEGER NOT NULL CHECK(version>0),
+ state TEXT NOT NULL CHECK(state IN ('WAITING','CONSUMED','DISCARDED')),
+ payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+ last_save_key TEXT NOT NULL, last_save_checksum TEXT NOT NULL,
+ sale_key TEXT, sale_checksum TEXT, sale_result_json TEXT CHECK(sale_result_json IS NULL OR json_valid(sale_result_json)),
+ updated_at TEXT NOT NULL,
+ CHECK((state IN ('WAITING','DISCARDED') AND sale_key IS NULL AND sale_result_json IS NULL) OR
+       (state='CONSUMED' AND sale_key IS NOT NULL AND sale_result_json IS NOT NULL))
+) STRICT;
+CREATE INDEX sales_waiting_carts_owner_idx ON sales_waiting_carts
+ (tenant_id, company_id, branch_id, device_id, operator_id, state, updated_at, id);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1423,6 +1442,7 @@ const MIGRATIONS = [
   { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
   { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
   { version: 18, sql: MIGRATION_018, checksum: createHash("sha256").update(MIGRATION_018).digest("hex") },
+  { version: 19, sql: MIGRATION_019, checksum: createHash("sha256").update(MIGRATION_019).digest("hex") },
 ] as const;
 
 /**

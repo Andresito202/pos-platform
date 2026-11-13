@@ -52,6 +52,11 @@ describe("local operator backend authorization",()=>{
     }, "A");
     expect(response).toMatchObject({status:"REJECTED",result_code:"UNAUTHORIZED"});
   });
+  it.each(["SUPERVISOR","ADMINISTRADOR","SUPERADMINISTRADOR"] as const)("denies waiting carts to %s before accessing storage",async role=>{
+    const {sessions,handler}=setup(role);await sessions.login("A","operator","valid");
+    const response=handler.handle({protocol_version:"1.0.0",message_type:"cart.waiting.list",request_id:randomUUID(),correlation_id:randomUUID(),payload_schema_version:"1.0.0",payload:{}},"A");
+    expect(response).toMatchObject({status:"REJECTED",result_code:"UNAUTHORIZED",result:{carts:[]}});
+  });
   it.each(["SUPERVISOR", "ADMINISTRADOR"] as const)("%s reviews payments without inheriting cashier operations", async role => {
     const {sessions,read}=setup(role);
     await sessions.login("A", role === "SUPERVISOR" ? "supervisor.local" : "admin.local", "valid");

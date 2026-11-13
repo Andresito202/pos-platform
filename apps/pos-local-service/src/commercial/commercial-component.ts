@@ -1,3 +1,4 @@
+import { SqliteWaitingCartStore } from "../sales/sqlite-waiting-cart-store.js";
 import type {PublicLicenseCatalog} from "@pos-platform/contracts";
 import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
@@ -88,6 +89,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly openCashShift: OpenCashShiftUseCase;
         readonly closeCashShift: CloseCashShiftUseCase;
         readonly createSale: CreateSaleUseCase;
+        readonly waitingCarts: SqliteWaitingCartStore;
         readonly registerCashPayment: RegisterCashPaymentUseCase;
         readonly registerTransferPayment: RegisterTransferPaymentUseCase;
         readonly confirmTransferPayment: ConfirmTransferPaymentUseCase;
@@ -207,6 +209,7 @@ export class CommercialComponent implements RuntimeComponent {
   }
   get openCashShift(): OpenCashShiftUseCase { return this.ready.openCashShift; }
   get closeCashShift(): CloseCashShiftUseCase { return this.ready.closeCashShift; }
+  get waitingCarts(): SqliteWaitingCartStore { return this.ready.waitingCarts; }
   get createSale(): CreateSaleUseCase { return this.ready.createSale; }
   get registerCashPayment(): RegisterCashPaymentUseCase { return this.ready.registerCashPayment; }
   get registerTransferPayment(): RegisterTransferPaymentUseCase { return this.ready.registerTransferPayment; }
@@ -293,6 +296,7 @@ export class CommercialComponent implements RuntimeComponent {
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now, this.licenseGate),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
+      waitingCarts: new SqliteWaitingCartStore(database, this.now),
       createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now),
       receiveStock: new ReceiveStockUseCase(inventoryStore),
       adjustStock: new AdjustStockUseCase(inventoryStore),

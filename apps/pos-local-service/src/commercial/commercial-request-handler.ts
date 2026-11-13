@@ -22,7 +22,7 @@ type CommercialRequest = Extract<
     message_type:
       | "authorization.capabilities.get"
       | "session.activate" | "session.recover"
-      | "cash.shift.open" | "cash.shift.close" | "sale.create"
+      | "cash.shift.open" | "cash.shift.close" | "sale.create" | "cart.waiting.save" | "cart.waiting.list" | "cart.waiting.get" | "cart.waiting.discard"
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
@@ -53,6 +53,9 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   INCOMPATIBLE_SHIFT: "CONFLICT",
   IDEMPOTENCY_CONFLICT: "CONFLICT",
   NOT_FOUND: "NOT_FOUND",
+  WAITING_CART_NOT_FOUND: "NOT_FOUND",
+  WAITING_CART_CONFLICT: "CONFLICT",
+  CART_LIMIT: "VALIDATION",
   ALREADY_CLOSED: "CONFLICT",
   VERSION_CONFLICT: "CONFLICT",
   CATALOG_NOT_FOUND: "NOT_FOUND",
@@ -226,6 +229,10 @@ export class CommercialRequestHandler {
       case "cash.shift.open": return this.openShift(request, connectionId);
       case "cash.shift.close": return this.closeShift(request, connectionId);
       case "sale.create": return this.createSale(request, connectionId);
+      case "cart.waiting.save":
+      case "cart.waiting.discard":
+      case "cart.waiting.get":
+      case "cart.waiting.list": return this.waitingCart(request, connectionId);
       case "payment.register.cash": return this.registerCashPayment(request, connectionId);
       case "payment.register.transfer": return this.registerTransferPayment(request, connectionId);
       case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
@@ -1489,6 +1496,22 @@ export class CommercialRequestHandler {
     });
   }
 
+  private waitingCart(request: Extract<CommercialRequest,{message_type:"cart.waiting.save"|"cart.waiting.list"|"cart.waiting.get"|"cart.waiting.discard"}>,connectionId:string):unknown {
+    const auth=this.authenticate(connectionId);
+    const denied={outcome:"UNAUTHORIZED",carts:[],has_more:false};
+    if("rejection" in auth) return rejected(request,auth.rejection,denied);
+    const scope=this.scope();
+    const decision=evaluatePermission({actor:createActor("USER",auth.identity.userId),permission:CanonicalPermission.SALES_SALE_CREATE,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(auth.snapshot.claims)});
+    if(!decision.allowed) return rejected(request,"UNAUTHORIZED",denied);
+    const owner={...scope,operatorId:auth.identity.userId};
+    const result=request.message_type==="cart.waiting.list" ? this.commercial.waitingCarts.list(owner)
+      : request.message_type==="cart.waiting.get" ? this.commercial.waitingCarts.get(owner,request.payload.cart_id)
+      : request.message_type==="cart.waiting.discard" ? this.commercial.waitingCarts.discard(owner,request.payload.cart_id,request.payload.expected_version)
+      :this.commercial.waitingCarts.save(owner,request.payload.cart_id,request.payload.expected_version,request.idempotency_key!,request.payload.cart);
+    return ["FOUND","SAVED","DISCARDED"].includes(result.outcome)?succeeded(request,result.outcome,result):rejected(request,result.outcome,result);
+  }
+
   // ── sale.create ────────────────────────────────────────────────────────────
 
   private createSale(
@@ -1503,7 +1526,7 @@ export class CommercialRequestHandler {
       });
     }
 
-    const result = this.commercial.createSale.execute(
+    const create = () => this.commercial.createSale.execute(
       this.scope(),
       authenticated.identity.ssaSessionId,
       authenticated.snapshot,
@@ -1526,6 +1549,16 @@ export class CommercialRequestHandler {
         })),
       },
     );
+
+    // Recheck authorization even for a replay of a consumed waiting cart.
+    const scope=this.scope();
+    const allowed=evaluatePermission({actor:createActor("USER",authenticated.identity.userId),permission:CanonicalPermission.SALES_SALE_CREATE,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(authenticated.snapshot.claims)});
+    const waiting=request.payload.waiting_cart;
+    const result=!allowed.allowed ? {kind:"UNAUTHORIZED" as const} : waiting
+      ? this.commercial.waitingCarts.consume({...scope,operatorId:authenticated.identity.userId},waiting.id,waiting.version,
+        request.idempotency_key!,request.payload,request.payload.cash_register_id,create)
+      : create();
 
     if (result.kind === "CREATED" || result.kind === "IDEMPOTENT") {
       return succeeded(request, result.kind, {
