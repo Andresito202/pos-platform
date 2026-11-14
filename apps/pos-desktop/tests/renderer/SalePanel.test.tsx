@@ -430,7 +430,7 @@ describe("SalePanel — vertical comercial", () => {
     expect(screen.getByRole("button",{name:"Quitar cliente"})).toBeTruthy();
     await waitFor(()=>expect(calls.get("customer.get")?.length).toBeGreaterThanOrEqual(2));
     await createSale();
-    expect(calls.get("sale.create")?.[0]).toMatchObject({payload:{waiting_cart:{id:saved.id,version:1},lines:[{quantity:"1.000000"}]}});
+    expect(calls.get("sale.create")?.[0]).toMatchObject({payload:{customer_id:PAYMENT,waiting_cart:{id:saved.id,version:1},lines:[{quantity:"1.000000"}]}});
     expect((screen.getByTestId("hold-cart") as HTMLButtonElement).disabled).toBe(true);
   });
 

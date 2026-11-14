@@ -22,7 +22,7 @@ Cadena: SalePanel → useCommercialSale → preload/allowlist → contratos y ca
 - Crear la venta y consumir el borrador comparten una transacción SQLite. Solo éxito/resultado idempotente lo consume. Repetir la solicitud original recupera la venta; otra clave no genera una segunda venta desde ese borrador.
 - Eliminar deja un estado terminal DISCARDED, no borra ventas ni pagos y no permite resucitar el carrito mediante un reintento antiguo. Los registros terminales se conservan como protección frente a reintentos; no hay purga automática nueva.
 - Máximo 50 clientes pendientes por operador/dispositivo y 200 líneas por carrito. La lista transmite metadatos; get recupera solo el carrito seleccionado para mantener la respuesta acotada. No hay transferencia entre dispositivos ni sincronización de borradores.
-- La asociación del cliente se conserva en el borrador en espera. Todavía no se propaga automáticamente como adquiriente a la venta/factura final; esa integración queda pendiente. No hay descuentos de carrito. Las reglas comerciales existentes permanecen en el servicio.
+- La asociación se conserva en el borrador y en sales_sales.customer_id al crear la venta. Fiscal permite «Emitir con cliente de la venta»; la emisión sigue siendo explícita y requiere autorización fiscal. Ventas históricas sin cliente conservan NULL. No hay descuentos de carrito. Las reglas comerciales existentes permanecen en el servicio.
 
 ## Evidencia observada
 

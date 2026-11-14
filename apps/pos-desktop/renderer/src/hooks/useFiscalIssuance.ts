@@ -22,6 +22,7 @@ import { callCommercial, newIdempotencyKey } from "../pos-service.js";
  */
 
 export type FiscalCustomerChoice =
+  | { readonly kind: "SALE_CUSTOMER" }
   | { readonly kind: "IDENTIFIED"; readonly customerId: string }
   | { readonly kind: "NOT_IDENTIFIED"; readonly reason: "ANONYMOUS_COUNTER_SALE" | "IDENTIFICATION_PENDING" };
 
@@ -68,7 +69,7 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
           document_type: documentType,
           customer: customer.kind === "IDENTIFIED"
             ? { kind: "IDENTIFIED", customer_id: customer.customerId }
-            : { kind: "NOT_IDENTIFIED", reason: customer.reason },
+            : customer.kind === "SALE_CUSTOMER" ? {kind:"SALE_CUSTOMER"} : { kind: "NOT_IDENTIFIED", reason: customer.reason },
           observation: null,
         },
         newIdempotencyKey(),

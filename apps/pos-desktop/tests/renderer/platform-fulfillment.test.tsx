@@ -27,6 +27,43 @@ describe("GLOBAL license fulfillment", () => {
     expect((screen.getByLabelText("Credencial del dispositivo") as HTMLInputElement).value).toBe("");
     expect(client.allocateLicense).not.toHaveBeenCalled();
   });
+  it("keeps four successive license assignments separate in the same panel", async () => {
+    const requests = Array.from({ length: 4 }, request);
+    const client = {
+      assignmentContext: vi.fn(async (id: string) => {
+        const index = requests.findIndex(item => item.license_id === id);
+        const item = requests[index]!;
+        return { licenseId: id, company: { id: uuidV7(), name: `Empresa ${index + 1}` },
+          branches: [{ id: item.allocations[0]!.branch_id, name: `Sucursal ${index + 1}` }],
+          credentials: [{ id: item.credential_id, deviceId: uuidV7(), expiresAt: "2027-01-01T00:00:00Z" }],
+          branchesTruncated: false, credentialsTruncated: false };
+      }),
+      issueLicense: vi.fn(),
+      allocateLicense: vi.fn<PlatformClient["allocateLicense"]>().mockResolvedValue({ activationId: uuidV7(), status: "PENDING" }),
+    };
+    render(<PlatformLicenseFulfillment client={client as unknown as PlatformClient} />);
+    for (const [index, item] of requests.entries()) {
+      fireEvent.change(screen.getByLabelText("Licencia a asignar"), { target: { value: item.license_id } });
+      expect((screen.getByLabelText("Credencial del dispositivo") as HTMLInputElement).value).toBe("");
+      expect((screen.getByLabelText("Caja 1") as HTMLInputElement).value).toBe("");
+      fireEvent.click(screen.getByRole("button", { name: "Cargar empresa y dispositivos" }));
+      await screen.findByText(`Empresa ${index + 1}`);
+      fireEvent.change(screen.getByLabelText("Dispositivo registrado"), { target: { value: item.credential_id } });
+      fireEvent.change(screen.getByLabelText("Sucursal 1"), { target: { value: item.allocations[0]!.branch_id } });
+      fireEvent.change(screen.getByLabelText("Caja 1"), { target: { value: item.allocations[0]!.register_id } });
+      fireEvent.click(screen.getByRole("button", { name: "Revisar asignación" }));
+      fireEvent.click(screen.getByRole("checkbox"));
+      fireEvent.click(screen.getByRole("button", { name: "Confirmar asignación en Central" }));
+      await waitFor(() => expect(client.allocateLicense).toHaveBeenCalledTimes(index + 1));
+      await screen.findByText(/Activación:/);
+      expect(client.allocateLicense.mock.calls[index]![0]).toMatchObject({
+        license_id: item.license_id, credential_id: item.credential_id, allocations: item.allocations,
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Volver a los datos" }));
+    }
+    const keys = client.allocateLicense.mock.calls.map(call => call[0].idempotency_key);
+    expect(new Set(keys).size).toBe(4);
+  });
   it("rejects assignment options for another license and invalid input before transport", async () => {
     const licenseId=uuidV7(),fetcher=vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({licenseId:uuidV7(),company:{id:uuidV7(),name:"Other"},branches:[],credentials:[],branchesTruncated:false,credentialsTruncated:false})));
     const client=new PlatformClient({protocol:"https:",origin:"https://central.example.test"},fetcher);

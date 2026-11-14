@@ -89,6 +89,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly openCashShift: OpenCashShiftUseCase;
         readonly closeCashShift: CloseCashShiftUseCase;
         readonly createSale: CreateSaleUseCase;
+        readonly fiscalSaleSource: SqliteFiscalSaleSource;
         readonly waitingCarts: SqliteWaitingCartStore;
         readonly registerCashPayment: RegisterCashPaymentUseCase;
         readonly registerTransferPayment: RegisterTransferPaymentUseCase;
@@ -157,6 +158,7 @@ export class CommercialComponent implements RuntimeComponent {
     return this.state;
   }
 
+  get fiscalSaleSource(): SqliteFiscalSaleSource { return this.ready.fiscalSaleSource; }
   get sessionStore(): SqliteSessionAssertionStore { return this.ready.sessionStore; }
   get sessionActivation(): SessionActivationService { return this.ready.sessionActivation; }
   get authorizationStore(): SqliteAuthorizationSnapshotStore { return this.ready.authorizationStore; }
@@ -266,6 +268,7 @@ export class CommercialComponent implements RuntimeComponent {
     // credencial. Con ambos presentes pero **sin credencial depositada aún**
     // (F2 es una operación de operador, separada de este arranque), tampoco:
     // el criterio es el mismo, «no está lista», no un fallo de arranque.
+    const fiscalSaleSource = new SqliteFiscalSaleSource(database);
     let issueElectronicDocument: IssueElectronicDocumentUseCase | null = null;
     if (this.fiscalSecretStore !== undefined && this.config.fiscal_environment !== undefined) {
       const environment = this.config.fiscal_environment;
@@ -279,7 +282,7 @@ export class CommercialComponent implements RuntimeComponent {
           { now: () => this.now().getTime() },
         );
         issueElectronicDocument = new IssueElectronicDocumentUseCase(
-          new SqliteFiscalSaleSource(database),
+          fiscalSaleSource,
           catalogStore,
           new SqliteFiscalDocumentStore(database, this.now),
           issuancePort,
@@ -290,6 +293,7 @@ export class CommercialComponent implements RuntimeComponent {
     }
 
     this.state = {
+      fiscalSaleSource,
       issueElectronicDocument,
       sessionStore,
       sessionActivation: new SessionActivationService(verifier, sessionStore),

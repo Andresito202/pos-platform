@@ -364,9 +364,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     const currency = lines[0]!.currencyCode;
     await run<SaleCreateResult>(
       () => callMutation("sale.create", {
-        // El único selector del turno. `null` si no hay caja abierta: la venta
-        // se crea igual, con el par en `NULL`, y el efectivo la rechazará.
+        // The service requires a real OPEN shift before creating the sale.
         cash_register_id: shift?.cashRegisterId ?? null,
+        ...(customerId ? {customer_id:customerId}:{}),
         ...(activeWaiting ? {waiting_cart:{id:activeWaiting.id,version:activeWaiting.version}}:{}),
         channel: "POS",
         document_series: "POS1",
@@ -388,7 +388,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
         if(activeWaiting) setWaitingCarts(current=>current.filter(cart=>cart.id!==activeWaiting.id));
       },
     );
-  }, [lines, shift, activeWaiting, run, callMutation]);
+  }, [lines, shift, activeWaiting, customerId, run, callMutation]);
 
   const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;

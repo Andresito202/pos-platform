@@ -1,5 +1,6 @@
+import { FiscalPanel } from "../../renderer/src/components/FiscalPanel.js";
 // @vitest-environment jsdom
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useFiscalIssuance } from "../../renderer/src/hooks/useFiscalIssuance.js";
 const call=vi.hoisted(()=>vi.fn());
@@ -24,4 +25,13 @@ describe("fiscal uncertain results",()=>{
   await act(async()=>{reject(Error("lost response"));await first;});
   expect(result.current.isBlocked("sale-a","SALES_INVOICE")).toBe(true);expect(result.current.issued).toBeNull();
  });
+});
+
+
+it("uses the persisted sale customer from the fiscal screen without requesting its UUID",async()=>{
+ call.mockResolvedValue(uncertain);
+ render(<FiscalPanel initialSaleId="018f0000-0000-7000-8000-000000000001"/>);
+ fireEvent.click(screen.getByTestId("issue-sale-customer-button"));
+ await waitFor(()=>expect(call).toHaveBeenCalledWith("fiscal.document.issue",{sale_id:"018f0000-0000-7000-8000-000000000001",document_type:"SALES_INVOICE",customer:{kind:"SALE_CUSTOMER"},observation:null},"fixture-key"));
+ await waitFor(()=>expect((screen.getByTestId("issue-sale-customer-button") as HTMLButtonElement).disabled).toBe(true));
 });

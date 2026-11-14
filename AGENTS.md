@@ -138,9 +138,6 @@ Si el agente no puede determinar cuál es la línea activa, **no debe crear una 
 6. EVIDENCE: registrar SHA, entorno y nivel realmente observado.
 7. SHIP: publicar en la misma línea; integrar a main sólo mediante el flujo de gobernanza vigente.
 
-## Coordinación con Grok y otras IA — 2026-11-10
+## Aclaración vinculante de roles
 
-- Andrés decide cuándo delegar. La primera tarea de evaluación de una IA será de lectura sobre un SHA concreto: diagnóstico con archivo/línea, reproducción y límites de acceso; sin ramas, commits ni rediseño propio.
-- El asistente coordinador verifica el código y las pruebas, no acepta un resumen como evidencia de ejecución. Una propuesta sólo pasa a implementación con alcance y archivos delimitados por la dirección del proyecto.
-- No trabajar simultáneamente en los mismos archivos ni declarar un cambio aplicado al PC cuando sólo existe en GitHub.
-- Política solicitada de perfiles locales: CAJERO opera Caja; SUPERVISOR y ADMINISTRADOR revisan operaciones sin carrito ni permisos heredados de venta/cobro. La autorización BUSINESS firmada requiere su propia verificación; no sustituirla por una identidad local de desarrollo.
+El superadministrador comercializa y administra LICENCIAS mediante la autoridad GLOBAL; no vende productos ni recibe acceso a Caja/carrito. Administrador y supervisor tampoco son cajeros. La sesión local de superadministrador no acredita autoridad GLOBAL. Conservar pruebas de denegación en servicio y navegación. No confundir perfiles sectoriales con concesiones comerciales firmadas.

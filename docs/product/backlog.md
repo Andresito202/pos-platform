@@ -1151,10 +1151,25 @@ Una tarea no está cerrada hasta que:
 
 ### Continuidad — 2026-11-13: superadministrador comercial y vigencia
 
-Orden posterior del propietario: superadministrador puede ver y vender en el negocio. Se actualizan permisos locales y navegación sobre las pantallas existentes; mantiene Dashboard como inicio y habilita Caja bajo permisos. Supervisor/administrador siguen sin venta; roles locales no emiten licencias BUSINESS ni autorizaciones GLOBAL. Falta el cambio autorizado de contexto entre negocios; no se simula desde frontend.
+**Registro histórico supersedido: se interpretó incorrectamente la venta de licencias como venta de productos. La aclaración posterior restaura la exclusión de Caja del superadministrador.** Orden posterior del propietario: superadministrador puede ver y vender en el negocio. Se actualizan permisos locales y navegación sobre las pantallas existentes; mantiene Dashboard como inicio y habilita Caja bajo permisos. Supervisor/administrador siguen sin venta; roles locales no emiten licencias BUSINESS ni autorizaciones GLOBAL. Falta el cambio autorizado de contexto entre negocios; no se simula desde frontend.
 
 Defecto corregido: LicenseCapacityGate solo se invocaba en apertura. CommercialComponent ahora inyecta el mismo verificador en SqliteSaleStore; una nueva venta lo consulta en transacción, después de resolver idempotencia y antes de numerar/escribir. No altera ventas previas ni su liquidación. Devuelve LICENSE_BLOCKED por contrato y Caja explica el rechazo.
 
 Central ya firma expiry con tres días de gracia. El verificador de capacidad rechaza el instante exacto de expiración (extremo exclusivo); no añade plazo local. La proyección reconoce PAST_DUE dentro de gracia, alineándose con la autoridad emisora. Suspensión/revocación no reciben gracia nueva; perpetuidad no deriva de un contrato moroso sin fecha.
 
 Continúan pendientes: cambio autorizado de empresa GLOBAL→BUSINESS, asignación administrativa de cajas/cajeros, pago y renovación externa de extremo a extremo, especializaciones sectoriales y sincronización. Permisos de servicio y reloj confiable siguen siendo autoridad.
+
+
+## Cliente de la venta y corrección de roles — 2026-11-13
+
+Base remota: c780b5e69d7e7bbf493c2fdfa27e3e3ecf5d9abf. Misma rama cursor/commercial-design-review-0d11; sin nuevo POS, rama ni fusión a main.
+
+- Corrección explícita: superadministrador vende LICENCIAS mediante GLOBAL, no productos. Se revierte su concesión local de Caja/catálogo/inventario introducida en c780b5e6; vuelve a auditoría. Administrador y supervisor siguen sin venta/carrito. Hay pruebas negativas de servicio y navegación. Esto no certifica login BUSINESS ni reemplaza autorizaciones firmadas.
+- Cliente→venta→factura: sale.create transmite customer_id; el servicio exige lectura de clientes y pertenencia a tenant/empresa, persiste la referencia y la incluye en auditoría/outbox. La identidad forma parte del checksum para ventas identificadas; anónimas conservan compatibilidad.
+- Migración SQLite 020 aditiva: sales_sales.customer_id nullable, índice y triggers de referencia compuesta/inmutabilidad. No modifica migraciones 001–019 ni inventa clientes para ventas antiguas. Prueba de actualización desde v19 conserva una venta completada y verifica integridad.
+- FiscalPanel tiene acción explícita «Emitir con cliente de la venta», usando SALE_CUSTOMER. El servicio carga la venta completada del ámbito autorizado y rechaza cambiar/quitar el cliente asociado. Ventas históricas sin vínculo mantienen selección manual. La prueba de canal llega hasta el payload fiscal congelado con proveedor simulado; no acredita aceptación por FACTUS/DIAN.
+- Cuatro asignaciones sucesivas de licencias en el panel mantienen licencia, credencial, cajas e idempotencia separadas y limpian selección anterior. Prueba de UI con Central simulado, no cuatro compras reales ni prueba PostgreSQL de aislamiento extremo a extremo.
+
+Validación de este incremento: servicio 99 PASS; desktop 321 PASS; SQLite 59 PASS; contratos 298 PASS; canal local 47 PASS/4 SKIP. TypeScript servicio, renderer y proceso principal PASS; compilación Vite PASS. Entorno usa Vitest 4.1.11 y Vite 6.4.3 disponibles en caché (distintos de versiones fijadas); no se acredita instalación frozen-lockfile ni CI remoto. Las cuatro pruebas de canal omitidas no se dan por aprobadas.
+
+Brechas abiertas y prioridad: farmacia/droguería, salsamentaria con base avícola y pastelería aún necesitan lotes, vencimientos/FEFO, transformaciones/recetas y proyección de habilitación sectorial. No existe todavía contrato sectorial de licencia completo. Tampoco se acredita aplicación central del nuevo customer_id de outbox, sincronización entre dispositivos, FACTUS externo, capacidad bajo carga, Windows SCM físico ni Android físico. No distribuir como producto sectorial terminado por estas pruebas.

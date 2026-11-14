@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LATEST_LOCAL_SCHEMA_VERSION, LocalDatabase } from "../src/local-database.js";
 
@@ -501,4 +501,25 @@ describe("MIGRATION_016 — el rango debe existir antes que el documento", () =>
       .toThrow(/CHECK constraint failed/);
     database.close();
   });
+});
+
+
+it("upgrades v19 sales without assigning or changing historical customer identities",async()=>{
+  const database=await open();const saleId=randomUUID();seedSale(database,saleId);
+  const dataDirectory=dirname(database.native.name);
+  // Reconstruct the prior version in a disposable fixture, never an operational downgrade.
+  database.native.exec(`DROP TRIGGER sales_customer_scope_insert;
+    DROP TRIGGER sales_customer_identity_immutable;
+    DROP TRIGGER customers_linked_sale_no_delete;
+    DROP TRIGGER customers_linked_sale_no_rebind;
+    DROP INDEX sales_sales_customer_idx;
+    ALTER TABLE sales_sales DROP COLUMN customer_id;
+    DROP TRIGGER local_schema_migrations_no_delete;
+    DELETE FROM local_schema_migrations WHERE version=20;`);
+  const before=database.native.prepare("SELECT * FROM sales_sales WHERE id=?").get(saleId) as Record<string,unknown>;
+  database.close();
+  const upgraded=LocalDatabase.open({dataDirectory});openDatabases.push(upgraded);
+  expect(upgraded.native.prepare("SELECT * FROM sales_sales WHERE id=?").get(saleId)).toEqual({...before,customer_id:null});
+  expect(upgraded.native.prepare("SELECT max(version) AS version FROM local_schema_migrations").get()).toEqual({version:LATEST_LOCAL_SCHEMA_VERSION});
+  upgraded.assertIntegrity();
 });

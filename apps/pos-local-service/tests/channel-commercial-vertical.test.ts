@@ -648,7 +648,7 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       const found = await send(reading("catalog.item.find", { barcode: "7700000000002" }));
 
       const sale = await send(mutating("sale.create", {
-        cash_register_id: REGISTER, channel: "POS",
+        cash_register_id: REGISTER, customer_id: customerId, channel: "POS",
         business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
         document_series: "A", currency_code: "COP",
         lines: [{ product_id: found.result["product_id"], presentation_id: presentationId, quantity: "1.000000" }],
@@ -661,10 +661,14 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       }, "fiscalv2:payment:1"));
       expect(payment.result["sale_completed"]).toBe(true);
 
+      expect(database.native.prepare("SELECT customer_id FROM sales_sales WHERE id=?").get(saleId)).toEqual({customer_id:customerId});
+      const mismatch=await send(mutating("fiscal.document.issue",{sale_id:saleId,document_type:"SALES_INVOICE",customer:{kind:"IDENTIFIED",customer_id:randomUUID()},observation:null},"fiscalv2:wrong-customer"));
+      expect(mismatch.result.block_code).toBe("SALE_CUSTOMER_MISMATCH");
+      expect(countOf(database,"SELECT count(*) AS n FROM fiscal_electronic_document")).toBe(0);
       const issued = await send(mutating("fiscal.document.issue", {
         sale_id: saleId,
         document_type: "SALES_INVOICE",
-        customer: { kind: "IDENTIFIED", customer_id: customerId },
+        customer: { kind: "SALE_CUSTOMER" },
         observation: null,
       }, "fiscalv2:issue:1"));
 
@@ -677,7 +681,12 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
         "SELECT transport_status, normalized_result, cufe FROM fiscal_electronic_document WHERE sale_id=?",
       ).get(saleId) as { transport_status: string; normalized_result: string; cufe: string };
       expect(persisted).toEqual({ transport_status: "COMPLETED", normalized_result: "ACCEPTED", cufe: "b".repeat(96) });
+      const frozen=database.native.prepare("SELECT payload_json FROM fiscal_electronic_document WHERE sale_id=?").get(saleId) as {payload_json:string};
+      expect(JSON.parse(frozen.payload_json).customer.identification).toBe("1020304050");
+      expect(()=>database.native.prepare("UPDATE sales_sales SET customer_id=NULL WHERE id=?").run(saleId)).toThrow("sale customer identity immutable");
+      expect(()=>database.native.prepare("DELETE FROM customers_customers WHERE id=?").run(customerId)).toThrow("customer referenced by sale");
     });
+
   }, 30_000);
 });
 
@@ -1590,12 +1599,17 @@ it("waiting cart crosses authenticated channel and is consumed atomically by the
     const recovered=await send(reading("cart.waiting.get",{cart_id:cartId}));
     expect(recovered.result.carts).toMatchObject([{active_shift:{version:1},payload:{customer_id:customerId}}]);
     expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
-    const request=mutating("sale.create",{cash_register_id:REGISTER,waiting_cart:{id:cartId,version:1},channel:"POS",
+    const request=mutating("sale.create",{cash_register_id:REGISTER,customer_id:customerId,waiting_cart:{id:cartId,version:1},channel:"POS",
       business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,document_series:"A",currency_code:"COP",
       lines:[{product_id:ids.productId,presentation_id:ids.presentationId,quantity:"2.000000",identifier:BARCODE}]
     },"waiting-sale");
+    database.native.prepare("UPDATE customers_customers SET company_id=? WHERE id=?").run(randomUUID(),customerId);
+    expect((await send(request)).result.outcome).toBe("CUSTOMER_NOT_FOUND");
+    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
+    database.native.prepare("UPDATE customers_customers SET company_id=? WHERE id=?").run(COMPANY,customerId);
     const sale=await send(request);
     expect(sale.result.outcome).toBe("CREATED");
+    expect(database.native.prepare("SELECT customer_id FROM sales_sales WHERE id=?").get(sale.result.sale_id)).toEqual({customer_id:customerId});
     expect(sale.result.payable_amount).toBe("36000.000000");
     expect((await send(request)).result.outcome).toBe("IDEMPOTENT");
     expect((await send({...request,request_id:randomUUID(),idempotency_key:"other-window"})).result.outcome).toBe("IDEMPOTENCY_CONFLICT");

@@ -999,3 +999,9 @@ describe("CreateSaleUseCase y la existencia", () => {
     expect(movements.total).toBe(0);
   });
 });
+
+
+it("requires customer read authority before linking an identity to a sale",()=>{
+ const useCase=new CreateSaleUseCase(null as never,null as never,null as never,null as never);
+ expect(useCase.execute(scope,SESSION_ID,buildAuthSnapshot(),{...buildRequest(),customerId:"018f0000-0000-7000-8000-000000000099"}).kind).toBe("UNAUTHORIZED");
+});

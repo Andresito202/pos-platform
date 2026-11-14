@@ -24,6 +24,7 @@ export interface SaleLineInput {
 }
 
 export interface CreateSaleInput {
+  readonly customerId?: string | null;
   /** Trusted adapter policy, never accepted from renderer payload. */
   readonly requireOpenCashShift?: boolean;
   readonly saleId: string;
@@ -75,7 +76,8 @@ export type CreateSaleOutcome =
     }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
-  | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string };
+  | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string }
+  | { readonly kind: "CUSTOMER_NOT_FOUND" };
 
 interface SaleRow {
   id: string;
@@ -146,6 +148,10 @@ export class SqliteSaleStore {
         if (denial) return {kind:"LICENSE_BLOCKED",reason:denial};
       }
 
+      if (input.customerId && !this.database.native.prepare(
+        "SELECT 1 FROM customers_customers WHERE tenant_id=? AND company_id=? AND id=?"
+      ).get(input.scope.tenantId,input.scope.companyId,input.customerId)) return {kind:"CUSTOMER_NOT_FOUND"};
+
       // 2. Contador de serie documental — incremento atómico
       const counterRow = this.database.native.prepare(
         `SELECT last_number FROM sales_document_series_counter
@@ -198,7 +204,7 @@ export class SqliteSaleStore {
           pricing_snapshot, tax_snapshot, calculation_checksum,
           operation_id, idempotency_key, request_checksum,
           correlation_id, causation_id, version, created_at,
-          completed_at, cancelled_at, expired_at, server_recorded_at
+          completed_at, cancelled_at, expired_at, server_recorded_at, customer_id
         ) VALUES (
           ?,?,?,?,?,?,
           ?,?,?,?,
@@ -211,7 +217,7 @@ export class SqliteSaleStore {
           ?,?,?,
           ?,?,?,
           ?,?,?,?,
-          NULL,NULL,NULL,NULL
+          NULL,NULL,NULL,NULL,?
         )`,
       ).run(
         input.saleId,
@@ -252,6 +258,7 @@ export class SqliteSaleStore {
         input.causationId,
         1,
         nowIso,
+        input.customerId ?? null,
       );
 
       // 5. items
@@ -325,6 +332,7 @@ export class SqliteSaleStore {
         input.causationId,
         canonicalJson({
           sale_id: input.saleId,
+          ...(input.customerId ? {customer_id:input.customerId}:{}),
           document_series: input.documentSeries,
           sale_number: saleNumber,
           calculation_checksum: input.calculationChecksum,
@@ -365,6 +373,7 @@ export class SqliteSaleStore {
         payload_schema_version: SALE_PAYLOAD_SCHEMA_VERSION,
         payload: {
           sale_id: input.saleId,
+          ...(input.customerId ? {customer_id:input.customerId}:{}),
           document_series: input.documentSeries,
           sale_number: saleNumber,
           calculation_checksum: input.calculationChecksum,

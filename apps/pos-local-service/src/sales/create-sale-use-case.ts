@@ -29,6 +29,7 @@ export interface CreateSaleRequestLine {
 }
 
 export interface CreateSaleRequest {
+  readonly customerId?: string | null;
   /** Trusted counter adapter policy; not an IPC input. */
   readonly requireOpenCashShift?: boolean;
   /** Caja seleccionada, o `null` cuando la venta no pasa por caja. */
@@ -78,11 +79,13 @@ export type CreateSaleResult =
     }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
-  | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string };
+  | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string }
+  | { readonly kind: "CUSTOMER_NOT_FOUND" };
 
 function requestChecksum(request: CreateSaleRequest, operatorUserId: string): string {
   return createHash("sha256")
     .update(canonicalJson({
+      ...(request.customerId ? {customer_id:request.customerId}:{}),
       idempotency_key: request.idempotencyKey,
       channel: request.channel,
       business_date: request.businessDate,
@@ -143,6 +146,11 @@ export class CreateSaleUseCase {
 
     if (!decision.allowed) {
       return { kind: "UNAUTHORIZED", reason: decision.reason };
+    }
+
+    if (request.customerId) {
+      const customerAccess=evaluatePermission({actor,permission:CanonicalPermission.CUSTOMERS_CUSTOMER_READ,scope:operationScope,at,assignments});
+      if(!customerAccess.allowed)return {kind:"UNAUTHORIZED",reason:customerAccess.reason};
     }
 
     // 3. Resolución de catálogo y precio para cada línea
@@ -338,6 +346,7 @@ export class CreateSaleUseCase {
 
     // 9. Persistencia atómica
     const storeInput = {
+      customerId: request.customerId ?? null,
       requireOpenCashShift: request.requireOpenCashShift === true,
       saleId,
       operationId,
@@ -412,7 +421,7 @@ export class CreateSaleUseCase {
       return { kind: "IDEMPOTENCY_CONFLICT" };
     }
 
-    if (outcome.kind === "CASH_SHIFT_NOT_OPEN" || outcome.kind === "LICENSE_BLOCKED") return outcome;
+    if (outcome.kind === "CASH_SHIFT_NOT_OPEN" || outcome.kind === "LICENSE_BLOCKED" || outcome.kind === "CUSTOMER_NOT_FOUND") return outcome;
 
     return {
       kind: outcome.kind === "CREATED" ? "CREATED" : "IDEMPOTENT",

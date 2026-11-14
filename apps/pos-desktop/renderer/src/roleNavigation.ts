@@ -24,8 +24,8 @@ export const ROLE_SCREEN_ORDER: Readonly<Record<LocalOperatorRole, readonly stri
     "fiscal",
     "hardware",
   ],
-  // Business-scoped operations still require backend capabilities. GLOBAL is separate.
-  SUPERADMINISTRADOR: ["dashboard", "admin-audit", "sales", "payment-review", "inventory", "catalog", "customers", "receipts", "fiscal"],
+  // Development local surface: only truly authorized admin audit screens.
+  SUPERADMINISTRADOR: ["dashboard", "admin-audit"],
 };
 
 export function orderScreensByRole<T extends { id: string }>(

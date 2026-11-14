@@ -38,9 +38,9 @@ Las pantallas reales están en `apps/pos-desktop/renderer/src/components/`. `App
 | Cajero | Venta, cobro, clientes y comprobantes según permisos | Sí |
 | Supervisor | Inventario, catálogo y revisión de transferencias | No |
 | Administrador | Administración, auditoría y gestión autorizada | No |
-| Superadministrador local | Administración y operación del negocio vinculado al servicio | Sí, con permisos y turno; sin autoridad GLOBAL implícita |
+| Superadministrador local | Auditoría; la gestión de licencias requiere sesión GLOBAL | No |
 
-La separación local se aplica también en backend: supervisor y administrador no pueden crear ventas; el superadministrador local puede operar el negocio vinculado al servicio, según la decisión del propietario del 13 de noviembre. Las sesiones comerciales firmadas dependen de sus permisos emitidos por Central; esta matriz local no sustituye SSA/SAS ni certifica BUSINESS.
+La separación local se aplica también en backend: supervisor, administrador y superadministrador no pueden crear ventas ni operar carritos. El superadministrador vende licencias mediante la autoridad GLOBAL, no productos de Caja. Las sesiones comerciales firmadas dependen de sus permisos emitidos por Central; esta matriz local no sustituye SSA/SAS ni certifica BUSINESS.
 
 ## Marca y diseño
 
@@ -119,7 +119,7 @@ Se conserva la única rama activa. Caja permite vincular un cliente existente al
 
 El adaptador de mostrador exige un turno abierto antes de crear ventas; se comprueba en la transacción de SQLite y se conserva el reintento de ventas ya creadas. La apertura explica rechazos junto al formulario. Falta la habilitación/asignación desde Administración; el identificador de caja todavía debe corresponder a una caja publicada.
 
-Inventario valida precisión de presentación (entero/peso), saldo máximo y empresa antes de registrar movimientos. [Tipos de comercio](docs/product/business-types.md) identifica el soporte real y lo que falta para fruver, avícola, droguería y pastelería. Lotes, FEFO, despiece y recetas no están disponibles como flujo completo. La ficha de cliente del carrito no se propaga automáticamente a la factura final.
+Inventario valida precisión de presentación (entero/peso), saldo máximo y empresa antes de registrar movimientos. [Tipos de comercio](docs/product/business-types.md) identifica el soporte real y lo que falta para fruver, avícola, droguería y pastelería. Lotes, FEFO, despiece y recetas no están disponibles como flujo completo. El cliente seleccionado se persiste en la venta; Fiscal permite emitir con ese cliente y rechaza sustituirlo por otro.
 
 Evidencia y límites en [verificación de integración](docs/product/integration-verification-20261110.md). Este incremento no acredita distribución comercial, sincronización completa entre dispositivos ni pruebas físicas Windows/Android.
 
@@ -128,6 +128,10 @@ Evidencia y límites en [verificación de integración](docs/product/integration
 
 La licencia de capacidad se revalida en cada nueva venta, no solamente al abrir turno. Una caja abierta no extiende la vigencia firmada. El límite emitido por Central ya incluye los tres días (72 horas) de gracia de suscripción: el servicio no añade otros tres días. Al cumplirse el instante de vencimiento firmado, las nuevas ventas quedan bloqueadas. El replay de una venta registrada conserva su identidad; no se deshacen ventas ni se impide resolver pagos ya iniciados por este cambio.
 
-El superadministrador local puede vender y administrar catálogo/inventario dentro del negocio configurado en el servicio; no cambia libremente de empresa ni adquiere LICENSE_PLAN_MANAGE. Las licencias se administran mediante el portal y APIs GLOBAL con autorización propia. Supervisor y administrador siguen sin Caja.
+Corrección de alcance: vender licencias no significa vender productos. El superadministrador local queda limitado a auditoría, sin Caja ni permisos de catálogo/inventario. Las licencias se administran mediante el portal y APIs GLOBAL con autorización propia. Supervisor y administrador siguen sin Caja.
 
 Las pruebas separan el bloqueo por política en canal real, la expiración de artefactos firmados en SQLite y las fronteras temporales centrales. No acreditan todavía el recorrido externo pago→renovación→descarga→desbloqueo ni revocación inmediata de equipos desconectados.
+
+### Cliente de la venta y permisos corregidos
+
+La venta persiste el cliente autorizado de su empresa. Fiscal permite emitir con ese cliente y bloquea su sustitución; migración SQLite 020 conserva las ventas históricas sin inventar relaciones. El superadministrador comercializa licencias mediante GLOBAL, sin Caja/carrito local. Pruebas y límites del incremento: [verificación de integraciones](docs/product/integration-verification-20261110.md#cliente-de-la-venta-y-corrección-de-roles--2026-11-13). Los sectores especializados continúan incompletos.

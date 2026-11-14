@@ -104,7 +104,7 @@ Auditoría del runtime: `SqliteInventoryStore` mantiene movimientos, saldo por p
 | Sector | Base reutilizable | Falta en la cadena operativa |
 |---|---|---|
 | Fruver | Catálogo visual, cantidades fraccionarias, merma con motivo y saldo | Lote de recepción, vida útil, rotación/alertas, tara y verificación de balanza en dispositivo |
-| Avícola minorista | Venta por peso y por unidades, entradas y mermas | Trazabilidad del lote/proveedor, conservación, despiece con rendimientos y pérdidas; conversión de empaques sin doble existencia |
+| Salsamentaria / avícola minorista | Venta por peso y por unidades, entradas y mermas | Trazabilidad del lote/proveedor, conservación, despiece con rendimientos y pérdidas; embutidos, quesos y lácteos por pieza/peso/porción; conversión de empaques sin doble existencia |
 | Droguería | Catálogo, código de barras, venta por presentación | Lote obligatorio, vencimiento/FEFO y bloqueo de vencidos, retiro/cuarentena, laboratorio/principio activo/concentración/registro sanitario, dispensación según categoría |
 | Pastelería | Venta de producto terminado y materias primas como presentaciones | Recetas versionadas, consumo de ingredientes, producción de lotes, rendimiento/costo y merma; trazabilidad ingrediente→producto terminado y vencimientos |
 
@@ -120,7 +120,7 @@ Avícola se interpreta aquí como expendio y transformación minorista de produc
 
 ### Roles y sincronización: contrato de implementación pendiente
 
-- Superadministrador: habilita capacidades y licencias mediante autoridad GLOBAL. Puede vender con permisos comerciales, turno y licencia vigentes (orden del propietario 2026-11-13). La sesión local queda limitada al negocio configurado; no permite selección arbitraria de empresa ni otorga autoridad GLOBAL. No escribe saldos saltando el contexto de la empresa.
+- Superadministrador: comercializa y administra licencias mediante autoridad GLOBAL. No vende productos, no tiene carrito ni caja. La sesión local de desarrollo solo consulta auditoría y no sustituye la sesión GLOBAL. La interpretación anterior que habilitaba venta de productos queda corregida por la aclaración del propietario.
 - Administrador: configura catálogo, unidades, lotes, recetas y cajas dentro de su ámbito; consulta resultados. Los permisos de nuevas operaciones deben existir tanto en autoridad como en servicio.
 - Supervisor: consulta y aprueba únicamente operaciones delegadas. Sin venta ni carrito.
 - Cajero: vende bajo las restricciones del producto y el turno; no cambia reglas, saldos, lotes ni licencias.
@@ -143,3 +143,7 @@ Estas son brechas abiertas en el backlog existente, no funciones acreditadas. No
 - [INVIMA: Resolución 1403 de 2007](https://normograma.invima.gov.co/compilacion/docs/resolucion_minproteccion_1403_2007.htm): recepción de medicamentos con lote, vencimiento y registro sanitario; control de fechas y retiros.
 - [INVIMA: guía de trazabilidad](https://www.invima.gov.co/biblioteca/download/144296): registro de recepciones e identificación de lotes en la cadena alimentaria. Los requisitos de una planta no se trasladan automáticamente a un expendio minorista.
 
+
+## Prioridad y licencias — aclaración del propietario
+
+Prioridad: farmacia/droguería, salsamentaria con base avícola y pastelería. Comparten núcleo; cada sector requiere las capacidades de la tabla, no un cambio de etiqueta. Cada licencia debe mantener empresa, dispositivos, cajas y cupos propios. No existe todavía un contrato de habilitación sectorial firmado y proyectado al runtime; no se acredita la venta de un paquete sectorial completo. El portal limpia empresa, credencial y cajas al cambiar de licencia; esa prueba de interfaz no certifica por sí sola aislamiento de datos en producción.

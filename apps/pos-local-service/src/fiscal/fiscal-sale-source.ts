@@ -29,6 +29,7 @@ export interface FiscalSalePayment {
 }
 
 export interface FiscalSaleSource {
+  readonly customerId: string | null;
   readonly saleId: string;
   readonly documentSeries: string;
   readonly saleNumber: number;
@@ -39,6 +40,7 @@ export interface FiscalSaleSource {
 }
 
 interface SaleRow {
+  customer_id: string | null;
   id: string; document_series: string; sale_number: number; currency_code: string;
   commercial_rounding_adjustment: string;
 }
@@ -58,7 +60,7 @@ export class SqliteFiscalSaleSource {
   /** `null` si la venta no existe en el alcance, o existe pero no está `COMPLETED`. */
   read(scope: DocumentScope, saleId: string): FiscalSaleSource | null {
     const sale = this.database.native.prepare(
-      `SELECT id, document_series, sale_number, currency_code, commercial_rounding_adjustment
+      `SELECT id, customer_id, document_series, sale_number, currency_code, commercial_rounding_adjustment
          FROM sales_sales
         WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=? AND status='COMPLETED'`,
     ).get(scope.tenantId, scope.companyId, scope.branchId, saleId) as SaleRow | undefined;
@@ -83,6 +85,7 @@ export class SqliteFiscalSaleSource {
 
     return {
       saleId: sale.id,
+      customerId: sale.customer_id,
       documentSeries: sale.document_series,
       saleNumber: sale.sale_number,
       currencyCode: sale.currency_code,

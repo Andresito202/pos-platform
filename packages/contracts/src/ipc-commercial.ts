@@ -398,6 +398,7 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
      * verificado, así que una caja ajena simplemente no resuelve turno.
      */
     cash_register_id: UuidSchema.nullable(),
+    customer_id: UuidSchema.nullable().optional(),
     waiting_cart: z.strictObject({ id: UuidSchema, version: z.number().int().positive() }).optional(),
     channel: SaleChannelSchema,
     business_date: BusinessDateSchema,
@@ -414,6 +415,7 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
   });
 
 export const SaleCreateOutcomeSchema = z.enum([
+  "CUSTOMER_NOT_FOUND",
   "LICENSE_BLOCKED",
   "CASH_SHIFT_NOT_OPEN",
   "CREATED",
@@ -844,6 +846,7 @@ export const CustomerMarketingGetResponseSchema = createResponseEnvelopeSchema(C
  * confiable con `DOCUMENT_TYPE_CODE_NOT_VERIFIED`, nunca aquí.
  */
 const FiscalCustomerReferenceSchema = z.union([
+  z.strictObject({kind:z.literal("SALE_CUSTOMER")}),
   z.strictObject({ kind: z.literal("IDENTIFIED"), customer_id: UuidSchema }),
   z.strictObject({
     kind: z.literal("NOT_IDENTIFIED"),

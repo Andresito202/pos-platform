@@ -143,7 +143,7 @@ Pendientes conservados en el backlog: asignación administrativa de caja, métri
 
 ## 2026-11-13 — continuación: licencia por venta y superadministrador
 
-Base: 2c3214e1e9f10fabe68f28a309789da3be1c9a43, misma rama activa. La orden posterior del propietario permite vender al superadministrador dentro del negocio; sustituye su antigua exclusión de Caja. Permanecen las pruebas de denegación para supervisor/administrador; superadministrador obtiene permisos de negocio sin LICENSE_PLAN_MANAGE local. La navegación sigue filtrando las capacidades del servicio.
+**Registro histórico supersedido: se interpretó incorrectamente la venta de licencias como venta de productos. La aclaración posterior restaura la exclusión de Caja del superadministrador.** Base: 2c3214e1e9f10fabe68f28a309789da3be1c9a43, misma rama activa. La orden posterior del propietario permite vender al superadministrador dentro del negocio; sustituye su antigua exclusión de Caja. Permanecen las pruebas de denegación para supervisor/administrador; superadministrador obtiene permisos de negocio sin LICENSE_PLAN_MANAGE local. La navegación sigue filtrando las capacidades del servicio.
 
 CommercialComponent conecta el verificador de capacidad al escritor de ventas. El test con canal real abre turno y vende, cambia la decisión de licencia a expirada/revocada y verifica que una nueva venta no se escribe ni avanza el número; el replay conserva su ID. La política del gate está inyectada en esa prueba: no es un pago externo. Por separado, SQLite con Ed25519 real comprueba validez hasta el milisegundo anterior al vencimiento y rechazo desde el instante exacto, incluso tras reiniciar. Central prueba ACTIVE/PAST_DUE a ambos lados de los tres días y niega vigencia perpetua morosa.
 
@@ -153,3 +153,18 @@ Límites: login local de desarrollo no acredita BUSINESS; contexto fijado por se
 
 
 Prueba adicional del mismo incremento: LicenseCapacityGate real con firma Ed25519 de pruebas, sesión autorizada, canal TCP y escritor SQLite. Una licencia expirada bloquea la nueva venta; un artefacto firmado de versión superior válido la permite, y repetirla conserva una sola fila. El reloj del servicio y el de licencia se inyectan desde la misma fuente, respetando el antirretroceso. Se prueban firma y consumo local del artefacto; no se sustituye con esto la prueba del pago ni la emisión/descarga externa.
+
+
+## Cliente de la venta y corrección de roles — 2026-11-13
+
+Base remota: c780b5e69d7e7bbf493c2fdfa27e3e3ecf5d9abf. Misma rama cursor/commercial-design-review-0d11; sin nuevo POS, rama ni fusión a main.
+
+- Corrección explícita: superadministrador vende LICENCIAS mediante GLOBAL, no productos. Se revierte su concesión local de Caja/catálogo/inventario introducida en c780b5e6; vuelve a auditoría. Administrador y supervisor siguen sin venta/carrito. Hay pruebas negativas de servicio y navegación. Esto no certifica login BUSINESS ni reemplaza autorizaciones firmadas.
+- Cliente→venta→factura: sale.create transmite customer_id; el servicio exige lectura de clientes y pertenencia a tenant/empresa, persiste la referencia y la incluye en auditoría/outbox. La identidad forma parte del checksum para ventas identificadas; anónimas conservan compatibilidad.
+- Migración SQLite 020 aditiva: sales_sales.customer_id nullable, índice y triggers de referencia compuesta/inmutabilidad. No modifica migraciones 001–019 ni inventa clientes para ventas antiguas. Prueba de actualización desde v19 conserva una venta completada y verifica integridad.
+- FiscalPanel tiene acción explícita «Emitir con cliente de la venta», usando SALE_CUSTOMER. El servicio carga la venta completada del ámbito autorizado y rechaza cambiar/quitar el cliente asociado. Ventas históricas sin vínculo mantienen selección manual. La prueba de canal llega hasta el payload fiscal congelado con proveedor simulado; no acredita aceptación por FACTUS/DIAN.
+- Cuatro asignaciones sucesivas de licencias en el panel mantienen licencia, credencial, cajas e idempotencia separadas y limpian selección anterior. Prueba de UI con Central simulado, no cuatro compras reales ni prueba PostgreSQL de aislamiento extremo a extremo.
+
+Validación de este incremento: servicio 99 PASS; desktop 321 PASS; SQLite 59 PASS; contratos 298 PASS; canal local 47 PASS/4 SKIP. TypeScript servicio, renderer y proceso principal PASS; compilación Vite PASS. Entorno usa Vitest 4.1.11 y Vite 6.4.3 disponibles en caché (distintos de versiones fijadas); no se acredita instalación frozen-lockfile ni CI remoto. Las cuatro pruebas de canal omitidas no se dan por aprobadas.
+
+Brechas abiertas y prioridad: farmacia/droguería, salsamentaria con base avícola y pastelería aún necesitan lotes, vencimientos/FEFO, transformaciones/recetas y proyección de habilitación sectorial. No existe todavía contrato sectorial de licencia completo. Tampoco se acredita aplicación central del nuevo customer_id de outbox, sincronización entre dispositivos, FACTUS externo, capacidad bajo carga, Windows SCM físico ni Android físico. No distribuir como producto sectorial terminado por estas pruebas.

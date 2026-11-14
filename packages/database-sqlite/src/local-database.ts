@@ -1423,6 +1423,28 @@ CREATE INDEX sales_waiting_carts_owner_idx ON sales_waiting_carts
  (tenant_id, company_id, branch_id, device_id, operator_id, state, updated_at, id);
 `.trim();
 
+// Sales already owns customer_id in the physical model; Customer is now materialized.
+const MIGRATION_020 = `
+ALTER TABLE sales_sales ADD COLUMN customer_id TEXT CHECK(customer_id IS NULL OR length(customer_id)=36);
+-- SQLite cannot add a composite foreign key with ALTER TABLE. Preserve the
+-- existing sales table and enforce the tenant/company-aware reference in SQL.
+CREATE TRIGGER sales_customer_scope_insert BEFORE INSERT ON sales_sales
+WHEN NEW.customer_id IS NOT NULL AND NOT EXISTS(
+  SELECT 1 FROM customers_customers WHERE tenant_id=NEW.tenant_id AND company_id=NEW.company_id AND id=NEW.customer_id
+) BEGIN SELECT RAISE(ABORT,'sale customer scope mismatch'); END;
+CREATE TRIGGER sales_customer_identity_immutable BEFORE UPDATE OF customer_id,tenant_id,company_id ON sales_sales
+WHEN NEW.customer_id IS NOT OLD.customer_id OR (OLD.customer_id IS NOT NULL AND (NEW.tenant_id IS NOT OLD.tenant_id OR NEW.company_id IS NOT OLD.company_id))
+BEGIN SELECT RAISE(ABORT,'sale customer identity immutable'); END;
+CREATE TRIGGER customers_linked_sale_no_delete BEFORE DELETE ON customers_customers
+WHEN EXISTS(SELECT 1 FROM sales_sales WHERE tenant_id=OLD.tenant_id AND customer_id=OLD.id)
+BEGIN SELECT RAISE(ABORT,'customer referenced by sale'); END;
+CREATE TRIGGER customers_linked_sale_no_rebind BEFORE UPDATE OF tenant_id,company_id,id ON customers_customers
+WHEN (NEW.tenant_id IS NOT OLD.tenant_id OR NEW.company_id IS NOT OLD.company_id OR NEW.id IS NOT OLD.id)
+AND EXISTS(SELECT 1 FROM sales_sales WHERE tenant_id=OLD.tenant_id AND customer_id=OLD.id)
+BEGIN SELECT RAISE(ABORT,'customer referenced by sale'); END;
+CREATE INDEX sales_sales_customer_idx ON sales_sales(tenant_id,company_id,customer_id) WHERE customer_id IS NOT NULL;
+`;
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1443,6 +1465,7 @@ const MIGRATIONS = [
   { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
   { version: 18, sql: MIGRATION_018, checksum: createHash("sha256").update(MIGRATION_018).digest("hex") },
   { version: 19, sql: MIGRATION_019, checksum: createHash("sha256").update(MIGRATION_019).digest("hex") },
+  { version: 20, sql: MIGRATION_020, checksum: createHash("sha256").update(MIGRATION_020).digest("hex") },
 ] as const;
 
 /**

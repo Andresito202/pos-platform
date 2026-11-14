@@ -42,6 +42,12 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
         placeholder="ID de la venta cobrada"
         disabled={fiscal.busy}
       />
+      <button type="button" data-testid="issue-sale-customer-button"
+        disabled={fiscal.busy || blocked || saleId.trim() === ""}
+        onClick={()=>void fiscal.issue(saleId.trim(),"SALES_INVOICE",{kind:"SALE_CUSTOMER"})}>
+        Emitir con cliente de la venta
+      </button>
+      <p>Se usa el cliente guardado al crear la venta. Para ventas anteriores sin cliente, selecciona un adquiriente registrado.</p>
       <input
         data-testid="fiscal-customer-id-input"
         aria-label="ID del adquiriente registrado"
