@@ -32,16 +32,17 @@ const SUPERVISOR = [
   CanonicalPermission.CATALOG_PRODUCT_READ,
   CanonicalPermission.CUSTOMERS_CUSTOMER_READ,
   CanonicalPermission.INVENTORY_STOCK_READ,
-  CanonicalPermission.INVENTORY_STOCK_RECEIVE,
-  CanonicalPermission.INVENTORY_STOCK_ADJUST,
-  CanonicalPermission.CATALOG_PRODUCT_REGISTER,
-  CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER,
   CanonicalPermission.PAYMENTS_PAYMENT_CANCEL,
   CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM,
 ] as const;
 
 const ADMINISTRATOR = [
   ...SUPERVISOR,
+  // Stock and customer/catalog changes belong to business administration.
+  CanonicalPermission.INVENTORY_STOCK_RECEIVE,
+  CanonicalPermission.INVENTORY_STOCK_ADJUST,
+  CanonicalPermission.CATALOG_PRODUCT_REGISTER,
+  CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER,
   CanonicalPermission.AUDIT_EVENT_READ,
 ] as const;
 
