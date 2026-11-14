@@ -107,7 +107,7 @@ Tras login, el launcher imprime `DESIGN_REVIEW_REGISTER_ID`; Electron también l
 
 ## Errores / pendientes
 
-1. E2E Electron Windows + capturas por rol y anchos 1024/1366/1920: pendiente del entorno Windows de revisión (`C:\Proyectos\pos-platform-design-review`).
+1. E2E Electron Windows + capturas por rol y anchos 1024/1366/1920: pendientes en Windows. El checkout del PC no se ha inspeccionado; no se presupone un directorio `pos-platform-design-review`. El script actual usa el repositorio desde el que se invoca y `%LOCALAPPDATA%\CamachoPOS\design-review-runtime` para los datos aislados.
 2. Fallos E2E Linux previos de canal/custody: siguen abiertos; no certificados como PASS.
 3. Sin imágenes fotográficas de catálogo verificadas: fallback simbólico a propósito.
 4. Superadministrador local **no** gestiona licencias/empresas (correcto: no hay permiso ni superficie simulada).
@@ -188,3 +188,30 @@ El rol local SUPERVISOR conserva consulta de catálogo/clientes/inventario y rev
 - [ ] Registrar que las pruebas Android/Windows físicas y de Central productivo no se consideran cumplidas por tests aislados ni por documentación, y diferenciar los bloques realmente alcanzables de los pendientes.
 
 **Estado:** controversia 3 delimitada y separación local/GLOBAL confirmada por inspección estática; funcionalidad comercial GLOBAL **NO CERTIFICADA**. No se ejecutaron Vitest, Windows E2E, Central ni acciones de licencia en esta intervención. Sin cambios en la autorización ni concesión de permisos.
+
+
+## Controversia 4 — DesignReview frente al POS original (2026-11-13)
+
+**Auditoría estática de la rama activa; NO es ejecución Windows.**
+
+| Entrada | Código compartido y alcance | Aislamiento / límite |
+| --- | --- | --- |
+| `tools/local/launch-windows.ps1` | Arranque de Windows previsto para POS real, con verificaciones de aprovisionamiento y canal | No fabrica IDs ni sesiones; preflight `-CheckOnly` no demuestra login BUSINESS ni servicio SCM funcional |
+| `tools/operators/start-local-operator-pos.ps1` | Lanza el servicio real y `@pos-platform/pos-desktop start:production` con cuentas locales de desarrollo | `%LOCALAPPDATA%\CamachoPOS\local-operator-runtime`; genera IDs de desarrollo; no es instalación BUSINESS |
+| `tools/operators/open-commercial-design-review.ps1` | Envoltorio que invoca el launcher anterior con `-DesignReview` | `%LOCALAPPDATA%\CamachoPOS\design-review-runtime`; catálogo de demostración, licencia de capacidad firmada para laboratorio y caja de prueba; no emisión Central |
+| `apps/pos-desktop/src/production-entry.ts` | Entrada de producción empaquetada en `dist/start.bundle.mjs` | Requiere aprovisionamiento de canal. El mismo artefacto Electron no convierte una identidad de laboratorio en negocio real |
+| `apps/pos-desktop/renderer/src/App.tsx` | Pantallas comerciales compartidas; no se ha encontrado otro árbol de componentes `SalePanel` para DesignReview en los archivos examinados | La navegación depende de permisos efectivos y del entorno de la sesión |
+
+**Hallazgo:** DesignReview no crea un segundo frontend del POS; es una ejecución aislada del código compartido. Los datos, IDs y provisión de laboratorio pueden hacer que el usuario vea un estado distinto al de una instalación comercial. No se debe retirar su script ni sus datos sin revisar consumidores y pruebas. Ningún registro de GitHub acredita cuál checkout o `dist` se está abriendo realmente en el PC del propietario.
+
+### Pruebas de la controversia 4 para Codex (pendientes)
+
+- [ ] Identificar el checkout y HEAD exactos del PC, rutas de ejecución y `dist/start.bundle.mjs`; anotar fecha/hash de build y verificar `dist/renderer/index.html`. No inferir que una ventana abierta corresponde al HEAD remoto.
+- [ ] Verificar en Windows que ambos scripts de desarrollo utilizan el **mismo código** `apps/pos-desktop` y `apps/pos-local-service`, pero mantienen distintas rutas de datos; probar que las identidades, catálogo demo, caja y claves de DesignReview no contaminan instalación ni base comercial.
+- [ ] Comprobar invocación de `open-commercial-design-review.ps1` → `start-local-operator-pos.ps1 -DesignReview` → `start:production` y el arranque comercial `launch-windows.ps1`, sin alterar controles de canal, SCM o firma.
+- [ ] Comprobar que `-SkipBuild` muestra el estado previamente compilado, mientras que el build normal incluye fuente actual; registrar discrepancias, si existen, con hash y ruta.
+- [ ] Probar entrada comercial únicamente con provisión válida; sin ella debe fallar cerrado. No convertir `LOCAL_OPERATOR` o `DESIGN_REVIEW` en sesión BUSINESS; verificar permisos por rol y ventas SQLite con datos de prueba aislados.
+- [ ] Ejecutar E2E Electron y capturas reales por rol a 1024, 1366 y 1920 px, con servicio real detrás del canal y sin dobles que falsifiquen resultados. Revisar que login, Caja, pagos y cierre provengan del mismo producto.
+- [ ] Dejar DesignReview como arnés de QA delimitado, no acceso principal recomendado para el cliente; retirar únicamente duplicados demostrados y con autorización, nunca datos o referencias desconocidos.
+
+**Estado:** confusión de rutas reconciliada documentalmente; no se ejecutaron scripts Windows ni se validó el checkout local. Se conserva el trabajo de pruebas pendiente de controversias 1, 2 y 3 en este mismo documento.
