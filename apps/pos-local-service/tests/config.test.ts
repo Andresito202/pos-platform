@@ -131,3 +131,19 @@ it("recognizes the SCM handoff consumed by main and requires an absolute managed
   expect(()=>parseServiceConfig({...valid,POS_WINDOWS_SCM_HANDOFF_FILE:"relative.json"})).toThrow();
   expect(()=>parseServiceConfig({...valid,POS_WINDOWS_SCM_HANDOFF_FILE:""})).toThrow();
 });
+
+
+describe("local operator development boundary", () => {
+  it.each(["production", "test", undefined])("rejects local credentials in NODE_ENV=%s", mode => {
+    expect(()=>parseServiceConfig({...valid,NODE_ENV:mode,
+      POS_LOCAL_OPERATOR_AUTH_STORE:valid.POS_DATA_DIRECTORY+"/accounts.json"}))
+      .toThrow("LOCAL_OPERATOR_AUTH_DEVELOPMENT_ONLY");
+  });
+  it("accepts explicit development credentials without adding commercial trust", () => {
+    const parsed=parseServiceConfig({...valid,NODE_ENV:"development",
+      POS_LOCAL_OPERATOR_AUTH_STORE:valid.POS_DATA_DIRECTORY+"/accounts.json"});
+    expect(parsed.local_operator_auth_store).toBe(valid.POS_DATA_DIRECTORY+"/accounts.json");
+    expect(parsed.authorization_trust_provision_file).toBeUndefined();
+    expect(parsed.windows_commercial_provision_file).toBeUndefined();
+  });
+});

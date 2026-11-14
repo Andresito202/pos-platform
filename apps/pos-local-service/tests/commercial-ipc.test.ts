@@ -7,6 +7,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import {
   CashShiftOpenRequestSchema,
+  CashShiftCloseRequestSchema,
+  PaymentRegisterCashRequestSchema,
+  SalesReceiptGetRequestSchema,
   CatalogItemFindRequestSchema,
   CatalogProductRegisterRequestSchema,
   CustomerFindRequestSchema,
@@ -31,6 +34,7 @@ import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-authorization-snapshot-store.js";
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
+import { LocalOperatorSessionRegistry } from "../src/security/local-operator-session-registry.js";
 import type { ServiceConfig } from "../src/config.js";
 
 /**
@@ -157,7 +161,7 @@ function config(): ServiceConfig {
   } as ServiceConfig;
 }
 
-async function buildEnv(options: { trustKeys?: boolean;catalog?:()=>Promise<PublicLicenseCatalog> } = {}) {
+async function buildEnv(options: { trustKeys?: boolean;catalog?:()=>Promise<PublicLicenseCatalog>; clock?:()=>Date } = {}) {
   const dir = await directory();
   const database = track(LocalDatabase.open({ dataDirectory: dir }));
   const durableSync = new DurableSyncStore(database);
@@ -172,13 +176,13 @@ async function buildEnv(options: { trustKeys?: boolean;catalog?:()=>Promise<Publ
     { database } as never,
     { store: durableSync } as never,
     keys,
-    () => NOW,
+    options.clock ?? (() => NOW),
     undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),undefined,options.catalog,
   );
   await commercial.start();
 
   const handler = new CommercialRequestHandler(config(), commercial);
-  return { database, commercial, handler };
+  return { database, commercial, handler, dir };
 }
 
 /** Deja un snapshot de autorización activo para `userId`. */
@@ -1136,5 +1140,51 @@ describe("customer.marketing.get — autorización backend", () => {
     }, connection));
     expect(result.status).toBe(expectedStatus);
     expect(result.result_code).toBe(expectedCode);
+  });
+});
+
+
+describe("local roles with original commercial component and real SQLite", () => {
+  it("admin supplies stock; cashier sells, pays once, receives receipt and closes; data survive reopen", async () => {
+    const env=await buildEnv({clock:()=>new Date()}); seedRegister(env.database);
+    const roles={"admin.local":"ADMINISTRADOR","cajero.local":"CAJERO"} as const;
+    const sessions=new LocalOperatorSessionRegistry({authenticate:async username=>
+      username === "admin.local" || username === "cajero.local"
+        ? {status:"AUTHENTICATED",operator:{username,role:roles[username]}}
+        : {status:"DENIED"}});
+    const handler=new CommercialRequestHandler({...config(),local_operator_auth_store:"/test/accounts.json"},env.commercial,id=>sessions.resolve(id));
+    await sessions.login("admin","admin.local","test-only");
+    const product=response(handler.handle(registerProductRequest(),"admin"));
+    expect(product.result_code).toBe("REGISTERED");
+    const presentation=product.result.presentation_id as string;
+    const mutation={...BASE,request_id:randomUUID(),correlation_id:randomUUID(),operation_id:randomUUID(),idempotency_key:randomUUID()};
+    const received=response(handler.handle(InventoryStockReceiveRequestSchema.parse({...mutation,message_type:"inventory.stock.receive",payload:{
+      presentation_id:presentation,movement_type:"PURCHASE_RECEIPT",quantity:"10.000000",reason_code:"TEST",business_date:"2026-11-14"}}),"admin"));
+    expect(received.result_code).toBe("POSTED");
+    expect(response(handler.handle(openShiftRequest(),"admin")).result_code).toBe("UNAUTHORIZED");
+    await sessions.login("cashier","cajero.local","test-only");
+    expect(response(handler.handle(registerProductRequest(),"cashier")).result_code).toBe("UNAUTHORIZED");
+    const opened=response(handler.handle(openShiftRequest(),"cashier"));
+    expect(opened.result_code).toBe("OPENED");
+    const sale=response(handler.handle(SaleCreateRequestSchema.parse({...mutation,idempotency_key:randomUUID(),message_type:"sale.create",payload:{
+      cash_register_id:REGISTER,channel:"POS",business_date:"2026-11-14",timezone_id:"America/Bogota",utc_offset_minutes:-300,
+      document_series:"POS",currency_code:"COP",lines:[{product_id:product.result.product_id,presentation_id:presentation,quantity:"1.000000"}]}}),"cashier"));
+    expect(sale.status).toBe("SUCCEEDED");
+    const payment=PaymentRegisterCashRequestSchema.parse({...mutation,idempotency_key:randomUUID(),message_type:"payment.register.cash",payload:{
+      sale_id:sale.result.sale_id,amount:sale.result.payable_amount,tendered_amount:sale.result.payable_amount}});
+    expect(response(handler.handle(payment,"cashier")).result_code).toBe("CONFIRMED");
+    expect(response(handler.handle(payment,"cashier")).result_code).toBe("IDEMPOTENT");
+    const receipt=SalesReceiptGetRequestSchema.parse({...BASE,request_id:randomUUID(),correlation_id:randomUUID(),message_type:"sales.receipt.get",payload:{sale_id:sale.result.sale_id}});
+    expect(response(handler.handle(receipt,"cashier")).status).toBe("SUCCEEDED");
+    const closed=response(handler.handle(CashShiftCloseRequestSchema.parse({...mutation,idempotency_key:randomUUID(),message_type:"cash.shift.close",payload:{
+      shift_id:opened.result.shift_id,counted_amount:sale.result.payable_amount,expected_version:opened.result.version}}),"cashier"));
+    expect(closed.result_code).toBe("CLOSED");
+    sessions.logout("cashier");
+    expect(response(handler.handle(receipt,"cashier")).result_code).toBe("SESSION_NOT_BOUND");
+    env.database.close();
+    const reopened=track(LocalDatabase.open({dataDirectory:env.dir}));
+    expect(reopened.native.prepare("SELECT status FROM sales_sales WHERE id=?").get(sale.result.sale_id)).toEqual({status:"COMPLETED"});
+    expect(reopened.native.prepare("SELECT COUNT(*) AS n FROM sales_sales").get()).toEqual({n:1});
+    // Handler integration, not Electron, physical cash or Central BUSINESS certification.
   });
 });

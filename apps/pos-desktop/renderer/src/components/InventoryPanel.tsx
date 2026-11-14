@@ -59,7 +59,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
   return (
     <section data-testid="inventory-panel">
       <h2>Existencia</h2>
-      <InventoryCsvImport enabled={permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && !inventory.busy && !inventory.pending} />
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && <InventoryCsvImport enabled={permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && !inventory.busy && !inventory.pending} />}
       {inventory.pending && <div role="status"><p>Hay un movimiento pendiente de confirmación. No cierres esta pantalla hasta resolverlo.</p>
         <button type="button" disabled={inventory.busy} onClick={() => void inventory.retryPending()}>Reintentar el mismo movimiento</button></div>}
       <div className="pos-form-grid">
@@ -74,7 +74,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         disabled={inventory.busy || inventory.pending}
       />
       </label>
-      <label className="pos-field">Fecha de negocio
+      {(permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)) && <label className="pos-field">Fecha de negocio
       <input
         data-testid="inventory-business-date-input"
         aria-label="Fecha de negocio"
@@ -83,8 +83,9 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         placeholder="Fecha de negocio"
         disabled={inventory.busy || inventory.pending}
       />
-      </label>
+      </label>}
 
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && <>
       <h3>Entrada</h3>
       <label className="pos-field">Tipo de entrada
       <select
@@ -130,6 +131,9 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         Recibir
       </button>
 
+      </>}
+
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) && <>
       <h3>Ajuste</h3>
       <label className="pos-field">Tipo de ajuste
       <select
@@ -174,6 +178,8 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
       >
         Ajustar
       </button>
+
+      </>}
 
       <h3>Consulta</h3>
       <button

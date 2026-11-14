@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { uuidV7 } from "@pos-platform/contracts";
+import { uuidV7, LicenseAllocationRequestSchema } from "@pos-platform/contracts";
 import { PlatformClient, PlatformRequestError } from "../../renderer/src/platform-client.js";
 import { PlatformLicenseFulfillment } from "../../renderer/src/components/PlatformLicenseFulfillment.js";
 const request = () => ({ license_id: uuidV7(), credential_id: uuidV7(), allocations: [{ branch_id: uuidV7(), register_id: uuidV7() }], idempotency_key: uuidV7(), correlation_id: uuidV7() });
@@ -39,7 +39,7 @@ describe("GLOBAL license fulfillment", () => {
           branchesTruncated: false, credentialsTruncated: false };
       }),
       issueLicense: vi.fn(),
-      allocateLicense: vi.fn<PlatformClient["allocateLicense"]>().mockResolvedValue({ activationId: uuidV7(), status: "PENDING" }),
+      allocateLicense: vi.fn<PlatformClient["allocateLicense"]>().mockResolvedValue({ activationId: uuidV7(), status: "PENDING", idempotent: false }),
     };
     render(<PlatformLicenseFulfillment client={client as unknown as PlatformClient} />);
     for (const [index, item] of requests.entries()) {
@@ -61,7 +61,7 @@ describe("GLOBAL license fulfillment", () => {
       });
       fireEvent.click(screen.getByRole("button", { name: "Volver a los datos" }));
     }
-    const keys = client.allocateLicense.mock.calls.map(call => call[0].idempotency_key);
+    const keys = client.allocateLicense.mock.calls.map(call => LicenseAllocationRequestSchema.parse(call[0]).idempotency_key);
     expect(new Set(keys).size).toBe(4);
   });
   it("rejects assignment options for another license and invalid input before transport", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { CanonicalPermission, AuthorizationCapabilitiesGetResponseSchema } from "@pos-platform/contracts";
+import { CanonicalPermission, AuthorizationCapabilitiesGetResponseSchema, CatalogProductRegisterRequestSchema, CustomerRegisterRequestSchema, InventoryStockReceiveRequestSchema, InventoryStockAdjustRequestSchema, CashShiftOpenRequestSchema, CashShiftCloseRequestSchema, PaymentRegisterCashRequestSchema } from "@pos-platform/contracts";
 import type { ServiceConfig } from "../config.js";
 import type { CommercialComponent } from "./commercial-component.js";
 import { CommercialRequestHandler } from "./commercial-request-handler.js";
@@ -8,7 +8,16 @@ import { LocalOperatorSessionRegistry } from "../security/local-operator-session
 import type { LocalOperator } from "../security/local-operator-password.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 
-function setup(role: LocalOperator["role"]) {
+import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
+import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
+import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
+import { AdjustStockUseCase } from "../inventory/adjust-stock-use-case.js";
+
+import { OpenCashShiftUseCase } from "../cash/open-cash-shift-use-case.js";
+import { CloseCashShiftUseCase } from "../cash/close-cash-shift-use-case.js";
+import { RegisterCashPaymentUseCase } from "../payments/register-cash-payment-use-case.js";
+
+function setup(role: LocalOperator["role"], now: () => number = Date.now) {
   const config={
     local_operator_auth_store:"/home/operator/accounts.v1.json",
     tenant_id:randomUUID(),company_id:randomUUID(),branch_id:randomUUID(),
@@ -20,8 +29,15 @@ function setup(role: LocalOperator["role"]) {
         role==="SUPERVISOR"?"supervisor.local":"superadmin.local",
       role,
     }} as const),
-  });
+  }, now);
   const commercial={
+    openCashShift: new OpenCashShiftUseCase(null as never, null as never),
+    closeCashShift: new CloseCashShiftUseCase(null as never),
+    registerCashPayment: new RegisterCashPaymentUseCase(null as never),
+    registerProduct: new RegisterProductUseCase(null as never),
+    registerCustomer: new RegisterCustomerUseCase(null as never),
+    receiveStock: new ReceiveStockUseCase(null as never),
+    adjustStock: new AdjustStockUseCase(null as never),
     bindings:{resolve:(_id:string)=>null},
     // Real use case must reject before any store access. A permission regression
     // reaches these absent stores and fails this test instead of writing data.
@@ -40,6 +56,74 @@ function setup(role: LocalOperator["role"]) {
   return {sessions,read,handler};
 }
 describe("local operator backend authorization",()=>{
+  it.each(["SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)(
+    "rejects forged shift open/close and cash collection for %s", async role => {
+      const {sessions,handler}=setup(role); await sessions.login("A","operator","valid");
+      const base={protocol_version:"1.0.0",payload_schema_version:"1.0.0",
+        request_id:randomUUID(),correlation_id:randomUUID(),operation_id:randomUUID(),idempotency_key:randomUUID()};
+      const requests=[
+        CashShiftOpenRequestSchema.parse({...base,message_type:"cash.shift.open",payload:{
+          cash_register_id:randomUUID(),opening_amount:"0.000000",business_date:"2026-11-14",
+          timezone_id:"America/Bogota",utc_offset_minutes:-300}}),
+        CashShiftCloseRequestSchema.parse({...base,message_type:"cash.shift.close",payload:{
+          shift_id:randomUUID(),counted_amount:"0.000000",expected_version:1}}),
+        PaymentRegisterCashRequestSchema.parse({...base,message_type:"payment.register.cash",payload:{
+          sale_id:randomUUID(),amount:"1000.000000",tendered_amount:"1000.000000"}}),
+      ];
+      for (const request of requests) expect(handler.handle(request,"A")).toMatchObject({status:"REJECTED",result_code:"UNAUTHORIZED"});
+    });
+  it.each(["CAJERO", "SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)(
+    "%s loses handler access on expiry, logout and across connections", async role => {
+      let now=Date.now(); const {sessions,read}=setup(role,()=>now);
+      await sessions.login("A","operator","valid");
+      expect(read("A").result_code).toBe("AVAILABLE");
+      expect(read("B").result_code).toBe("SESSION_NOT_BOUND");
+      now += 8*60*60*1000;
+      expect(read("A").result_code).toBe("SESSION_NOT_BOUND");
+      await sessions.login("A","operator","valid");
+      sessions.logout("A"); expect(read("A").result_code).toBe("SESSION_NOT_BOUND");
+    });
+  it("local superadmin has exactly audit authority and no GLOBAL licensing grant", async () => {
+    const {sessions,read}=setup("SUPERADMINISTRADOR"); await sessions.login("A","operator","valid");
+    expect(read("A").result!.permissions).toEqual([CanonicalPermission.AUDIT_EVENT_READ]);
+  });
+  it.each(["catalog.product.register", "customer.register", "inventory.stock.receive", "inventory.stock.adjust"] as const)(
+    "rejects supervisor mutation %s in the handler and real use case before storage", async messageType => {
+      const {sessions,handler}=setup("SUPERVISOR");
+      await sessions.login("A","supervisor.local","valid");
+      const payload = messageType === "catalog.product.register" ? {
+        code:"TEST",name:"Producto",stock_controlled:true,presentation_name:"Unidad",
+        unit_code:"UND",unit_precision:0,barcode:null,price_amount:"1000.000000",currency_code:"COP",
+      } : messageType === "customer.register" ? {
+        identification_document_code:"13",identification:"123456789",verification_digit:null,
+        legal_organization_code:"2",company:null,names:"Cliente",tribute_code:"ZZ",
+        fiscal_responsibility_codes:["R-99-PN"],email:null,phone:null,address:null,
+        country_code:"CO",municipality_code:"11001",
+      } : {
+        presentation_id:randomUUID(),quantity:"1.000000",reason_code:"TEST",
+        business_date:"2026-11-13",movement_type:messageType === "inventory.stock.receive" ? "PURCHASE_RECEIPT" : "ADJUSTMENT_NEGATIVE",
+      };
+      const schema={
+        "catalog.product.register":CatalogProductRegisterRequestSchema,
+        "customer.register":CustomerRegisterRequestSchema,
+        "inventory.stock.receive":InventoryStockReceiveRequestSchema,
+        "inventory.stock.adjust":InventoryStockAdjustRequestSchema,
+      }[messageType];
+      const request=schema.parse({
+        protocol_version:"1.0.0",message_type:messageType,request_id:randomUUID(),
+        correlation_id:randomUUID(),operation_id:randomUUID(),idempotency_key:randomUUID(),
+        payload_schema_version:"1.0.0",payload,
+      });
+      expect(handler.handle(request,"A")).toMatchObject({status:"REJECTED",result_code:"UNAUTHORIZED"});
+    });
+  it.each(["SUPERVISOR","ADMINISTRADOR"] as const)("%s receives only its catalog/customer/stock write grants", async role => {
+    const {sessions,read}=setup(role); await sessions.login("A","operator","valid");
+    const permissions=read("A").result!.permissions;
+    for(const code of [CanonicalPermission.CATALOG_PRODUCT_REGISTER,CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER,
+      CanonicalPermission.INVENTORY_STOCK_RECEIVE,CanonicalPermission.INVENTORY_STOCK_ADJUST]) {
+      expect(permissions.includes(code)).toBe(role === "ADMINISTRADOR");
+    }
+  });
   it.each(["SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)("rejects a forged sale.create request from %s in the real use case", async role => {
     const {sessions,handler}=setup(role);
     await sessions.login("A", "operator", "valid");

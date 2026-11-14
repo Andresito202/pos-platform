@@ -77,8 +77,8 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     electron=await _electron.launch({executablePath:requireDesktop("electron") as string,
       args:[join(desktop,"dist","start.bundle.mjs")],env});
     const page=await electron.firstWindow();
-    await expect(page.getByRole("heading",{name:"Ingresar al POS",level:3})).toBeVisible({timeout:20000});
-    await page.locator("#pos-local-username").selectOption("admin.local");
+    await expect(page.getByRole("textbox",{name:"Usuario",exact:true})).toBeVisible({timeout:20000});
+    await page.locator("#pos-local-username").fill("admin.local");
     await page.locator("#pos-local-password").fill(passwords.get("admin.local")!);
     await page.getByRole("button",{name:"Ingresar",exact:true}).click();
     await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
@@ -106,13 +106,13 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     console.log("REAL_LOCAL_SQLITE_CATALOG_WRITE=PASS");
 
     await page.getByRole("button",{name:"Cerrar sesión",exact:true}).click();
-    await expect(page.getByRole("heading",{name:"Ingresar al POS",level:3})).toBeVisible({timeout:20000});
+    await expect(page.getByRole("textbox",{name:"Usuario",exact:true})).toBeVisible({timeout:20000});
     const denied=await call("inventory.stock.get",{presentation_id:randomUUID()});
     expect(denied.status).toBe("REJECTED");
     expect(denied.result_code).toBe("SESSION_NOT_BOUND");
     console.log("REAL_LOCAL_LOGOUT_DENIAL=PASS");
 
-    await page.locator("#pos-local-username").selectOption("cajero.local");
+    await page.locator("#pos-local-username").fill("cajero.local");
     await page.locator("#pos-local-password").fill(passwords.get("cajero.local")!);
     await page.getByRole("button",{name:"Ingresar",exact:true}).click();
     await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
@@ -138,10 +138,10 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     electron=await _electron.launch({executablePath:requireDesktop("electron") as string,
       args:[join(desktop,"dist","start.bundle.mjs")],env});
     const afterRestart=await electron.firstWindow();
-    await expect(afterRestart.getByRole("heading",{name:"Ingresar al POS",level:3}))
+    await expect(afterRestart.getByRole("textbox",{name:"Usuario",exact:true}))
       .toBeVisible({timeout:20000});
     await expect(afterRestart.locator(".pos-nav")).toHaveCount(0);
-    await afterRestart.locator("#pos-local-username").selectOption("admin.local");
+    await afterRestart.locator("#pos-local-username").fill("admin.local");
     await afterRestart.locator("#pos-local-password").fill(passwords.get("admin.local")!);
     await afterRestart.getByRole("button",{name:"Ingresar",exact:true}).click();
     await expect(afterRestart.locator(".pos-nav")).toBeVisible({timeout:20000});

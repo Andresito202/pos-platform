@@ -65,7 +65,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
   return (
     <section data-testid="catalog-panel">
       <h2>Catálogo</h2>
-      <details><summary>Importar catálogo CSV</summary>
+      {permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) && <details><summary>Importar catálogo CSV</summary>
         <p>CSV UTF-8 exportado desde Excel u otra hoja. No carga stock, costos ni facturas. Cada fila se confirma por separado; reintentar el mismo archivo conserva sus claves.</p>
         <label>Separador<select aria-label="Separador CSV" value={delimiter} disabled={csvBusy} onChange={(event) => { setDelimiter(event.target.value as "," | ";"); setCsv(null); setCsvResults([]); }}>
           <option value=",">Coma</option><option value=";">Punto y coma</option>
@@ -82,7 +82,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
             onClick={() => { void confirmCsv(); }}>Confirmar o reanudar altas CSV</button></>}
         <ul>{csvResults.map((result) => <li key={result.row}>Fila {result.row}: {result.outcome}</li>)}</ul>
         {csvError && <p role="alert">{csvError}. Las filas ya confirmadas permanecen; reintente el mismo archivo para recuperar el resultado.</p>}
-      </details>
+      </details>}
       <div>
         <div className="pos-catalog-tools">
         <label className="pos-field">Buscar en catálogo<input aria-label="Buscar en catálogo" value={query} onChange={(event) => setQuery(event.target.value)} disabled={catalog.busy} /></label>
@@ -102,6 +102,7 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
           onClick={() => { void catalog.listItems(loadedQuery, catalog.items.length); }}>Cargar más resultados</button>}
       </div>
 
+      {permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) && <>
       <h3>Alta de producto</h3>
       <div className="pos-form-grid">
       <label className="pos-field">Código interno
@@ -232,12 +233,14 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
       </button>
       </div>
 
+      </>}
+
       {catalog.product !== null && (
         <div data-testid="product-registered">
           <span data-testid="product-id">{catalog.product.productId}</span>
           <span data-testid="presentation-id">{catalog.product.presentationId}</span>
           <span data-testid="product-outcome">{catalog.product.outcome}</span>
-          {onReceiveStock && <button data-testid="product-receive-stock" onClick={() => onReceiveStock(catalog.product!.presentationId)}>Registrar entrada de este producto</button>}
+          {onReceiveStock && permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && <button data-testid="product-receive-stock" onClick={() => onReceiveStock(catalog.product!.presentationId)}>Registrar entrada de este producto</button>}
         </div>
       )}
       {catalog.product === null && catalog.outcome !== null && (

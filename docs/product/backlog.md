@@ -1,3 +1,23 @@
+## Validación de controversias 1–5 — 2026-11-14
+
+Ejecución sobre base remota `869aa265`, misma rama activa y PR #106. Se preservaron
+cambios locales anteriores. Roles/handlers/SQLite y navegación probados; arnés
+Windows reconciliado con permisos locales. No se ejecutaron funcionalidades sectoriales.
+Resultados, comandos, correcciones y pendientes externos en
+[Validación 1–5](../testing/controversies-1-5-20261114.md).
+Windows/Central real siguen pendientes; no equivalen a autorización de merge.
+
+## Roles: supervisor de consulta — 2026-11-13
+
+Incremento autorizado en la misma rama: retirar del supervisor local las escrituras
+de catálogo/clientes e inventario, conservarlas al administrador y mostrar solo
+formularios autorizados. Pruebas: 324 desktop y 28 servicio aprobadas; typecheck,
+build por etapas y arquitectura aprobados. Corrección del registro: el typecheck
+desktop de aquella ejecución terminó con errores; resolución documentada en la
+validación del 2026-11-14. Evidencia y alcance pendiente:
+[Contraste de roles y módulos](roles-modules-verification-20261113.md).
+No cierra permisos BUSINESS, módulos administrativos completos ni E2E Windows.
+
 ## Clientes en espera — 2026-11-13
 
 Implementado en la misma línea activa, sin nueva rama: guardar/recuperar/eliminar carritos antes del cobro, persistencia SQLite y consumo atómico al crear la venta existente. Evidencia y límites en [waiting-carts.md](waiting-carts.md). No sustituye recuperación de pagos pendientes ni cierra diseño completo, login BUSINESS, Factus externo o Android.

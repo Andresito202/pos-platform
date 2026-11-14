@@ -92,6 +92,7 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
           placeholder="Identificación"
           disabled={directory.busy}
         />
+        {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && <>
         <input
           data-testid="customer-verification-digit-input"
           aria-label="Dígito de verificación"
@@ -160,8 +161,10 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
           placeholder="Teléfono (opcional)"
           disabled={directory.busy}
         />
+        </>}
       </div>
 
+      {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && <>
       <button
         data-testid="register-customer-button"
         type="button"
@@ -198,6 +201,8 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
         />
         Autorizo recibir por correo novedades del POS y comunicaciones comerciales relacionadas con Camacho POS.
       </label>
+
+      </>}
 
       <button
         data-testid="find-customer-button"
@@ -268,26 +273,26 @@ export function CustomerPanel({ permissions }: { permissions: ReadonlySet<string
           {directory.marketing?.status === "SUBSCRIBED" ? (
             <>
               <p data-testid="customer-marketing-status">Suscrito a novedades por correo.</p>
-              <button
+              {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && <button
                 data-testid="customer-marketing-unsubscribe-button"
                 type="button"
                 onClick={() => { void directory.unsubscribeMarketing(directory.found?.customer_id ?? ""); }}
                 disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) || directory.found.customer_id === null}
               >
                 Darse de baja
-              </button>
+              </button>}
             </>
           ) : (
             <>
               <p data-testid="customer-marketing-status">{directory.marketing === null ? "Preferencia pendiente de consulta." : "No suscrito a novedades."}</p>
-              <button
+              {permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) && <button
                 data-testid="customer-marketing-subscribe-button"
                 type="button"
                 onClick={() => { void directory.subscribeMarketing(directory.found?.customer_id ?? ""); }}
                 disabled={directory.busy || !permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER) || directory.found.customer_id === null || directory.found.email === null}
               >
                 Suscribirse
-              </button>
+              </button>}
             </>
           )}
         </section>

@@ -96,13 +96,7 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
     },ready.sessionAssertion);
     expect(activated).toMatchObject({status:"SUCCEEDED"});
     await page.reload();
-    const authorized=role!=="SUPERADMINISTRADOR";
-    if(authorized){
-      await expect(page.locator(".pos-nav")).toBeVisible();
-    }else{
-      await expect(page.getByTestId("no-authorized-screens")).toBeVisible();
-      await expect(page.locator(".pos-nav button")).toHaveCount(0);
-    }
+    await expect(page.locator(".pos-nav")).toBeVisible();
     const names=await page.locator(".pos-nav button").allTextContents();
     const has=(name:string)=>names.includes(name);
     const request=async(message_type:string,payload:unknown)=>{
@@ -123,10 +117,13 @@ test("role-scoped menus and server decisions follow signed authorization, not a 
       expect(inventory.result_code).not.toBe("PERMISSION_DENIED");
       expect(has("Inventario")).toBe(true);
     }
-    if(role==="CAJERO"||role==="SUPERVISOR"||role==="ADMINISTRADOR")expect(has("Caja y ventas")).toBe(true);
-    if(role==="SUPERADMINISTRADOR")expect(has("Caja y ventas")).toBe(false);
-    if(role==="CAJERO")expect(has("Impresora y cajón")).toBe(false);
-    if(role==="ADMINISTRADOR")expect(has("Impresora y cajón")).toBe(true);
+    expect(has("Caja y ventas")).toBe(role === "CAJERO");
+    expect(has("Impresora y cajón")).toBe(false);
+    const capabilities=await request("authorization.capabilities.get",{}) as {result:{permissions:string[]}};
+    if(role==="SUPERADMINISTRADOR") expect(capabilities.result.permissions).toEqual(["AUDIT_EVENT_READ"]);
+    for(const code of ["CATALOG_PRODUCT_REGISTER","CUSTOMERS_CUSTOMER_REGISTER","INVENTORY_STOCK_RECEIVE","INVENTORY_STOCK_ADJUST"]) {
+      expect(capabilities.result.permissions.includes(code)).toBe(role === "ADMINISTRADOR");
+    }
     if(smoke){
       if(role!=="ADMINISTRADOR")throw Error("PERSISTENCE_SMOKE_REQUIRES_ADMIN");
       const barcode="7709876543210";

@@ -265,3 +265,24 @@ Se corrigió `docs/product/business-readiness.md`: la afirmación de septiembre 
 - [ ] Registrar HEAD exacto, tests ejecutados, exit codes, servicios externos empleados y brechas Windows/Android. Conservar además las pruebas no ejecutadas de controversias 1–5.
 
 **Resultado de esta intervención:** auditoría y contrato de seguridad documentados, sin modificación de Payment/Sale ni importación de otra rama. **NO CERTIFICADO** el ingreso automático, importe real confirmado, identidad del pagador o notificación bancaria instantánea.
+## Restricción de escritura del supervisor — 2026-11-13
+
+Sobre base `e205e09b20ef8fa9123522c42e6f4a9b9dc85797`, misma rama activa.
+La matriz superior refleja la corrección actual; las secciones fechadas anteriores
+conservan su alcance histórico. Supervisor consulta catálogo, clientes e inventario,
+pero no registra productos/clientes ni recibe/ajusta existencias. Administrador
+conserva esas escrituras. Los formularios de escritura e importación no se montan
+sin el permiso correspondiente; se conservan las consultas.
+
+Evidencia completa, límites y módulos aún no acreditados:
+[Roles y módulos: contraste con implementación](../../../docs/product/roles-modules-verification-20261113.md).
+
+
+## Ejecución Codex — controversias 1–5, 2026-11-14
+
+Las listas pendientes fechadas arriba conservan su historial. La ejecución actual
+queda en [informe de validación](../../../docs/testing/controversies-1-5-20261114.md),
+con salidas, base Git, correcciones y dependencias. Local: 324 desktop, 246 servicio
+más 20 configuración PASS. Windows: 5 SKIP; Electron Linux: 1 FAIL de entorno y
+8 no ejecutadas. Central: unitarias parciales PASS, 7 físicas SKIP.
+No se promueven BUSINESS/GLOBAL, ventanas Windows ni sectores a certificados.

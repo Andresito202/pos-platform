@@ -2,14 +2,11 @@ import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { afterEach, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { LicenseCapacityGate, readLicenseCapacityProvision } from "../src/security/license-capacity-gate.js";
 import { LocalSecurityLifecycle } from "../src/security/security-lifecycle.js";
 
-const require = createRequire(import.meta.url);
-const tsx = require.resolve("tsx/cli");
 const script = join(process.cwd(), "scripts/prepare-commercial-design-review.ts");
 const roots: string[] = [];
 
@@ -18,7 +15,7 @@ afterEach(() => {
 });
 
 function prepare(root: string): Record<string, unknown> {
-  const result = spawnSync(process.execPath, [tsx, script, "--root", root], {
+  const result = spawnSync(process.execPath, ["--import", "tsx", script, "--root", root], {
     encoding: "utf8",
     cwd: process.cwd(),
   });
@@ -74,4 +71,29 @@ it("design-review prepare: persists IDs, signed capacity, register and demo cata
   const marker = readFileSync(join(root, "DESIGN_REVIEW_ISOLATED.txt"), "utf8");
   expect(marker).toContain("Isolated");
   expect(provision.artifact.claims.profile).toBe("CAMACHO_LICENSE_CAPACITY_V2");
+});
+
+
+it("separates identities, signing keys and SQLite data between two isolated roots", () => {
+  const firstRoot=mkdtempSync(join(tmpdir(),"camacho-isolation-a-"));
+  const secondRoot=mkdtempSync(join(tmpdir(),"camacho-isolation-b-"));
+  roots.push(firstRoot,secondRoot);
+  const first=prepare(firstRoot);
+  const db=LocalDatabase.open({dataDirectory:String(first.data_directory)});
+  let products: unknown;
+  try { products=db.native.prepare("SELECT * FROM catalog_product ORDER BY id").all(); }
+  finally { db.close(); }
+  const installation=readFileSync(join(firstRoot,"installation.json"));
+  const provision=readFileSync(String(first.license_capacity_provision_file));
+  const second=prepare(secondRoot);
+  for (const field of ["installation_id","device_id","tenant_id","company_id","branch_id","register_id","data_directory"]) {
+    expect(second[field]).not.toBe(first[field]);
+  }
+  expect(readFileSync(join(firstRoot,"installation.json"))).toEqual(installation);
+  expect(readFileSync(String(first.license_capacity_provision_file))).toEqual(provision);
+  expect(readLicenseCapacityProvision(String(second.license_capacity_provision_file)).artifact.claims)
+    .not.toEqual(readLicenseCapacityProvision(String(first.license_capacity_provision_file)).artifact.claims);
+  const reopened=LocalDatabase.open({dataDirectory:String(first.data_directory)});
+  try { expect(reopened.native.prepare("SELECT * FROM catalog_product ORDER BY id").all()).toEqual(products); }
+  finally { reopened.close(); }
 });

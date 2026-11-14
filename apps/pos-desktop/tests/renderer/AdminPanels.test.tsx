@@ -642,17 +642,15 @@ describe("permisos por acción y consultas conectadas", () => {
     fireEvent.click(screen.getByTestId("catalog-list-button"));
     await waitFor(() => expect(calls.get("catalog.item.list")).toHaveLength(1));
     expect(CatalogItemListRequestSchema.safeParse(sent("catalog.item.list")).success).toBe(true);
-    expect((screen.getByTestId("register-product-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("register-product-button")).toBeNull();
     expect(calls.get("catalog.product.register")).toBeUndefined();
   });
 
   it("does not enable stock mutations for an inventory reader", () => {
     install(null);
     render(<InventoryPanel permissions={new Set(["INVENTORY_STOCK_READ"])} initialPresentationId={PRESENTATION} />);
-    fireEvent.change(screen.getByTestId("receive-quantity-input"), { target: { value: "2" } });
-    fireEvent.change(screen.getByTestId("adjust-quantity-input"), { target: { value: "1" } });
-    expect((screen.getByTestId("receive-stock-button") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("adjust-stock-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId("receive-stock-button")).toBeNull();
+    expect(screen.queryByTestId("adjust-stock-button")).toBeNull();
     expect((screen.getByTestId("get-stock-button") as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -661,5 +659,32 @@ describe("permisos por acción y consultas conectadas", () => {
     render(<FiscalPanel initialSaleId="55555555-5555-4555-8555-555555555555" />);
     expect((screen.getByTestId("fiscal-sale-id-input") as HTMLInputElement).value).toBe("55555555-5555-4555-8555-555555555555");
     expect(calls.get("fiscal.document.issue")).toBeUndefined();
+  });
+});
+
+
+describe("read-only role surfaces", () => {
+  it("retains catalog lookup without product creation or CSV import", () => {
+    install({}); render(<CatalogPanel permissions={new Set(["CATALOG_PRODUCT_READ"])} />);
+    expect(screen.getByTestId("catalog-list-button")).toBeTruthy();
+    expect(screen.queryByTestId("register-product-button")).toBeNull();
+    expect(screen.queryByLabelText("Archivo de catálogo CSV")).toBeNull();
+    expect(screen.queryByTestId("product-price-input")).toBeNull();
+  });
+  it("retains stock lookup without receiving, adjusting or importing", () => {
+    install({}); render(<InventoryPanel permissions={new Set(["INVENTORY_STOCK_READ"])} />);
+    expect(screen.getByTestId("get-stock-button")).toBeTruthy();
+    expect(screen.queryByTestId("receive-stock-button")).toBeNull();
+    expect(screen.queryByTestId("adjust-stock-button")).toBeNull();
+    expect(screen.queryByTestId("inventory-business-date-input")).toBeNull();
+    expect(screen.queryByText("Entrada")).toBeNull();
+  });
+  it("retains customer identification lookup without registration fields", () => {
+    install({}); render(<CustomerPanel permissions={new Set(["CUSTOMERS_CUSTOMER_READ"])} />);
+    expect(screen.getByTestId("find-customer-button")).toBeTruthy();
+    expect(screen.getByTestId("customer-identification-input")).toBeTruthy();
+    expect(screen.queryByTestId("register-customer-button")).toBeNull();
+    expect(screen.queryByTestId("customer-names-input")).toBeNull();
+    expect(screen.queryByTestId("customer-marketing-opt-in")).toBeNull();
   });
 });
