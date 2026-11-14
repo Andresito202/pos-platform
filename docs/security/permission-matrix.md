@@ -25,6 +25,9 @@ Central Authority es quien debe publicar `roles`, `permissions` y `role_permissi
 
 ## Roles
 
+**Interpretación vigente (2026-11-13):** los cuatro espacios visibles son Superadministrador, Administrador, Supervisor y Cajero. Los nombres siguientes son perfiles internos, no catorce pantallas obligatorias. La correspondencia y los perfiles auxiliares se definen en [roles.md](../product/roles.md). Esta tabla es política objetivo; los permisos ejecutables y la autorización firmada BUSINESS/GLOBAL requieren verificación independiente. Los roles `OWNER`, `GENERAL_ADMIN` y `BRANCH_MANAGER` tienen responsabilidad administrativa, no operaciones de Caja por defecto. Un rol con alcance superior no hereda por eso `SALES_SALE_CREATE`.
+
+
 - PLATFORM_OWNER
 - BILLING_ADMIN
 - SUPPORT_AGENT
@@ -92,8 +95,8 @@ Central Authority es quien debe publicar `roles`, `permissions` y `role_permissi
 
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR | INVENTORY_OPERATOR | CASHIER |
 |---|---:|---:|---:|---:|---:|---:|
-| Crear producto | Sí | Sí | Sí | Condicional | Sí | No |
-| Editar producto | Sí | Sí | Sí | Condicional | Condicional | No |
+| Crear producto | Sí | Sí | Sí | No | Sí | No |
+| Editar producto | Sí | Sí | Sí | No | Condicional | No |
 | Desactivar producto | Sí | Sí | Condicional | No | Condicional | No |
 | Cambiar precio | Sí | Sí | Condicional | Autorizar | No | No |
 | Consultar costo | Sí | Sí | Condicional | Condicional | Sí | No |
@@ -102,13 +105,16 @@ Central Authority es quien debe publicar `roles`, `permissions` y `role_permissi
 
 ## Inventario
 
+El Supervisor tiene **consulta** y puede autorizar operaciones excepcionales cuando exista un permiso atómico explícito; no realiza recepción, merma ni ajustes de existencias por el mero rol. `INVENTORY_OPERATOR` es un perfil especializado de capacidad, no sinónimo de Supervisor.
+
+
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR | INVENTORY_OPERATOR | CASHIER |
 |---|---:|---:|---:|---:|---:|---:|
 | Consultar stock | Sí | Sí | Sí | Sí | Sí | Operativo |
-| Registrar recepción | Sí | Sí | Sí | Sí | Sí | No |
+| Registrar recepción | Sí | Sí | Sí | No | Sí | No |
 | Ajuste positivo | Sí | Sí | Condicional | Autorizar | Condicional | No |
 | Ajuste negativo | Sí | Sí | Condicional | Autorizar | Condicional | No |
-| Registrar merma | Sí | Sí | Sí | Sí | Sí | Condicional |
+| Registrar merma | Sí | Sí | Sí | No | Sí | No |
 | Trasladar inventario | Sí | Sí | Condicional | Autorizar | Sí | No |
 | Ver kardex | Sí | Sí | Sí | Sí | Sí | No |
 | Eliminar movimiento | No | No | No | No | No | No |
@@ -117,7 +123,7 @@ Central Authority es quien debe publicar `roles`, `permissions` y `role_permissi
 
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | PURCHASING_OPERATOR | SUPERVISOR | CASHIER |
 |---|---:|---:|---:|---:|---:|---:|
-| Registrar GoodsReceipt confirmado | Sí | Sí | Sí | Sí | Sí | No |
+| Registrar GoodsReceipt confirmado | Sí | Sí | Sí | Sí | No | No |
 | Consultar GoodsReceipt | Sí | Sí | Sí | Sí | Sí | No |
 | Consultar proveedores | Sí | Sí | Sí | Sí | Sí | No |
 
@@ -125,22 +131,25 @@ No existe permiso para anular o editar un GoodsReceipt confirmado. Los errores d
 
 ## Caja y ventas
 
+El Cajero es el único perfil principal que opera la venta, el carrito, el cobro y su turno. Los responsables administrativos y el Supervisor consultan y **autorizan** operaciones excepcionales mediante permisos separados, sin ejecutar directamente `sale.create`, abrir/cerrar turno ni registrar cobros por herencia. Las celdas históricas deben interpretarse con esta separación y **no** conceden permisos por nombre de rol.
+
+
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR | CASHIER |
 |---|---:|---:|---:|---:|---:|
-| Abrir caja propia | Sí | Sí | Sí | Sí | Sí |
-| Cerrar caja propia | Sí | Sí | Sí | Sí | Sí |
+| Abrir caja propia | No | No | No | No | Sí |
+| Cerrar caja propia | No | No | No | No | Sí |
 | Abrir caja ajena | Sí | Sí | Condicional | Condicional | No |
-| Registrar venta | Sí | Sí | Sí | Sí | Sí |
-| Suspender venta | Sí | Sí | Sí | Sí | Sí |
-| Recuperar venta | Sí | Sí | Sí | Sí | Sí |
+| Registrar venta | No | No | No | No | Sí |
+| Suspender venta | No | No | No | No | Sí |
+| Recuperar venta | No | No | No | No | Sí |
 | Anular venta | Sí | Sí | Condicional | Sí | No |
 | Devolver venta | Sí | Sí | Condicional | Sí | Solicitar |
 | Reimprimir recibo | Sí | Sí | Sí | Sí | Sí, auditado |
 | Abrir cajón manualmente | Sí | Sí | Condicional | Autorizar | Condicional |
-| Registrar ingreso de caja | Sí | Sí | Sí | Sí | Dentro de política |
+| Registrar ingreso de caja | No | No | No | No | Dentro de política |
 | Registrar egreso de caja | Sí | Sí | Condicional | Autorizar | Dentro de límite |
-| Realizar arqueo propio | Sí | Sí | Sí | Sí | Sí |
-| Abandonar arqueo propio | Sí | Sí | Sí | Sí | Sí, auditado |
+| Realizar arqueo propio | No | No | No | No | Sí |
+| Abandonar arqueo propio | No | No | No | No | Sí, auditado |
 | Consultar arqueo | Sí | Sí | Sí | Sí | Solo propio |
 | Revisar diferencia | Sí | Sí | Sí | Sí | No sobre diferencia propia crítica |
 | Aceptar diferencia material | Sí | Sí | Condicional | Sí | No sobre diferencia propia crítica |
