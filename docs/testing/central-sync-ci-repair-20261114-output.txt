@@ -1,0 +1,51 @@
+MIGRATIONS
+{"migration":"001_central_foundation","result":{"executionId":"01a1da84-775d-733f-9780-6ea83e8006af","noOp":true,"reconciled":false,"checksumHex":"7f188dd5c14a33f223e4684ace877d588278081924ab4c7286eb105a7c829507"}}
+{"migration":"002_external_integrations_foundation","result":{"executionId":"01a1da84-d24e-7fe9-b429-9e24ba4d535d","noOp":false,"reconciled":false,"checksumHex":"8b22fdbc76ff79178d3063541012d7f428ed6d538d9027edb7987ebbbe09a554","prerequisiteState":"INSTALLED_BY_MIGRATION_PREREQUISITE"}}
+{"provisioning":"MAT003_ROLE_READINESS","result":"READY_WITH_RECEIPT","verified":"READY"}
+{"migration":"003_fiscal_electronic_invoicing_foundation","result":{"executionId":"01a1da84-d586-7b24-9e53-f337e0dc6714","noOp":false,"reconciled":false,"checksumHex":"93908f2be43172d54026ca967e2c2e79041824b4fe61e5928cc20f29ef0ba538","result":"APPLIED_WITH_RECEIPT","receiptPath":"/tmp/camacho-isolated-migration-deFinG/003-apply-receipt.json","receiptSha256":"b3f846ccbb99994e7825f11f28dfb087c6a9e0d6592dbf1eb767272eea0aeeaa"}}
+{"migration":"004_device_trust","result":{"executionId":"01a1da84-d6bb-7949-b1bd-3e203c76dd98","noOp":false,"reconciled":false,"checksumHex":"63bba40c3f7ef1150b074b102e68b06b88d7489f77668adb0f33b6d14c462cd8","result":"APPLIED"}}
+
+GATE
+FIRST_POST_STATUS=200
+{"protocol_version":"1.0.0","request_id":"01a1da85-3f55-7a3f-b169-848781b156bd","correlation_id":"01a1da85-3f55-7e65-8428-bcefab2ebfe5","operation_id":null,"status":"SUCCEEDED","result_code":"COMMITTED","result_schema_version":"1.0.0","error":null,"server_time":"2026-11-14T14:45:28.085Z","result":{"batch_id":"01a1da85-3f55-7be2-b39f-88f9dfd65ed1","tenant_id":"018f0000-0000-7000-8000-0000000000e1","device_id":"01a1da85-3f55-7e2f-9c18-0409414fca23","acknowledged_through_local_sequence":1,"results":[{"operation_id":"01a1da85-3f55-7a65-a520-066beb809ac6","correlation_id":"01a1da85-3f55-7e65-8428-bcefab2ebfe5","server_status":"SERVER_ACCEPTED","server_result_code":"COMMITTED","aggregate_id":"01a1da85-3f57-70a6-b942-769d414a8453","previous_version":null,"new_version":null,"received_at_server":"2026-11-14T14:45:28.077Z","committed_at_server":"2026-11-14T14:45:28.085Z","retryable":false,"review_required":false}]}}
+EXACT_PROOF_REPLAY_STATUS=409
+{"protocol_version":"1.0.0","request_id":"01a1da85-3f55-7a3f-b169-848781b156bd","correlation_id":"01a1da85-3f55-7e65-8428-bcefab2ebfe5","operation_id":null,"status":"REJECTED","result_code":"SYNC.DEVICE_PROOF_REPLAY_CONFLICT","result_schema_version":"1.0.0","error":{"code":"SYNC.DEVICE_PROOF_REPLAY_CONFLICT","category":"CONFLICT","retryable":false,"user_message_key":"sync.central_rejected","field_errors":[],"current_version":null,"required_action":null,"diagnostic_id":"6fd084d1-82e3-46aa-a166-e595cb222c94"},"server_time":"2026-11-14T14:45:28.117Z","result":null}
+REPLAY_STATUS=200
+{"protocol_version":"1.0.0","request_id":"01a1da85-3fc2-7830-a42b-994a66166433","correlation_id":"01a1da85-3fc2-7a84-8174-1b29501f0187","operation_id":null,"status":"SUCCEEDED","result_code":"COMMITTED","result_schema_version":"1.0.0","error":null,"server_time":"2026-11-14T14:45:28.085Z","result":{"batch_id":"01a1da85-3f55-7be2-b39f-88f9dfd65ed1","tenant_id":"018f0000-0000-7000-8000-0000000000e1","device_id":"01a1da85-3f55-7e2f-9c18-0409414fca23","acknowledged_through_local_sequence":1,"results":[{"operation_id":"01a1da85-3f55-7a65-a520-066beb809ac6","correlation_id":"01a1da85-3f55-7e65-8428-bcefab2ebfe5","server_status":"SERVER_ACCEPTED","server_result_code":"COMMITTED","aggregate_id":"01a1da85-3f57-70a6-b942-769d414a8453","previous_version":null,"new_version":null,"received_at_server":"2026-11-14T14:45:28.077Z","committed_at_server":"2026-11-14T14:45:28.085Z","retryable":false,"review_required":false}]}}
+PERSISTENCE_ROW_COUNT=1
+IDEMPOTENCY_COUNT_BEFORE=1
+IDEMPOTENCY_COUNT_AFTER=1
+IDEMPOTENCY_CONFLICT_STATUS=409
+{"protocol_version":"1.0.0","request_id":"01a1da85-3fd3-7fe3-8edf-cf4605adeddb","correlation_id":"01a1da85-3fd3-7694-a637-6fdcc0873fbe","operation_id":null,"status":"REJECTED","result_code":"SYNC.IDEMPOTENCY_CHECKSUM_CONFLICT","result_schema_version":"1.0.0","error":{"code":"SYNC.IDEMPOTENCY_CHECKSUM_CONFLICT","category":"CONFLICT","retryable":false,"user_message_key":"sync.central_rejected","field_errors":[],"current_version":null,"required_action":null,"diagnostic_id":"0a3c198b-83d3-40c8-aac5-b4e6fb077d20"},"server_time":"2026-11-14T14:45:28.160Z","result":null}
+CROSS_TENANT_DEVICE_BINDING=REJECTED
+CROSS_TENANT_PERSISTENCE_ROWS=0
+TWO_TENANT_INDEPENDENT_AUTHENTICATED_SYNC=VERIFIED
+RLS_RUNTIME_TENANT_READ_ISOLATION=VERIFIED
+RLS_TRANSACTION_CONTEXT_RESET=VERIFIED
+DEVICE_ENROLLMENT_POSTGRES_ISSUANCE=VERIFIED
+DEVICE_ENROLLMENT_ACTIVATION_REPLAY=REJECTED
+SQLITE_OUTBOX_CENTRAL_POSTGRES=VERIFIED
+SQLITE_CHECKPOINT=1
+SQLITE_INBOX_ROW_COUNT=1
+SQLITE_RESPONSE_LOSS_RECOVERY=VERIFIED
+SQLITE_RESTART_IN_FLIGHT_RECOVERY=VERIFIED
+POSTGRES_PERSISTENCE=VERIFIED
+IDEMPOTENCY_REPLAY=VERIFIED
+DEVICE_PROOF_REPLAY=REJECTED
+IDEMPOTENCY_CONFLICT=VERIFIED
+CENTRAL-SYNC GATE: VERIFIED
+
+POSTGRES REGRESSION
+
+> @pos-platform/database-postgres@0.0.0 test /workspace/scratch/682e936bbd67/pos-platform/packages/database-postgres
+> vitest run
+
+
+ RUN  v4.1.12 /workspace/scratch/682e936bbd67/pos-platform/packages/database-postgres
+
+
+ Test Files  15 passed (15)
+      Tests  126 passed (126)
+   Start at  09:45:35
+   Duration  2.14s (transform 3.68s, setup 0ms, import 8.27s, tests 1.90s, environment 4ms)
+

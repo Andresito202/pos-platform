@@ -72,5 +72,7 @@ describe("local password gate",()=>{
       now+=15*60*1000;
       expect((await gate.authenticate("admin.local","wrong")).status).toBe("DENIED");
     }finally{db.close();}
-  });
+    // Forty real scrypt checks must run unchanged, including on Windows CI.
+    // This is a test deadline, not the authentication/rate-limit clock above.
+  },30_000);
 });

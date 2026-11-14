@@ -166,7 +166,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      POSTGRES_TEST_URL: postgres://postgres@127.0.0.1:55432/postgres
+      POSTGRES_TEST_URL: postgres://postgres@127.0.0.1:55433/postgres
     services:
       postgres:
         image: postgres:16.14
@@ -175,7 +175,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_USER: postgres
         ports:
-          - 55432:5432
+          - 55433:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s
