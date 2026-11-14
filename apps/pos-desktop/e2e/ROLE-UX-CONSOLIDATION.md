@@ -23,10 +23,11 @@ Los permisos del servicio autorizan. El rol local limita y ordena las pantallas 
 | PAYMENTS_TRANSFER_REPORT | sí | no | no | no |
 | PAYMENTS_TRANSFER_CONFIRM / PAYMENTS_PAYMENT_CANCEL | no | sí | sí | no |
 | CATALOG_PRODUCT_READ | sí | sí | sí | no |
-| CATALOG_PRODUCT_REGISTER | no | sí | sí | no |
+| CATALOG_PRODUCT_REGISTER | no | no | sí | no |
 | CUSTOMERS_CUSTOMER_READ | sí | sí | sí | no |
-| CUSTOMERS_CUSTOMER_REGISTER | no | sí | sí | no |
-| INVENTORY_STOCK_READ / RECEIVE / ADJUST | no | sí | sí | no |
+| CUSTOMERS_CUSTOMER_REGISTER | no | no | sí | no |
+| INVENTORY_STOCK_READ | no | sí | sí | no |
+| INVENTORY_STOCK_RECEIVE / ADJUST | no | no | sí | no |
 | AUDIT_EVENT_READ | no | no | sí | sí |
 | FISCAL_DOCUMENT_ISSUE | no | no | no | no |
 | LICENSE_PLAN_MANAGE | no | no | no | no |
@@ -150,3 +151,8 @@ Incluye petición directa sale.create: el handler y CreateSaleUseCase reales rec
 Entorno de validación: snapshot de fuentes remotas y dependencias disponibles en caché, con Vitest 4.1.11 y Vite 6.4.3 (el repositorio declara 4.1.12 y 6.4.5). No se ejecutó una instalación limpia con frozen-lockfile; no se modificó lockfile para disimularlo.
 
 Intento visual Chromium/Playwright: BLOQUEADO al iniciar navegador, process_singleton_posix socket() Operation not permitted. No hay capturas validadas, ni PASS responsive, ni E2E Windows de este incremento. No se retiraron los controles SCM ni se certificó BUSINESS.
+
+
+## Ajuste RBAC del Supervisor — 2026-11-13
+
+El rol local SUPERVISOR conserva consulta de catálogo/clientes/inventario y revisión de pagos, pero deja de recibir CATALOG_PRODUCT_REGISTER, CUSTOMERS_CUSTOMER_REGISTER, INVENTORY_STOCK_RECEIVE e INVENTORY_STOCK_ADJUST. El rol ADMINISTRADOR conserva esos cuatro permisos explícitamente. Cambio en `local-operator-development-bridge.ts` y prueba de regresión en `local-operator-authorization.test.ts`. **Pruebas añadidas, no ejecutadas ni certificadas en esta intervención.** No modifica los grants firmados BUSINESS de Central, que requieren auditoría propia.
