@@ -231,3 +231,37 @@ Se corrigió `docs/product/business-readiness.md`: la afirmación de septiembre 
 - [ ] Revalidar con código y pruebas cualquier fila de readiness que se vaya a promover a `TESTED`, `END_TO_END` o `PRODUCTION`; no confundir integración parcial y producto terminado.
 
 **Estado:** contradicción temporal/documental corregida; pruebas funcionales de controversia 5 y de 1–4 pendientes de ejecución por Codex. No se cambió el runtime ni se fusionó `main`.
+
+## Controversia 6 — transferencias y notificaciones Nequi/Bre-B (2026-11-13)
+
+**Auditoría de código publicada en esta rama, sin ejecución bancaria/Windows.**
+
+**Estado de la rama activa:**
+- `TransferReviewPanel.tsx` reutiliza `useCommercialSale` y muestra `expectedAmount` como **importe reportado**, nunca como abono bancario observado. La consulta requiere `payment_id`; no hay bandeja de pendientes automática en este panel.
+- `ConfirmTransferPaymentUseCase` autoriza `PAYMENTS_TRANSFER_CONFIRM` por actor y ámbito, y pasa `paymentId`/`expectedVersion` al store. La solicitud **no incorpora** por sí misma comprobación bancaria, `confirmed_amount` observado del banco, `external_transaction_id` autenticado, ni pagador verificado. No afirmar que un permiso + clic constituye prueba externa.
+- `UC-PAY-003` exige comprobación manual autorizada y distingue monto esperado de recibido; el cumplimiento completo de revisor, evidencia, segregación, duplicados y diferencias requiere trazado de handlers/SQLite y pruebas específicas.
+
+**Trabajo existente NO integrado en la rama activa:**
+- `feat/nequi-breb-static-qr-phase1` contiene `merchant-notification-ingest-routes.ts`, `merchant-notification-inbox.ts`, `merchant-notice-feed.ts`, `MerchantPaymentMethods.tsx` y `MerchantPaymentNoticePanel.tsx`, entre otros archivos. Su comparación con la línea activa muestra historia divergente; **NO fusionar ni cherry-pick de rama completa**.
+- Su receptor exige prueba Ed25519 DEVICE_TRUST y consentimiento de comercio, deduplica observaciones y expone avisos `UNVERIFIED`, `bank_confirmed:false`, `sale_confirmed:false`. Un teléfono autorizado a reenviar una notificación **no** constituye confirmación del banco.
+- El feed examinado consulta Central cada 5 segundos y el renderer cada 5 segundos cuando está visible: esto es sondeo (*near-real-time*), no push bancario ni garantía de entrega instantánea. El importe `reported_amount_cop` es **informado**, no monto abonado acreditado. `payer_display` puede ser `null`.
+- `docs/architecture/qr-payment-real-time.md` describe la arquitectura objetivo y sus contratos; no convierte esa rama divergente en runtime certificado de producción.
+
+**Contrato funcional vinculante para Caja:**
+1. Mostrar separadamente **solicitado**, **informado/observado no verificado** y **confirmado**, con fuente, hora y estado explícitos. Nunca completar venta ni sonar notificación de cobro por SMS, captura, QR estático o importe coincidente.
+2. Presentar pagador/referencia solo cuando la fuente los incluya; no inventar nombre o número. No asociar automáticamente una notificación de igual valor a una venta entre varias cajas; ante múltiples pendientes, `AMBIGUOUS` exige revisión.
+3. `payment.transfer.confirm` manual queda en su flujo actual, bajo autorización y comprobación financiera humana fuera del POS; no reutilizarlo como webhook bancario. La confirmación automática requiere una fuente financiera autenticada, correlación inequívoca y un caso de uso central/local autorizado, no un botón.
+4. Diferencias: si se solicitan COP 50.000 y se observan COP 45.000, no registrar COP 50.000 como recibidos. Ante sobrepago o parcial, exigir política y flujo de asignación/conciliación, sin deducir saldo desde el texto de un SMS.
+5. Conservar alcance por tenant/empresa/sucursal, cuenta/QR de destino administrados, antirrepetición, deduplicación, idempotencia, auditabilidad, expiración y modo offline. **Sin conexión no hay aviso de banco en vivo** y una venta offline no debe inventar pago confirmado.
+6. Conectar selectivamente los componentes existentes a owners reales después de comparar contratos/archivos y validar dependencias; no abrir otro POS ni reemplazar `SalePanel` completo. No inventar proveedor bancario, API ni tarifas.
+
+### Ejecución pendiente de Codex — controversia 6
+- [ ] Auditar diferencias exclusivas de la rama histórica por archivo y dueño antes de integrar: endpoints Central, consentimientos, UI Admin, proyección firmada, feed Local Service, Caja, Android receptor, contratos y migraciones existentes. Publicar tabla `ya está / falta / conflicto / sustituido`.
+- [ ] Ejecutar pruebas focalizadas del flujo **manual** contra handlers reales y SQLite: permisos de reportante/confirmador, denegación a Cajero, referencias duplicadas, `expectedVersion`, idempotencia, operación incierta, pago cancelado y aislamiento de empresas.
+- [ ] Verificar que `TransferReviewPanel` no trate `expectedAmount` como efectivo recibido ni habilite confirmación por una notificación no verificada; exigir revisión del origen de fondos, referencias y segregación de funciones en los controles aplicables.
+- [ ] Para el receptor de avisos, verificar en entorno de pruebas: firma Ed25519, consentimiento revocable, replay, límites de tamaño, RLS, deduplicación, origen de importe/pagador, 4 cajas mismo comercio, empresas cruzadas y aviso `UNVERIFIED` sin mutación de `Payment`/`Sale`. No presentar tests de arnés como señal bancaria real.
+- [ ] Probar errores de red, retrasos, actualizaciones repetidas, importes faltantes/inferiores/superiores, dos ventas con mismo valor y dos comercios con cuenta distinta. Comprobar que una notificación histórica no se asocie a una venta posterior.
+- [ ] Revisar disponibilidad real de datos verificables del proveedor elegido, con evidencia de integración y consentimiento; si no hay canal oficial, mantener **solo** aviso informativo y confirmación manual, sin afirmar automáticamente `CONFIRMED`.
+- [ ] Registrar HEAD exacto, tests ejecutados, exit codes, servicios externos empleados y brechas Windows/Android. Conservar además las pruebas no ejecutadas de controversias 1–5.
+
+**Resultado de esta intervención:** auditoría y contrato de seguridad documentados, sin modificación de Payment/Sale ni importación de otra rama. **NO CERTIFICADO** el ingreso automático, importe real confirmado, identidad del pagador o notificación bancaria instantánea.
