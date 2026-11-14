@@ -48,4 +48,3 @@ POSTGRES REGRESSION
       Tests  126 passed (126)
    Start at  09:45:35
    Duration  2.14s (transform 3.68s, setup 0ms, import 8.27s, tests 1.90s, environment 4ms)
-
