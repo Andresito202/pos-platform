@@ -10,7 +10,7 @@ Este repositorio se desarrolla sobre **una única línea activa**. La existencia
 - Rama canónica de entrega: `main`, mediante el flujo de PR y verificación existente. No desarrollar en paralelo en main.
 - Base inspeccionada: `6a02c858a38a18d801532706eac34e440befea72`. Contiene como ancestros Windows P0 `f277416f`, login local `7f44c05d` e integración `e31e008a`; restaura SalePanel, que en e31e008a contiene únicamente FULL_CONTENT_WILL_BE_INSERTED.
 - Esta elección conserva el historial y no certifica runtime, licencias ni login BUSINESS. El nombre histórico de la rama no impone el launcher DesignReview como producto.
-- Dirección: Andrés define alcance y decisiones de producto; el asistente coordina diagnóstico y diseño con él. Otras IA ejecutan tareas delimitadas en esta misma línea, sin variantes propias ni escrituras concurrentes sobre los mismos archivos.
+- Dirección vigente (2026-11-13): el propietario define alcance y decisiones; ChatGPT revisa arquitectura, código, contratos, riesgos y evidencia; Codex es el único ejecutor de implementación y pruebas que requieren su entorno. No incorporar otros asistentes/agentes de IA al flujo sin nueva autorización expresa. Se trabaja sobre esta misma rama activa, sin variantes paralelas ni escrituras concurrentes. El nombre histórico `cursor/` es solo el identificador de la rama; no implica participación activa de Cursor.
 - Las órdenes anteriores que señalan otra rama activa quedan sustituidas para trabajo futuro por esta decisión; su evidencia técnica y controles de seguridad conservan su alcance.
 - Objetivo único: consolidar el POS existente, conectar login y pantallas a servicios reales, corregir lo defectuoso y retirar lo redundante tras comprobar cobertura. No rehacer el POS.
 
