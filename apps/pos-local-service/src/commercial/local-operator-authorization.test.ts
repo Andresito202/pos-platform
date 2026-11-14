@@ -88,12 +88,30 @@ describe("local operator backend authorization",()=>{
     expect(permissions).not.toContain(CanonicalPermission.INVENTORY_STOCK_ADJUST);
     expect(permissions).not.toContain(CanonicalPermission.FISCAL_DOCUMENT_ISSUE);
   });
+  it("supervisor has read-only catalog, customer and stock permissions",async()=>{
+    const {sessions,read}=setup("SUPERVISOR");
+    await sessions.login("A","supervisor.local","valid");
+    const permissions=read("A").result!.permissions;
+    for (const code of [CanonicalPermission.CATALOG_PRODUCT_READ,
+      CanonicalPermission.CUSTOMERS_CUSTOMER_READ,CanonicalPermission.INVENTORY_STOCK_READ,
+      CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM,CanonicalPermission.PAYMENTS_PAYMENT_CANCEL]) {
+      expect(permissions).toContain(code);
+    }
+    for (const code of [CanonicalPermission.CATALOG_PRODUCT_REGISTER,
+      CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER,CanonicalPermission.INVENTORY_STOCK_RECEIVE,
+      CanonicalPermission.INVENTORY_STOCK_ADJUST,CanonicalPermission.SALES_SALE_CREATE,
+      CanonicalPermission.PAYMENTS_PAYMENT_REGISTER]) {
+      expect(permissions).not.toContain(code);
+    }
+  });
   it("administrator can register stock, but local credentials cannot issue fiscal invoices",async()=>{
     const {sessions,read}=setup("ADMINISTRADOR");
     await sessions.login("A","admin.local","valid");
     const permissions=read("A").result!.permissions;
     expect(permissions).toContain(CanonicalPermission.CATALOG_PRODUCT_REGISTER);
     expect(permissions).toContain(CanonicalPermission.INVENTORY_STOCK_RECEIVE);
+    expect(permissions).toContain(CanonicalPermission.INVENTORY_STOCK_ADJUST);
+    expect(permissions).toContain(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER);
     expect(permissions).not.toContain(CanonicalPermission.FISCAL_DOCUMENT_ISSUE);
     expect(permissions).not.toContain(CanonicalPermission.LICENSE_PLAN_MANAGE);
   });
