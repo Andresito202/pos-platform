@@ -170,3 +170,21 @@ El rol local SUPERVISOR conserva consulta de catálogo/clientes/inventario y rev
 - [ ] Ejecutar la regresión Electron/Windows y la sesión BUSINESS real **cuando el entorno físico/autorización firmada estén disponibles**; no presentar bridge local como comercial certificado.
 
 **Estado de entrega:** documentación y proyección local modificadas en rama de consolidación, pruebas reales pendientes. No significa controversia 2 certificada ni que el catálogo de roles de Central haya sido migrado.
+
+## Controversia 3 — superadministrador local frente a autoridad GLOBAL (2026-11-13)
+
+**Hallazgo verificado en fuentes de la rama activa:** `local-operator-development-bridge.ts` concede al `SUPERADMINISTRADOR` local únicamente `AUDIT_EVENT_READ`. `local-operator-password.ts` identifica `superadmin.local` como cuenta local de desarrollo, no como sesión GLOBAL. `roleNavigation.ts` restringe su espacio a `dashboard` y `admin-audit`. `App.tsx` monta `AdministrativeControlPanel` para esas superficies. La existencia del código `LICENSE_PLAN_MANAGE` en `packages/contracts/src/permission-codes.ts` **no acredita** un endpoint comercial GLOBAL de venta/emisión ni el aprovisionamiento de grants.
+
+**Decisión de seguridad:** NO asignar `LICENSE_PLAN_MANAGE` a `superadmin.local`, NO convertir una sesión local en GLOBAL, NO construir una pantalla simulada ni reemplazar los controles de Central. Las competencias de `PLATFORM_OWNER` se mantienen en plataforma/GLOBAL según `docs/product/roles.md`, `docs/security/permission-matrix.md` y `UC-LIC-002`. El POS Desktop local no es la consola comercial GLOBAL.
+
+### Entrega de pruebas/verificación para Codex — cuando exista entorno de ejecución
+
+- [ ] Reejecutar las suites focalizadas y typecheck pendientes de controversias 1 y 2 indicadas arriba, registrando HEAD exacto y versiones del lockfile.
+- [ ] Con `superadmin.local` autenticado, verificar permisos efectivos: solo `AUDIT_EVENT_READ`; denegar `LICENSE_PLAN_MANAGE`, `SALES_SALE_CREATE`, `CASH_SHIFT_OPEN/CLOSE` y `PAYMENTS_PAYMENT_REGISTER`. Verificar también denegación al enviar IPC forjado contra el handler/caso de uso y aislamiento por conexión/logout.
+- [ ] Inspeccionar rutas, controladores, servicios y UI de Central para identificar el endpoint/flujo realmente operativo de alta de empresa, cotización/contratación, cobro, emisión, asignación a dispositivos, renovación, suspensión y revocación de licencia. Clasificar cada etapa con evidencia exacta: DOCUMENTED / IMPLEMENTED / TESTED / END_TO_END / PRODUCTION; marcar inexistente si falta.
+- [ ] Probar el actor GLOBAL firmado/validado frente a BUSINESS y sesión local; negar a OWNER/GENERAL_ADMIN/BRANCH_MANAGER/CASHIER la emisión de licencias de otras empresas. Verificar separación tenant/company/license/installation/device, límites y auditoría, sin IDs confiados desde el cliente.
+- [ ] Probar contratación de licencias independientes para varias empresas y modalidades: identidad contractual, módulos habilitados, límites por caja y no contaminación entre negocios. No asumir que un plan compartido implica tenant, datos ni licencia compartidos.
+- [ ] Probar fallos: sesión GLOBAL expirada/revocada, permisos retirados, pago no confirmado, emisión repetida (idempotencia), activación duplicada, dispositvo no vinculado y errores de sincronización.
+- [ ] Registrar que las pruebas Android/Windows físicas y de Central productivo no se consideran cumplidas por tests aislados ni por documentación, y diferenciar los bloques realmente alcanzables de los pendientes.
+
+**Estado:** controversia 3 delimitada y separación local/GLOBAL confirmada por inspección estática; funcionalidad comercial GLOBAL **NO CERTIFICADA**. No se ejecutaron Vitest, Windows E2E, Central ni acciones de licencia en esta intervención. Sin cambios en la autorización ni concesión de permisos.
