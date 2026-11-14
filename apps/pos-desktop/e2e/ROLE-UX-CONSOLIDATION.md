@@ -156,3 +156,17 @@ Intento visual Chromium/Playwright: BLOQUEADO al iniciar navegador, process_sing
 ## Ajuste RBAC del Supervisor — 2026-11-13
 
 El rol local SUPERVISOR conserva consulta de catálogo/clientes/inventario y revisión de pagos, pero deja de recibir CATALOG_PRODUCT_REGISTER, CUSTOMERS_CUSTOMER_REGISTER, INVENTORY_STOCK_RECEIVE e INVENTORY_STOCK_ADJUST. El rol ADMINISTRADOR conserva esos cuatro permisos explícitamente. Cambio en `local-operator-development-bridge.ts` y prueba de regresión en `local-operator-authorization.test.ts`. **Pruebas añadidas, no ejecutadas ni certificadas en esta intervención.** No modifica los grants firmados BUSINESS de Central, que requieren auditoría propia.
+
+## Entrega pendiente a Codex — controversias 1 y 2 (2026-11-13)
+
+**Sin pruebas ejecutadas por GitHub Actions/Windows en estas dos controversias.** La verificación estructural previa de controversia 1 no sustituye Vitest ni un E2E. No hacer merge a `main` por esta documentación.
+
+- [ ] En el HEAD exacto de `cursor/commercial-design-review-0d11`: `pnpm install --frozen-lockfile` con versiones del lockfile; registrar errores si aparecen.
+- [ ] Ejecutar `pnpm --filter @pos-platform/pos-local-service exec vitest run src/commercial/local-operator-authorization.test.ts` y `pnpm --filter @pos-platform/pos-local-service run typecheck`; registrar SHA, plataforma, versiones, stdout, exit code. Si scripts o rutas difieren, consultar package.json y reportar sin inventar comandos.
+- [ ] Comprobar los cuatro permisos denegados al SUPERVISOR (CATALOG_PRODUCT_REGISTER, CUSTOMERS_CUSTOMER_REGISTER, INVENTORY_STOCK_RECEIVE, INVENTORY_STOCK_ADJUST) **mediante peticiones reales al handler**, no únicamente sobre el arreglo de permisos. Conservar lecturas, confirmación/cancelación de pagos ya autorizadas; comprobar que ADMINISTRADOR mantiene esos cuatro grants locales y que CAJERO puede vender.
+- [ ] Validar la correspondencia de los cuatro roles de interfaz con las asignaciones de Central sin cambiar roles existentes por equivalencia textual: plataforma/GLOBAL contra empresa/BUSINESS, límites de OWNER, GENERAL_ADMIN, BRANCH_MANAGER, SUPERVISOR y CASHIER; scopes tenant/company/branch, estado, vencimiento, licencia y revocación. Registrar qué perfiles especializados están realmente aprovisionados. No crear seeds/grants ni claims ficticios.
+- [ ] Asegurar que ADMINISTRADOR/SUPERVISOR/SUPERADMINISTRADOR no ejecuten sale.create/turnos/cobros directamente, incluso con IPC forjado y frente al backend comercial. Validar navegación y rechazo backend, no solo botones ocultos.
+- [ ] Reconciliar los contratos de operaciones excepcionales (autorizar / ejecutar / solicitar), especialmente devolución, cancelación, cierre y arqueo, con `docs/security/permission-matrix.md`; marcar como pendientes los permisos conceptuales que aún no existen en `packages/contracts/src/permission-codes.ts`.
+- [ ] Ejecutar la regresión Electron/Windows y la sesión BUSINESS real **cuando el entorno físico/autorización firmada estén disponibles**; no presentar bridge local como comercial certificado.
+
+**Estado de entrega:** documentación y proyección local modificadas en rama de consolidación, pruebas reales pendientes. No significa controversia 2 certificada ni que el catálogo de roles de Central haya sido migrado.
