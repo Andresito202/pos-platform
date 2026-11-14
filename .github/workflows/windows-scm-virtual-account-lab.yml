@@ -1,0 +1,26 @@
+name: Windows SCM virtual account and DPAPI disposable lab
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  physical-os-identity:
+    runs-on: windows-2022
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Probe real Windows SCM account, session 0, DPAPI isolation
+        shell: powershell
+        run: |
+          & ./tools/operators/ci-windows-scm-identity-service.ps1 -Run
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - name: Guard commercial certification boundary
+        if: ${{ !cancelled() }}
+        run: echo 'SCM_OS_IDENTITY_PROBE_ONLY_NOT_CAMACHO_NATIVE_CHANNEL_OR_BUSINESS_PROVISION'

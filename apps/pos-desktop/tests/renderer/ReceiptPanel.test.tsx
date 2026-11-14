@@ -95,7 +95,7 @@ describe("ReceiptPanel", () => {
     expect(SalesReceiptGetRequestSchema.safeParse(envelope).success).toBe(true);
   });
 
-  it("muestra cada cifra tal como llega, sin recalcular", async () => {
+  it("formatea COP y cantidades sin recalcular los importes del servicio", async () => {
     install(RECEIPT);
     render(<ReceiptPanel />);
     ask(SALE);
@@ -104,18 +104,18 @@ describe("ReceiptPanel", () => {
 
     expect(screen.getByTestId("receipt-sale-id").textContent).toBe(SALE);
     expect(screen.getByTestId("receipt-document").textContent).toBe("POS1-7");
-    expect(screen.getByTestId("receipt-subtotal").textContent).toBe("7000.000000");
-    expect(screen.getByTestId("receipt-payable").textContent).toBe("7000.000000");
+    expect(screen.getByTestId("receipt-subtotal").textContent).toBe("$7.000");
+    expect(screen.getByTestId("receipt-payable").textContent).toBe("$7.000");
     expect(screen.getByTestId("receipt-currency").textContent).toBe("COP");
 
     expect(screen.getAllByTestId("receipt-line")).toHaveLength(1);
     expect(screen.getByTestId("receipt-line-name").textContent).toBe("Arroz");
-    expect(screen.getByTestId("receipt-line-quantity").textContent).toBe("2.000000");
-    expect(screen.getByTestId("receipt-line-total").textContent).toBe("7000.000000");
+    expect(screen.getByTestId("receipt-line-quantity").textContent).toBe("2");
+    expect(screen.getByTestId("receipt-line-total").textContent).toBe("$7.000");
 
     expect(screen.getAllByTestId("receipt-payment")).toHaveLength(1);
-    expect(screen.getByTestId("receipt-payment-amount").textContent).toBe("7000.000000");
-    expect(screen.getByTestId("receipt-payment-change").textContent).toBe("3000.000000");
+    expect(screen.getByTestId("receipt-payment-amount").textContent).toBe("$7.000");
+    expect(screen.getByTestId("receipt-payment-change").textContent).toBe("$3.000");
   });
 
   it("distingue una venta que no existe de una que no está cobrada", async () => {

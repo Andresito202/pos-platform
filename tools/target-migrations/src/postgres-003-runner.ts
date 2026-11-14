@@ -1,3 +1,4 @@
+import {isSupportedMigrationPostgresVersion,type ApprovedMigrationPostgresVersion} from "./postgres-compatibility.js";
 import { open, readFile } from "node:fs/promises";
 import { sql } from "kysely";
 import type { SqlExecutor } from "./database.js";
@@ -51,7 +52,7 @@ interface ApplyReceiptPayload{
   execution_id:string;
   repository_commit:string;
   artifact_sha256:string;
-  target:{environment_id:string;database_name:string;postgres_version_num:"160014"};
+  target:{environment_id:string;database_name:string;postgres_version_num:ApprovedMigrationPostgresVersion};
   runner_version:string;
   applied_at:string;
 }
@@ -85,14 +86,15 @@ async function releaseLock(db:SqlExecutor):Promise<void>{
   await sql`SELECT pg_advisory_unlock(hashtextextended(${POSTGRES_MIGRATION_LOCK_RESOURCE},0))`.execute(db);
 }
 function sameChecksum(actual:Buffer,expected:Buffer):boolean{return Buffer.from(actual).equals(expected);}
-async function verifyRuntime(db:SqlExecutor,expectedDatabase:string):Promise<void>{
+async function verifyRuntime(db:SqlExecutor,expectedDatabase:string):Promise<ApprovedMigrationPostgresVersion>{
   const row=(await queryRows<{database:string;version:string;session_user:string;current_user:string}>(db,
     "SELECT current_database() database,current_setting('server_version_num') version,session_user,current_user"))[0];
-  invariant(row?.database===expectedDatabase&&row.version==="160014","003 target mismatch");
+  invariant(row?.database===expectedDatabase&&isSupportedMigrationPostgresVersion(row.version),"003 target mismatch");
   invariant(
     row.session_user==="pos_migrator"&&row.current_user==="pos_schema_owner",
     `003 migrator identity mismatch: session_user=${row?.session_user??"missing"} current_user=${row?.current_user??"missing"}`,
   );
+  return row.version;
 }
 async function verifyPredecessors(db:SqlExecutor):Promise<void>{
   const one=sha256(await readArtifact(POSTGRES_001_DESCRIPTOR.upArtifact));
@@ -138,12 +140,12 @@ async function finishAndReceipt(
   await validatePostgres003Catalog(connection);
   if(!config.skipSmoke) await runPostgres003Smoke(config.adminUrl);
   await executeRaw(connection,"SET ROLE pos_schema_owner");
-  await verifyRuntime(connection,config.expectedDatabase);
+  const postgresVersion=await verifyRuntime(connection,config.expectedDatabase);
   await finishApplied(connection,executionId);
   const payload:ApplyReceiptPayload={
     receipt_version:1,migration_id:POSTGRES_003_MIGRATION_ID,execution_id:executionId,
     repository_commit:config.repositoryCommit,artifact_sha256:checksumHex,
-    target:{environment_id:config.environmentId,database_name:config.expectedDatabase,postgres_version_num:"160014"},
+    target:{environment_id:config.environmentId,database_name:config.expectedDatabase,postgres_version_num:postgresVersion},
     runner_version:`${RUNNER_VERSION};migration=003;repo=${config.repositoryCommit}`,applied_at:isoNow(),
   };
   try{

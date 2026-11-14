@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFiscalIssuance } from "../hooks/useFiscalIssuance.js";
 
 /**
@@ -21,12 +21,14 @@ import { useFiscalIssuance } from "../hooks/useFiscalIssuance.js";
  * con su ruta, porque es la diferencia entre «el sistema falló» y «esta venta
  * necesita un adquiriente identificado».
  */
-export function FiscalPanel(): React.JSX.Element {
+export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string | null }): React.JSX.Element {
   const fiscal = useFiscalIssuance();
   const [saleId, setSaleId] = useState("");
+  useEffect(() => { if (initialSaleId !== null) setSaleId(initialSaleId); }, [initialSaleId]);
   const [customerId, setCustomerId] = useState("");
 
-  const issued = fiscal.issued;
+  const issued = fiscal.resultSaleId === saleId.trim() ? fiscal.issued : null;
+  const blocked = fiscal.isBlocked(saleId.trim(), "SALES_INVOICE");
 
   return (
     <section data-testid="fiscal-panel">
@@ -34,13 +36,21 @@ export function FiscalPanel(): React.JSX.Element {
 
       <input
         data-testid="fiscal-sale-id-input"
+        aria-label="ID de la venta cobrada"
         value={saleId}
         onChange={(e) => { setSaleId(e.target.value); }}
         placeholder="ID de la venta cobrada"
         disabled={fiscal.busy}
       />
+      <button type="button" data-testid="issue-sale-customer-button"
+        disabled={fiscal.busy || blocked || saleId.trim() === ""}
+        onClick={()=>void fiscal.issue(saleId.trim(),"SALES_INVOICE",{kind:"SALE_CUSTOMER"})}>
+        Emitir con cliente de la venta
+      </button>
+      <p>Se usa el cliente guardado al crear la venta. Para ventas anteriores sin cliente, selecciona un adquiriente registrado.</p>
       <input
         data-testid="fiscal-customer-id-input"
+        aria-label="ID del adquiriente registrado"
         value={customerId}
         onChange={(e) => { setCustomerId(e.target.value); }}
         placeholder="ID del adquiriente registrado"
@@ -54,7 +64,7 @@ export function FiscalPanel(): React.JSX.Element {
             kind: "IDENTIFIED", customerId: customerId.trim(),
           });
         }}
-        disabled={fiscal.busy || saleId.trim() === "" || customerId.trim() === ""}
+        disabled={fiscal.busy || blocked || saleId.trim() === "" || customerId.trim() === ""}
       >
         Emitir con adquiriente
       </button>
@@ -69,7 +79,7 @@ export function FiscalPanel(): React.JSX.Element {
             kind: "NOT_IDENTIFIED", reason: "ANONYMOUS_COUNTER_SALE",
           });
         }}
-        disabled={fiscal.busy || saleId.trim() === ""}
+        disabled={fiscal.busy || blocked || saleId.trim() === ""}
       >
         Emitir sin identificar
       </button>
@@ -82,6 +92,10 @@ export function FiscalPanel(): React.JSX.Element {
         </div>
       )}
 
+      {issued?.outcome === "FISCAL_REJECTED" && <div data-testid="fiscal-rejected" role="alert">
+        <strong>Documento rechazado por el proveedor fiscal</strong>
+        <p>El envío terminó, pero el documento no fue aceptado. Revisa el rechazo antes de corregirlo; no se volverá a emitir automáticamente.</p>
+      </div>}
       {issued !== null && issued.outcome === "BLOCKED" && (
         <div data-testid="fiscal-blocked">
           <span data-testid="fiscal-blocked-code">{issued.block_code}</span>
@@ -115,7 +129,8 @@ export function FiscalPanel(): React.JSX.Element {
         </div>
       )}
 
-      {fiscal.error !== null && <div data-testid="fiscal-error">{fiscal.error}</div>}
+      {blocked && <p role="alert">Esta venta no admite otra emisión desde esta pantalla. Revisa el resultado y resuelve el rechazo o la conciliación con el proveedor; no hay corrección ni conciliación automática.</p>}
+      {fiscal.resultSaleId === saleId.trim() && fiscal.error !== null && <div data-testid="fiscal-error">{fiscal.error}</div>}
     </section>
   );
 }

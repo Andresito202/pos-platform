@@ -15,7 +15,18 @@
 4. Las acciones críticas requieren motivo, auditoría y, cuando corresponda, reautenticación o aprobación.
 5. El proveedor de la plataforma no obtiene acceso automático a datos comerciales del cliente.
 
+## Estado de ejecución de esta matriz
+
+Esta matriz define la **política funcional objetivo**. No todas sus celdas ni todos sus nombres conceptuales son actualmente grants ejecutables.
+
+La fuente compartida de los permisos que ya tienen enforcement backend es `packages/contracts/src/permission-codes.ts`. Actualmente contiene 18 códigos demostrados por casos de uso ejecutables. Los nombres conceptuales restantes —por ejemplo `tenant.owner.change`, `security.permission.change` y `license.plan.change`— permanecen en esta matriz como política objetivo y **no se convierten automáticamente en permisos de runtime**.
+
+Central Authority es quien debe publicar `roles`, `permissions` y `role_permission_grants`. No se fabrican semillas ni equivalencias para cerrar artificialmente esta diferencia.
+
 ## Roles
+
+**Interpretación vigente (2026-11-13):** los cuatro espacios visibles son Superadministrador, Administrador, Supervisor y Cajero. Los nombres siguientes son perfiles internos, no catorce pantallas obligatorias. La correspondencia y los perfiles auxiliares se definen en [roles.md](../product/roles.md). Esta tabla es política objetivo; los permisos ejecutables y la autorización firmada BUSINESS/GLOBAL requieren verificación independiente. Los roles `OWNER`, `GENERAL_ADMIN` y `BRANCH_MANAGER` tienen responsabilidad administrativa, no operaciones de Caja por defecto. Un rol con alcance superior no hereda por eso `SALES_SALE_CREATE`.
+
 
 - PLATFORM_OWNER
 - BILLING_ADMIN
@@ -84,8 +95,8 @@
 
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR | INVENTORY_OPERATOR | CASHIER |
 |---|---:|---:|---:|---:|---:|---:|
-| Crear producto | Sí | Sí | Sí | Condicional | Sí | No |
-| Editar producto | Sí | Sí | Sí | Condicional | Condicional | No |
+| Crear producto | Sí | Sí | Sí | No | Sí | No |
+| Editar producto | Sí | Sí | Sí | No | Condicional | No |
 | Desactivar producto | Sí | Sí | Condicional | No | Condicional | No |
 | Cambiar precio | Sí | Sí | Condicional | Autorizar | No | No |
 | Consultar costo | Sí | Sí | Condicional | Condicional | Sí | No |
@@ -94,13 +105,16 @@
 
 ## Inventario
 
+El Supervisor tiene **consulta** y puede autorizar operaciones excepcionales cuando exista un permiso atómico explícito; no realiza recepción, merma ni ajustes de existencias por el mero rol. `INVENTORY_OPERATOR` es un perfil especializado de capacidad, no sinónimo de Supervisor.
+
+
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR | INVENTORY_OPERATOR | CASHIER |
 |---|---:|---:|---:|---:|---:|---:|
 | Consultar stock | Sí | Sí | Sí | Sí | Sí | Operativo |
-| Registrar recepción | Sí | Sí | Sí | Sí | Sí | No |
+| Registrar recepción | Sí | Sí | Sí | No | Sí | No |
 | Ajuste positivo | Sí | Sí | Condicional | Autorizar | Condicional | No |
 | Ajuste negativo | Sí | Sí | Condicional | Autorizar | Condicional | No |
-| Registrar merma | Sí | Sí | Sí | Sí | Sí | Condicional |
+| Registrar merma | Sí | Sí | Sí | No | Sí | No |
 | Trasladar inventario | Sí | Sí | Condicional | Autorizar | Sí | No |
 | Ver kardex | Sí | Sí | Sí | Sí | Sí | No |
 | Eliminar movimiento | No | No | No | No | No | No |
@@ -109,7 +123,7 @@
 
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | PURCHASING_OPERATOR | SUPERVISOR | CASHIER |
 |---|---:|---:|---:|---:|---:|---:|
-| Registrar GoodsReceipt confirmado | Sí | Sí | Sí | Sí | Sí | No |
+| Registrar GoodsReceipt confirmado | Sí | Sí | Sí | Sí | No | No |
 | Consultar GoodsReceipt | Sí | Sí | Sí | Sí | Sí | No |
 | Consultar proveedores | Sí | Sí | Sí | Sí | Sí | No |
 
@@ -117,22 +131,25 @@ No existe permiso para anular o editar un GoodsReceipt confirmado. Los errores d
 
 ## Caja y ventas
 
+El Cajero es el único perfil principal que opera la venta, el carrito, el cobro y su turno. Los responsables administrativos y el Supervisor consultan y **autorizan** operaciones excepcionales mediante permisos separados, sin ejecutar directamente `sale.create`, abrir/cerrar turno ni registrar cobros por herencia. Las celdas históricas deben interpretarse con esta separación y **no** conceden permisos por nombre de rol.
+
+
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | SUPERVISOR | CASHIER |
 |---|---:|---:|---:|---:|---:|
-| Abrir caja propia | Sí | Sí | Sí | Sí | Sí |
-| Cerrar caja propia | Sí | Sí | Sí | Sí | Sí |
+| Abrir caja propia | No | No | No | No | Sí |
+| Cerrar caja propia | No | No | No | No | Sí |
 | Abrir caja ajena | Sí | Sí | Condicional | Condicional | No |
-| Registrar venta | Sí | Sí | Sí | Sí | Sí |
-| Suspender venta | Sí | Sí | Sí | Sí | Sí |
-| Recuperar venta | Sí | Sí | Sí | Sí | Sí |
+| Registrar venta | No | No | No | No | Sí |
+| Suspender venta | No | No | No | No | Sí |
+| Recuperar venta | No | No | No | No | Sí |
 | Anular venta | Sí | Sí | Condicional | Sí | No |
 | Devolver venta | Sí | Sí | Condicional | Sí | Solicitar |
 | Reimprimir recibo | Sí | Sí | Sí | Sí | Sí, auditado |
 | Abrir cajón manualmente | Sí | Sí | Condicional | Autorizar | Condicional |
-| Registrar ingreso de caja | Sí | Sí | Sí | Sí | Dentro de política |
+| Registrar ingreso de caja | No | No | No | No | Dentro de política |
 | Registrar egreso de caja | Sí | Sí | Condicional | Autorizar | Dentro de límite |
-| Realizar arqueo propio | Sí | Sí | Sí | Sí | Sí |
-| Abandonar arqueo propio | Sí | Sí | Sí | Sí | Sí, auditado |
+| Realizar arqueo propio | No | No | No | No | Sí |
+| Abandonar arqueo propio | No | No | No | No | Sí, auditado |
 | Consultar arqueo | Sí | Sí | Sí | Sí | Solo propio |
 | Revisar diferencia | Sí | Sí | Sí | Sí | No sobre diferencia propia crítica |
 | Aceptar diferencia material | Sí | Sí | Condicional | Sí | No sobre diferencia propia crítica |
@@ -182,6 +199,12 @@ La tabla no crea roles financieros. Cada celda exige el permiso atómico corresp
 | Confirmar entrega con PIN | No | No | No | No | Sí | Entregar PIN |
 | Modificar QR | Reautenticación | Condicional con `payments.provider.configure` | No | No | No | No |
 | Ver ubicación del domiciliario | Sí | Sí | Sí | Condicional | Propia | Pedido propio |
+
+## Comunicaciones comerciales de clientes
+
+La V1 de novedades del POS se gestiona desde la ficha del adquiriente. La captura, suscripción y baja usan el permiso existente `CUSTOMERS_CUSTOMER_REGISTER`, porque la capacidad pertenece al mantenimiento operativo del adquiriente y no se introduce un grant nuevo que ningún snapshot de autorización actual conozca.
+
+Esto no convierte el alta fiscal en consentimiento comercial: la suscripción es una operación separada y explícita, con evidencia de versión, fecha, actor, sesión, origen y auditoría.
 
 ## Permisos atómicos
 
@@ -312,6 +335,7 @@ Ejemplos:
 - `fiscal.reconciliation.reopen`;
 - `fiscal.contingency.start`;
 - `fiscal.contingency.close`;
+- `audit.event.read`;
 - `sync.dead_letter.read`;
 - `sync.dead_letter.review`;
 - `sync.dead_letter.retry`;
@@ -334,6 +358,7 @@ Reglas:
 12. Los permisos `fiscal.*` no conceden derechos de Tax, Sales, Payments, Cash Register o Inventory; leer artefactos tampoco concede acceso a secretos o payloads completos.
 13. `payments.transfer.report` autoriza **reportar** un pago por transferencia, billetera o QR manual, que nace `PENDING`; `payments.transfer.confirm` autoriza **confirmar** que el dinero fue recibido (`UC-PAY-003`). **Son permisos distintos y no se implican**: reportar no es confirmar. Ambos proceden de `UC-PAY-001:111-112` y cubren la familia de medios manuales de `UC-PAY-003` —transferencia bancaria, Nequi, Daviplata y QR estático—, no sólo la transferencia. Ninguno autoriza refund, reversal, settlement, reconciliation ni configuración de proveedor. `payments.cash.register` (`UC-PAY-001:105`) queda **fuera** de la primera materialización, porque el medio `CASH` lo está.
 14. Los códigos de esta matriz son la forma de referencia de producto. La representación **canónica** que transporta el SAS es la fijada por `DEC-012` D6 —`CASH_SHIFT_OPEN`— y §33 —`CASH_SHIFT_CLOSE`—, conforme a `STABLE_CODE_PATTERN` de `packages/contracts/src/primitives.ts:5`. Los dos permisos de la regla 13 son, en forma canónica, `PAYMENTS_TRANSFER_REPORT` y `PAYMENTS_TRANSFER_CONFIRM`. Alinear el resto de la matriz con esa forma es tarea pendiente de `D6`, no de esta regla.
+15. `audit.event.read` autoriza únicamente lectura de evidencia de auditoría disponible en el scope efectivo. No concede lectura de payloads sensibles, cambios de evidencia ni acceso cross-tenant; la consulta debe aplicar tenant/company/branch en backend.
 
 ### Operación fiscal
 

@@ -69,6 +69,18 @@
       "type": "application",
       "scope": "local"
     },
+    "@pos-platform/central-authority": {
+      "root": "apps/central-authority",
+      "layer": "runtime",
+      "type": "application",
+      "scope": "central"
+    },
+    "@pos-platform/device-trust": {
+      "root": "packages/device-trust",
+      "layer": "security",
+      "type": "library",
+      "scope": "shared"
+    },
     "@pos-platform/local-channel": {
       "root": "packages/local-channel",
       "layer": "transport",
@@ -92,7 +104,8 @@
       "application",
       "contracts",
       "database-core",
-      "observability"
+      "observability",
+      "security"
     ],
     "observability": [
       "contracts"
@@ -105,19 +118,24 @@
       "adapter",
       "observability",
       "testing",
-      "transport"
+      "transport",
+      "security"
     ],
     "runtime": [
       "application",
       "contracts",
       "adapter",
       "observability",
-      "transport"
+      "transport",
+      "security"
     ],
     "desktop": [
       "contracts",
       "observability",
       "transport"
+    ],
+    "security": [
+      "contracts"
     ],
     "transport": [
       "contracts"
@@ -190,6 +208,15 @@
       "kysely"
     ],
     "transport": [
+      "@nestjs/",
+      "electron",
+      "react",
+      "react-dom",
+      "kysely",
+      "pg",
+      "better-sqlite3"
+    ],
+    "security": [
       "@nestjs/",
       "electron",
       "react",

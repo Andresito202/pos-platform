@@ -1,5 +1,9 @@
 # Estado de materialización — fuente única
 
+> Continuidad de rama 2026-10-22: D-23 tiene [snapshot validado](../testing/sold-identifier-2026-10-22.md) y D-19 tiene [escritor inicial validado](../testing/catalog-fiscal-write-2026-10-22.md) en `feat/android-commercial-runtime`, con pruebas focalizadas. Las filas históricas inferiores conservan su SHA; no describen esas dos capacidades actuales ni acreditan E2E Android o facturación productiva. D-21/D-22 siguen abiertos.
+
+> Alcance de lectura — 2026-10-17. Este archivo mezcla evidencias de varios cortes y ramas. Cada afirmación conserva el alcance del SHA/entorno que la respalda; no se traslada automáticamente al main ni al HEAD actuales. Las referencias antiguas a packages vacíos, credenciales ausentes o capacidades no alcanzables requieren leer el código actual antes de repetirlas. Consultar [reconciliación operativa](../product/backlog.md) para la cola actual. Esta nota no elimina evidencia histórica ni certifica tests nuevos.
+
 ## Propósito
 
 Este documento existe porque el proyecto perdió trabajo dos veces por la misma
@@ -700,3 +704,197 @@ prueba. **No integrable** por colisión de identidad de migraciones (`DEC-017` �
 
 Consultable como referencia de diseño para `Catalog`, `Inventory`, `CashCount` y
 `CashDifferenceReview`. Prohibido integrarlo por merge o `cherry-pick`.
+
+## Bloque de cumplimiento — política de privacidad
+
+> **Estado verificado en la línea activa, 2026-10-07.** Se auditó primero la existencia de una política de privacidad materializada; no había una política equivalente. Se añadió `docs/legal/privacy-policy.md`.
+
+| Capacidad | Documento | Estado real | Evidencia |
+|---|---|---|---|
+| Política de privacidad y tratamiento de datos | `docs/legal/privacy-policy.md` | **MATERIALIZADA EN RAMA ACTIVA / NO PUBLICABLE AÚN** | commit `9885a7ebd2792430b23bd696e77dd02014322b9d` |
+
+La política cubre finalidades, minimización, categorías de datos, autorización, seguridad, encargados, conservación, derechos, consultas, reclamos, menores y cookies futuras. No inventa identidad jurídica ni canales de contacto.
+
+**Bloqueo real:** `docs/product/brand.md` mantiene el titular legal como `PENDING_COMPANY_FORMATION`. El artículo 13 del Decreto 1377 de 2013 exige que la política identifique al Responsable con nombre/razón social y datos de contacto. Por ello esta materialización no se declara como política legal definitiva, ni como `CANON`, `PROD` o publicada al Titular.
+
+**Regla de continuidad:** no crear una segunda política ni duplicar este contenido. El siguiente bloque sólo podrá utilizar este documento como fuente base y completar lo que corresponda cuando exista evidencia de los datos legales.
+
+## Bloque de cumplimiento — términos del servicio
+
+> **Estado verificado en la línea activa, 2026-10-07.** Se auditó primero la existencia de términos del servicio; no había un documento equivalente. Se añadió `docs/legal/terms-of-service.md`.
+
+| Capacidad | Documento | Estado real | Evidencia |
+|---|---|---|---|
+| Términos del servicio | `docs/legal/terms-of-service.md` | **MATERIALIZADOS EN RAMA ACTIVA / NO PUBLICADOS COMO CONTRATO DEFINITIVO** | commit `ce07855fbae0c0aa2ed53689f73b88ba6ae1be0b` |
+
+El documento cubre alcance, licencia, uso permitido, usuarios, datos, terceros, actualizaciones, soporte, pagos, propiedad intelectual, seguridad, disponibilidad y terminación. No inventa precios, SLA, NIT, titular jurídico ni certificaciones.
+
+**Bloqueo real:** la identidad jurídica y los datos contractuales del proveedor siguen pendientes en `docs/product/brand.md`. Por tanto, no se declara este documento como contrato definitivo ni como `CANON`/`PROD`.
+
+**Regla de continuidad:** este archivo es la única base de términos creada para este requisito. No duplicarlo ni crear otra arquitectura contractual paralela.
+
+## Bloque de cumplimiento — política de reembolso
+
+> **Estado verificado en la línea activa, 2026-10-07.** Primero se auditó el dominio existente: `Refund`/`Reversal` ya están definidos en `docs/use-cases/payments/UC-PAY-004-refund-payment.md` y `docs/adr/DEC-002-payment-compensation-policy.md`. No se rehízo ese trabajo. Lo que faltaba era la política comercial; se añadió `docs/legal/refund-policy.md`.
+
+| Capacidad | Documento | Estado real | Evidencia |
+|---|---|---|---|
+| Política de reembolso | `docs/legal/refund-policy.md` | **MATERIALIZADA EN RAMA ACTIVA / PENDIENTE DE FORMALIZACIÓN COMERCIAL** | commit `2d1b6a3a29115abfe4032d0978ffaa3c56419cfb` |
+
+La política reutiliza el modelo existente de `Refund`/`Reversal`, no crea estados, tablas ni flujos financieros paralelos. Define elegibilidad, parcialidad, medios, efectivo, terceros, mercancía, impuestos, rechazos y revisión.
+
+**Bloqueo real:** faltan titular contractual, canales oficiales y condiciones económicas formalizadas. No se inventan. La implementación financiera existente permanece como fuente técnica.
+
+## Bloque de cumplimiento — cookies
+
+> **Estado verificado en la línea activa, 2026-10-07.** Se buscó primero una superficie de cookies/tracking web. No existe `document.cookie` ni una implementación de cookies en el POS Electron/local-first actual. Las coincidencias de `cookie` corresponden a controles de redacción/seguridad y no a cookies de seguimiento.
+
+| Requisito | Estado real | Acción |
+|---|---|---|
+| Política de cookies | **NO APLICA AL PRODUCTO ACTUAL** | No crear una política ficticia para una superficie inexistente. |
+| Banner de cookies | **NO APLICA AL PRODUCTO ACTUAL** | No crear banner ni consentimiento de cookies sin una superficie web que lo requiera. |
+
+**Regla de continuidad:** si en el futuro se incorpora una superficie web con cookies, analítica, publicidad o tecnologías similares, se deberá auditar esa integración antes de activarla y crear el bloque correspondiente. No duplicar trabajo ahora.
+
+## Bloque de cumplimiento — consentimiento, minimización y SDKs
+
+### Consentimiento
+
+**Estado: MATERIALIZADO COMO CONTROL DE GOBERNANZA Y VERIFICACIÓN DE BASE JURÍDICA.** Se añadió `docs/legal/consent-verification-matrix.md`. La matriz separa tratamientos que dependen de autorización de aquellos que pueden apoyarse en otra base jurídica, conserva el control explícito ya existente para administración de dispositivos y prohíbe interpretar el simple registro de un adquiriente como consentimiento comercial. No se declara un gestor universal de consentimientos porque esa capacidad no existe.
+
+### Minimización
+
+**Estado: MATERIALIZADO COMO INVENTARIO DE CAMPOS Y CONSERVACIÓN.** Se añadió `docs/security/data-minimization-inventory.md`. El documento cubre el adquiriente campo por campo, distingue necesidad de opcionalidad y fija reglas de conservación sin inventar plazos numéricos. Mantiene la separación ya existente entre auditoría mínima y payload de sincronización.
+
+### SDKs de terceros
+
+**Estado: MATERIALIZADO PARA LA SUPERFICIE DE RUNTIME DIRECTA.** Se verificaron los manifests activos de Electron/renderer, POS Local Service, SQLite, contratos y fiscal adapters, además de buscar integraciones de analítica/telemetría conocidas. `docs/security/third-party-sdk-privacy-inventory.md` registra uso, comunicaciones propias observadas, finalidad y controles.
+
+Las dependencias transitivas no se declaran una auditoría de privacidad independiente: quedan cubiertas por el inventario de supply chain/SBOM y, si una dependencia transitiva introduce una capacidad de telemetría o acceso a datos que pase a ser usada por el producto, debe abrirse una revisión específica.
+
+**Regla de continuidad:** no agregar un segundo inventario de SDKs. Toda dependencia nueva que pueda recopilar o transmitir datos debe pasar por el gate de privacidad ya documentado.
+
+## Bloque de cumplimiento — verificación de consentimientos
+
+
+
+**Estado: MATERIALIZADO COMO CONTROL DE GOBERNANZA Y VERIFICACIÓN DE BASE JURÍDICA.**
+
+
+
+Se añadió `docs/legal/consent-verification-matrix.md` como fuente única para clasificar los flujos actuales entre tratamiento necesario, otras bases jurídicas y tratamientos que sí requerirían autorización separada.
+
+
+
+- El registro de adquirientes no se convierte artificialmente en un consentimiento comercial.
+
+- La administración `DEVICE_MANAGED` / `KIOSK_MANAGED` conserva el requisito existente de consentimiento y contrato explícitos de `UC-DEV-001`.
+
+- Cookies/seguimiento web y marketing/newsletter permanecen `N/A` mientras esas superficies no existan.
+
+- Si una nueva finalidad requiere autorización, debe materializarse con captura explícita, evidencia versionada, retiro, sincronización y pruebas; no se permite una aceptación implícita.
+
+
+
+**Límite:** esto no declara un gestor universal de consentimientos, porque esa capacidad no existe. No se añadió persistencia genérica sin una finalidad real que la necesite.
+
+
+
+**Evidencia documental:** `docs/legal/consent-verification-matrix.md` y §8 de `docs/legal/privacy-policy.md`.
+
+
+
+## Bloque de cumplimiento — patrones oscuros
+
+**Estado: MATERIALIZADO COMO REVISIÓN DE SUPERFICIE / SIN HALLAZGOS.** Se auditó la UI existente y se registró el resultado en `docs/security/dark-pattern-review.md`. No se encontró checkout, suscripción, countdown, falsa urgencia, consentimiento premarcado ni una opción de rechazo deliberadamente oculta.
+
+El requisito queda cerrado para la superficie actual como «sin patrón identificado», no como certificación universal. Una futura superficie comercial deberá reutilizar esta revisión antes de materializarse.
+
+## Bloque de cumplimiento — precios, reseñas y afirmaciones
+
+| Requisito | Estado real | Evidencia / decisión |
+|---|---|---|
+| Tarifas ocultas | **NO APLICA A LA SUPERFICIE ACTUAL** | El POS actual no contiene checkout de suscripción ni pantalla comercial de contratación. No inventar una tarifa ni construir un flujo inexistente. |
+| Reseñas falsas | **NO APLICA A LA SUPERFICIE ACTUAL** | No existe módulo de reseñas/testimonios de clientes en el producto auditado. |
+| Afirmaciones no sustentadas | **MATERIALIZADO** | `docs/product/brand.md` ya mantiene el gate de claims y prohíbe certificaciones, registro marcario o readiness productivo sin evidencia. No se duplicó ese control. |
+
+**Regla de continuidad:** si aparece una superficie comercial real, se reutiliza este control y se audita esa superficie antes de publicarla.
+
+## Bloque de cumplimiento — accesibilidad de interfaz
+
+**Estado verificado después de auditar lo existente:** no se rehízo el renderer. Se corrigieron únicamente los huecos demostrados.
+
+- **Texto alternativo / nombres accesibles:** inputs de las pantallas POS recibieron `aria-label`; el logo ya tenía `role="img"` + `aria-label`, y el `README` ya tenía `alt`. Se añadió prueba de renderer para nombres accesibles.
+- **Contraste:** la paleta principal fue calculada manualmente y las combinaciones observadas quedan por encima de 4.5:1 para texto normal. El indicador `:focus-visible` fue corregido de `#1f5fae` a `#4d8fd1`: 4.78:1 sobre `#172033`, 3.14:1 sobre `#f4f6f8` y 3.41:1 sobre blanco. No se declara un gate WCAG automatizado completo.
+- **Teclado:** los controles siguen siendo nativos y se mantiene `:focus-visible` explícito, ahora con contraste suficiente en los fondos auditados. No se declara todavía E2E completo de teclado.
+
+Evidencia consolidada: `docs/security/accessibility-audit.md`.
+
+**CI:** las ejecuciones de la rama ya estaban fallando antes del bloque de accesibilidad (por ejemplo, `TARGET foundation validation` #633 sobre el commit previo `88e25ab4...` también concluyó `failure`). Por tanto, no se atribuye el rojo a estos cambios sin evidencia de causalidad.
+
+## Bloque de cumplimiento — datos de empresa
+
+**Estado: PARCIAL — NIT pendiente.** Se materializaron razón social, contacto responsable, domicilio, dirección, correo y teléfono con los datos declarados por el propietario del proyecto. El único dato de identidad empresarial que permanece pendiente es el NIT. `REQUIRES_OFFICIAL_CLEARANCE` de antecedentes RUES/SIC continúa siendo un control marcario/comercial independiente y no se utiliza para bloquear estos datos declarados.
+
+No se utilizan datos de terceros ni se inventa el NIT.
+
+**Dependencias:** los documentos legales ya incorporan los datos declarados; sólo mantienen el NIT como pendiente antes del cierre jurídico definitivo.
+
+**Regla de continuidad:** los bloques 17–20 pueden continuar porque sus requisitos ya no dependen de inventar identidad. El bloque 16 sólo se cierra al incorporar el NIT oficial.
+
+## Cierre secuencial de los bloques 16–20
+
+### Bloque 16 — datos de empresa
+**Estado: PARCIAL — NIT pendiente.** Se materializaron los datos declarados: CamachoPosColombia SAS, Wilson Andrés Camacho Culma, Transversal 3A #87B-45 Sur, Bogotá D.C., andrescamacho.19@hotmail.com y 3227506213. El NIT sigue explícitamente pendiente. No se inventa ni se sustituye por un dato de terceros.
+
+### Bloque 17 — consentimiento de niños
+**Estado: MATERIALIZADO COMO REGLA DE TRATAMIENTO.** La Política de Privacidad establece que el POS no está dirigido a menores, prohíbe la recolección comercial deliberada de datos de menores sin revisión previa y exige finalidad legítima, interés superior, derechos fundamentales y requisitos de autorización cuando excepcionalmente proceda. No se creó una recolección infantil que el producto no necesita.
+
+### Bloque 18 — cancelación de suscripción en correos
+**Estado: PARCIAL — preferencia local materializada; despacho externo pendiente.** La auditoría encontró y materializó la suscripción explícita POS_NEWS, su consulta y baja local mediante MIGRATION_017 y las operaciones customer.marketing.*. La entrega por proveedor externo, List-Unsubscribe público y despacho central todavía no existen. No se declara envío de correo ni una baja externa inexistente.
+
+### Bloque 19 — licenciamiento de imágenes
+**Estado: MATERIALIZADO PARA ACTIVOS IDENTIFICADOS.** Se añadió docs/legal/asset-license-registry.md para registrar procedencia y autorización del logo existente y su derivado. Los activos futuros deberán registrar fuente, titular, licencia/permiso y restricciones antes de incorporarse.
+
+### Bloque 20 — solicitud de eliminación de datos
+**Estado: MATERIALIZADO COMO PROCEDIMIENTO OPERATIVO; ELIMINACIÓN AUTOMÁTICA NO MATERIALIZADA.** Se añadió docs/legal/data-subject-rights-procedure.md con canal oficial, verificación, localización, evaluación de conservación y resolución. No se creó customer.delete porque un borrado físico indiscriminado podría destruir trazabilidad fiscal/contable/auditable. La anonimización/desidentificación técnica por entidad queda como trabajo posterior y sólo debe implementarse después de definir retención.
+
+### Regla de cierre
+El bloque 16 sigue abierto únicamente por el NIT. Los bloques 17–20 ya fueron tratados en orden y no requieren repetir el trabajo anterior. Ningún estado se eleva a PASS si no existe evidencia de ejecución que lo soporte.
+
+## Comunicaciones comerciales de clientes — POS_NEWS
+
+**Estado:** IMPLEMENTADO — preferencia y baja locales; despacho externo pendiente de proveedor.
+
+- El registro fiscal de un adquiriente no implica suscripción.
+- La captura ofrece opt-in explícito para POS_NEWS por correo.
+- Existe customer.marketing.subscribe, customer.marketing.unsubscribe y customer.marketing.get.
+- La preferencia se persiste en customer_marketing_subscriptions mediante MIGRATION_017.
+- Se conserva versión de consentimiento, fecha, actor, sesión, origen y auditoría.
+- La baja no elimina el registro fiscal ni sus evidencias legales.
+- V1 reutiliza el permiso existente CUSTOMERS_CUSTOMER_REGISTER para no depender de grants nuevos que no estén presentes en snapshots actuales.
+- No se declara envío externo operativo: el repo no tenía proveedor de correo, credenciales, despachador central ni endpoint público de baja. Por tanto, no se inventa un “email enviado” ni un enlace de baja falso.
+
+
+## Licenciamiento central — fundación administrativa
+
+**Estado: MATERIALIZADO COMO FUNDACIÓN PERSISTENTE; OPERACIÓN ADMINISTRATIVA AÚN PENDIENTE.**
+
+Se materializó 006_licensing_foundation sobre el PostgreSQL central, dependiente de 005_onboarding_bootstrap_hardening.
+
+- licensing.plans soporta modalidades comerciales MONTHLY, ANNUAL y PERPETUAL y modalidades técnicas HYBRID / LOCAL_PERPETUAL.
+- licensing.plan_entitlements conserva capacidades y límites con FINITE, UNLIMITED y NOT_APPLICABLE, sin sentinelas numéricos.
+- licensing.licenses conserva tenant, plan, modalidad, estado contractual, vigencia y referencia comercial.
+- licensing.license_entitlements materializa el snapshot contractual de derechos de la licencia.
+- Las cuatro tablas tienen RLS forzado, claves foráneas, invariantes de límites e índices de consulta.
+- Existe runner idempotente applyPostgres006 y pruebas estructurales del contrato.
+
+**Límite deliberado:** todavía no se creó un panel PLATFORM_OWNER, ni botones de activar/suspender/reactivar/revocar/cambiar plan. Falta el servicio central autoritativo de lifecycle y su frontera de autorización; construir esa UI antes sería una implementación falsa.
+
+## Identity / login / recuperación de contraseña
+
+- Fundación de recuperación central materializada en PostgreSQL mediante 007_password_recovery.
+- El token de recuperación se persiste únicamente como hash; existe expiración, consumo único, límite de intentos y RLS forzado.
+- El Superadministrador puede iniciar recuperación asistida, pero no establece ni conoce la contraseña; el cambio final lo realiza el titular mediante el canal registrado.
+- Preguntas de seguridad no se consideran mecanismo único de recuperación.
+- Login, emisión/rotación de sesión y despacho real de correo siguen como subfase de Identity/Central Authority; no se declara END_TO_END ni RUNTIME_VERIFIED.

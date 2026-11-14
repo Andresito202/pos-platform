@@ -1,0 +1,569 @@
+{
+  "recorded_at": "2026-10-29T19:54:36.971036-05:00",
+  "repository": "Andresito202/pos-platform",
+  "source_code_sha": "52ab79a7cc55411b343283bc92b3aad89f3910b7",
+  "remote_head_at_start": "bc9af6b98d5e026e984539fc3047739f93c35860",
+  "source_snapshot_verified_files": 831,
+  "environment": {
+    "os": "linux",
+    "arch": "x64",
+    "electron": "44.1.1",
+    "embedded_node": "24.19.0",
+    "uv": "1.52.1"
+  },
+  "scope": "Actual Electron executable in ELECTRON_RUN_AS_NODE mode. No BrowserWindow, Windows kernel, SCM or DPAPI execution. OS identity ports remain simulated in the canonical tests.",
+  "host_tests": {
+    "invocation": {
+      "executable": "/workspace/scratch/c3fc053cbd4d/audit-runtime/node_modules/.pnpm/electron@44.1.1_supports-color@7.2.0/node_modules/electron/dist/electron",
+      "args": [
+        "/workspace/scratch/c3fc053cbd4d/snapshot/apps/pos-local-service/node_modules/vitest/vitest.mjs",
+        "run",
+        "apps/pos-local-service/tests/windows-scm-runtime.test.ts",
+        "apps/pos-local-service/tests/channel-cancellation-lifecycle.test.ts",
+        "apps/pos-local-service/tests/windows-scm-stop.test.ts",
+        "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+        "packages/local-channel/tests/windows-handoff.test.ts",
+        "packages/local-channel/tests/windows-native-pipe.test.ts",
+        "apps/pos-desktop/tests/commercial-account.test.ts",
+        "--no-file-parallelism",
+        "--reporter=json",
+        "--outputFile=../electron-native-host-tests.json"
+      ],
+      "cwd": "/workspace/scratch/c3fc053cbd4d/snapshot",
+      "electron_run_as_node": true,
+      "started_at": "2026-10-30T00:51:12.819Z",
+      "finished_at": "2026-10-30T00:51:20.944Z",
+      "exit_code": 0,
+      "signal": null,
+      "output": "JSON report written to /workspace/scratch/c3fc053cbd4d/electron-native-host-tests.json\n",
+      "error": ""
+    },
+    "summary": {
+      "numPassedTests": 74,
+      "numFailedTests": 0,
+      "numPendingTests": 2,
+      "numTotalTests": 76
+    },
+    "files": [
+      {
+        "path": "apps/pos-desktop/tests/commercial-account.test.ts",
+        "cases": [
+          {
+            "name": "account entry reuses the callback and consumes activation only, then closes its channel",
+            "status": "passed",
+            "duration_ms": 21.75228100000004,
+            "failures": []
+          },
+          {
+            "name": "change user closes the recovered session first, remote failure=false",
+            "status": "passed",
+            "duration_ms": 7.623462000000018,
+            "failures": []
+          },
+          {
+            "name": "change user closes the recovered session first, remote failure=true",
+            "status": "passed",
+            "duration_ms": 3.795390999999995,
+            "failures": []
+          },
+          {
+            "name": "native logout preserves local-only status instead of claiming central revocation",
+            "status": "passed",
+            "duration_ms": 0.4981040000000121,
+            "failures": []
+          },
+          {
+            "name": "recovery correlation failure prevents login and browser navigation",
+            "status": "passed",
+            "duration_ms": 1.6143979999999942,
+            "failures": []
+          },
+          {
+            "name": "public desktop deployment metadata rejects relative paths, missing timeout and unapproved origin",
+            "status": "passed",
+            "duration_ms": 6.119494999999972,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/channel-cancellation-lifecycle.test.ts",
+        "cases": [
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) performs the canonical MAC handshake and status response",
+            "status": "passed",
+            "duration_ms": 23.316489999999988,
+            "failures": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) disconnect aborts in-flight work synchronously and releases identity exactly once",
+            "status": "passed",
+            "duration_ms": 4.49312900000001,
+            "failures": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) stopping closes every active connection even if one cleanup callback throws",
+            "status": "passed",
+            "duration_ms": 12.190670000000011,
+            "failures": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) retirement denies queued requests but drains the current response before closure",
+            "status": "passed",
+            "duration_ms": 1004.8394020000001,
+            "failures": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) timeout aborts a handler and does not resurrect a connection on a late result",
+            "status": "passed",
+            "duration_ms": 45.50987600000008,
+            "failures": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) a synchronous handler throw closes the channel without leaking an unhandled rejection",
+            "status": "passed",
+            "duration_ms": 3.208957000000055,
+            "failures": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) cancellation before the synchronous commit boundary leaves no operation or audit",
+            "status": "passed",
+            "duration_ms": 47.41100699999993,
+            "failures": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) a lost response after commit retains the canonical idempotent result and audit across reopen",
+            "status": "passed",
+            "duration_ms": 47.84207700000002,
+            "failures": []
+          },
+          {
+            "name": "preserves transport startup and cleanup failures together",
+            "status": "passed",
+            "duration_ms": 0.531123000000207,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+        "cases": [
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60000 ms even with an old receipt timestamp",
+            "status": "passed",
+            "duration_ms": 54.242366000000004,
+            "failures": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60001 ms even with an old receipt timestamp",
+            "status": "passed",
+            "duration_ms": 34.024902,
+            "failures": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rejects clock rollback between authorization and consumption",
+            "status": "passed",
+            "duration_ms": 27.851923000000056,
+            "failures": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rejects an invalid host clock at consumption",
+            "status": "passed",
+            "duration_ms": 29.820492,
+            "failures": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger uses the Service clock rather than the receipt timestamp to prune replay records",
+            "status": "passed",
+            "duration_ms": 25.618791999999985,
+            "failures": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rechecks revocation made by another authority between authorization and consumption",
+            "status": "passed",
+            "duration_ms": 64.31139599999995,
+            "failures": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger persists one-use receipt across a real SQLite close and reopen",
+            "status": "passed",
+            "duration_ms": 25.24836599999992,
+            "failures": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger revokes before first use, persists across restart, and accepts idempotent revocation",
+            "status": "passed",
+            "duration_ms": 31.15776299999993,
+            "failures": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger revocation after consumption blocks future lease checks",
+            "status": "passed",
+            "duration_ms": 30.689227000000074,
+            "failures": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger refuses unauthorised policy, identity, revision and unregistered receipts",
+            "status": "passed",
+            "duration_ms": 26.51332500000001,
+            "failures": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) consumes once for several live connections; revocation commits before closing all and survives restart",
+            "status": "passed",
+            "duration_ms": 34.019969999999944,
+            "failures": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) does not restore a consumed lease on authority restart, even without revocation",
+            "status": "passed",
+            "duration_ms": 27.517379000000005,
+            "failures": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) rejects each operation and closes on expiry",
+            "status": "passed",
+            "duration_ms": 26.88018999999997,
+            "failures": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) rejects each operation and closes on rollback",
+            "status": "passed",
+            "duration_ms": 22.720662999999945,
+            "failures": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) rejects each operation and closes on invalid",
+            "status": "passed",
+            "duration_ms": 25.423494000000005,
+            "failures": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) fails closed on durable write failure without reporting successful revocation",
+            "status": "passed",
+            "duration_ms": 47.202208999999925,
+            "failures": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) drains only the initiating response and removes its authority immediately",
+            "status": "passed",
+            "duration_ms": 26.282438999999954,
+            "failures": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) does not let MAC replay cleanup delete lease tombstones after a host clock jump",
+            "status": "passed",
+            "duration_ms": 25.03653500000007,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/windows-scm-runtime.test.ts",
+        "cases": [
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports admits multiple real sockets with one durable lease consumption and revokes every member",
+            "status": "passed",
+            "duration_ms": 436.8316329999999,
+            "failures": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports rechecks adapter peer evidence on each operation",
+            "status": "passed",
+            "duration_ms": 420.512921,
+            "failures": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports rejects an independently pinned signer mismatch before the first MAC request",
+            "status": "passed",
+            "duration_ms": 199.05194800000004,
+            "failures": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports aborts an in-flight operation before its persistent effect when the lease is revoked",
+            "status": "passed",
+            "duration_ms": 433.352316,
+            "failures": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports preserves an already committed effect on response loss; cancellation does not undo commit",
+            "status": "passed",
+            "duration_ms": 221.03708700000016,
+            "failures": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports rechecks expiry at the commit fence after asynchronous work without waiting for polling",
+            "status": "passed",
+            "duration_ms": 396.16170599999987,
+            "failures": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports quarantines the transport on SQLite revocation failure and rejects fresh negotiation",
+            "status": "passed",
+            "duration_ms": 403.5740560000004,
+            "failures": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports drains exactly the initiating signed response while closing every other lease member",
+            "status": "passed",
+            "duration_ms": 418.06866500000024,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/windows-scm-stop.test.ts",
+        "cases": [
+          {
+            "name": "SCM transport failure-safe stop retains a failed stop result for repeated callers without joining a stuck native accept",
+            "status": "passed",
+            "duration_ms": 38.383718000000016,
+            "failures": []
+          },
+          {
+            "name": "SCM transport failure-safe stop continues cleanup and preserves the first error if a socket also fails to close",
+            "status": "passed",
+            "duration_ms": 25.10137000000003,
+            "failures": []
+          },
+          {
+            "name": "SCM transport failure-safe stop does not permit start after stop, including stop before the first listen",
+            "status": "passed",
+            "duration_ms": 23.251044000000036,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "path": "packages/local-channel/tests/windows-handoff.test.ts",
+        "cases": [
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) validates the exact installation, device, pinned RSA key and explicit policy",
+            "status": "passed",
+            "duration_ms": 4.97496000000001,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"device_id\":\"018f0000-0000-7000-8000-000000000001\"}",
+            "status": "passed",
+            "duration_ms": 0.7157649999999194,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"installation_id\":\"018f0000-0000-7000-8000-000000000002\"}",
+            "status": "passed",
+            "duration_ms": 0.23228199999994104,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_key_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}",
+            "status": "passed",
+            "duration_ms": 0.34426700000005894,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"expires_at\":\"2026-10-29T12:00:00.000Z\"}",
+            "status": "passed",
+            "duration_ms": 0.19146200000000135,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"not_before\":\"2026-10-29T12:00:01Z\"}",
+            "status": "passed",
+            "duration_ms": 0.20246799999995346,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"capsule_file\":\"\\\\\\\\remote\\\\capsule\"}",
+            "status": "passed",
+            "duration_ms": 0.292259999999942,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_sid\":\"S-1-1-0\"}",
+            "status": "passed",
+            "duration_ms": 0.345107999999982,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_logon_sid\":\"S-1-5-32-545\"}",
+            "status": "passed",
+            "duration_ms": 0.2861809999999423,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_session_id\":0}",
+            "status": "passed",
+            "duration_ms": 0.3897739999999885,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) denies an otherwise valid capsule recipient from a different Windows account, logon, session, or host kind",
+            "status": "passed",
+            "duration_ms": 2.419144000000074,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects RSA below the candidate strength even with a matching pin",
+            "status": "passed",
+            "duration_ms": 77.757204,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) seals only a derived key, binding all claims to OAEP-SHA256",
+            "status": "passed",
+            "duration_ms": 4.114420999999993,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another recipient_logon_sid",
+            "status": "passed",
+            "duration_ms": 0.3554940000000215,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another device_id",
+            "status": "passed",
+            "duration_ms": 0.23483599999997296,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another revision",
+            "status": "passed",
+            "duration_ms": 0.5056049999999459,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another expires_at",
+            "status": "passed",
+            "duration_ms": 0.46062899999992624,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects ciphertext and nonce tampering and a different receiver key",
+            "status": "passed",
+            "duration_ms": 91.33076100000005,
+            "failures": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rotates lease keys without changing the master and rejects old frames",
+            "status": "passed",
+            "duration_ms": 3.2429480000000694,
+            "failures": []
+          },
+          {
+            "name": "handoff lease SQLite replay compatibility uses deterministic collision-resistant UUID IDs without changing the canonical SQLite schema",
+            "status": "passed",
+            "duration_ms": 0.44400500000006105,
+            "failures": []
+          },
+          {
+            "name": "service-signed handoff capsule (NOT SCM certified) requires the real Service identity constraints and the authorized signing key",
+            "status": "passed",
+            "duration_ms": 1.083845999999994,
+            "failures": []
+          },
+          {
+            "name": "service-signed handoff capsule (NOT SCM certified) verifies service signature without trusting a public key in the payload",
+            "status": "passed",
+            "duration_ms": 2.6249670000000833,
+            "failures": []
+          },
+          {
+            "name": "real Windows receiver: owner-only ACL, DPAPI CurrentUser, no overwrite, wrong context and tampering denied",
+            "status": "skipped",
+            "duration_ms": null,
+            "failures": []
+          },
+          {
+            "name": "real Windows receiver rejects inherited directory ACL before writing",
+            "status": "skipped",
+            "duration_ms": null,
+            "failures": []
+          }
+        ]
+      },
+      {
+        "path": "packages/local-channel/tests/windows-native-pipe.test.ts",
+        "cases": [
+          {
+            "name": "native adapter fail-closed boundary (injected native results) rejects a mismatched peer {\"sid\":\"S-1-5-21-1-2-3-9999\"} before socket adoption",
+            "status": "passed",
+            "duration_ms": 3.7942490000000078,
+            "failures": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) rejects a mismatched peer {\"logonSid\":\"S-1-5-5-8-9\"} before socket adoption",
+            "status": "passed",
+            "duration_ms": 0.7234160000000145,
+            "failures": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) rejects a mismatched peer {\"sessionId\":2} before socket adoption",
+            "status": "passed",
+            "duration_ms": 0.4109459999999956,
+            "failures": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) rejects a kernel re-attestation failure before adopting a descriptor",
+            "status": "passed",
+            "duration_ms": 0.4296120000000201,
+            "failures": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) releases even malformed native records",
+            "status": "passed",
+            "duration_ms": 0.7341509999999971,
+            "failures": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) forbids role confusion",
+            "status": "passed",
+            "duration_ms": 0.44769999999999754,
+            "failures": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) does not fall back to simulated Windows identity on Linux",
+            "status": "passed",
+            "duration_ms": 0.21188199999997437,
+            "failures": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) does not accept an enabling boolean or an incomplete provisioning document",
+            "status": "passed",
+            "duration_ms": 1.5383349999999893,
+            "failures": []
+          }
+        ]
+      }
+    ]
+  },
+  "gui_preflight": {
+    "kind": "canonical E2E smoke entry preflight; stub channel; no login certification",
+    "executable": "/workspace/scratch/c3fc053cbd4d/audit-runtime/node_modules/.pnpm/electron@44.1.1_supports-color@7.2.0/node_modules/electron/dist/electron",
+    "args": [
+      "--no-sandbox",
+      "/workspace/scratch/c3fc053cbd4d/snapshot/apps/pos-desktop/e2e/smoke-entry.mjs"
+    ],
+    "cwd": "/workspace/scratch/c3fc053cbd4d/snapshot/apps/pos-desktop",
+    "display_configured": false,
+    "exit_code": null,
+    "signal": "SIGTRAP",
+    "stdout": "",
+    "stderr": "[13:1029/195114.144309:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Failed to open socket: Operation not permitted\n[13:1029/195114.144540:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Could not parse server address: Unknown address type (examples of valid types are \"tcp\" and on UNIX \"unix\")\n[13:1029/195114.197445:ERROR:ui/ozone/platform/x11/ozone_platform_x11.cc:257] Missing X server or $DISPLAY\n[13:1029/195114.197467:ERROR:ui/aura/env.cc:246] The platform failed to initialize.  Exiting.\n"
+  },
+  "windows_execution": {
+    "available_executor": false,
+    "compiler_available": false,
+    "compiled_real_windows_addon": false,
+    "scm_dpapi_executed": false,
+    "certified": false
+  },
+  "human_mfa": {
+    "executed": false,
+    "must_follow_automatic_windows_checks": true
+  },
+  "code_modified": false,
+  "commercial_gate": "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN",
+  "production_approved": false
+}

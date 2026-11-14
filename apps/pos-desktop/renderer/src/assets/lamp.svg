@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 500" role="img" aria-label="Lámpara de escritorio">
+<defs><linearGradient id="metal" x1="0" x2="1"><stop stop-color="#303742"/><stop offset=".5" stop-color="#828b99"/><stop offset="1" stop-color="#151b25"/></linearGradient><linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffedae"/><stop offset=".55" stop-color="#b98532"/><stop offset="1" stop-color="#684312"/></linearGradient><linearGradient id="shade" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#373d47"/><stop offset=".5" stop-color="#1d2530"/><stop offset="1" stop-color="#080d16"/></linearGradient><radialGradient id="bulb"><stop stop-color="#fff3c5"/><stop offset=".4" stop-color="#ffcc75"/><stop offset="1" stop-color="#e5ae4a" stop-opacity="0"/></radialGradient></defs>
+<ellipse cx="190" cy="455" rx="102" ry="19" fill="#000" opacity=".3"/>
+<ellipse cx="190" cy="444" rx="72" ry="14" fill="#121820"/><ellipse cx="190" cy="441" rx="70" ry="11" fill="url(#metal)"/><circle cx="190" cy="440" r="14" fill="url(#gold)"/>
+<path d="M186 439 156 295 M194 439 164 295" stroke="url(#metal)" stroke-width="5" stroke-linecap="round"/><path d="M160 295 215 175" stroke="url(#metal)" stroke-width="7" stroke-linecap="round"/>
+<circle cx="160" cy="295" r="13" fill="url(#gold)"/><circle cx="160" cy="295" r="5" fill="#242830"/><circle cx="215" cy="175" r="12" fill="url(#gold)"/>
+<path d="M182.3 184.6 C188 135 220 112 248 115 C275 118 298 155 307.7 225.4 A66 22 18 0 1 182.3 184.6Z" fill="url(#shade)" stroke="#11141a" stroke-width="2"/>
+<path d="M187 181 C193 139 221 119 247 120 C267 122 286 144 297 178 C271 163 224 153 187 181Z" fill="#ffffff" opacity=".08"/>
+<ellipse cx="245" cy="205" rx="66" ry="22" transform="rotate(18 245 205)" fill="#312b25"/><ellipse cx="245" cy="205" rx="66" ry="22" transform="rotate(18 245 205)" fill="none" stroke="#dcad52" stroke-width="4"/>
+<ellipse cx="245" cy="195" rx="14" ry="17" fill="url(#bulb)"/><path d="M245 211V307" stroke="#e8bb54" stroke-width="2.6" stroke-linecap="round"/><path d="M241 301H249L252 315Q252 323 245 323Q238 323 238 315Z" fill="url(#gold)" stroke="#805915"/>
+</svg>

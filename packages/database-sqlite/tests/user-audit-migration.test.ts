@@ -103,6 +103,7 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TRIGGER local_schema_migrations_no_delete;
       DROP TABLE fiscal_electronic_document;
       DROP TABLE fiscal_numbering_range;
+      DROP TABLE customer_marketing_subscriptions;
       DROP TABLE inventory_movement;
       DROP TABLE inventory_stock;
       DROP TABLE catalog_price;
@@ -126,6 +127,13 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TRIGGER local_master_snapshot_artifact_no_update;
       DROP TRIGGER local_master_snapshot_artifact_no_delete;
       DROP TABLE local_master_snapshot_artifact;
+      -- v18 objects must not survive in the reconstructed v7 fixture.
+      -- This is a temporary test DB, not a downgrade of an operational DB.
+      DROP TABLE hardware_events;
+      DROP TABLE hardware_jobs;
+      DROP TABLE hardware_bindings;
+      -- v19 editable carts must also be absent in this reconstructed v7 fixture.
+      DROP TABLE sales_waiting_carts;
       DELETE FROM local_schema_migrations WHERE version > 7;
       CREATE TRIGGER local_schema_migrations_no_delete
         BEFORE DELETE ON local_schema_migrations

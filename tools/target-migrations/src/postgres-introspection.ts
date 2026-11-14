@@ -1,6 +1,7 @@
 import type { SqlExecutor } from "./database.js";
 import { queryRows } from "./database.js";
 import {
+  POSTGRES_001_TABLE_COLUMNS,
   POSTGRES_TABLE_COLUMNS,
   INTEGRATION_RLS_TABLES,
   INTEGRATION_TABLES,
@@ -191,7 +192,7 @@ export async function validatePostgresCatalog(db: SqlExecutor): Promise<void> {
     ORDER BY qualified_name
   `);
   const actualTables = tables.map((row) => row.qualified_name).sort();
-  const expectedTables = Object.keys(POSTGRES_TABLE_COLUMNS).sort();
+  const expectedTables = Object.keys(POSTGRES_001_TABLE_COLUMNS).sort();
   assertInvariant(sameValues(actualTables, expectedTables), `target tables diverge: ${actualTables.join(",")}`);
 
   const columns = await queryRows<ColumnRow>(db, `
@@ -201,7 +202,7 @@ export async function validatePostgresCatalog(db: SqlExecutor): Promise<void> {
       AND n.nspname IN ('platform','identity','tenancy','organization','authorization','sync','audit')
     ORDER BY n.nspname,c.relname,a.attnum
   `);
-  for (const [qualifiedName, expectedColumns] of Object.entries(POSTGRES_TABLE_COLUMNS)) {
+  for (const [qualifiedName, expectedColumns] of Object.entries(POSTGRES_001_TABLE_COLUMNS)) {
     const [schemaName, tableName] = qualifiedName.split(".") as [string, string];
     const actual = columns
       .filter((row) => row.schema_name === schemaName && row.table_name === tableName)
@@ -220,7 +221,7 @@ export async function validatePostgresCatalog(db: SqlExecutor): Promise<void> {
   assertInvariant(primaryKeys.length === expectedTables.length, "every target table must have exactly one primary key");
 
   const bodySql = await readArtifact("postgres/001_central_foundation.up.sql");
-  const bodyTableNames = Object.keys(POSTGRES_TABLE_COLUMNS)
+  const bodyTableNames = Object.keys(POSTGRES_001_TABLE_COLUMNS)
     .filter((name) => !name.startsWith("platform."))
     // PostgreSQL reuses the explicit redundant tenants(id) unique name for the
     // primary-key index/constraint; the resulting PK is tenants_id_uq.
@@ -273,14 +274,16 @@ export async function validatePostgresCatalog(db: SqlExecutor): Promise<void> {
   `);
   for (const row of rls) {
     assertInvariant(row.owner_name === "pos_schema_owner", `${row.qualified_name} owner diverges`);
-    const protectedTable = RLS_TABLES.includes(row.qualified_name as (typeof RLS_TABLES)[number]);
+    const protectedTable = RLS_TABLES.includes(row.qualified_name as (typeof RLS_TABLES)[number])
+      && row.qualified_name !== "authorization.platform_role_assignments";
     assertInvariant(row.row_security === protectedTable, `${row.qualified_name} ENABLE RLS diverges`);
     assertInvariant(row.force_row_security === protectedTable, `${row.qualified_name} FORCE RLS diverges`);
   }
 
   const policies = await queryRows<NameRow>(db, `SELECT policyname AS name FROM pg_policies WHERE schemaname IN ('identity','tenancy','organization','authorization','sync','audit') ORDER BY policyname`);
   const policyNames = policies.map((row) => row.name);
-  assertInvariant(sameValues(policyNames, [...REQUIRED_POLICIES].sort()), "policy set diverges");
+  const foundationPolicies = REQUIRED_POLICIES.filter((name) => name !== "platform_role_assignments_platform_only");
+  assertInvariant(sameValues(policyNames, [...foundationPolicies].sort()), "policy set diverges");
 
   const prohibited = await queryRows<NameRow>(db, `
     SELECT tablename AS name FROM pg_tables

@@ -3,6 +3,7 @@ import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
+import { quantityFitsUnitPrecision } from "../quantity.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
 
 /**
@@ -119,6 +120,9 @@ export type AppendMovementOutcome =
   | { readonly kind: "IDEMPOTENT"; readonly stockSequence: number; readonly quantityAfter: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "PRESENTATION_NOT_FOUND" }
+  | { readonly kind: "INVALID_QUANTITY" }
+  | { readonly kind: "QUANTITY_PRECISION_EXCEEDED" }
+  | { readonly kind: "STOCK_QUANTITY_OVERFLOW" }
   | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string };
 
 interface StockRow {
@@ -146,8 +150,8 @@ export class SqliteInventoryStore {
   getStock(scope: InventoryScope, presentationId: string): InventoryStock | null {
     const row = this.database.native.prepare(
       `SELECT quantity_on_hand, last_movement_sequence, version FROM inventory_stock
-       WHERE tenant_id=? AND branch_id=? AND presentation_id=?`,
-    ).get(scope.tenantId, scope.branchId, presentationId) as StockRow | undefined;
+       WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?`,
+    ).get(scope.tenantId, scope.companyId, scope.branchId, presentationId) as StockRow | undefined;
 
     if (row === undefined) return null;
     return {
@@ -191,8 +195,8 @@ export class SqliteInventoryStore {
         return { kind: "IDEMPOTENCY_CONFLICT" };
       }
       const existing = this.database.native.prepare(
-        "SELECT stock_sequence, quantity_after FROM inventory_movement WHERE tenant_id=? AND idempotency_key=?",
-      ).get(input.scope.tenantId, input.idempotencyKey) as MovementRow | undefined;
+        "SELECT stock_sequence, quantity_after FROM inventory_movement WHERE tenant_id=? AND company_id=? AND branch_id=? AND idempotency_key=?",
+      ).get(input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.idempotencyKey) as MovementRow | undefined;
       if (existing === undefined) return { kind: "IDEMPOTENCY_CONFLICT" };
       return {
         kind: "IDEMPOTENT",
@@ -204,14 +208,24 @@ export class SqliteInventoryStore {
     // La existencia cuelga de una presentación real: sin esta comprobación el
     // fallo llegaría como violación de clave foránea, que no dice qué pasó.
     const presentation = this.database.native.prepare(
-      "SELECT id FROM catalog_presentation WHERE tenant_id=? AND id=?",
-    ).get(input.scope.tenantId, input.presentationId) as { id: string } | undefined;
+      `SELECT cp.id, cp.unit_precision FROM catalog_presentation cp
+       JOIN catalog_product p ON p.tenant_id=cp.tenant_id AND p.id=cp.product_id
+       WHERE cp.tenant_id=? AND p.company_id=? AND cp.id=?`,
+    ).get(input.scope.tenantId, input.scope.companyId, input.presentationId) as { id: string; unit_precision: number } | undefined;
     if (presentation === undefined) return { kind: "PRESENTATION_NOT_FOUND" };
+    // The same published presentation precision governs receipts, shrinkage and sales.
+    // Reject rather than round: a fraction of a unit must never silently become stock.
+    if (!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(input.quantity) || scale6ToBigInt(input.quantity) <= 0n) {
+      return { kind: "INVALID_QUANTITY" };
+    }
+    if (!quantityFitsUnitPrecision(input.quantity, presentation.unit_precision)) {
+      return { kind: "QUANTITY_PRECISION_EXCEEDED" };
+    }
 
     const current = this.database.native.prepare(
       `SELECT quantity_on_hand, last_movement_sequence, version FROM inventory_stock
-       WHERE tenant_id=? AND branch_id=? AND presentation_id=?`,
-    ).get(input.scope.tenantId, input.scope.branchId, input.presentationId) as StockRow | undefined;
+       WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?`,
+    ).get(input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.presentationId) as StockRow | undefined;
 
     const currentUnits = current === undefined ? 0n : scale6ToBigInt(current.quantity_on_hand);
     const quantityUnits = scale6ToBigInt(input.quantity);
@@ -225,6 +239,7 @@ export class SqliteInventoryStore {
       return { kind: "INSUFFICIENT_STOCK", available: bigIntToScale6(currentUnits) };
     }
 
+    if (afterUnits > 9_999_999_999_999_999_999n) return { kind: "STOCK_QUANTITY_OVERFLOW" };
     const quantityAfter = bigIntToScale6(afterUnits);
     const stockSequence = (current === undefined ? 0 : current.last_movement_sequence) + 1;
 
@@ -260,10 +275,10 @@ export class SqliteInventoryStore {
       const updated = this.database.native.prepare(
         `UPDATE inventory_stock
          SET quantity_on_hand=?, last_movement_sequence=?, version=version+1, updated_at=?
-         WHERE tenant_id=? AND branch_id=? AND presentation_id=? AND version=?`,
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=? AND version=?`,
       ).run(
         quantityAfter, stockSequence, nowIso,
-        input.scope.tenantId, input.scope.branchId, input.presentationId, current.version,
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.presentationId, current.version,
       );
       if (updated.changes !== 1) {
         throw new Error("inventory stock row changed during the transaction");

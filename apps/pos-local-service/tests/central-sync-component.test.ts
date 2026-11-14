@@ -243,6 +243,55 @@ describe("CentralSyncComponent — D-2", () => {
     await database.stop();
   }, 10_000);
 
+  it("stop durante el primer despacho espera SQLite y no arma el temporizador", async () => {
+    const { database, sync } = await runtime();
+    sync.store.enqueue(operation(1));
+    const report = recorder();
+    let release: (() => void) | undefined;
+    let entered: (() => void) | undefined;
+    const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const sent = { count: 0 };
+    const accepting = acceptingTransport(sent);
+    const slow: CentralTransport = {
+      send: async (request) => {
+        entered?.();
+        await gate;
+        return accepting.send(request);
+      },
+    };
+    const component = new CentralSyncComponent(
+      () => new SyncDispatcher(sync.store, slow, credentials, "https://central.invalid", "1.0.0"),
+      scope,
+      1_000,
+      report,
+    );
+
+    const starting = component.start();
+    await enteredPromise;
+    let stopFinished = false;
+    const stopping = component.stop().then(() => { stopFinished = true; });
+    await Promise.resolve();
+    expect(stopFinished).toBe(false);
+    release?.();
+    await Promise.all([starting, stopping]);
+    expect(stopFinished).toBe(true);
+    expect(sync.store.checkpoint(scope)).toBe(1);
+    expect(report.lifecycle).toEqual([]);
+    expect(report.outcomes).toEqual([]);
+    // A stopped component must not start recurring work after its first write.
+    sync.store.enqueue(operation(2));
+    await new Promise((resolve) => { setTimeout(resolve, 1_150); });
+    expect(sync.store.outboxState(operation(2).operation_id)).toMatchObject({
+      status: "PENDING",
+      attempt_count: 0,
+    });
+    expect(sent.count).toBe(1);
+
+    await sync.stop();
+    await database.stop();
+  }, 10_000);
+
   it("stop espera al despacho en curso antes de ceder", async () => {
     const { database, sync } = await runtime();
     sync.store.enqueue(operation(1));

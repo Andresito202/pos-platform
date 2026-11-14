@@ -16,16 +16,18 @@
     "@pos-platform/contracts": "workspace:*",
     "@pos-platform/device-trust": "workspace:*",
     "@pos-platform/observability": "workspace:*",
-    "zod": "4.4.3",
+    "zod": "4.6.6",
     "@pos-platform/database-sqlite": "workspace:*",
     "@pos-platform/fiscal-adapters": "workspace:*",
-    "@pos-platform/local-channel": "workspace:*"
+    "@pos-platform/local-channel": "workspace:*",
+    "@pos-platform/database-postgres": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.20.1",
+    "better-sqlite3": "13.0.3",
     "esbuild": "0.28.2",
     "tsx": "4.23.12",
     "typescript": "6.0.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }

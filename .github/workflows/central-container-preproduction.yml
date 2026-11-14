@@ -1,0 +1,75 @@
+name: Central preproduction container validation
+on:
+  push:
+    branches: [feat/p0-windows-login-install-readiness]
+    paths:
+      - 'infra/central-authority/Dockerfile'
+      - '.dockerignore'
+      - 'infra/central-authority/**'
+      - '.github/workflows/central-container-preproduction.yml'
+      - 'apps/central-authority/**'
+      - 'packages/contracts/**'
+      - 'packages/database-postgres/**'
+      - 'packages/device-trust/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  central-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout reviewed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check no private material enters build context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .dockerignore
+          grep -Fx '**/*.key' .dockerignore
+          grep -Fx '**/.env.*' .dockerignore
+          grep -Fx '**/pgpass*' .dockerignore
+      - name: Check VPS release script and Compose model without secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n infra/central-authority/deploy-preproduction.sh
+          sudo install -d -m 0700 /etc/camacho-pos
+          printf '%s\\n' 'CENTRAL_AUTHORITY_ORIGIN=https://central-ci.invalid' > /tmp/central-ci-runtime.env
+          sudo install -m 0600 /tmp/central-ci-runtime.env /etc/camacho-pos/central-runtime.env
+          printf '%s\\n' '# CI-only nonsecret Compose validation' > /tmp/central-ci-deployment.env
+          sudo docker compose --env-file /tmp/central-ci-deployment.env -f infra/central-authority/compose.preproduction.yaml config --quiet
+          sudo rm -f /etc/camacho-pos/central-runtime.env
+          echo 'CENTRAL_VPS_COMPOSE_AND_INSTALL_SYNTAX=PASS'
+      - name: Build persistent Central HTTPS runtime container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build -f infra/central-authority/Dockerfile -t camacho-central-preproduction:${{ github.sha }} .
+          echo 'CENTRAL_CONTAINER_IMAGE_BUILD=PASS'
+      - name: Verify missing protected configuration rejects startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid \
+            camacho-central-preproduction:${{ github.sha }} > startup-check.log 2>&1
+          code=$?
+          set -e
+          if [ "$code" = 0 ]; then echo 'CENTRAL_UNPROVISIONED_RUNTIME_SHOULD_FAIL'; exit 1; fi
+          if ! grep -q 'CENTRAL_DATABASE_URL is required' startup-check.log; then
+            echo 'CENTRAL_UNPROVISIONED_FAILURE_UNEXPECTED'
+            tail -n 20 startup-check.log
+            exit 1
+          fi
+          echo 'CENTRAL_UNPROVISIONED_STARTUP_REJECTED=PASS'
+          echo 'CENTRAL_PUBLIC_PREPRODUCTION_DEPLOYMENT=NOT_PROVEN'
+          echo 'BUSINESS_REAL_SESSION=NOT_TESTED'
+          echo 'HUMAN_MFA=NOT_TESTED'
+          echo 'COMMERCIAL_LOGIN_CERTIFIED=NO'

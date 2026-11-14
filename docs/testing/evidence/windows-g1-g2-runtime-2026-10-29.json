@@ -1,0 +1,554 @@
+{
+  "base_sha": "0978ec11b50360fbf2b9738f52b1a97c4f470030",
+  "runtime_sha": "246807297100909917f7111bd5aced3dc6425b3e",
+  "environment": {
+    "os": "Linux",
+    "node": "24.22.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11",
+    "tcp_loopback_real": true,
+    "bind_connect_test_adapter": true,
+    "windows": false,
+    "scm": false,
+    "physical_mfa": false
+  },
+  "result": {
+    "success": true,
+    "numPassedTests": 100,
+    "numFailedTests": 0,
+    "numPendingTests": 4,
+    "numTotalTests": 104
+  },
+  "raw_report_sha256": "1a2f62c83e92613133dc885dcb6a7b24067d3495b686ee97d60d9ae49d59c985",
+  "suites": [
+    {
+      "path": "apps/pos-local-service/tests/channel-cancellation-lifecycle.test.ts",
+      "status": "passed",
+      "cases": [
+        {
+          "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) performs the canonical MAC handshake and status response",
+          "status": "passed"
+        },
+        {
+          "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) disconnect aborts in-flight work synchronously and releases identity exactly once",
+          "status": "passed"
+        },
+        {
+          "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) stopping closes every active connection even if one cleanup callback throws",
+          "status": "passed"
+        },
+        {
+          "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) retirement denies queued requests but drains the current response before closure",
+          "status": "passed"
+        },
+        {
+          "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) timeout aborts a handler and does not resurrect a connection on a late result",
+          "status": "passed"
+        },
+        {
+          "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) a synchronous handler throw closes the channel without leaking an unhandled rejection",
+          "status": "passed"
+        },
+        {
+          "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) cancellation before the synchronous commit boundary leaves no operation or audit",
+          "status": "passed"
+        },
+        {
+          "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) a lost response after commit retains the canonical idempotent result and audit across reopen",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "apps/pos-local-service/tests/channel-commercial-transport.test.ts",
+      "status": "passed",
+      "cases": [
+        {
+          "name": "transporte de las operaciones comerciales cash.shift.open viaja y su respuesta se parsea con su propio esquema",
+          "status": "passed"
+        },
+        {
+          "name": "transporte de las operaciones comerciales catalog.item.find viaja y su respuesta se parsea con su propio esquema",
+          "status": "passed"
+        },
+        {
+          "name": "transporte de las operaciones comerciales sale.create viaja y su respuesta se parsea con su propio esquema",
+          "status": "passed"
+        },
+        {
+          "name": "transporte de las operaciones comerciales payment.register.cash viaja y su respuesta se parsea con su propio esquema",
+          "status": "passed"
+        },
+        {
+          "name": "transporte de las operaciones comerciales license.offers.list viaja y su respuesta se parsea con su propio esquema",
+          "status": "passed"
+        },
+        {
+          "name": "transporte de las operaciones comerciales la vertical completa recorre el canal en una sola conexión",
+          "status": "passed"
+        },
+        {
+          "name": "transporte de las operaciones comerciales las nueve operaciones antes sin enrutar ya no matan la conexión",
+          "status": "passed"
+        },
+        {
+          "name": "transporte de las operaciones comerciales el cobro que completa la venta llega con sale_completed intacto",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "apps/pos-local-service/tests/commercial-ipc.test.ts",
+      "status": "passed",
+      "cases": [
+        {
+          "name": "license catalog: authenticated read only, no GLOBAL authority, rechecks channel after asynchronous response",
+          "status": "passed"
+        },
+        {
+          "name": "session.activate — establecimiento del vínculo una SSA válida activa la sesión y vincula la conexión",
+          "status": "passed"
+        },
+        {
+          "name": "session.activate — establecimiento del vínculo una firma no confiable no vincula nada",
+          "status": "passed"
+        },
+        {
+          "name": "session.activate — establecimiento del vínculo una SSA emitida para otro dispositivo se rechaza",
+          "status": "passed"
+        },
+        {
+          "name": "session.activate — establecimiento del vínculo reenviar la misma secuencia no desplaza la sesión activa ni vincula",
+          "status": "passed"
+        },
+        {
+          "name": "frontera de confianza — el llamador no afirma identidad el contrato rechaza tenant_id, actor_id y device_id en el sobre",
+          "status": "passed"
+        },
+        {
+          "name": "frontera de confianza — el llamador no afirma identidad el contrato rechaza user_id o actor_type dentro del payload",
+          "status": "passed"
+        },
+        {
+          "name": "frontera de confianza — el llamador no afirma identidad una operación mutante exige operation_id e idempotency_key",
+          "status": "passed"
+        },
+        {
+          "name": "frontera de confianza — el llamador no afirma identidad el contrato rechaza un importe de apertura negativo en la frontera",
+          "status": "passed"
+        },
+        {
+          "name": "operaciones comerciales — la conexión debe estar vinculada una conexión sin vínculo no obtiene identidad",
+          "status": "passed"
+        },
+        {
+          "name": "operaciones comerciales — la conexión debe estar vinculada un connectionId inventado no hereda el vínculo de otra conexión",
+          "status": "passed"
+        },
+        {
+          "name": "operaciones comerciales — la conexión debe estar vinculada sin snapshot de autorización activo no hay operación",
+          "status": "passed"
+        },
+        {
+          "name": "operaciones comerciales — la conexión debe estar vinculada el permiso se evalúa contra el snapshot del usuario vinculado",
+          "status": "passed"
+        },
+        {
+          "name": "authorization.capabilities.get — proyección de permisos efectivos devuelve sólo los permisos activos y efectivos del usuario vinculado",
+          "status": "passed"
+        },
+        {
+          "name": "authorization.capabilities.get — proyección de permisos efectivos falla cerrado cuando la conexión no está vinculada",
+          "status": "passed"
+        },
+        {
+          "name": "ciclo de vida del vínculo la desconexión invalida el vínculo",
+          "status": "passed"
+        },
+        {
+          "name": "ciclo de vida del vínculo dos conexiones mantienen vínculos independientes",
+          "status": "passed"
+        },
+        {
+          "name": "ciclo de vida del vínculo una sesión expirada deja de resolver aunque la conexión siga viva",
+          "status": "passed"
+        },
+        {
+          "name": "ciclo de vida del vínculo detener el componente invalida todos los vínculos",
+          "status": "passed"
+        },
+        {
+          "name": "session.recover — rehidratación desde la SSA durable sin sesión persistida devuelve NONE",
+          "status": "passed"
+        },
+        {
+          "name": "session.recover — rehidratación desde la SSA durable restablece el vínculo en una conexión nueva sin recibir user_id",
+          "status": "passed"
+        },
+        {
+          "name": "session.recover — rehidratación desde la SSA durable con dos sesiones vigentes en el dispositivo no elige ninguna",
+          "status": "passed"
+        },
+        {
+          "name": "flujo comercial sobre el handler real — sin transporte activate → cash.shift.open → sale.create sobre la misma conexión",
+          "status": "passed"
+        },
+        {
+          "name": "flujo comercial sobre el handler real — sin transporte el cierre idempotente no reconstruye importes (M3 de 4D)",
+          "status": "passed"
+        },
+        {
+          "name": "customer.* — el adquiriente es alcanzable por el canal registra un adquiriente y lo devuelve por identidad fiscal",
+          "status": "passed"
+        },
+        {
+          "name": "customer.* — el adquiriente es alcanzable por el canal y también por identificador interno",
+          "status": "passed"
+        },
+        {
+          "name": "customer.* — el adquiriente es alcanzable por el canal un adquiriente inválido devuelve hallazgos sin filtrar datos personales",
+          "status": "passed"
+        },
+        {
+          "name": "customer.* — el adquiriente es alcanzable por el canal sin vínculo de sesión no se registra nada",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: cashier-without-grant",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: other-tenant",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: other-company",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: other-branch",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: inactive-role",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: expired-assignment",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: expired-snapshot",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: missing-snapshot",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal role boundary: mutation payload cannot self-assert a grant, actor or supervisor approval",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal registra un producto y lo devuelve al escanear su código de barras",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal un código de barras repetido se rechaza por el canal y dice cuál lo tiene",
+          "status": "passed"
+        },
+        {
+          "name": "catalog.* — el catálogo es alcanzable por el canal sin vínculo de sesión no se registra nada",
+          "status": "passed"
+        },
+        {
+          "name": "inventory.* — el inventario es alcanzable por el canal role boundary: receive denies absent, cross-branch, retired and expired grants",
+          "status": "passed"
+        },
+        {
+          "name": "inventory.* — el inventario es alcanzable por el canal role boundary: adjust denies absent, cross-branch, retired and expired grants",
+          "status": "passed"
+        },
+        {
+          "name": "inventory.* — el inventario es alcanzable por el canal recibe, ajusta y consulta la existencia por el canal",
+          "status": "passed"
+        },
+        {
+          "name": "inventory.* — el inventario es alcanzable por el canal el canal rechaza el ajuste que dejaría la existencia negativa y dice cuánto hay",
+          "status": "passed"
+        },
+        {
+          "name": "inventory.* — el inventario es alcanzable por el canal sin vínculo de sesión no se mueve existencia",
+          "status": "passed"
+        },
+        {
+          "name": "customer.marketing.get — autorización backend 'UNAUTHORIZED' con permisos []",
+          "status": "passed"
+        },
+        {
+          "name": "customer.marketing.get — autorización backend 'NOT_SUBSCRIBED' con permisos [ 'CUSTOMERS_CUSTOMER_READ' ]",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "apps/pos-local-service/tests/native-session-close-lifecycle.test.ts",
+      "status": "passed",
+      "cases": [
+        {
+          "name": "native session close: durable tombstone before transport notification notifies all server connections only after the tombstone and binding removal",
+          "status": "passed"
+        },
+        {
+          "name": "native session close: durable tombstone before transport notification a failed durable audit leaves bindings intact and does not report closure",
+          "status": "passed"
+        },
+        {
+          "name": "native session close: durable tombstone before transport notification a new store instance sees the durable close without an in-memory registry",
+          "status": "passed"
+        },
+        {
+          "name": "native session close: durable tombstone before transport notification registers one closer and safely releases its registration on lifecycle stop",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+      "status": "passed",
+      "cases": [
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60000 ms even with an old receipt timestamp",
+          "status": "passed"
+        },
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60001 ms even with an old receipt timestamp",
+          "status": "passed"
+        },
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger rejects clock rollback between authorization and consumption",
+          "status": "passed"
+        },
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger rejects an invalid host clock at consumption",
+          "status": "passed"
+        },
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger uses the Service clock rather than the receipt timestamp to prune replay records",
+          "status": "passed"
+        },
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger rechecks revocation made by another authority between authorization and consumption",
+          "status": "passed"
+        },
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger persists one-use receipt across a real SQLite close and reopen",
+          "status": "passed"
+        },
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger revokes before first use, persists across restart, and accepts idempotent revocation",
+          "status": "passed"
+        },
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger revocation after consumption blocks future lease checks",
+          "status": "passed"
+        },
+        {
+          "name": "Service-owned SQLite candidate handoff lease ledger refuses unauthorised policy, identity, revision and unregistered receipts",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "apps/pos-local-service/tests/windows-winsw-readiness.test.ts",
+      "status": "passed",
+      "cases": [
+        {
+          "name": "operator WinSW readiness is inspection, not commercial activation reports missing binary and retains all certification gates",
+          "status": "skipped"
+        },
+        {
+          "name": "operator WinSW readiness is inspection, not commercial activation a matching SHA alone never approves an unsigned or mutable executable",
+          "status": "skipped"
+        },
+        {
+          "name": "operator WinSW readiness is inspection, not commercial activation keeps the existing SCM commercial rejection until native interoperability is proven",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "path": "packages/local-channel/tests/windows-handoff.test.ts",
+      "status": "passed",
+      "cases": [
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) validates the exact installation, device, pinned RSA key and explicit policy",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"device_id\":\"018f0000-0000-7000-8000-000000000001\"}",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"installation_id\":\"018f0000-0000-7000-8000-000000000002\"}",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_key_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"expires_at\":\"2026-10-29T12:00:00.000Z\"}",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"not_before\":\"2026-10-29T12:00:01Z\"}",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"capsule_file\":\"\\\\\\\\remote\\\\capsule\"}",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_sid\":\"S-1-1-0\"}",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_logon_sid\":\"S-1-5-32-545\"}",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_session_id\":0}",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) denies an otherwise valid capsule recipient from a different Windows account, logon, session, or host kind",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects RSA below the candidate strength even with a matching pin",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) seals only a derived key, binding all claims to OAEP-SHA256",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another recipient_logon_sid",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another device_id",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another revision",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another expires_at",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rejects ciphertext and nonce tampering and a different receiver key",
+          "status": "passed"
+        },
+        {
+          "name": "candidate handoff cryptography (not SCM interoperability) rotates lease keys without changing the master and rejects old frames",
+          "status": "passed"
+        },
+        {
+          "name": "handoff lease SQLite replay compatibility uses deterministic collision-resistant UUID IDs without changing the canonical SQLite schema",
+          "status": "passed"
+        },
+        {
+          "name": "service-signed handoff capsule (NOT SCM certified) requires the real Service identity constraints and the authorized signing key",
+          "status": "passed"
+        },
+        {
+          "name": "service-signed handoff capsule (NOT SCM certified) verifies service signature without trusting a public key in the payload",
+          "status": "passed"
+        },
+        {
+          "name": "real Windows receiver: owner-only ACL, DPAPI CurrentUser, no overwrite, wrong context and tampering denied",
+          "status": "skipped"
+        },
+        {
+          "name": "real Windows receiver rejects inherited directory ACL before writing",
+          "status": "skipped"
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "G1 native peer authentication not implemented.",
+    "G2 SSA session closure does not establish a Windows lease-to-connection association.",
+    "No Windows certification.",
+    "Fixture handlers are not business E2E.",
+    "Do not add overlapping historical test counters."
+  ],
+  "blobs": [
+    {
+      "path": "apps/pos-local-service/src/channel/server.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "517392d2973f8a585892578cc0a72214d90570d1"
+    },
+    {
+      "path": "apps/pos-local-service/src/channel/local-channel-component.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6ea5efcf0a1d8247e588a2b1d591d31057fc7b98"
+    },
+    {
+      "path": "apps/pos-local-service/src/commercial/commercial-component.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "513f188dde022fb3b0ed8fe8654235e7df039919"
+    },
+    {
+      "path": "apps/pos-local-service/src/session/session-binding-registry.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a9173ba29bcb4842fb4cef686dd54bafea3596a3"
+    },
+    {
+      "path": "apps/pos-local-service/tests/channel-commercial-transport.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "39e9a4d52e42c93bb2edf38026f49f26f1c38890"
+    },
+    {
+      "path": "apps/pos-local-service/tests/channel-cancellation-lifecycle.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2539bfa640115ec216600d511d45022e9ec4946c"
+    },
+    {
+      "path": "apps/pos-local-service/tests/native-session-close-lifecycle.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "816781995e59e3c05773c2aba7a346572efe4246"
+    },
+    {
+      "path": "tools/operators/windows-login-final-checks.ps1",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fcd517747a460ba7643404b5e9762d7ecae16d9d"
+    }
+  ],
+  "command": "node_modules/.bin/vitest run apps/pos-local-service/tests/channel-cancellation-lifecycle.test.ts apps/pos-local-service/tests/native-session-close-lifecycle.test.ts apps/pos-local-service/tests/channel-commercial-transport.test.ts apps/pos-local-service/tests/commercial-ipc.test.ts apps/pos-local-service/tests/windows-handoff-lease-state.test.ts apps/pos-local-service/tests/windows-winsw-readiness.test.ts packages/local-channel/tests/windows-handoff.test.ts --no-file-parallelism --reporter=json --outputFile=../g1g2-published.json",
+  "other_checks": {
+    "typescript_projects": [
+      "apps/pos-local-service/tsconfig.json",
+      "packages/local-channel/tsconfig.json",
+      "apps/pos-desktop/tsconfig.json"
+    ],
+    "typescript_result": "PASS",
+    "architecture_tests": 16,
+    "architecture_validation": "PASS",
+    "build_command": "node_modules/.bin/esbuild apps/pos-local-service/src/main.ts --bundle --platform=node --target=node22 --format=esm --external:better-sqlite3 --external:pg-native --outfile=apps/pos-local-service/dist/verification.mjs",
+    "build_result": "PASS",
+    "powershell_parser": "NOT_EXECUTED"
+  }
+}

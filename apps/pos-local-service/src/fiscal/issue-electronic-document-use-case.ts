@@ -1,3 +1,4 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { createHash } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import {
@@ -46,7 +47,7 @@ import {
  * `assembleFactusBill`.
  */
 
-export const PERMISSION_FISCAL_DOCUMENT_ISSUE = "FISCAL_DOCUMENT_ISSUE";
+export const PERMISSION_FISCAL_DOCUMENT_ISSUE = CanonicalPermission.FISCAL_DOCUMENT_ISSUE;
 
 export interface IssueElectronicDocumentInput {
   readonly scope: DocumentScope;
@@ -65,7 +66,9 @@ export type IssueElectronicDocumentResult =
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string }
   /** Ya había un documento `COMPLETED` para esta venta y tipo: no se reintenta. */
   | { readonly kind: "ALREADY_ISSUED"; readonly document: StoredElectronicDocument }
-  /** Se transmitió en esta llamada y el proveedor evidenció el resultado. */
+  /** El proveedor completó el envío, pero rechazó fiscalmente el documento. */
+  | { readonly kind: "FISCAL_REJECTED"; readonly document: StoredElectronicDocument }
+  /** Se transmitió en esta llamada y el proveedor evidenció aceptación. */
   | { readonly kind: "ISSUED"; readonly document: StoredElectronicDocument }
   /**
    * Ya existe un documento `IN_PROGRESS` o `UNKNOWN_OUTCOME`. Regla 6-7: antes
@@ -116,7 +119,9 @@ export class IssueElectronicDocumentUseCase {
     // atributos de negocio, no la identidad fiscal del intento.
     const idempotencyKey = `${input.saleId}:${input.documentType}`;
 
-    const existing = this.documentStore.findOpenForSale(input.scope, input.saleId, input.documentType);
+    const existing = this.documentStore.findByIdempotencyKey(
+      input.scope, input.provider, input.environment, idempotencyKey,
+    ) ?? this.documentStore.findOpenForSale(input.scope, input.saleId, input.documentType);
     if (existing !== null) {
       const resumed = this.resume(existing);
       if (resumed !== null) return resumed;
@@ -188,7 +193,14 @@ export class IssueElectronicDocumentUseCase {
    * `null` si en cambio hay que intentarlo (`CREATED` o `FAILED`).
    */
   private resume(document: StoredElectronicDocument): IssueElectronicDocumentResult | null {
-    if (document.transportStatus === "COMPLETED") return { kind: "ALREADY_ISSUED", document };
+    if (document.transportStatus === "CANCELLED") {
+      return { kind: "BLOCKED", code: "CANCELLED_DOCUMENT_REQUIRES_REVIEW" };
+    }
+    if (document.transportStatus === "COMPLETED") {
+      if (document.normalizedResult === "ACCEPTED") return { kind: "ALREADY_ISSUED", document };
+      if (document.normalizedResult === "REJECTED") return { kind: "FISCAL_REJECTED", document };
+      return { kind: "REQUIRES_RECONCILIATION", document };
+    }
     if (document.transportStatus === "IN_PROGRESS" || document.transportStatus === "UNKNOWN_OUTCOME") {
       return { kind: "REQUIRES_RECONCILIATION", document };
     }
@@ -232,7 +244,7 @@ export class IssueElectronicDocumentUseCase {
         providerStatus: outcome.providerStatus.providerStatus,
         providerHttpStatus: outcome.providerStatus.httpStatus,
       });
-      return { kind: "ISSUED", document: this.reload(scope, document) };
+      return { kind: outcome.normalizedResult === "ACCEPTED" ? "ISSUED" : "FISCAL_REJECTED", document: this.reload(scope, document) };
     }
 
     if (outcome.kind === "TECHNICAL_FAILURE") {

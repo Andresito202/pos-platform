@@ -1,5 +1,7 @@
 # QR-001 — Pago QR en tiempo real
 
+> **Estado de integración (2026-11-13):** el diagrama siguiente representa la arquitectura objetivo, no una cadena de abono bancario verificado en producción. Los contratos QR-001 son parte de esta línea. El flujo QR-002 con observaciones de teléfono `UNVERIFIED`, lectura de avisos en Central/Local Service y panel de Caja reside en una rama histórica divergente (`feat/nequi-breb-static-qr-phase1`) y **no está acreditado como integrado en la línea activa**. La observación no certifica importe abonado, identidad del pagador ni venta pagada. No fusionar esa rama completa; revisar capacidades exclusivas y pruebas antes de incorporación selectiva. El flujo manual `payment.transfer.confirm` existente exige comprobación humana autorizada y no es webhook bancario. Ver [controversia 6 y pruebas para Codex](../../apps/pos-desktop/e2e/ROLE-UX-CONSOLIDATION.md).
+
 ## Objetivo
 
 La caja debe poder mostrar un QR estático configurado por el administrador y, cuando un proveedor financiero confirme un ingreso real, mostrar en la pantalla del cajero:

@@ -82,6 +82,21 @@ describe("descriptor de servicio WinSW", () => {
     expect(() => parseServiceConfig({ ...VALUES, POS_EXTRA: "1" })).toThrow();
   });
 
+  it("rechaza anunciar login comercial desde la cuenta virtual: DPAPI/logon SID incompatibles", () => {
+    expect(() => descriptor({
+      ...VALUES,
+      POS_WINDOWS_COMMERCIAL_PROVISION_FILE: "C:\\\\ProgramData\\\\CamachoPOS\\\\private\\\\commercial.json",
+    })).toThrow("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
+  });
+
+  it("rechaza el modo comercial SCM aunque el perfil base tenga solo las nueve variables", () => {
+    expect(() => buildServiceDescriptor({
+      ...INSTALLATION,
+      environment: VALUES,
+      commercialLogin: true,
+    })).toThrow("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
+  });
+
   it("corre bajo la cuenta virtual, no bajo LocalSystem ni un usuario", () => {
     const xml = descriptor();
     expect(xml).toContain(`<username>NT SERVICE\\${SERVICE_ID}</username>`);

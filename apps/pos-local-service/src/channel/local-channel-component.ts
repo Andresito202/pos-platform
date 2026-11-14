@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import type { LocalOperatorSessionRegistry } from "../security/local-operator-session-registry.js";
 import {
   compareContractVersions,
   negotiateProtocolVersion,
   type ContractError,
   type IpcRequest,
+  type WindowsScmHandoffProvision,
 } from "@pos-platform/contracts";
 import type { RuntimeComponent, RuntimeState } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
@@ -15,6 +17,8 @@ import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/l
 import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
+import type {NativeCommercialCoordinator} from "../security/native-commercial-coordinator.js";
+import {WindowsScmChannelTransport} from "./windows-scm-transport.js";
 
 const LOCAL_SCHEMA_VERSION = "5";
 const RESULT_SCHEMA_VERSION = "1.0.0";
@@ -34,7 +38,19 @@ export class LocalChannelComponent implements RuntimeComponent {
 
   private server: LocalChannelServer | undefined;
   private authenticator: LocalChannelAuthenticator | undefined;
+  private unregisterSessionCloser:(()=>void)|undefined;
+  private startupToken: symbol | undefined;
+  private starting:Promise<void>|undefined;
+  private stopping:Promise<void>|undefined;
+  private stoppedResult:Promise<void>|undefined;
+  private closeActive:(()=>Promise<void>)|undefined;
   private readonly commercialHandler: CommercialRequestHandler;
+  private localOperatorRegistry: LocalOperatorSessionRegistry | undefined;
+
+  private getLocalOperatorRegistry(): LocalOperatorSessionRegistry | undefined {
+    if (!this.localOperatorSessions) return undefined;
+    return this.localOperatorRegistry ??= this.localOperatorSessions();
+  }
 
   constructor(
     private readonly config: ServiceConfig,
@@ -42,12 +58,23 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly runtimeState: () => RuntimeState,
     private readonly operationConfirmation: OperationConfirmationComponent,
     private readonly commercial: CommercialComponent,
+    private readonly nativeCommercial?:Pick<NativeCommercialCoordinator,"handle"|"release"|"stop"> & {recovered?:(connectionId:string)=>void},
+    private readonly scmProvision?:WindowsScmHandoffProvision,
+    private readonly localOperatorSessions?: () => LocalOperatorSessionRegistry,
   ) {
-    this.commercialHandler = new CommercialRequestHandler(config, commercial);
+    this.commercialHandler = new CommercialRequestHandler(config, commercial,
+      connectionId => this.getLocalOperatorRegistry()?.resolve(connectionId) ?? null);
     this.endpoint = localChannelEndpoint(config.installation_id);
   }
 
   async start(): Promise<void> {
+    if(this.server||this.authenticator||this.unregisterSessionCloser||this.startupToken||this.starting||this.stopping||this.closeActive)throw Error("LOCAL_CHANNEL_ALREADY_STARTED");
+    this.stoppedResult=undefined;
+    const operation=this.startAttempt();this.starting=operation;
+    try{await operation;}finally{if(this.starting===operation)this.starting=undefined;}
+  }
+
+  private async startAttempt():Promise<void>{
     if (process.platform !== "win32") {
       throw new Error("production local channel requires Windows");
     }
@@ -59,7 +86,10 @@ export class LocalChannelComponent implements RuntimeComponent {
     const authenticator = new LocalChannelAuthenticator(secret, undefined, {
       replayStateStore: new SqliteReplayStateStore(this.localDatabase.database),
     });
-    secret.fill(0);
+    let scmTransport:WindowsScmChannelTransport|undefined;
+    try{if(this.scmProvision)scmTransport=new WindowsScmChannelTransport(this.scmProvision,this.localDatabase.database,secret);}
+    catch(error){authenticator.destroy();throw error;}
+    finally{secret.fill(0);}
 
     const server = new LocalChannelServer(
       this.endpoint,
@@ -70,30 +100,65 @@ export class LocalChannelComponent implements RuntimeComponent {
       undefined,
       undefined,
       // El cierre de la conexión invalida su vínculo de sesión (`DEC-015` §5.6).
-      (connectionId) => this.commercial.bindings.release(connectionId),
+      (connectionId) => {try{this.commercial.bindings.release(connectionId);}finally{this.localOperatorRegistry?.release(connectionId);this.nativeCommercial?.release(connectionId);}},
+      scmTransport,
     );
 
+    const startupToken=Symbol("local-channel-start");
+    this.startupToken=startupToken;
+    let unregister:(()=>void)|undefined;
+    let cleanup:Promise<void>|undefined;
+    // One attempt owns these resources, including while start() is pending.
+    // Cache cleanup before running callbacks so repeated/reentrant stops join it.
+    const close=():Promise<void>=>cleanup??=(Promise.resolve().then(async()=>{
+      const failures:unknown[]=[];
+      try{unregister?.();}catch(error){failures.push(error);}
+      finally{if(this.unregisterSessionCloser===unregister)this.unregisterSessionCloser=undefined;}
+      try{await server.stop();}catch(error){failures.push(error);}
+      finally{
+        authenticator.destroy();
+        if(this.server===server){this.server=undefined;this.authenticator=undefined;}
+        if(failures.length===0&&this.closeActive===close)this.closeActive=undefined;
+        if(this.startupToken===startupToken)this.startupToken=undefined;
+      }
+      if(failures.length===1)throw failures[0];
+      if(failures.length>1)throw new AggregateError(failures,"local channel cleanup failed");
+    }));
+    this.server=server;this.authenticator=authenticator;this.closeActive=close;
     try {
+      unregister=this.commercial.registerNativeSessionCloser((connections,initiator)=>{
+        try{scmTransport?.revokeConnections(connections,initiator);}
+        finally{for(const id of connections){if(id===initiator)server.retireConnection(id);else server.disconnectConnection(id);}}
+      });
+      this.unregisterSessionCloser=unregister;
       await server.start();
-      this.authenticator = authenticator;
-      this.server = server;
+      if(this.startupToken!==startupToken)throw Error("LOCAL_CHANNEL_START_CANCELLED");
     } catch (error) {
-      authenticator.destroy();
+      try{await close();}catch(cleanupError){throw new AggregateError([error,cleanupError],"local channel start and cleanup failed");}
       throw error;
+    } finally {
+      if(this.startupToken===startupToken)this.startupToken=undefined;
     }
   }
 
-  async stop(): Promise<void> {
-    const server = this.server;
-    const authenticator = this.authenticator;
-    this.server = undefined;
-    this.authenticator = undefined;
+  async stop():Promise<void>{
+    if(this.stopping)return this.stopping;
+    if(this.stoppedResult)return this.stoppedResult;
+    this.startupToken=undefined;
+    const operation=this.stopAttempt();this.stopping=operation;this.stoppedResult=operation;
+    try{await operation;}finally{if(this.stopping===operation)this.stopping=undefined;}
+  }
 
-    try {
-      await server?.stop();
-    } finally {
-      authenticator?.destroy();
-    }
+  private async stopAttempt():Promise<void>{
+    const failures:unknown[]=[];
+    try{this.nativeCommercial?.stop();}catch(error){failures.push(error);}
+    this.localOperatorRegistry?.clear();
+    try{await this.closeActive?.();}catch(error){failures.push(error);}
+    // A cancelled start must finish its own cleanup before another attempt is
+    // admitted. Its original failure still belongs to the start() caller.
+    try{await this.starting;}catch{/* start caller observes cancellation/failure */}
+    if(failures.length===1)throw failures[0];
+    if(failures.length>1)throw new AggregateError(failures,"local channel stop failed");
   }
 
   private async handle(
@@ -104,12 +169,59 @@ export class LocalChannelComponent implements RuntimeComponent {
     if (signal.aborted) throw new Error("local channel request aborted");
 
     switch (request.message_type) {
+      case "local.operator.login":
+      case "local.operator.session":
+      case "local.operator.logout": {
+        const registry = this.getLocalOperatorRegistry();
+        const result = registry === undefined ? {
+          outcome: "UNAVAILABLE" as const, username: null, role: null, expires_at: null,
+        } : await (async () => {
+          if (request.message_type === "local.operator.logout") {
+            registry.logout(context.connectionId);
+            return {outcome:"SIGNED_OUT" as const,username:null,role:null,expires_at:null};
+          }
+          if (request.message_type === "local.operator.session") {
+            const active = registry.resolve(context.connectionId);
+            return active ? {outcome:"AUTHENTICATED" as const,username:active.username,
+              role:active.role,expires_at:active.expiresAt}
+              : {outcome:"NO_SESSION" as const,username:null,role:null,expires_at:null};
+          }
+          const verified=await registry.login(context.connectionId,request.payload.username,request.payload.password);
+          // A disconnected channel can never receive an authenticated result.
+          context.assertAuthorized?.();
+          return verified.status==="AUTHENTICATED"
+            ? {outcome:"AUTHENTICATED" as const,username:verified.username,role:verified.role,
+              expires_at:verified.expiresAt}
+            : {outcome:verified.status,username:null,role:null,expires_at:null};
+        })();
+        return {
+          protocol_version:request.protocol_version,request_id:request.request_id,
+          correlation_id:request.correlation_id,operation_id:null,
+          status:"SUCCEEDED",result_code:result.outcome,
+          result_schema_version:RESULT_SCHEMA_VERSION,error:null,
+          server_time:new Date().toISOString(),result,
+        };
+      }
+      case "commercial.native.begin":
+      case "commercial.native.complete":
+      case "commercial.native.commit":
+      case "commercial.native.cancel":
+      case "commercial.native.logout":
+        if(this.nativeCommercial)return this.nativeCommercial.handle(request,context.connectionId,signal,context.assertAuthorized);
+        return {protocol_version:request.protocol_version,request_id:request.request_id,correlation_id:request.correlation_id,
+          operation_id:null,status:"REJECTED",result_code:"DENIED",result_schema_version:"1.0.0",server_time:new Date().toISOString(),
+          error:{code:"NATIVE_COMMERCIAL_UNPROVISIONED",category:"AUTHENTICATION",retryable:false,user_message_key:"native.commercial.unprovisioned",
+            field_errors:[],current_version:null,required_action:null,diagnostic_id:randomUUID()},
+          result:{outcome:"DENIED",attempt_id:null,authorization_url:null}};
       case "authorization.capabilities.get":
       case "session.activate":
-      case "session.recover":
       case "cash.shift.open":
       case "cash.shift.close":
       case "sale.create":
+      case "cart.waiting.save":
+      case "cart.waiting.list":
+      case "cart.waiting.get":
+      case "cart.waiting.discard":
       case "payment.register.cash":
       case "payment.register.transfer":
       case "payment.transfer.confirm":
@@ -118,17 +230,30 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "customer.register":
       case "customer.get":
       case "customer.find":
+      case "customer.marketing.subscribe":
+      case "customer.marketing.unsubscribe":
+      case "customer.marketing.get":
       case "fiscal.document.issue":
       case "catalog.product.register":
       case "catalog.item.find":
       case "catalog.item.get":
+      case "catalog.item.list":
       case "inventory.stock.receive":
       case "inventory.stock.adjust":
       case "inventory.stock.get":
       case "sales.receipt.get":
+      case "hardware.command":
+      case "audit.event.list":
+      case "admin.metrics.get":
+      case "license.offers.list":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
         return this.commercialHandler.handle(request, context.connectionId, signal);
+      case "session.recover": {
+        const response=await this.commercialHandler.handle(request,context.connectionId,signal);
+        if(response&&typeof response==="object"&&"result_code" in response&&response.result_code==="ACTIVE")this.nativeCommercial?.recovered?.(context.connectionId);
+        return response;
+      }
 
       case "runtime.handshake": {
         const identityTrusted =

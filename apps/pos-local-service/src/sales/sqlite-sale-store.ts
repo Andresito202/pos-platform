@@ -1,3 +1,4 @@
+import type { CashRegisterLicenseGate } from "../security/license-capacity-gate.js";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -23,6 +24,9 @@ export interface SaleLineInput {
 }
 
 export interface CreateSaleInput {
+  readonly customerId?: string | null;
+  /** Trusted adapter policy, never accepted from renderer payload. */
+  readonly requireOpenCashShift?: boolean;
   readonly saleId: string;
   readonly operationId: string;
   readonly scope: SyncScope;
@@ -70,7 +74,10 @@ export type CreateSaleOutcome =
       readonly saleNumber: number;
       readonly calculationChecksum: string;
     }
-  | { readonly kind: "IDEMPOTENCY_CONFLICT" };
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
+  | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string }
+  | { readonly kind: "CUSTOMER_NOT_FOUND" };
 
 interface SaleRow {
   id: string;
@@ -91,6 +98,7 @@ export class SqliteSaleStore {
     private readonly database: LocalDatabase,
     private readonly durableSync: DurableSyncStore,
     private readonly now: () => Date = () => new Date(),
+    private readonly licenseGate?: CashRegisterLicenseGate,
   ) {}
 
   create(input: CreateSaleInput): CreateSaleOutcome {
@@ -119,6 +127,30 @@ export class SqliteSaleStore {
           calculationChecksum: existing.calculation_checksum,
         };
       }
+
+      // Counter IPC requires OPEN even for transfers. Check in the writer transaction,
+      // after replay resolution and before numbering, audit, outbox or any sale write.
+      if (input.requireOpenCashShift) {
+        const shift = input.cashShift;
+        if (shift === null || !this.database.native.prepare(`SELECT 1 FROM cash_shift
+          WHERE tenant_id=? AND company_id=? AND branch_id=? AND cash_register_id=? AND id=? AND status='OPEN'`)
+          .get(input.scope.tenantId, input.scope.companyId, input.scope.branchId, shift.cashRegisterId, shift.shiftId)) {
+          return { kind: "CASH_SHIFT_NOT_OPEN" };
+        }
+      }
+
+      // A shift opened yesterday cannot extend signed license validity today.
+      // Replays above remain readable; only a new commercial sale is gated.
+      if (this.licenseGate) {
+        const register = input.cashShift?.cashRegisterId;
+        if (!register) return {kind:"LICENSE_BLOCKED",reason:"LICENSE_REGISTER_REQUIRED"};
+        const denial = this.licenseGate(input.scope, register);
+        if (denial) return {kind:"LICENSE_BLOCKED",reason:denial};
+      }
+
+      if (input.customerId && !this.database.native.prepare(
+        "SELECT 1 FROM customers_customers WHERE tenant_id=? AND company_id=? AND id=?"
+      ).get(input.scope.tenantId,input.scope.companyId,input.customerId)) return {kind:"CUSTOMER_NOT_FOUND"};
 
       // 2. Contador de serie documental — incremento atómico
       const counterRow = this.database.native.prepare(
@@ -172,7 +204,7 @@ export class SqliteSaleStore {
           pricing_snapshot, tax_snapshot, calculation_checksum,
           operation_id, idempotency_key, request_checksum,
           correlation_id, causation_id, version, created_at,
-          completed_at, cancelled_at, expired_at, server_recorded_at
+          completed_at, cancelled_at, expired_at, server_recorded_at, customer_id
         ) VALUES (
           ?,?,?,?,?,?,
           ?,?,?,?,
@@ -185,7 +217,7 @@ export class SqliteSaleStore {
           ?,?,?,
           ?,?,?,
           ?,?,?,?,
-          NULL,NULL,NULL,NULL
+          NULL,NULL,NULL,NULL,?
         )`,
       ).run(
         input.saleId,
@@ -226,6 +258,7 @@ export class SqliteSaleStore {
         input.causationId,
         1,
         nowIso,
+        input.customerId ?? null,
       );
 
       // 5. items
@@ -299,6 +332,7 @@ export class SqliteSaleStore {
         input.causationId,
         canonicalJson({
           sale_id: input.saleId,
+          ...(input.customerId ? {customer_id:input.customerId}:{}),
           document_series: input.documentSeries,
           sale_number: saleNumber,
           calculation_checksum: input.calculationChecksum,
@@ -339,6 +373,7 @@ export class SqliteSaleStore {
         payload_schema_version: SALE_PAYLOAD_SCHEMA_VERSION,
         payload: {
           sale_id: input.saleId,
+          ...(input.customerId ? {customer_id:input.customerId}:{}),
           document_series: input.documentSeries,
           sale_number: saleNumber,
           calculation_checksum: input.calculationChecksum,

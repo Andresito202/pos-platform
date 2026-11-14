@@ -1,19 +1,27 @@
-import { readFileSync } from "node:fs";
+import { lstatSync,readFileSync } from "node:fs";
+import {isAbsolute} from "node:path";
 import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
-import { Pool } from "pg";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
-import { PostgresDeviceRegistryRepository } from "./postgres-device-registry-repository.js";
-import { SessionTrustPublication } from "./session-trust-publication.js";
+import { createPostgresPool, PostgresDeviceRegistryRepository } from "@pos-platform/database-postgres";
+import { SessionTrustPublication,AuthorizationTrustPublication } from "./session-trust-publication.js";
+import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
+import {resolveCentralDeploymentConfiguration,verifyCentralTlsIdentity,verifyEnrollmentIssuerKey,verifyCentralRuntimeDatabase,createCentralReadinessProbe} from "./central-deployment-configuration.js";
+import {drainCentralServer} from "./central-server-shutdown.js";
+import {prepareCentralCommercialRuntime} from "./central-commercial-runtime.js";
+import {prepareFactusPayRuntime} from "./factus-pay-runtime.js";
+import {FACTUS_PAY_COLLECTION_WEBHOOK_PATH} from "./factus-pay-webhook-handler.js";
+import {prepareSubscriptionCollectionRuntime} from "./subscription-collection-runtime.js";
+import {prepareGlobalAdministrationRuntime} from "./global-administration-runtime.js";
+import {prepareLicenseCapacityRuntime} from "./license-capacity-runtime.js";
+import {prepareCommercialPublicSite} from "./commercial-public-site.js";
+import {CamachoCommercialDomains} from "@pos-platform/contracts";
 
-const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
-const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
-const MAX_CREDENTIAL_LIFETIME_MS = Number(process.env.D3_CREDENTIAL_LIFETIME_MS ?? String(24 * 60 * 60 * 1000));
-const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 30;
-const RATE_LIMIT_BUCKETS_MAX = 10_000;
-
+const deployment=resolveCentralDeploymentConfiguration(process.env);
+const PORT = deployment?.port??Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
+const MAX_BODY_BYTES = deployment?.maxBodyBytes??Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
+const MAX_CREDENTIAL_LIFETIME_MS = deployment?.credentialLifetimeMs??Number(process.env.D3_CREDENTIAL_LIFETIME_MS ?? String(24 * 60 * 60 * 1000));
 function required(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
@@ -33,23 +41,6 @@ function constantTimeEqual(left: string, right: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-class FixedWindowRateLimiter {
-  private readonly buckets = new Map<string, { count: number; startedAt: number }>();
-  allow(key: string, now = Date.now()): boolean {
-    const existing = this.buckets.get(key);
-    if (!existing || now - existing.startedAt >= RATE_LIMIT_WINDOW_MS) {
-      if (this.buckets.size >= RATE_LIMIT_BUCKETS_MAX) {
-        const first = this.buckets.keys().next().value;
-        if (first) this.buckets.delete(first);
-      }
-      this.buckets.set(key, { count: 1, startedAt: now });
-      return true;
-    }
-    if (existing.count >= RATE_LIMIT_MAX) return false;
-    existing.count += 1;
-    return true;
-  }
-}
 
 async function readBody(request: IncomingMessage, maxBytes: number): Promise<string> {
   const chunks: Buffer[] = [];
@@ -64,8 +55,19 @@ async function readBody(request: IncomingMessage, maxBytes: number): Promise<str
 }
 
 function send(response: ServerResponse, statusCode: number, body: Record<string, unknown>, headers: Record<string, string> = {}): void {
-  response.writeHead(statusCode, { "content-type": "application/json", "cache-control": "no-store", ...headers });
-  response.end(JSON.stringify(body));
+  const payload = JSON.stringify(body);
+  response.writeHead(statusCode, {
+    "content-type": "application/json; charset=utf-8",
+    "content-length": String(Buffer.byteLength(payload, "utf8")),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "no-referrer",
+    "content-security-policy": "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    "cross-origin-resource-policy": "same-origin",
+    ...headers,
+  });
+  response.end(payload);
 }
 
 function protocolContext(request: IncomingMessage, requestId: string, correlationId: string, authorization: string | null): DeviceEnrollmentTransportContext {
@@ -81,17 +83,58 @@ function protocolContext(request: IncomingMessage, requestId: string, correlatio
 }
 
 const databaseUrl = required("CENTRAL_DATABASE_URL");
-const transportToken = required("D3_ENROLLMENT_TRANSPORT_TOKEN");
+const transportToken = deployment?secretFromFile("D3_ENROLLMENT_TRANSPORT_TOKEN_FILE"):required("D3_ENROLLMENT_TRANSPORT_TOKEN");
 const issuerPrivateKey = createPrivateKey(secretFromFile("D3_ISSUER_PRIVATE_KEY_FILE"));
 const tlsKey = readFileSync(required("CENTRAL_TLS_KEY_FILE"));
 const tlsCert = readFileSync(required("CENTRAL_TLS_CERT_FILE"));
+if(deployment){verifyCentralTlsIdentity(deployment,tlsCert,createPrivateKey(tlsKey));verifyEnrollmentIssuerKey(issuerPrivateKey);
+  if(transportToken.length<32||transportToken.length>4096||/[\r\n]/.test(transportToken))throw Error("CENTRAL_MANAGED_TOKEN_REJECTED");}
 const sessionTrustPublication = process.env.SESSION_TRUST_ARTIFACT_FILE === undefined
   ? null
   : new SessionTrustPublication(process.env.SESSION_TRUST_ARTIFACT_FILE);
 const sessionTrustTransportToken = process.env.SESSION_TRUST_TRANSPORT_TOKEN_FILE === undefined
   ? null
   : secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
-const pool = new Pool({ connectionString: databaseUrl, max: 10, application_name: "pos-platform-central-authority" });
+const sasConfigured=process.env.AUTHORIZATION_TRUST_ARTIFACT_FILE!==undefined||process.env.AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE!==undefined;
+if(sasConfigured&&!deployment)throw Error("SAS_EXPLICIT_CENTRAL_DEPLOYMENT_REQUIRED");
+if(sasConfigured){
+  const path=required("AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE");
+  if(!isAbsolute(path))throw Error("SAS_MANAGED_TOKEN_ABSOLUTE_FILE_REQUIRED");
+  const stat=lstatSync(path);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>4096)throw Error("SAS_MANAGED_TOKEN_FILE_REJECTED");
+}
+const authorizationTrustPublication=sasConfigured?new AuthorizationTrustPublication(required("AUTHORIZATION_TRUST_ARTIFACT_FILE"),
+  {issuer:deployment!.origin,...(deployment!.environment==="LOCAL"?{}:{environment:deployment!.environment})}):null;
+const authorizationTrustTransportToken=sasConfigured?secretFromFile("AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE"):null;
+if(authorizationTrustTransportToken!==null&&(authorizationTrustTransportToken.length<32||Buffer.byteLength(authorizationTrustTransportToken)>4096||
+  /[\r\n]/.test(authorizationTrustTransportToken)||constantTimeEqual(authorizationTrustTransportToken,transportToken)||
+  sessionTrustTransportToken!==null&&constantTimeEqual(authorizationTrustTransportToken,sessionTrustTransportToken)))throw Error("SAS_SEPARATE_MANAGED_TRANSPORT_TOKEN_REQUIRED");
+const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
+if(deployment){try{await verifyCentralRuntimeDatabase(pool);}catch{await pool.end();throw Error("CENTRAL_RUNTIME_DATABASE_REJECTED");}}
+const readiness=deployment?createCentralReadinessProbe(pool,deployment.requestTimeoutMs):null;
+const publicSiteFile=process.env.CENTRAL_PUBLIC_SITE_PROVISION_FILE;
+if(publicSiteFile&&(!deployment||deployment.environment==='LOCAL'))throw Error("PUBLIC_SITE_EXPLICIT_DEPLOYMENT_REQUIRED");
+const publicSite=publicSiteFile?await prepareCommercialPublicSite(pool,publicSiteFile,deployment!.origin,tlsCert):undefined;
+const factusPayProvision=process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
+if(factusPayProvision&&!deployment)throw Error("FACTUS_PAY_EXPLICIT_DEPLOYMENT_REQUIRED");
+const factusPayHandler=factusPayProvision?await prepareFactusPayRuntime(pool,factusPayProvision):undefined;
+const globalProvision=process.env.CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE;
+const licenseProvision=process.env.CENTRAL_LICENSE_ACTIVATION_PROVISION_FILE;
+if(licenseProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("LICENSE_REAL_DEPLOYMENT_REQUIRED");
+const licenseRuntime=licenseProvision?await prepareLicenseCapacityRuntime({pool,provisionFile:licenseProvision,origin:deployment!.origin,
+  environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION"}):undefined;
+if(globalProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("GLOBAL_ADMIN_REAL_DEPLOYMENT_REQUIRED");
+const globalHandler=globalProvision?await prepareGlobalAdministrationRuntime({pool,provisionFile:globalProvision,origin:deployment!.origin,
+  environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION",
+  ...(licenseRuntime?{licenseAuthority:licenseRuntime.authority}:{})}):undefined;
+const collectionsProvision=process.env.CENTRAL_FACTUS_PAY_COLLECTIONS_PROVISION_FILE;
+if(collectionsProvision&&(!deployment||deployment.environment==="LOCAL"))throw Error("COLLECTIONS_REAL_DEPLOYMENT_REQUIRED");
+const collectionsRuntime=collectionsProvision?await prepareSubscriptionCollectionRuntime({pool,provisionFile:collectionsProvision,
+  onError:code=>process.stderr.write(JSON.stringify({service:"subscription-collections",code})+"\n")}):undefined;
+const commercialProvision=process.env.CENTRAL_COMMERCIAL_PROVISION_FILE;
+if(commercialProvision&&(!deployment||deployment.environment==="LOCAL"||!sessionTrustPublication||!authorizationTrustPublication))throw Error("COMMERCIAL_REAL_DEPLOYMENT_TRUST_REQUIRED");
+const commercialHandler=commercialProvision?await prepareCentralCommercialRuntime({pool,provisionFile:commercialProvision,
+  origin:deployment!.origin,environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION",tls:{key:tlsKey,cert:tlsCert},
+  publishedSsaFile:required("SESSION_TRUST_ARTIFACT_FILE"),publishedSasFile:required("AUTHORIZATION_TRUST_ARTIFACT_FILE")}):undefined;
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
 const handler = new DeviceEnrollmentHttpHandler(issuer, {
@@ -106,36 +149,98 @@ const handler = new DeviceEnrollmentHttpHandler(issuer, {
 const limiter = new FixedWindowRateLimiter();
 
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, async (request, response) => {
+  if(publicSite&&request.headers.host===new URL(CamachoCommercialDomains.publicOrigin).host){await publicSite(request,response);return;}
+  if(deployment&&request.headers.host!==new URL(deployment.origin).host){send(response,421,{status:"REJECTED",result_code:"CENTRAL_HOST_REJECTED"});return;}
+  if(request.url?.split('?')[0]===CamachoCommercialDomains.androidCallbackPath||request.url===CamachoCommercialDomains.androidAssociationPath){
+    send(response,503,{status:'REJECTED',result_code:'ANDROID_NATIVE_RUNTIME_NOT_PROVISIONED'});return;
+  }
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
+  if(request.url==="/v1/licensing/activations/resolve"){
+    if(licenseRuntime)await licenseRuntime.handler(request,response);else send(response,503,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;
+  }
+
+  if(request.url?.startsWith("/v1/platform/")||request.url==="/platform"||request.url?.startsWith("/platform/")||request.url==="/v1/licensing/offers"||request.url==="/pricing"||request.url?.startsWith("/pricing/")){
+    if(globalHandler)await globalHandler(request,response);
+    else send(response,503,{status:"REJECTED",result_code:"GLOBAL_ADMINISTRATION_NOT_ACTIVATED"});
+    return;
+  }
 
   if (request.method === "GET" && request.url === "/health") {
     send(response, 200, { status: "OK", service: "central-authority", protocol_version: "1.0.0" });
     return;
   }
+  if(request.method==="GET"&&request.url==="/ready"){
+    if(readiness&&await readiness())send(response,200,{status:"READY",service:"central-authority",commercial_auth:commercialHandler?"CONFIGURED":"NOT_ACTIVATED"});
+    else send(response,503,{status:"NOT_READY",service:"central-authority"});return;
+  }
 
-  if (request.method === "GET" && request.url === "/v1/session-trust") {
-    const authorization = request.headers.authorization ?? null;
-    const authorized = sessionTrustPublication !== null
-      && sessionTrustTransportToken !== null
-      && authorization !== null
-      && authorization.startsWith("Bearer ")
-      && constantTimeEqual(authorization.slice(7), sessionTrustTransportToken);
-    if (!authorized) {
-      send(response, 401, { status: "REJECTED", result_code: "SESSION_TRUST_UNAUTHORIZED", request_id: requestId, correlation_id: correlationId });
+  if (request.method === "GET" && (request.url === "/v1/session-trust"||request.url==="/v1/authorization-trust")) {
+    const sas=request.url==="/v1/authorization-trust",publication=sas?authorizationTrustPublication:sessionTrustPublication,
+      token=sas?authorizationTrustTransportToken:sessionTrustTransportToken,prefix=sas?"AUTHORIZATION_TRUST":"SESSION_TRUST";
+    // Rate-limit before bearer validation so failed token guesses consume the same remote-address budget.
+    if (!limiter.allow(`${remote}:${sas?"authorization-trust":"session-trust"}`)) {
+      send(response, 429, { status: "REJECTED", result_code: `${prefix}_RATE_LIMITED`, request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
       return;
     }
-    if (!limiter.allow(`${remote}:session-trust`)) {
-      send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
+    const authorization = request.headers.authorization ?? null;
+    const authorized = publication !== null
+      && token !== null
+      && authorization !== null
+      && authorization.startsWith("Bearer ")
+      && constantTimeEqual(authorization.slice(7), token);
+    if (!authorized) {
+      send(response, 401, { status: "REJECTED", result_code: `${prefix}_UNAUTHORIZED`, request_id: requestId, correlation_id: correlationId });
       return;
     }
     try {
-      const bundle = sessionTrustPublication.load();
+      const bundle = publication.load();
       send(response, 200, bundle, { "x-request-id": requestId, "x-correlation-id": correlationId });
     } catch {
-      send(response, 503, { status: "REJECTED", result_code: "SESSION_TRUST_UNAVAILABLE", request_id: requestId, correlation_id: correlationId });
+      send(response, 503, { status: "REJECTED", result_code: `${prefix}_UNAVAILABLE`, request_id: requestId, correlation_id: correlationId });
     }
+    return;
+  }
+
+  if(commercialHandler&&(request.url?.startsWith("/v1/commercial/")||request.url?.startsWith("/v1/business-session/"))){
+    try{
+      await commercialHandler(request,response);
+    }catch{
+      // An asynchronous BUSINESS handler failure must never escape the HTTPS
+      // request listener or disclose password, code, token or key material.
+      // A partially written response cannot safely be replaced with JSON.
+      if(response.headersSent){
+        if(!response.writableEnded)response.destroy();
+      }else if(!response.destroyed){
+        send(response,500,{status:"REJECTED",result_code:"COMMERCIAL_REQUEST_FAILED",
+          request_id:requestId,correlation_id:correlationId});
+      }
+      process.stderr.write("CENTRAL_COMMERCIAL_REQUEST_FAILED\n");
+    }
+    return;
+  }
+  if(request.url?.split("?",1)[0]===FACTUS_PAY_COLLECTION_WEBHOOK_PATH){
+    if(!factusPayHandler){send(response,503,{status:"REJECTED",result_code:"FACTUS_PAY_NOT_PROVISIONED"});return;}
+    await factusPayHandler(request,response);return;
+  }
+  // Reserved commercial authorization surface: explicitly fail closed until
+  // D3 deployment approval, native registrations and key custody are verified.
+  // Do not route isolated PostgreSQL fixtures or accept client session IDs.
+  if (request.url === "/v1/commercial/token" ||
+      request.url === "/v1/commercial/refresh" ||
+      request.url === "/v1/commercial/authorize" ||
+      request.url === "/v1/commercial/login" ||
+      request.url === "/v1/commercial/browser/session" ||
+      request.url === "/v1/commercial/browser/logout" ||
+      request.url === "/v1/commercial/browser/rotate") {
+    if (!limiter.allow(`${remote}:commercial-auth`)) {
+      send(response,429,{status:"REJECTED",result_code:"COMMERCIAL_AUTH_RATE_LIMITED",
+        request_id:requestId,correlation_id:correlationId},{"retry-after":"60"});
+      return;
+    }
+    send(response,503,{status:"REJECTED",result_code:"COMMERCIAL_AUTH_NOT_ACTIVATED",
+      request_id:requestId,correlation_id:correlationId});
     return;
   }
 
@@ -145,8 +250,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   }
 
   const authorization = request.headers.authorization ?? null;
-  const authFingerprint = createHash("sha256").update(authorization ?? "anonymous").digest("hex");
-  if (!limiter.allow(`${remote}:${authFingerprint}`)) {
+  if (!limiter.allow(`${remote}:device-enrollment`)) {
     send(response, 429, { status: "REJECTED", result_code: "DEVICE_ENROLLMENT_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
     return;
   }
@@ -166,13 +270,23 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
 });
 
 server.on("clientError", (_error, socket) => socket.destroy());
-server.listen(PORT, "0.0.0.0", () => process.stdout.write(JSON.stringify({ service: "central-authority", status: "LISTENING", port: PORT }) + "\n"));
+if(deployment){server.requestTimeout=deployment.requestTimeoutMs;server.headersTimeout=deployment.headersTimeoutMs;}
+if(deployment)server.once("error",()=>{process.stderr.write("CENTRAL_LISTEN_FAILED\n");void pool.end().finally(()=>{process.exitCode=1;});});
+server.listen(PORT, deployment?.bindAddress ?? "0.0.0.0", () => {
+  collectionsRuntime?.start();
+  process.stdout.write(JSON.stringify({ service: "central-authority", status: "LISTENING", port: PORT }) + "\n");
+});
 
+let stopping=false;
 const shutdown = async (signal: string) => {
-  server.close();
-  await pool.end();
-  process.stdout.write(JSON.stringify({ service: "central-authority", status: "STOPPED", signal }) + "\n");
-  process.exit(0);
+  if(stopping)return;stopping=true;
+  try{
+    await collectionsRuntime?.stop();
+    if(deployment){const outcome=await drainCentralServer(server,pool,deployment.shutdownTimeoutMs);
+      process.stdout.write(JSON.stringify({service:"central-authority",status:"STOPPED",signal,outcome})+"\n");process.exit(outcome==="DRAINED"?0:1);}
+    server.close();await pool.end();
+    process.stdout.write(JSON.stringify({ service: "central-authority", status: "STOPPED", signal }) + "\n");process.exit(0);
+  }catch{process.stderr.write("CENTRAL_SHUTDOWN_FAILED\n");process.exit(1);}
 };
 process.once("SIGTERM", () => void shutdown("SIGTERM"));
 process.once("SIGINT", () => void shutdown("SIGINT"));

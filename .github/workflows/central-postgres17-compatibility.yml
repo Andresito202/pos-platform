@@ -1,0 +1,136 @@
+name: Central PostgreSQL 17 compatibility evidence
+
+on:
+  push:
+    branches:
+      - feat/p0-windows-login-install-readiness
+    paths:
+      - '.github/workflows/central-postgres17-compatibility.yml'
+      - 'tools/target-migrations/**'
+      - 'packages/database-postgres/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pg17-canonical-migration-evidence:
+    name: Canonical migration SQL + RLS on isolated PostgreSQL 17.11
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:55432:5432
+          - 127.0.0.1:55433:5432
+        options: >-
+          --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,size=512m
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      POSTGRES_TEST_URL: postgresql://postgres@127.0.0.1:55432/postgres
+    steps:
+      - name: Checkout exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install locked dependency graph
+        run: pnpm install --frozen-lockfile
+      - name: Check actual ephemeral Postgres version and disposable target
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const u=new URL(process.env.POSTGRES_TEST_URL);if(u.hostname!=='127.0.0.1'||u.port!=='55432'||u.pathname!=='/postgres'||u.username!=='postgres')process.exit(2)"
+          docker exec "${{ job.services.postgres.id }}" psql -U postgres -d postgres -tAX -c 'SHOW server_version_num' | grep -Fx '170011'
+          echo 'PG17_11_EPHEMERAL_TARGET=PASS'
+      - name: Typecheck PostgreSQL migration execution and receipt contracts
+        run: pnpm --filter @pos-platform/target-migrations typecheck
+      - name: Execute canonical 001 and 002 migrations and failure-recovery tests on PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-migration.test.ts tests/postgres-002-migration.test.ts --no-file-parallelism
+          echo 'PG17_CANONICAL_001_002_AND_ROLES=PASS'
+      - name: Execute canonical 003 migration and role-readiness lifecycle on PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-003-runner.test.ts --no-file-parallelism
+          echo 'PG17_CANONICAL_003_AND_READINESS=PASS'
+      - name: Verify 005 SQL physical tenant isolation on PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-005-rls.test.ts --no-file-parallelism
+          echo 'PG17_005_PHYSICAL_RLS=PASS'
+      - name: Execute commercial 008 through 016 physical migration and RLS tests on PostgreSQL 17
+        shell: bash
+        env:
+          POSTGRES_TEST_URL: postgresql://postgres@127.0.0.1:55433/postgres
+        run: |
+          set -euo pipefail
+          node -e "const u=new URL(process.env.POSTGRES_TEST_URL);if(u.hostname!=='127.0.0.1'||u.port!=='55433'||u.pathname!=='/postgres')process.exit(2)"
+          pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-commercial-runner-physical.test.ts --no-file-parallelism
+          echo 'PG17_COMMERCIAL_MIGRATIONS_PHYSICAL=PASS'
+      - name: Configure ephemeral PostgreSQL 17 TLS with a self-signed localhost CA
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="${{ job.services.postgres.id }}"
+          docker exec -u root "$container" sh -ec '
+            openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
+              -subj "/CN=localhost" \
+              -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
+              -keyout /tmp/camacho-ci-postgres.key -out /tmp/camacho-ci-postgres.crt >/dev/null 2>&1
+            chown postgres:postgres /tmp/camacho-ci-postgres.key /tmp/camacho-ci-postgres.crt
+            chmod 600 /tmp/camacho-ci-postgres.key
+          '
+          docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl = 'on'"
+          docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl_cert_file = '/tmp/camacho-ci-postgres.crt'"
+          docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET ssl_key_file = '/tmp/camacho-ci-postgres.key'"
+          docker cp "$container:/tmp/camacho-ci-postgres.crt" "$RUNNER_TEMP/pg17-ca.crt"
+          docker exec -u postgres "$container" psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT pg_reload_conf()'
+          for i in $(seq 1 20); do
+            value="$(docker exec -u postgres "$container" psql -U postgres -d postgres -tAX -c 'SHOW ssl' | tr -d '\r')"
+            if [[ "$value" == on ]]; then break; fi
+            sleep 1
+          done
+          test "$value" = on
+          echo 'PG17_EPHEMERAL_TLS=PASS'
+      - name: Execute uninterrupted 001 to 016 chain with physical RLS and no fixture ledger
+        shell: bash
+        env:
+          POSTGRES_TEST_URL: postgresql://postgres@127.0.0.1:55433/postgres
+          NODE_EXTRA_CA_CERTS: ${{ runner.temp }}/pg17-ca.crt
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-17-full-commercial-chain.test.ts --no-file-parallelism
+          echo 'PG17_UNINTERRUPTED_001_016_CHAIN=PASS'
+      - name: Do not claim preproduction schema or BUSINESS enrollment
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          echo 'SUPABASE_PREPRODUCTION_MUTATED=NO'
+          echo 'POSTGRES17_FULL_CANONICAL_CHAIN=NOT_TESTED'
+          echo 'CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED'
+          echo 'COMMERCIAL_LOGIN_CERTIFIED=NO'

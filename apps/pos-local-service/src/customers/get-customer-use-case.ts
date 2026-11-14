@@ -1,3 +1,4 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
 import {
   createActor,
   createOperationScope,
@@ -9,7 +10,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { SqliteCustomerStore } from "./sqlite-customer-store.js";
 
-export const PERMISSION_CUSTOMERS_CUSTOMER_READ = "CUSTOMERS_CUSTOMER_READ";
+export const PERMISSION_CUSTOMERS_CUSTOMER_READ = CanonicalPermission.CUSTOMERS_CUSTOMER_READ;
 
 /**
  * Se puede consultar por identificador interno o por identidad fiscal. La

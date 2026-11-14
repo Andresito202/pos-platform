@@ -1233,6 +1233,40 @@ CREATE INDEX inventory_movement_sale_idx
  * asignacion local cuando la autoridad es del proveedor, de modo que
  * `current_number` aqui es informativo y nunca fuente de un consecutivo.
  */
+
+/**
+ * `MIGRATION_017` — preferencias explícitas de comunicaciones comerciales.
+ *
+ * Separada de `customers_customers`: el registro fiscal no implica consentimiento
+ * comercial. V1 materializa sólo el tema "Novedades del POS" por correo.
+ */
+const MIGRATION_017 = `
+CREATE TABLE customer_marketing_subscriptions (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  customer_id TEXT NOT NULL CHECK(length(customer_id) = 36),
+  channel TEXT NOT NULL CHECK(channel = 'EMAIL'),
+  topic TEXT NOT NULL CHECK(topic = 'POS_NEWS'),
+  status TEXT NOT NULL CHECK(status IN ('SUBSCRIBED','UNSUBSCRIBED')),
+  consent_version TEXT,
+  consented_at TEXT,
+  unsubscribed_at TEXT,
+  source TEXT NOT NULL CHECK(source = 'POS'),
+  updated_by_actor_id TEXT NOT NULL CHECK(length(updated_by_actor_id) = 36),
+  session_id TEXT NOT NULL CHECK(length(session_id) = 36),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id) = 36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id) = 36),
+  version INTEGER NOT NULL CHECK(version >= 1),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tenant_id, company_id, customer_id, channel, topic),
+  FOREIGN KEY (tenant_id, customer_id) REFERENCES customers_customers(tenant_id, id),
+  CHECK(status <> 'SUBSCRIBED' OR (consent_version IS NOT NULL AND consented_at IS NOT NULL)),
+  CHECK(status <> 'UNSUBSCRIBED' OR unsubscribed_at IS NOT NULL)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX customer_marketing_subscriptions_status_idx
+  ON customer_marketing_subscriptions(tenant_id, company_id, topic, channel, status);
+`.trim();
+
 const MIGRATION_016 = `
 CREATE TABLE fiscal_numbering_range (
   tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
@@ -1346,6 +1380,71 @@ CREATE TRIGGER fiscal_electronic_document_resolved_is_final
 `.trim();
 
 
+// Hardware owns execution metadata only. Receipts remain projections (DEC-019).
+const MIGRATION_018 = `
+CREATE TABLE hardware_bindings (
+ id TEXT PRIMARY KEY NOT NULL,tenant_id TEXT NOT NULL,company_id TEXT NOT NULL,branch_id TEXT NOT NULL,
+ cash_register_id TEXT NOT NULL,device_id TEXT NOT NULL,profile_json TEXT NOT NULL CHECK(json_valid(profile_json)),
+ created_at TEXT NOT NULL,UNIQUE(tenant_id,branch_id,cash_register_id,device_id)
+) STRICT;
+CREATE TABLE hardware_jobs (
+ id TEXT PRIMARY KEY NOT NULL,tenant_id TEXT NOT NULL,company_id TEXT NOT NULL,branch_id TEXT NOT NULL,
+ binding_id TEXT NOT NULL REFERENCES hardware_bindings(id),source_payment_id TEXT UNIQUE,kind TEXT NOT NULL CHECK(kind IN ('PRINT_TEST','PRINT_RECEIPT','DRAWER_OPEN','CUT')),
+ sale_id TEXT,reason TEXT NOT NULL,actor_id TEXT NOT NULL,session_id TEXT NOT NULL,
+ request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+ state TEXT NOT NULL CHECK(state IN ('PENDING','DISPATCHING','TRANSPORT_ACCEPTED','FAILED','UNKNOWN')),
+ result_code TEXT NOT NULL,created_at TEXT NOT NULL,updated_at TEXT NOT NULL
+) STRICT;
+CREATE TABLE hardware_events (
+ sequence INTEGER PRIMARY KEY AUTOINCREMENT,job_id TEXT,actor_id TEXT NOT NULL,session_id TEXT NOT NULL,
+ event_code TEXT NOT NULL,reason TEXT NOT NULL,recorded_at TEXT NOT NULL
+) STRICT;
+CREATE TRIGGER hardware_events_no_update BEFORE UPDATE ON hardware_events BEGIN SELECT RAISE(ABORT,'hardware audit is append-only'); END;
+CREATE TRIGGER hardware_events_no_delete BEFORE DELETE ON hardware_events BEGIN SELECT RAISE(ABORT,'hardware audit is append-only'); END;
+CREATE INDEX hardware_jobs_pending_idx ON hardware_jobs(tenant_id,branch_id,state,created_at);
+`.trim();
+
+// Local editable baskets: never a sale, stock movement or fiscal document.
+const MIGRATION_019 = `
+CREATE TABLE sales_waiting_carts (
+ id TEXT PRIMARY KEY NOT NULL CHECK(length(id)=36),
+ tenant_id TEXT NOT NULL, company_id TEXT NOT NULL, branch_id TEXT NOT NULL,
+ device_id TEXT NOT NULL, operator_id TEXT NOT NULL, cash_register_id TEXT NOT NULL,
+ version INTEGER NOT NULL CHECK(version>0),
+ state TEXT NOT NULL CHECK(state IN ('WAITING','CONSUMED','DISCARDED')),
+ payload_json TEXT NOT NULL CHECK(json_valid(payload_json)),
+ last_save_key TEXT NOT NULL, last_save_checksum TEXT NOT NULL,
+ sale_key TEXT, sale_checksum TEXT, sale_result_json TEXT CHECK(sale_result_json IS NULL OR json_valid(sale_result_json)),
+ updated_at TEXT NOT NULL,
+ CHECK((state IN ('WAITING','DISCARDED') AND sale_key IS NULL AND sale_result_json IS NULL) OR
+       (state='CONSUMED' AND sale_key IS NOT NULL AND sale_result_json IS NOT NULL))
+) STRICT;
+CREATE INDEX sales_waiting_carts_owner_idx ON sales_waiting_carts
+ (tenant_id, company_id, branch_id, device_id, operator_id, state, updated_at, id);
+`.trim();
+
+// Sales already owns customer_id in the physical model; Customer is now materialized.
+const MIGRATION_020 = `
+ALTER TABLE sales_sales ADD COLUMN customer_id TEXT CHECK(customer_id IS NULL OR length(customer_id)=36);
+-- SQLite cannot add a composite foreign key with ALTER TABLE. Preserve the
+-- existing sales table and enforce the tenant/company-aware reference in SQL.
+CREATE TRIGGER sales_customer_scope_insert BEFORE INSERT ON sales_sales
+WHEN NEW.customer_id IS NOT NULL AND NOT EXISTS(
+  SELECT 1 FROM customers_customers WHERE tenant_id=NEW.tenant_id AND company_id=NEW.company_id AND id=NEW.customer_id
+) BEGIN SELECT RAISE(ABORT,'sale customer scope mismatch'); END;
+CREATE TRIGGER sales_customer_identity_immutable BEFORE UPDATE OF customer_id,tenant_id,company_id ON sales_sales
+WHEN NEW.customer_id IS NOT OLD.customer_id OR (OLD.customer_id IS NOT NULL AND (NEW.tenant_id IS NOT OLD.tenant_id OR NEW.company_id IS NOT OLD.company_id))
+BEGIN SELECT RAISE(ABORT,'sale customer identity immutable'); END;
+CREATE TRIGGER customers_linked_sale_no_delete BEFORE DELETE ON customers_customers
+WHEN EXISTS(SELECT 1 FROM sales_sales WHERE tenant_id=OLD.tenant_id AND customer_id=OLD.id)
+BEGIN SELECT RAISE(ABORT,'customer referenced by sale'); END;
+CREATE TRIGGER customers_linked_sale_no_rebind BEFORE UPDATE OF tenant_id,company_id,id ON customers_customers
+WHEN (NEW.tenant_id IS NOT OLD.tenant_id OR NEW.company_id IS NOT OLD.company_id OR NEW.id IS NOT OLD.id)
+AND EXISTS(SELECT 1 FROM sales_sales WHERE tenant_id=OLD.tenant_id AND customer_id=OLD.id)
+BEGIN SELECT RAISE(ABORT,'customer referenced by sale'); END;
+CREATE INDEX sales_sales_customer_idx ON sales_sales(tenant_id,company_id,customer_id) WHERE customer_id IS NOT NULL;
+`;
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1363,6 +1462,10 @@ const MIGRATIONS = [
   { version: 14, sql: MIGRATION_014, checksum: createHash("sha256").update(MIGRATION_014).digest("hex") },
   { version: 15, sql: MIGRATION_015, checksum: createHash("sha256").update(MIGRATION_015).digest("hex") },
   { version: 16, sql: MIGRATION_016, checksum: createHash("sha256").update(MIGRATION_016).digest("hex") },
+  { version: 17, sql: MIGRATION_017, checksum: createHash("sha256").update(MIGRATION_017).digest("hex") },
+  { version: 18, sql: MIGRATION_018, checksum: createHash("sha256").update(MIGRATION_018).digest("hex") },
+  { version: 19, sql: MIGRATION_019, checksum: createHash("sha256").update(MIGRATION_019).digest("hex") },
+  { version: 20, sql: MIGRATION_020, checksum: createHash("sha256").update(MIGRATION_020).digest("hex") },
 ] as const;
 
 /**

@@ -1,0 +1,281 @@
+name: Windows login P0 isolated validation
+
+on:
+  push:
+    branches:
+      - feat/p0-windows-login-install-readiness
+    paths:
+      - '.github/workflows/windows-login-p0-validation.yml'
+      - 'apps/pos-local-service/**'
+      - 'apps/pos-desktop/**'
+      - 'apps/central-authority/**'
+      - 'packages/local-channel/**'
+      - 'packages/contracts/**'
+      - 'tools/target-migrations/**'
+      - 'tools/operators/windows-winsw-readiness.ps1'
+      - 'tools/operators/windows-login-lab-commercial-readiness*'
+      - 'tools/operators/windows-login-lab-commercial-provision*'
+      - 'tools/operators/windows-scm-commercial-binding*'
+      - 'tools/operators/windows-scm-manifest-pair.mjs'
+      - 'apps/pos-local-service/tests/device-enrollment-service.test.ts'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-login-p0-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  login-p0:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout reviewed Windows login branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck login contracts and runtime
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/contracts typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/local-channel typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/pos-local-service typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/central-authority typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/pos-desktop typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows native host identity SCM fail closed and lease regressions
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/service-descriptor.test.ts tests/windows-commercial-host-identity.test.ts tests/windows-handoff-lease-state.test.ts tests/windows-scm-runtime.test.ts tests/windows-scm-stop.test.ts tests/windows-winsw-readiness.test.ts tests/windows-dpapi.test.ts tests/native-session-close-lifecycle.test.ts --no-file-parallelism
+      - name: Windows channel contracts (non-enrolled hosted runner)
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-production.test.ts tests/windows-native-pipe.test.ts tests/windows-service-signer.test.ts --no-file-parallelism
+      - name: Signed handoff contract tests excluding physical receiver enrollment
+        if: ${{ !cancelled() }}
+        # Physical owner-ACL/DPAPI receiver enrollment requires the approved SCM lab.
+        # This CI suite must not imply an actual SERVICE/DESKTOP identity test.
+        run: pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-handoff.test.ts -t "^(?!.*real Windows receiver:)" --no-file-parallelism
+      - name: Central login contracts and authorization
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/central-login-preflight.test.ts tests/central-certification-preflight.test.ts tests/business-login-coordinator.test.ts tests/native-authorization-code-exchange.test.ts tests/central-session-assertion-issuer.test.ts --no-file-parallelism
+      - name: Electron login and recovery contracts
+        if: ${{ !cancelled() }}
+        run: pnpm --filter @pos-platform/pos-desktop exec vitest run tests/desktop-commercial-startup-secrecy.test.ts tests/scm-channel-start.test.ts tests/commercial-account.test.ts tests/native-business-login.test.ts tests/native-commercial-service-login.test.ts tests/renderer/session-recovery.test.tsx --no-file-parallelism
+      - name: Explicit certification boundary
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          Write-Output 'ISOLATED_WINDOWS_COMPONENTS_ONLY'
+          Write-Output 'NO_SCM_SERVICE_INSTALLATION_OR_HUMAN_MFA_PERFORMED'
+          Write-Output 'NO_BUSINESS_LOGIN_PRODUCTION_CERTIFICATION'
+
+  commercial-binding-contracts:
+    name: UUIDv7 SCM and BUSINESS provision contracts (isolated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Commercial SCM binding worker and manifest negative tests
+        run: node --test tools/operators/windows-scm-commercial-binding.test.mjs
+      - name: Commercial readiness and UUIDv7 inspection contracts
+        run: pnpm --filter @pos-platform/target-migrations exec node --import tsx --test ../../tools/operators/windows-login-lab-commercial-readiness.test.mts
+      - name: BUSINESS provision metadata and isolation tests
+        run: pnpm --filter @pos-platform/target-migrations exec node --import tsx --test ../../tools/operators/windows-login-lab-commercial-provision.test.mts
+      - name: Do not claim actual SCM or Central enrollment
+        run: echo 'CONTRACTS_ONLY_NO_SCM_BINDING_NO_CENTRAL_DEV003'
+
+  device-business-contracts:
+    name: DEV-003 and BUSINESS login unit integration (isolated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install exact dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Device enrollment service and trust contracts
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/device-enrollment-service.test.ts tests/windows-commercial-runtime.test.ts --no-file-parallelism
+      - name: Central BUSINESS authorization and session contracts
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/business-login-coordinator.test.ts tests/central-session-assertion-issuer.test.ts tests/native-authorization-code-exchange.test.ts --no-file-parallelism
+      - name: Do not claim device provisioned
+        run: echo 'MOCKED_CONTRACTS_ONLY_NO_HUMAN_BUSINESS_LOGIN'
+
+  native-pkce-postgres:
+    name: Native PKCE single-use physical PostgreSQL (isolated)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.14
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: pos_target_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:55433:5432
+        options: >-
+          --tmpfs /var/lib/postgresql/data:rw,noexec,nosuid,size=256m
+          --health-cmd "pg_isready -U postgres -d pos_target_test"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      POSTGRES_TEST_URL: postgresql://postgres@127.0.0.1:55433/pos_target_test
+    steps:
+      - name: Checkout reviewed SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Verify isolated fixture only
+        run: |
+          node -e "const u=new URL(process.env.POSTGRES_TEST_URL); if(u.hostname!=='127.0.0.1'||u.port!=='55433'||u.pathname!=='/pos_target_test')process.exit(2)"
+      - name: Run real PostgreSQL callback and PKCE one-use/concurrency tests
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/native-authorization-full-composition-physical.test.ts --no-file-parallelism
+      - name: Certification boundary
+        run: echo 'EPHEMERAL_POSTGRES_FIXTURE_NO_SCM_OR_REAL_BUSINESS_IDENTITY'
+
+  hosted-native-dpapi-receiver:
+    name: Windows native DPAPI receiver, real OS identity (hosted)
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Locked install
+        run: pnpm install --frozen-lockfile
+      - name: Validate real hosted Windows token and native PowerShell ACL support
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $os=Get-CimInstance Win32_OperatingSystem
+          if($os.BuildNumber -ne '20348' -or $os.ProductType -eq 1){throw 'WINDOWS_SERVER_2022_REQUIRED'}
+          $groups=@([Security.Principal.WindowsIdentity]::GetCurrent().Groups | ForEach-Object {$_.Value})
+          if($groups -notcontains 'S-1-5-4' -and $groups -notcontains 'S-1-5-14'){throw 'HOSTED_INTERACTIVE_TOKEN_REQUIRED'}
+          $env:PSModulePath=((Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules')+';'+(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'))
+          & powershell.exe -NoProfile -NonInteractive -Command "Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; Get-Acl -LiteralPath '$env:WINDIR' | Out-Null"
+          if($LASTEXITCODE -ne 0){throw 'WINPS_ACL_UNAVAILABLE'}
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PSModulePath='+$env:PSModulePath)
+      - name: Physical DPAPI and owner ACL positive/negative tests (not original VM)
+        shell: powershell
+        run: pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-handoff.test.ts -t "real Windows receiver:" --no-file-parallelism
+      - name: Explicit independent-host certification boundary
+        run: echo 'REAL_HOSTED_WINDOWS_DPAPI_ONLY_NOT_ORIGINAL_SCM_SERVICE_OR_CENTRAL_DEVICE'
+
+  commercial-certification-evidence:
+    name: Aggregate isolated P0 evidence (not commercial certification)
+    runs-on: ubuntu-latest
+    needs:
+      - login-p0
+      - commercial-binding-contracts
+      - device-business-contracts
+      - native-pkce-postgres
+      - hosted-native-dpapi-receiver
+    if: ${{ always() }}
+    permissions:
+      contents: read
+    steps:
+      - name: Fail closed if any isolated gate is missing or failed
+        shell: bash
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          names = (
+              'login-p0',
+              'commercial-binding-contracts',
+              'device-business-contracts',
+              'native-pkce-postgres',
+              'hosted-native-dpapi-receiver',
+          )
+          outcomes = json.loads(os.environ['NEEDS_JSON'])
+          observed = {key: outcomes.get(key, {}).get('result', 'missing') for key in names}
+          print('P0_ISOLATED_GATE_RESULTS=' + json.dumps(observed, sort_keys=True))
+          if any(value != 'success' for value in observed.values()):
+              print('P0_ISOLATED_CONTRACTS=FAIL')
+              sys.exit(1)
+          print('P0_ISOLATED_CONTRACTS=PASS')
+          print('G1_NATIVE_WINDOWS_HOSTED=SEPARATE_WORKFLOW')
+          print('G2_REAL_BUSINESS_SESSION=NOT_TESTED')
+          print('CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED')
+          print('HUMAN_MFA_LOGIN=NOT_TESTED')
+          print('COMMERCIAL_LOGIN_CERTIFIED=NO')
+          PY

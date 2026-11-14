@@ -1,0 +1,1099 @@
+{
+  "schema": "camacho-security-27-closure/v1",
+  "date": "2026-11-02",
+  "baselineSha": "ce2ed5aec595a20dfad2bea6791f837ef64a9825",
+  "coverage": "PARTIAL",
+  "productionCertification": false,
+  "actionsDispatched": 0,
+  "physicalScm": "BLOCKED_ACCESS_DENIED",
+  "postgres": "BLOCKED_16_14_UNAVAILABLE_NATIVE_16_11_NOT_SUBSTITUTED",
+  "scopeLimits": [
+    "No exhaustive1350-file audit",
+    "Originalvideo absent and20/21unavailable",
+    "No full history/ignored-artifact or operational-secrets audit",
+    "No human/provider/Android/hardware certification"
+  ],
+  "defectEvidence": {
+    "firstAttempt": {
+      "path": "artifacts/security-27/2026-11-02/before.json",
+      "sha256": "c96a5433d6ed067ca359581c1530dfee5787aedd8839cc5058b2d6c83fffbd6e",
+      "pass": 4,
+      "fail": 6,
+      "pending": 0
+    },
+    "auditCorrectedFixtureBefore": {
+      "path": "artifacts/security-27/2026-11-02/before-audit-corrected-fixture.json",
+      "sha256": "a31d3e9c9794f9918edc3910af21c4028b8622a5ff38be7503f61cc892412d60",
+      "pass": 0,
+      "fail": 4,
+      "pending": 0
+    },
+    "firstFix": {
+      "path": "artifacts/security-27/2026-11-02/focused.json",
+      "sha256": "87a641e43a3af9188d7d5c931b0ad242091bdd07985aed7690b84df4d9760bd4",
+      "pass": 19,
+      "fail": 2,
+      "pending": 0
+    },
+    "firstCorrectedFixture": {
+      "path": "artifacts/security-27/2026-11-02/focused-final.json",
+      "sha256": "30c274ab99582f807f53e9ec3e91c9a85b860267e59ed602db7eaa71f9a22b5c",
+      "pass": 21,
+      "fail": 0,
+      "pending": 0
+    },
+    "reviewBefore": {
+      "path": "artifacts/security-27/2026-11-02/review-trigger-before.json",
+      "sha256": "3923d90ed8fe2d0313f31896b1ab6e04197f2d9ed12034e35a1bb49b4316bbe1",
+      "pass": 6,
+      "fail": 1,
+      "pending": 0
+    },
+    "reviewedFix": {
+      "path": "artifacts/security-27/2026-11-02/focused-reviewed-final.json",
+      "sha256": "2fa505b6510fa6a0c42101058e4f4fd8708f83c6fe272ab8bfbb58bdbfdfc580",
+      "pass": 22,
+      "fail": 0,
+      "pending": 0
+    },
+    "finalWompi": {
+      "path": "artifacts/security-27/2026-11-02/wompi-final.json",
+      "sha256": "32cfe46d660ef4be63fa888edef621356abe381f31b4a2926c55eaaff0908078",
+      "pass": 8,
+      "fail": 0,
+      "pending": 0
+    }
+  },
+  "electron": {
+    "command": "pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts --retries=0 --reporter=json",
+    "version": "44.9.1",
+    "exeSha256": "1432afee01d6a788f11cb6649efd271923e1e490beef688c24d31f47965013aa",
+    "status": "PASS",
+    "stats": {
+      "startTime": "2026-11-03T02:53:18.181Z",
+      "duration": 34964.54,
+      "expected": 14,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "reportSha256": "b4cea2f26db2b3decf267bacc7c94af16f9ab85923454872426a563f948379d5",
+    "scope": "Actual Electron, interactive DPAPI/namedpipe/temporarySQLite/testSSA. Not SCM/human/provider."
+  },
+  "dependencyAudit": {
+    "status": "PASS",
+    "rawAuditExit": 1,
+    "advisoryCount": 1,
+    "severityCounts": {
+      "info": 0,
+      "low": 0,
+      "moderate": 1,
+      "high": 0,
+      "critical": 0
+    },
+    "exceptions": [],
+    "evaluationSha256": "4f9b6091ef4c0d1f18d8eb1783092884173021882ed5658ee6fa2f271fae532f",
+    "remaining": "minimatch10.2.5 GHSA-g3hv-75wg-m249 moderate; major11 compatibility unverified",
+    "sourceCommit": "3abc72efbf7883d8c3341496956f59c4e725619d"
+  },
+  "sqliteAddon": {
+    "version": "13.0.3",
+    "nativeSha256": "e21e5efd71fba66578e95b62554d9028064a80dafd7221bf8a8ef155de8d240a",
+    "inMemoryQuery": "3.53.4",
+    "status": "PASS"
+  },
+  "review": {
+    "method": "Independent baseline/HTTP/architecture; parent validation; fresh compatibility and bypass review. One review cycle.",
+    "foundSurvivingTupleAmbiguity": true,
+    "remainingTriggerRejected": true
+  },
+  "checks": {
+    "recursiveTypecheck": "PASS",
+    "centralTypecheckAfterPatch": "PASS",
+    "desktopBuild": "PASS",
+    "serviceArtifact": "PASS",
+    "architecture": "PASS",
+    "supplyChainTests": {
+      "pass": 45,
+      "fail": 0
+    }
+  },
+  "observedFailures": [
+    "Baseline defects; empty client fixture rejected constructor (fixture corrected)",
+    "Event-name string assertions corrected to canonical code",
+    "First SBOM/license invocation rejected absent REVIEWED_SHA (final SHA-bound checks follow)"
+  ],
+  "globalSecurityClosure": false,
+  "mergeDecision": "NO_GO",
+  "controls": [
+    {
+      "number": 1,
+      "control": "Autenticación de usuarios",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "`business-initial-mfa-flow.ts:42`, `business-session-authority.ts:26`, `global-administration-sessions.ts:55`: contraseña/MFA, entrega de un uso, ámbitos separados. Sin cambios al login aprobado.",
+      "residual": "SCM entre identidades, provisión y persona/autenticador pendientes; no se concede dashboard por transporte."
+    },
+    {
+      "number": 2,
+      "control": "Secretos fuera del frontend",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "`preload.ts`, `channel-bridge.ts`, `native-commercial-coordinator.ts:88`: superficie cerrada; custodia Service, no export de token/clave a React.",
+      "residual": "Evidencia del entorno y de permisos de archivos se comprueba aparte; no prueba ausencia universal de secretos."
+    },
+    {
+      "number": 3,
+      "control": "PostgreSQL/SQLite/multiempresa",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "`durable-browser-session-store.ts:59` en PostgreSQL; RLS foundation y contexto transaccional; SQLite single writer/WAL.",
+      "residual": "PostgreSQL 16.14 físico, roles/RLS y revocación concurrente de este HEAD bloqueados. No atribuir aislamiento a un rol Central deliberadamente autorizado entre tenants."
+    },
+    {
+      "number": 4,
+      "control": "HTTPS/TLS",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "`central-deployment-configuration.ts:17`, `main.ts:151`, `native-commercial-https.ts`: TLS≥1.2, origen/host, validación de clave/leaf, transporte sin redirects.",
+      "residual": "Confianza real de CA, DNS y despliegue no probados; legacy enrollment no tiene todas las verificaciones del perfil estricto."
+    },
+    {
+      "number": 5,
+      "control": "Hash de contraseñas",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "`platform-password-verifier.ts:18`: perfiles y Argon2id, sal aleatoria. Se reutilizó, sin reconstrucción.",
+      "residual": "Política y medición operativa dependen del despliegue; una prueba histórica no equivale a certificar una persona."
+    },
+    {
+      "number": 6,
+      "control": "Entradas backend",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "`isolated-commercial-https.ts:34`: esquema, UTF-8, bytes, profundidad, campos/headers duplicados y encodings; schemas IPC/backend.",
+      "residual": "No supone auditoría completa de todos los parsers; fixtures no habilitan rutas productivas."
+    },
+    {
+      "number": 7,
+      "control": "XSS",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "`commercial-browser-entry.ts` usa escape de configuración y `textContent`; React renderiza texto; CSP. Sin sink peligroso demostrado en el alcance buscado.",
+      "residual": "No equivale a DAST exhaustivo; mantener revisión de nuevos sinks/HTML."
+    },
+    {
+      "number": 8,
+      "control": "Actividad sospechosa",
+      "initial": "PARCIAL",
+      "final": "IMPLEMENTADO",
+      "evidence": "Defecto **medio**: el audit de cada rechazo anulaba el límite de trabajo PG. Corregido en `isolated-commercial-https.ts`, con cuotas y operaciones pendientes acotadas, sin cola por solicitud; eventos append-only y muestra de abuso independiente.",
+      "residual": "Es muestreo acotado de rechazos, no registro de cada paquete ni alerta operativa certificada. Audits transaccionales de autenticación autorizada intactos."
+    },
+    {
+      "number": 9,
+      "control": "Administración",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "`global-administration-http.ts:41`, `global-administration-sessions.ts`: GLOBAL, MFA, CSRF y permisos PLATFORM; no elevación BUSINESS.",
+      "residual": "Cuenta/ceremonia GLOBAL humana sin certificar."
+    },
+    {
+      "number": 10,
+      "control": "Inyección SQL",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "Repositorios revisados usan parámetros para valores; nombres de tablas/modos cerrados; no se añadieron SQL dinámicos ni grants.",
+      "residual": "No se afirma revisión completa de toda consulta del repositorio. Prueba física PG pendiente."
+    },
+    {
+      "number": 11,
+      "control": "Configuración/entorno",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "Perfil comercial exige parámetros/archivos confiables; ejemplos sin datos operativos. Se conserva compatibilidad legacy explícita.",
+      "residual": "Operador debe usar perfil estricto; ACL y provisión auténtica no inferidas de JSON o rutas."
+    },
+    {
+      "number": 12,
+      "control": "Rate limiting/abuso",
+      "initial": "PARCIAL",
+      "final": "IMPLEMENTADO",
+      "evidence": "Defecto medio corregido: cuotas globales de **auditoría de rechazo** por categoría, derivadas de `requestsPerMinute`; admisión síncrona antes de await, sin cola, fallo conserva cuota. Limiter HTTP por dirección intacto.",
+      "residual": "General y audit son por proceso. No demuestra admisión distribuida, límite global de toda operación DB ni benchmark de despliegue."
+    },
+    {
+      "number": 13,
+      "control": "CORS/orígenes",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "BUSINESS/GLOBAL exact Host/Origin/Fetch Metadata; rutas nativas rechazan cookies/origen de navegador; sin CORS comodín revisado.",
+      "residual": "Validar configuración real del proxy y navegadores."
+    },
+    {
+      "number": 14,
+      "control": "CSP/HSTS/clickjacking",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "Nonce/CSP, `frame-ancestors 'none'`, DENY, nosniff/no-store en superficies revisadas.",
+      "residual": "**HSTS no encontrado en Central revisado**; falta política operativa de edge/max-age y prueba HTTPS real. No se inventó vigencia, includeSubDomains ni preload."
+    },
+    {
+      "number": 15,
+      "control": "Cookies",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "Cookie opaca con hash persistido, `__Host-`, Secure/HttpOnly/Strict, rotación/revocación.",
+      "residual": "Ceremonia HTTPS humana pendiente, no se habilita cookie ficticia."
+    },
+    {
+      "number": 16,
+      "control": "CSRF",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "Cookie/flow/token correlacionados y comparación de hash, origen/método/fetch-site; GLOBAL separado.",
+      "residual": "No sustituye autenticación ni la certificación de despliegue."
+    },
+    {
+      "number": 17,
+      "control": "Recuperación/caducidad",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "`platform-password-recovery-repository.ts:110–386`: intentos/expiración, aprobador distinto GLOBAL+MFA, reemplazo y revocación atómicos.",
+      "residual": "No existe transporte público de recuperación probado; verificación operativa de identidad y PG pendientes. No se inventó un reset HTTP."
+    },
+    {
+      "number": 18,
+      "control": "Archivos recibidos",
+      "initial": "IMPLEMENTADO",
+      "final": "IMPLEMENTADO",
+      "evidence": "CSV local: `CatalogPanel.tsx:44` y `catalog-csv.ts`: 1MiB, 1000 filas, 4096/campo, sin evaluar fórmulas/XML; backend revalida schema/permisos.",
+      "residual": "NO APLICA subir archivos por HTTP: no hay ruta identificada. No se supuso importador PDF/XLSX."
+    },
+    {
+      "number": 19,
+      "control": "Importes/precios/webhooks/pagos",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "FACTUS Pay conserva hash de key→integración/tenant→inbox durable, API GET y cotejo antes de confirmar. Wompi tenía defecto **bajo**, sin caller runtime: selección/concatenación separable; corregido el perfil soportado y añadidas negativas.",
+      "residual": "Confirmación y activación auténticas pendientes. Wompi no está montado y sólo admite perfiles no ambiguos revisados; metadata no firmada nunca basta como liquidación."
+    },
+    {
+      "number": 20,
+      "control": "Contenido no disponible",
+      "initial": "NO VERIFICADO",
+      "final": "NO VERIFICADO",
+      "evidence": "No inventado.",
+      "residual": "Falta fuente original."
+    },
+    {
+      "number": 21,
+      "control": "Contenido no disponible",
+      "initial": "NO VERIFICADO",
+      "final": "NO VERIFICADO",
+      "evidence": "No inventado.",
+      "residual": "Falta fuente original."
+    },
+    {
+      "number": 22,
+      "control": "Dependencias",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "Actualización compatible/pinneada: audit pasó de 11 incidencias high a **0 high/critical**, sin excepciones. Se conserva una moderada.",
+      "residual": "`minimatch@10.2.5`, GHSA-g3hv-75wg-m249: la corrección publicada es ≥11.0.1; no se forzó otro major sobre consumidores no validados."
+    },
+    {
+      "number": 23,
+      "control": "Archivos sensibles expuestos",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "Policy prohíbe `.env`, extensiones de custodia y patrones privados rastreados; assets con allowlist, tamaño y rechazo de symlink/traversal.",
+      "residual": "No acredita ACL de archivos operativos, backups, accesos del VPS ni todo artifact local."
+    },
+    {
+      "number": 24,
+      "control": "Secretos en Git/artifacts",
+      "initial": "NO VERIFICADO",
+      "final": "NO VERIFICADO",
+      "evidence": "Búsqueda acotada actual sin matches comunes y gate de rastreados PASS; no se imprimieron valores.",
+      "residual": "No se auditó exhaustivamente el historial ni todo archivo ignorado. Resultado negativo de patrones no prueba inexistencia de credenciales opacas."
+    },
+    {
+      "number": 25,
+      "control": "Revocación/rotación comprometida",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "Mecanismos de revocación de sesión/familias, cambio de credencial y transición de raíz existentes conservados.",
+      "residual": "Rotación de secretos externos previamente expuestos no confirmada; no se usaron ni rotaron sin autorización específica."
+    },
+    {
+      "number": 26,
+      "control": "Análisis estático/dinámico",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "Revisión Standard del código, policy, arquitectura, audit real, unidades y Electron aislado ejecutados.",
+      "residual": "CodeQL/Semgrep/Gitleaks CLI no disponibles; no se ejecutó pentest Strix ni Actions. Históricos verdes con escaneo omitido no cuentan. Tests de validador SARIF tampoco son SAST ejecutado."
+    },
+    {
+      "number": 27,
+      "control": "Verificación/evidencia",
+      "initial": "PARCIAL",
+      "final": "PARCIAL",
+      "evidence": "Reproducciones antes/después, revisión independiente de bypass y regresiones afectadas; SHA/hashes/FAIL conservados.",
+      "residual": "Cobertura parcial, VM/PG/persona/proveedor y controles operativos pendientes: no cierre global artificial."
+    }
+  ],
+  "codeSha": "3abc72efbf7883d8c3341496956f59c4e725619d",
+  "sourceCommits": [
+    "3abc72efbf7883d8c3341496956f59c4e725619d fix(deps): update vulnerable runtime and build dependencies within supported majors [skip ci]",
+    "088843299f40977be60ac043c2c60152617b98c3 fix(security): reject detached and ambiguous Wompi signature profiles [skip ci]",
+    "e9ea96fa5bbb01f83b4fc8a5196202daacff4fd9 fix(security): bound BUSINESS rejection audit work before persistence [skip ci]"
+  ],
+  "scan": {
+    "scanId": "69389795-e62a-4be4-af8e-f1f85b1baa75",
+    "revision": "ce2ed5aec595a20dfad2bea6791f837ef64a9825",
+    "coverage": "PARTIAL",
+    "reportPath": "C:/Users/Usuario/.codex/state/plugins/codex-security/scans/pos-platform/ce2ed5aec595a20dfad2bea6791f837ef64a9825_20261103T023437Z_9p261tfm/report.md",
+    "usage": {
+      "source": "Completion tool reported accumulated thread usage, including history/cache; not incremental billing",
+      "coverage": "complete",
+      "threadCount": 4,
+      "totalTokens": 9706282,
+      "inputTokens": 9666380,
+      "cachedInputTokens": 9358464,
+      "outputTokens": 39902
+    }
+  },
+  "finalRegression": {
+    "cases": {
+      "method": "Replace entire Wompi test file by final8-case execution; no overlapping rerun sum",
+      "total": 2301,
+      "passed": 2283,
+      "skipped": 18
+    },
+    "steps": [
+      {
+        "name": "packages-contracts",
+        "exit": 0,
+        "tests": {
+          "total": 298,
+          "pass": 298,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 22.478,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/contracts",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\authorization-contracts.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\authorization-snapshot-contracts.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\central-administration-contract.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\commercial-domains.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\common-contracts.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\cross-boundary-compatibility.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\http-contracts.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\ipc-contracts.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\license-offer-v2.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\permission-codes.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\platform-administration-session.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\platform-security-events.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\platform-webauthn-credential-reference.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\qr-payment.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\release-contracts.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\runtime-handshake.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\sale-identifier.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\session-assertion-contracts.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\sync-contracts.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\contracts\\tests\\windows-commercial-registration.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\packages-contracts.json"
+        ],
+        "reportSha256": "3d05df1837ee6f473a9fe45712bfeb5b0ef4a4618e24a07d106e092a14992451"
+      },
+      {
+        "name": "packages-domain",
+        "exit": 0,
+        "tests": {
+          "total": 47,
+          "pass": 47,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 3.215,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/domain",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\packages\\domain\\tests\\authorization.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\packages-domain.json"
+        ],
+        "reportSha256": "177107d94a1edbc47d518cf506fad8bc4a461309a6d3c6deb0e420bede4a12fd"
+      },
+      {
+        "name": "packages-application",
+        "exit": 0,
+        "tests": {
+          "total": 16,
+          "pass": 16,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 4.891,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/application",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\packages\\application\\tests\\role-assignment-projection.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\packages-application.json"
+        ],
+        "reportSha256": "f4cd13b9f3b5f1857e798822d306433a9fd1b29c3dcd28d4c334c65caef640b5"
+      },
+      {
+        "name": "packages-database-sqlite",
+        "exit": 0,
+        "tests": {
+          "total": 58,
+          "pass": 58,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 13.337,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/database-sqlite",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\packages\\database-sqlite\\tests\\fiscal-document-migration.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-sqlite\\tests\\local-database.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-sqlite\\tests\\user-audit-migration.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\packages-database-sqlite.json"
+        ],
+        "reportSha256": "5fd3ef0e3cf27e50b7d9c86998874ca8132e94e729fc14e569bfabea226e7459"
+      },
+      {
+        "name": "packages-observability",
+        "exit": 0,
+        "tests": {
+          "total": 4,
+          "pass": 4,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 3.656,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/observability",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\packages\\observability\\tests\\structured-logger.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\packages-observability.json"
+        ],
+        "reportSha256": "30aa8d783b13ede28a1d6d987ba803e7b718f4083503d1d91972d436ff3853a5"
+      },
+      {
+        "name": "packages-device-trust",
+        "exit": 0,
+        "tests": {
+          "total": 37,
+          "pass": 37,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 7.64,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/device-trust",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\packages\\device-trust\\tests\\commercial-possession-candidate.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\device-trust\\tests\\device-trust.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\device-trust\\tests\\enrollment-http.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\device-trust\\tests\\enrollment.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\device-trust\\tests\\request-proof.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\packages-device-trust.json"
+        ],
+        "reportSha256": "6100c95c6b2973a04b794089450d6247d5089c0b18442945ec7d50f8a5b22c40"
+      },
+      {
+        "name": "packages-database-postgres",
+        "exit": 0,
+        "tests": {
+          "total": 96,
+          "pass": 96,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 17.668,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/database-postgres",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\business-session-ssa-eligibility-repository.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\business-session-ssa-sequence-allocator.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\device-proof-replay-verifier.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-administration-session-repository.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-password-recovery-approval.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-password-recovery-completion.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-password-recovery-repository.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-security-event-repository.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-webauthn-assertion-transaction.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-webauthn-challenge-repository.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-webauthn-enrollment-transaction.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-webauthn-factor-reference.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\database-postgres\\tests\\platform-webauthn-material-repository.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\packages-database-postgres.json"
+        ],
+        "reportSha256": "6db10257fde8e553e76ed7932050ff5e1a3ed344386c733077dea45d20aab262"
+      },
+      {
+        "name": "packages-fiscal-adapters",
+        "exit": 0,
+        "tests": {
+          "total": 175,
+          "pass": 173,
+          "fail": 0,
+          "pending": 2
+        },
+        "seconds": 9.501,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/fiscal-adapters",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\credential-custody.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\dian-codes.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\factus-adapter.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\factus-auth.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\factus-sandbox.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\fiscal-customer.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\fiscal-item.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\outcome-separation.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\port-conformance.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\provider-contracts.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\fiscal-adapters\\tests\\verification-and-quota.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\packages-fiscal-adapters.json"
+        ],
+        "reportSha256": "e939dcaae8e99ac2a2531f04d133453ea2cc521090cf441580d500af548a3428"
+      },
+      {
+        "name": "apps-central-authority",
+        "exit": 0,
+        "tests": {
+          "total": 192,
+          "pass": 192,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 46.079,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/central-authority",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\android-association-preparation.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\android-native-registration-artifacts.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\authentication-library-compatibility.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\business-login-coordinator.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\central-certification-preflight.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\central-commercial-dispatch-hardening.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\central-login-preflight.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\central-session-assertion-issuer.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\commercial-binding-prerequisite.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\commercial-native-client-catalog.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\commercial-token-http-contract.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\company-license-term.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\d3-deployment-readiness.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\factus-pay-collection-event.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\factus-pay-webhook-handler.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\factus-pay-webhook-operator.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\factus-pay-windows-custody.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\fixed-window-rate-limiter.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\isolated-authorization-trust.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\isolated-browser-session-vault.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\isolated-commercial-binding-adapter.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\native-authorization-callback.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\native-authorization-code-exchange.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\native-authorization-constraints.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\native-authorization-security-events.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\platform-password-verifier.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\platform-webauthn-assertion-commit.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\platform-webauthn-assertion-verifier.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\platform-webauthn-enrollment-commit.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\platform-webauthn-registration-verifier.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\session-trust-key-issuer.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\session-trust-publication.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\wompi-payment-event.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\commercial-rejection-audit.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\central-authority\\tests\\enrollment-rate-limit.test.ts",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\apps-central-authority.json"
+        ],
+        "reportSha256": "133a4801ff38083fde2fa58911c7327637d1836ba24fb52cb2b8f33386882b80"
+      },
+      {
+        "name": "tools-target-migrations",
+        "exit": 0,
+        "tests": {
+          "total": 102,
+          "pass": 102,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 12.275,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/target-migrations",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-003-artifact.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-003-descriptor.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-004-device-trust.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-005-onboarding.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-006-licensing.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-007-password-recovery.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-008-platform-roles.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-009-webauthn-challenges.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-010-webauthn-material.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-011-ssa-sequences.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\postgres-012-device-proof.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\preprod-login-operator-gates.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\sqlite-concurrency-regression.test.ts",
+          "C:\\Proyectos\\pos-platform\\tools\\target-migrations\\tests\\sqlite-migration.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\tools-target-migrations.json"
+        ],
+        "reportSha256": "1aabd0d75e02cae8594bb2cb0537e9daad29b2d2af7ac13e15233b9f936c3e04"
+      },
+      {
+        "name": "apps-pos-local-service",
+        "exit": 0,
+        "tests": {
+          "total": 974,
+          "pass": 959,
+          "fail": 0,
+          "pending": 15
+        },
+        "seconds": 401.696,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/pos-local-service",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\admin-metrics.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\android-keystore-key-provider.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\android-private-service-control.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\android-security-foundation.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\android-service-foundation.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\audit-read-authorization.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\audit.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\authorization-https-provider.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\authorization-snapshot-store.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\authorization-snapshot.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\authorization-trust-candidate.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\authorization-trust-deployment.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\authorization-trust-lifecycle.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\cash.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\catalog.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\central-sas-reception.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\central-ssa-canonical-compatibility.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\central-sync-component.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\channel-cancellation-lifecycle.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\channel-commercial-transport.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\channel-commercial-vertical.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\channel-component-lifecycle.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\channel-routing.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\channel.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\commercial-device-credential.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\commercial-ipc.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\config.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\customer-marketing-subscription.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\customer.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\device-enrollment-service.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\device-trust-credential-store.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\device-trust-verifier.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\factus-bill-assembly.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\fetch-central-transport.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\fiscal-credential.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\fiscal-issuance.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\hardware.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\initialize-tenant.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\inventory.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\license-capacity.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\license-offer-catalog.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\lifecycle.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\local-service-artifact.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\master-snapshot.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\native-session-close-lifecycle.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\operation-confirmation.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\payment.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\permission-catalog.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\process.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\qr-payment-matcher.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\receipt-quantities.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\sale-cash-register-binding.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\sale.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\security-component.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\security.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\service-descriptor.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-assertion-store.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-assertion-verifier.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-bootstrap-main-runtime.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-bootstrap-runtime.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-trust-bundle-fetcher.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-trust-key-resolver.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-trust-key-store.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-trust-key.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-trust-lifecycle.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\session-trust-refresh-component.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\snapshot-acquisition.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\sync-dispatcher.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\sync-store.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-commercial-host-identity.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-commercial-runtime.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-dpapi.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-handoff-lease-state.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-scm-enrollment.operator.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-scm-physical.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-scm-runtime.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-scm-stop.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-scm-transport-failclosed.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-local-service\\tests\\windows-winsw-readiness.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\apps-pos-local-service.json"
+        ],
+        "reportSha256": "fbbe06df93bd6ccdeab5c4a1fb62cfb5a3ae61e5270ed92c01a605c54e4d7388"
+      },
+      {
+        "name": "packages-local-channel",
+        "exit": 0,
+        "tests": {
+          "total": 51,
+          "pass": 50,
+          "fail": 0,
+          "pending": 1
+        },
+        "seconds": 46.412,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/local-channel",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\packages\\local-channel\\tests\\response-schemas.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\local-channel\\tests\\windows-handoff.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\local-channel\\tests\\windows-native-pipe.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\local-channel\\tests\\windows-production.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\local-channel\\tests\\windows-scm-capsule-prefix.test.ts",
+          "C:\\Proyectos\\pos-platform\\packages\\local-channel\\tests\\windows-service-signer.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\packages-local-channel.json"
+        ],
+        "reportSha256": "92c333f6eb8bec885d89abe1328a88848b405cefd71e2da1683994434f4f8ae3"
+      },
+      {
+        "name": "apps-pos-desktop",
+        "exit": 0,
+        "tests": {
+          "total": 249,
+          "pass": 249,
+          "fail": 0,
+          "pending": 0
+        },
+        "seconds": 60.97,
+        "command": [
+          "pnpm",
+          "--filter",
+          "@pos-platform/pos-desktop",
+          "exec",
+          "vitest",
+          "run",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\browser-cache-maintenance.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\channel-bridge.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\commercial-account.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\desktop-commercial-startup-secrecy.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\ipc-allowlist.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\local-service-channel.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\main.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\native-business-assertion-delivery.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\native-business-code-transport.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\native-business-login.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\native-commercial-service-login.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\preload-api.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\preload.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\AdminPanels.test.tsx",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\App.test.tsx",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\business-license-offers.test.tsx",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\catalog-csv.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\confirmation-sound.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\OperationPanel.test.tsx",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\platform-client.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\public-license-client.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\ReceiptPanel.test.tsx",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\SalePanel.test.tsx",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\scale6.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\session-recovery.test.tsx",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\renderer\\StatusPanel.test.tsx",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\scm-channel-start.test.ts",
+          "C:\\Proyectos\\pos-platform\\apps\\pos-desktop\\tests\\window-security.test.ts",
+          "--no-file-parallelism",
+          "--maxWorkers=1",
+          "--reporter=json",
+          "--outputFile=C:\\Proyectos\\pos-platform\\artifacts\\security-27\\2026-11-02\\apps-pos-desktop.json"
+        ],
+        "reportSha256": "4806c37a6adcc0d8b24caf22c13938c3b15d3148de765925f61c3d72d59246cf"
+      }
+    ],
+    "lastWompiReplacesEarlierFile": true,
+    "excludedPostgresFiles": [
+      {
+        "file": "packages\\database-postgres\\tests\\business-session-ssa-eligibility-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "packages\\database-postgres\\tests\\platform-password-recovery-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\business-access-preparation-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\business-initial-mfa-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\business-session-authority-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\central-commercial-deployment-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\central-deployment-configuration.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\factus-pay-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\isolated-business-audit-session-guard.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\isolated-postgres-native-code-consumer-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\isolated-postgres-native-code-consumer.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\native-authorization-full-composition-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\stored-password-verification-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\central-authority\\tests\\subscription-quotes-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "apps\\pos-local-service\\tests\\postgres-onboarding.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\postgres-002-migration.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\postgres-003-model-a.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\postgres-003-preflight.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\postgres-003-role-readiness.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\postgres-003-runner.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\postgres-005-rls.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\postgres-commercial-runner-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\postgres-down-safety-regression.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\postgres-migration.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      },
+      {
+        "file": "tools\\target-migrations\\tests\\sas-sequence-proposal-physical.test.ts",
+        "reason": "POSTGRES_TEMPORARY_UNAVAILABLE"
+      }
+    ]
+  },
+  "shaBoundChecks": [
+    {
+      "command": [
+        "pnpm",
+        "ci:dependency-inventory"
+      ],
+      "sha": "3abc72efbf7883d8c3341496956f59c4e725619d",
+      "exit": 0,
+      "log": "artifacts/security-27/2026-11-02/final-ci-dependency-inventory.log"
+    },
+    {
+      "command": [
+        "pnpm",
+        "ci:sbom"
+      ],
+      "sha": "3abc72efbf7883d8c3341496956f59c4e725619d",
+      "exit": 0,
+      "log": "artifacts/security-27/2026-11-02/final-ci-sbom.log"
+    },
+    {
+      "command": [
+        "pnpm",
+        "ci:license-gate"
+      ],
+      "sha": "3abc72efbf7883d8c3341496956f59c4e725619d",
+      "exit": 0,
+      "log": "artifacts/security-27/2026-11-02/final-ci-license-gate.log"
+    },
+    {
+      "command": [
+        "pnpm",
+        "ci:vulnerability-audit"
+      ],
+      "sha": "3abc72efbf7883d8c3341496956f59c4e725619d",
+      "exit": 0,
+      "log": "artifacts/security-27/2026-11-02/final-ci-vulnerability-audit.log"
+    },
+    {
+      "command": [
+        "pnpm",
+        "ci:repository-policy"
+      ],
+      "sha": "3abc72efbf7883d8c3341496956f59c4e725619d",
+      "exit": 0,
+      "log": "artifacts/security-27/2026-11-02/final-ci-repository-policy.log"
+    }
+  ],
+  "sbom": {
+    "components": 471,
+    "workspaces": 16,
+    "relationships": 471,
+    "sha256": "0898361b0dba9b5a86946fdfe50d7d444a5a511f9a60b571cdcbbac1b2c45092"
+  },
+  "licenseCompatibility": {
+    "status": "PASS",
+    "thirdPartyCount": 455,
+    "decisionCounts": {
+      "ALLOW": 455,
+      "REVIEW_REQUIRED": 0,
+      "DENY": 0
+    },
+    "sha256": "6814c6e5c8172b3349a8e43341533708f58078c676c952d7d0b37cfbb5481a65"
+  },
+  "hostIdentity": {
+    "command": "whoami /user /fo csv /nh",
+    "scope": "Interactive Windows10 not ServerSCM",
+    "localReceipt": "artifacts/security-27/2026-11-02/host-identity.json",
+    "sha256": "0afbcd019c9407c869dc6f9c72e436be23ea50db7e5eab3e8082d9c21148c47c"
+  },
+  "sourceFileHashes": {
+    "apps/central-authority/package.json": "11283f783447029edc239e02f2ffc13716daad99a50e2c046511eca90ba32aa1",
+    "apps/central-authority/src/isolated-commercial-https.ts": "290c43300f94845092587020da895c6aa1debfeedccacee991ffe71b99f83922",
+    "apps/central-authority/src/wompi-payment-event.ts": "f12a03f6b7a7293d8f0d9efb0cbe710081801a1e1786a206cb5f35686193728e",
+    "apps/central-authority/tests/commercial-rejection-audit.test.ts": "45f0b9dd961ee2f1ae3ecadbe95bc0afcafc701e9e51f12b78242b63112e0516",
+    "apps/central-authority/tests/wompi-payment-event.test.ts": "eb016dc9267785926ca97a74752e6b180e41d3d3733f61b0a1affaa20512f336",
+    "apps/pos-desktop/package.json": "41a026c4c84b3fd05bf9fb51184e5370bfde07bbffef4374c34f881ce9ac50bc",
+    "apps/pos-local-service/package.json": "b9a35abfc406999fc67eba04cca51158c27628254d5ce346d2b9aef82302cac4",
+    "package.json": "9414d9b973e97a4bf89a64e9b1ec649478c08e2ae34f81f9dfdf6efdbc3ccf7b",
+    "packages/application/package.json": "d8dbc55dd5173a3f19f2f27e4c07b1bcaff1d1f101daf0e75a207463fd2be1dd",
+    "packages/contracts/package.json": "5920efd5ca320121040114d954869a7800cc8c17b95cf666ca0cd0eb17dd030d",
+    "packages/database-postgres/package.json": "cfdde81ec16cc907d727091afa045c2bd76d1928a188ce9254784a4f5b55898e",
+    "packages/database-sqlite/package.json": "c2c7882d7b3218889b18a1e4cac39a37139fb2ac7d6a1fe1d5dd18cdd5d43d0c",
+    "packages/device-trust/package.json": "8ed7ca6e6f31a92bbc389cfbabf40c8a549913d715035bf25d6d2c53967c65ca",
+    "packages/domain/package.json": "7e0f0ea7c499770747749bfd5e595ae7210503195cb9314066a2c1ccc434e8f8",
+    "packages/fiscal-adapters/package.json": "f6c0b440c72f51d2a00ab5a4d5e148404004d080d2f8c87efdedc752b9be8f20",
+    "packages/local-channel/package.json": "3f8c1e436d1f9c19e95e3e4f140d73834a3d0ae77452da5f8c75fb5b798c3555",
+    "packages/observability/package.json": "edb314aa8b72738617cc4730296e92f6be281e249f4f9b524c0a5c51ab44a916",
+    "pnpm-lock.yaml": "2517edbb4b8fe56c7bc8ffb26ee9ac55ea98c884dfde1e8c4b30940e55bc49bf",
+    "tools/target-migrations/package.json": "0e96989def8296a9ff7a4430d5bee0728a6f1612175d9c5a75b193fd1e941102"
+  }
+}

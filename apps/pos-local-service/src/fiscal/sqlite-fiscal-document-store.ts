@@ -178,10 +178,10 @@ export class SqliteFiscalDocumentStore {
   ): StoredElectronicDocument | null {
     const row = this.database.native.prepare(
       `${SELECT_DOCUMENT}
-        WHERE tenant_id=? AND sale_id=? AND document_type=?
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND sale_id=? AND document_type=?
           AND transport_status<>'CANCELLED'
           AND (normalized_result IS NULL OR normalized_result<>'REJECTED')`,
-    ).get(scope.tenantId, saleId, documentType) as DocumentRow | undefined;
+    ).get(scope.tenantId, scope.companyId, scope.branchId, saleId, documentType) as DocumentRow | undefined;
     return row === undefined ? null : toDocument(row);
   }
 
@@ -193,8 +193,8 @@ export class SqliteFiscalDocumentStore {
   ): StoredElectronicDocument | null {
     const row = this.database.native.prepare(
       `${SELECT_DOCUMENT}
-        WHERE tenant_id=? AND provider=? AND environment=? AND idempotency_key=?`,
-    ).get(scope.tenantId, provider, environment, idempotencyKey) as DocumentRow | undefined;
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND provider=? AND environment=? AND idempotency_key=?`,
+    ).get(scope.tenantId, scope.companyId, scope.branchId, provider, environment, idempotencyKey) as DocumentRow | undefined;
     return row === undefined ? null : toDocument(row);
   }
 

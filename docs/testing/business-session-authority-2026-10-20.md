@@ -1,0 +1,62 @@
+# Autoridad interna de sesión BUSINESS — 2026-10-20
+
+Continuidad posterior: [resolución de acceso y preparación SSA](business-access-continuity-2026-10-20.md) añade lectura vigente y composición interna de DeviceProof/secuencia, sin emitir prueba de acceso ni SSA. Agrupa las decisiones realmente bloqueantes en una solicitud D3; no presenta los candidatos de este snapshot como aprobados.
+
+## Alcance comprobado
+
+Base local y remota comprobada: `d120a564a7d80f261a05859d814bdcc894c5360d`, rama `claude/pos-camacho-bloque-4c-ld43py`, árbol inicialmente limpio. El commit que contiene este informe identifica el incremento comprobado. Owners existentes: Identity para credenciales, MFA y sesiones; Tenants para membresía; Central Authority como coordinador. No hay cambios de esquema, roles, frontend ni transacción GLOBAL.
+
+`BusinessSessionAuthority` consume exclusivamente la referencia original mediante `BusinessInitialMfaFlow.takeForBusinessSession`. La toma es síncrona antes del primer await: dos autoridades que comparten el flujo no pueden usar la misma referencia. UUID, booleano, copia, JSON y metadata serializada no autentican. También falla una referencia originada en otra instancia. Cualquier rechazo o rollback posterior quema la referencia: se requiere nueva autenticación. No se reconstituye desde la base, ni se añade un almacén paralelo de pruebas.
+
+`PostgresBusinessSessionCreationTransaction` recibe metadata únicamente desde ese coordinador central, nunca desde transporte. Es un adapter privilegiado interno, no una API de autenticación: su argumento de metadata por sí solo no demuestra posesión. Bajo la misma transacción bloquea challenge, usuario, credencial PASSWORD, factor/material, membresía y tenant. Comprueba usuario ACTIVE; credencial exacta, versión vigente, ACTIVE/no revocada/no bloqueada; factor WebAuthn ACTIVE/verificado/no revocado y referencia de material persistido; challenge AUTHENTICATE sin sesión, ya consumido y con evento MFA real/correlación/fecha coincidentes; membresía activa del usuario autenticado en tenant activo.
+
+Tenant/membership son una selección de búsqueda, no autoridad. El contexto RLS local limita la búsqueda y después se exige el vínculo usuario–membresía–tenant; los IDs persistidos salen de las filas revalidadas. No se conceden roles ni permisos por esos parámetros. Los locks SHARE preservan las condiciones hasta COMMIT; la fecha PostgreSQL comprueba antigüedad MFA y reautenticación después de esperar los locks y otra vez tras auditar.
+
+Inserta en `identity.sessions` tenant y membresía BUSINESS, `device_id=NULL`, MFA SATISFIED y `authenticated_at=last_reauthenticated_at=verifiedAt` derivado del MFA central. El vencimiento parte de esa autenticación, sin extenderlo por demoras de creación. `offline_valid_until` y `authorization_policy_version_id` quedan NULL. Se añade `PLATFORM_SESSION_ISSUED/SUCCEEDED`, razón `BUSINESS_INITIAL_MFA`, mediante el repositorio existente y el mismo cliente transaccional. Un error revierte sesión y evento; no revierte el MFA previo ya confirmado. Devuelve metadata interna con `accessProof=null`: **sessionId no es prueba de acceso**.
+
+## Políticas y bloqueo productivo
+
+La configuración exige versión y políticas explícitas de sesión, antigüedad MFA, reautenticación, prueba de acceso y abuso. Hoy solo admite validación aislada con acceso deshabilitado y abuso identificado como fixture. Rechaza producción incondicionalmente (`BUSINESS_SESSION_PRODUCTION_BLOCKED_PENDING_D3`), aunque se añadan supuestas banderas de aprobación. No existe rama implementada de políticas productivas aprobadas; habilitarla requiere decisiones y controles reales, no cambiar una etiqueta.
+
+La creación, además, comprueba el endpoint del pool localhost:55433 y el nombre real de la base `pos_business_session_test_<16 hex>`. Una configuración etiquetada como validación no permite escribir en `postgres` ni `pos_target_test`. Es un guard contra ejecución accidental fuera de fixtures, no una frontera frente al administrador de PostgreSQL. Los únicos valores ejecutados son de test: sesión 60 s, MFA 30 s, reauth 30 s; en pruebas de vencimiento se suministran plazos menores. Ninguno constituye aprobación productiva.
+
+No se emiten access/refresh tokens ni SSA; no se modifica `identity.session_refresh_tokens`. No hay endpoint público, cookies nuevas, marca MFA desde React ni integración en `main.ts`. La vinculación posterior al dispositivo permanece en los contratos DeviceProof/registro/credenciales/SSA existentes, conservando el CHECK `sessions.device_id IS NULL`.
+
+## Evidencia de ejecución
+
+Windows y PostgreSQL 16.14 físico del fixture existente; DB aleatoria exclusiva por ejecución, bootstrap + 001/009/010, runtime `pos_platform_app` sin superuser/BYPASSRLS. Teardown cierra pools y elimina únicamente su DB temporal, sin FORCE ni cambio de roles; consulta posterior sin bases `pos_business_session_test_%`.
+
+```text
+POSTGRES_TEST_URL=<servidor local de fixtures, localhost:55433>
+pnpm --filter @pos-platform/central-authority test -- tests/business-session-authority-physical.test.ts
+Test Files 1 passed (1); Tests 25 passed (25); exit 0
+
+pnpm --filter @pos-platform/database-postgres typecheck   # exit 0
+pnpm --filter @pos-platform/central-authority typecheck   # exit 0
+node tools/architecture/validate-boundaries.mjs           # ARCH-003 PASS, exit 0
+```
+
+Los 25 casos cubren creación real a partir de contraseña y firma P-256/UV, consumo único/rechazo de pruebas falsas, usuario inactivo, versión rotada o credencial reemplazada/bloqueada, membresía suspendida/de otro usuario, tenant incorrecto/suspendido, factor revocado, MFA/reauth vencidos, concurrencia de autoridades, carreras físicas con suspensión/rotación y expiración durante espera, fallo de auditoría y rollback, expiración durante auditoría con rollback de evento y sesión, INSERT sin fila, políticas ausentes/incorrectas, producción bloqueada, base persistente rechazada y flujo de origen incorrecto.
+
+Salidas ignoradas en `artifacts/business-session/2026-10-20/`: `physical-first.log` (21/21), `physical-24-pass.log`, `physical.log` (25/25), `database-types.log`, `central-types.log`, `boundaries.log`, `repository-policy.log`. El primer typecheck central detectó TS2322 en literales anidados de la fixture; se corrigió con `as const`, sin modificar el contrato productivo. El caso adicional de expiración durante auditoría falló primero por falta de USAGE sobre su secuencia de instrumentación (`physical-audit-fixture-failure.log`: 24 PASS/1 FAIL); se concedió solo ese permiso en la DB temporal y luego se cerró 25/25. Las suites anteriores 23 MFA/12 Argon2id y las comerciales no se ejecutaron. No se cambiaron sus contratos, los verificadores ni el flujo MFA existente. No hay evidencia de CI del HEAD publicado ni login humano.
+
+## Decisiones D3 pendientes: candidatos para revisión, no configuración
+
+La autoridad normativa sigue siendo [D3 ratificado](../governance/central-authority-administration-d3-gate-2026-10-08.md). Los números siguientes son propuestas técnicas para threat modeling y ensayos, **no decisiones aprobadas ni valores activados**. OWASP/NIST aportan referencias; no determinan automáticamente la política del POS ni certifican un AAL para este producto.
+
+| Parámetro | Candidato y fundamento | Riesgo a evaluar | Fuente normativa / referencia | Aprobación requerida |
+| --- | --- | --- | --- | --- |
+| KDF productivo | Argon2id v19, 19 MiB/t=2/p=1 como candidato mínimo ya implementado; PHC existente, salt independiente. Revisión del benchmark y carga objetivo antes de elegirlo | Memoria/concurrencia frente a resistencia offline; no basta benchmark local | D3-01; [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) | Propietario: perfil/formato y presupuesto de recursos del servidor real |
+| RP y origin | Un RP DNS controlado por el propietario y origin HTTPS exacto del servicio. **Hostname real todavía sin candidato verificable**: no se inventa dominio ni se propone `example.test` para producción | RP equivocado rompe credenciales; origin amplio debilita aislamiento | D3-02; validación RP/origin del contrato existente | Propietario: hostname, certificado TLS y clientes autorizados |
+| Challenge / entrega MFA | Challenge 120 s; evidencia inicial 60 s. Propuesta propia: permitir interacción del autenticador y acotar más la entrega interna inmediata | Demoras, accesibilidad y latencia frente a ventana de reutilización de prueba comprometida | D3-02 y contrato interno del incremento MFA | Propietario: dos plazos tras pruebas de interacción y expiración |
+| Sesión central / inactividad | Máximo absoluto 8 h, inactividad 15 min. Propuesta para una jornada; OWASP ofrece rangos de referencia, no mandato para este POS. Inactividad requiere implementación futura de actividad confiable; no se simula con `created_at` | Puesto desatendido; fricción operativa y desconexión. No debe cambiar ventas offline autorizadas | D3-06; [OWASP Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html); [NIST AAL2](https://pages.nist.gov/800-63-4/sp800-63b/aal/) | Propietario: expiraciones, semántica de actividad y separación respecto a SSA offline |
+| Reautenticación crítica | Antigüedad máxima 5 min y nueva prueba tras eventos de riesgo; propuesta propia para limitar ventana de operación sensible. Mantener GLOBAL/BUSINESS separados | Operación sensible con prueba antigua; interrupción del cajero | D3-03; [OWASP Authentication](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) | Propietario: plazo y catálogo de operaciones/eventos; no se extiende D-1 a negocio por inferencia |
+| Prueba de acceso | TTL candidato 5 min, siempre limitado por sesión y revocación; formato/protocolo **sin seleccionar**. Debe vincular posesión del usuario a BUSINESS y enlazar DeviceProof existente antes de SSA | Robo/replay, sesiones revocadas todavía usables y UUID usado como bearer | D3-06; contratos existentes DeviceProof, SSA y resolvedor autenticado | Propietario: contrato/protocolo, custodia y validación; decisión explícita antes de emitir cualquier token |
+| Refresh | Expiración absoluta candidata igual al máximo de sesión (8 h), rotación en cada uso y revocación de familia ante reutilización; no extender una jornada indefinidamente | Carreras de rotación, robo de refresh, falsos positivos por reintentos | D3-06; `identity.session_refresh_tokens` | Propietario: vida, familia, reintentos/reuse y pruebas de concurrencia |
+| Abuso | Experimento inicial: 5 fallos/5 min por cuenta; presupuesto de origen independiente a determinar con tráfico NAT real; backoff 1/2/4…30 s. **No activar bloqueo productivo ni fijar presupuesto de origen sin carga** | Credential stuffing distribuido y DoS por bloqueo de cuenta; NAT compartido de cajas | D3-07; [OWASP Authentication](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) respalda separar umbral/ventana/duración, no estos números | Propietario: límites de ambos presupuestos, duración/desbloqueo, anti-enumeración y almacenamiento resistente a carreras |
+
+## Componente que falta para Electron
+
+Falta el **servicio central de sesión comercial autenticada y su resolvedor de prueba de acceso**, con políticas aprobadas, abuso/anti-enumeración, expiración, revocación y refresh reales. Debe consumir el MFA en el mismo flujo confiable, emitir/validar la prueba de posesión aprobada y unirla a la selección de sesión/membresía y DeviceProof verificable. Después debe componer las piezas existentes: elegibilidad BUSINESS + registro/credencial de dispositivo + ledger anti-replay + reserva durable de secuencia + emisor SSA con clave operacional vigente y autorización derivada del servidor. Nada de eso se sustituye por el UUID que devuelve este incremento.
+
+Solo entonces puede exponerse transporte seguro al main de Electron, entregar SSA mediante el canal existente, validarla en POS Local Service y observar autorización React. El recorrido pendiente es Central Authority → BUSINESS → dispositivo → SSA → POS Local Service → React; no requiere rediseño visual. **Estado observado: persistencia BUSINESS interna IMPLEMENTED y TESTED en PostgreSQL temporal; productivo bloqueado, sin CALLER_REACHABLE/END_TO_END/PRODUCTION ni usuario real autenticado en POS.**

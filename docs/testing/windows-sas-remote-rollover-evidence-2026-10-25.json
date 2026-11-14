@@ -1,0 +1,94 @@
+﻿{
+    "initial_head":  "a58be77f7b1ccc36c072eb2b5dad5e2122aca11f",
+    "remote_at_start":  "42c79cd8942528e6ed04c554a5cd0eda276f73cc",
+    "branch":  "feat/android-commercial-runtime",
+    "date":  "2026-10-25",
+    "functional_distinct_passed":  75,
+    "counting":  "Final rollover 8 and Central scope 1 are reruns; Electron overlaps prior V2 batch; do not sum report totals",
+    "reports":  [
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/sas-rollover.json",
+                        "sha256":  "d65496e18841576385df2ba591a2783f7858387255d53b951a963d243779899c",
+                        "passed":  54,
+                        "failed":  0,
+                        "skipped_by_filter":  0
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/sas-rollover-final.json",
+                        "sha256":  "cb7f15299b25e3d4bf4b36282271eded1eceaece5670e899e5cbd0a51151e5e7",
+                        "passed":  8,
+                        "failed":  0,
+                        "skipped_by_filter":  11
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/sas-remote-fetch.json",
+                        "sha256":  "0fc7619aac999beba45cd17142162a24cb79f1e586552850caee9574d17c0e57",
+                        "passed":  14,
+                        "failed":  0,
+                        "skipped_by_filter":  0
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/sas-remote-publication-contracts-final.json",
+                        "sha256":  "9e30652737ec015efd97a8edff91c29f6b193c34b78ef12435f3a3d09e39ad5e",
+                        "passed":  4,
+                        "failed":  0,
+                        "skipped_by_filter":  0
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/sas-remote-main-final.json",
+                        "sha256":  "928047dcc67bf7453a9b9e4a469ffacf79b9e578f3b01d11998c74e073a911d3",
+                        "passed":  1,
+                        "failed":  0,
+                        "skipped_by_filter":  2
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/sas-remote-central-final.json",
+                        "sha256":  "ce473c311d8898cff524921f74788503fcb19e507218e0aeec9d2e1f36f7ea20",
+                        "passed":  2,
+                        "failed":  0,
+                        "skipped_by_filter":  204
+                    },
+                    {
+                        "file":  "artifacts/windows-p0/2026-10-25/sas-remote-central-scope-final.json",
+                        "sha256":  "b9fa1d3bce4cc4b8d002dfe43d5006f26eee4746aa9866e31a707ad4576648e8",
+                        "passed":  1,
+                        "failed":  0,
+                        "skipped_by_filter":  205
+                    }
+                ],
+    "typecheck":  "PASS contracts, pos-local-service, central-authority; Central checked again after scope validation",
+    "architecture":  "PASS 16 tests and ARCH-003",
+    "service_build":  {
+                          "status":  "PASS",
+                          "file":  "apps/pos-local-service/dist/pos-local-service-0.0.0-win32-x64.tar.gz",
+                          "sha256":  "56287728f9c3ecb33032c29f50cab7c5d5a34916f98f445029e163ff6d1e2a7e",
+                          "bytes":  1240001
+                      },
+    "desktop_build":  "PASS",
+    "repository_policy":  "PASS: 1111 tracked files scanned; staged diff --check PASS",
+    "environment":  "Windows, CurrentUser DPAPI, ephemeral SQLite, PostgreSQL tmpfs 127.0.0.1:55433, verified ephemeral TLS, Electron laboratory",
+    "failures_observed":  [
+                              "Initial PostgreSQL setup ECONNREFUSED 55433; WinNAT port reservation; owner recovered service/container; final tests passed"
+                          ],
+    "production_data_changed":  false,
+    "human_certified":  false,
+    "production_certified":  false,
+    "remote_ci":  "PENDING per owner; no Actions query/dispatch/workflow changes",
+    "reproduction":  {
+                         "postgres_url":  "postgresql://postgres@127.0.0.1:55433/postgres",
+                         "postgres_scope":  "Dedicated tmpfs test container only; test creates and drops its own random database",
+                         "commands":  [
+                                          "pnpm --filter @pos-platform/pos-local-service exec vitest run tests/authorization-trust-deployment.test.ts tests/authorization-trust-candidate.test.ts --no-file-parallelism --reporter=json --outputFile=../../artifacts/windows-p0/2026-10-25/sas-rollover.json",
+                                          "pnpm --filter @pos-platform/pos-local-service exec vitest run tests/session-trust-bundle-fetcher.test.ts --reporter=json --outputFile=../../artifacts/windows-p0/2026-10-25/sas-remote-fetch.json",
+                                          "pnpm --filter @pos-platform/central-authority exec vitest run tests/session-trust-publication.test.ts tests/isolated-authorization-trust.test.ts --reporter=json --outputFile=../../artifacts/windows-p0/2026-10-25/sas-remote-publication-contracts-final.json",
+                                          "pnpm --filter @pos-platform/pos-local-service exec vitest run tests/session-bootstrap-main-runtime.test.ts -t \u0027DPAPI https\u0027 --testTimeout=120000 --reporter=json --outputFile=../../artifacts/windows-p0/2026-10-25/sas-remote-main-final.json",
+                                          "pnpm --filter @pos-platform/central-authority exec vitest run tests/business-access-preparation-physical.test.ts -t \u0027SAS remote publication:\u0027 --testTimeout=120000 --reporter=json --outputFile=../../artifacts/windows-p0/2026-10-25/sas-remote-central-scope-final.json",
+                                          "pnpm --filter @pos-platform/contracts --filter @pos-platform/pos-local-service --filter @pos-platform/central-authority run typecheck",
+                                          "pnpm --filter @pos-platform/pos-local-service build:artifact",
+                                          "pnpm --filter @pos-platform/pos-desktop build",
+                                          "pnpm architecture:check",
+                                          "pnpm ci:repository-policy",
+                                          "git diff --cached --check"
+                                      ]
+                     }
+}

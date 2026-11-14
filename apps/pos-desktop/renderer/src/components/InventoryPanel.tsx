@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { InventoryCsvImport } from "./InventoryCsvImport.js";
+import { CanonicalPermission } from "@pos-platform/contracts";
+import { useEffect, useState } from "react";
 import {
   useInventoryAdmin,
   type AdjustMovement,
@@ -18,6 +20,16 @@ const ADJUST_MOVEMENTS: readonly AdjustMovement[] = [
   "TRANSFER_OUT",
 ];
 
+const movementLabels: Record<ReceiveMovement | AdjustMovement, string> = {
+  OPENING_COUNT: "Inventario inicial",
+  PURCHASE_RECEIPT: "Recepción de compra",
+  TRANSFER_IN: "Traslado recibido",
+  ADJUSTMENT_POSITIVE: "Ajuste de entrada",
+  ADJUSTMENT_NEGATIVE: "Ajuste de salida",
+  SHRINKAGE: "Merma o pérdida",
+  TRANSFER_OUT: "Traslado enviado",
+};
+
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -30,9 +42,10 @@ function today(): string {
  * permitiría registrar una merma eligiendo «compra», y el libro de movimientos
  * dejaría de servir para auditar.
  */
-export function InventoryPanel(): React.JSX.Element {
+export function InventoryPanel({ permissions, initialPresentationId = null }: { permissions: ReadonlySet<string>; initialPresentationId?: string | null }): React.JSX.Element {
   const inventory = useInventoryAdmin();
   const [presentationId, setPresentationId] = useState("");
+  useEffect(() => { if (initialPresentationId !== null) setPresentationId(initialPresentationId); }, [initialPresentationId]);
   const [receiveType, setReceiveType] = useState<ReceiveMovement>("PURCHASE_RECEIPT");
   const [receiveQuantity, setReceiveQuantity] = useState("");
   const [receiveReason, setReceiveReason] = useState("PURCHASE");
@@ -46,47 +59,65 @@ export function InventoryPanel(): React.JSX.Element {
   return (
     <section data-testid="inventory-panel">
       <h2>Existencia</h2>
+      <InventoryCsvImport enabled={permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && !inventory.busy && !inventory.pending} />
+      {inventory.pending && <div role="status"><p>Hay un movimiento pendiente de confirmación. No cierres esta pantalla hasta resolverlo.</p>
+        <button type="button" disabled={inventory.busy} onClick={() => void inventory.retryPending()}>Reintentar el mismo movimiento</button></div>}
+      <div className="pos-form-grid">
 
+      <label className="pos-field">ID de presentación
       <input
         data-testid="inventory-presentation-input"
+        aria-label="ID de presentación"
         value={presentationId}
         onChange={(e) => { setPresentationId(e.target.value); }}
         placeholder="ID de presentación"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
+      <label className="pos-field">Fecha de negocio
       <input
         data-testid="inventory-business-date-input"
+        aria-label="Fecha de negocio"
         value={businessDate}
         onChange={(e) => { setBusinessDate(e.target.value); }}
         placeholder="Fecha de negocio"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
 
       <h3>Entrada</h3>
+      <label className="pos-field">Tipo de entrada
       <select
         data-testid="receive-movement-select"
         value={receiveType}
         onChange={(e) => { setReceiveType(e.target.value as ReceiveMovement); }}
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       >
         {RECEIVE_MOVEMENTS.map((movement) => (
-          <option key={movement} value={movement}>{movement}</option>
+          <option key={movement} value={movement}>{movementLabels[movement]}</option>
         ))}
       </select>
+      </label>
+      <label className="pos-field">Cantidad de entrada
       <input
         data-testid="receive-quantity-input"
+        aria-label="Cantidad de entrada"
         value={receiveQuantity}
         onChange={(e) => { setReceiveQuantity(e.target.value); }}
         placeholder="Cantidad"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
+      <label className="pos-field">Motivo de entrada
       <input
         data-testid="receive-reason-input"
+        aria-label="Motivo de entrada"
         value={receiveReason}
         onChange={(e) => { setReceiveReason(e.target.value); }}
         placeholder="Motivo"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
       <button
         data-testid="receive-stock-button"
         onClick={() => {
@@ -94,36 +125,44 @@ export function InventoryPanel(): React.JSX.Element {
             target, receiveType, receiveQuantity, receiveReason.trim(), businessDate.trim(),
           );
         }}
-        disabled={inventory.busy || target === "" || receiveQuantity.trim() === ""}
+        disabled={inventory.busy || inventory.pending || !permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || target === "" || receiveQuantity.trim() === ""}
       >
         Recibir
       </button>
 
       <h3>Ajuste</h3>
+      <label className="pos-field">Tipo de ajuste
       <select
         data-testid="adjust-movement-select"
         value={adjustType}
         onChange={(e) => { setAdjustType(e.target.value as AdjustMovement); }}
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       >
         {ADJUST_MOVEMENTS.map((movement) => (
-          <option key={movement} value={movement}>{movement}</option>
+          <option key={movement} value={movement}>{movementLabels[movement]}</option>
         ))}
       </select>
+      </label>
+      <label className="pos-field">Cantidad de ajuste
       <input
         data-testid="adjust-quantity-input"
+        aria-label="Cantidad de ajuste"
         value={adjustQuantity}
         onChange={(e) => { setAdjustQuantity(e.target.value); }}
         placeholder="Cantidad"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
+      <label className="pos-field">Motivo del ajuste
       <input
         data-testid="adjust-reason-input"
+        aria-label="Motivo del ajuste"
         value={adjustReason}
         onChange={(e) => { setAdjustReason(e.target.value); }}
         placeholder="Motivo"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
       <button
         data-testid="adjust-stock-button"
         onClick={() => {
@@ -131,7 +170,7 @@ export function InventoryPanel(): React.JSX.Element {
             target, adjustType, adjustQuantity, adjustReason.trim(), businessDate.trim(),
           );
         }}
-        disabled={inventory.busy || target === "" || adjustQuantity.trim() === ""}
+        disabled={inventory.busy || inventory.pending || !permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) || target === "" || adjustQuantity.trim() === ""}
       >
         Ajustar
       </button>
@@ -140,7 +179,7 @@ export function InventoryPanel(): React.JSX.Element {
       <button
         data-testid="get-stock-button"
         onClick={() => { void inventory.getStock(target); }}
-        disabled={inventory.busy || target === ""}
+        disabled={inventory.busy || !permissions.has(CanonicalPermission.INVENTORY_STOCK_READ) || target === ""}
       >
         Consultar
       </button>
@@ -171,6 +210,7 @@ export function InventoryPanel(): React.JSX.Element {
         <div data-testid="stock-unauthorized">{inventory.stock.outcome}</div>
       )}
       {inventory.error !== null && <div data-testid="inventory-error">{inventory.error}</div>}
+      </div>
     </section>
   );
 }

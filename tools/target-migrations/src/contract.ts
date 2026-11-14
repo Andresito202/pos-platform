@@ -39,14 +39,23 @@ export const POSTGRES_TABLE_COLUMNS = {
   "authorization.role_permission_grants": ["id","role_id","permission_id","grant_version","status","valid_from","valid_until","created_at","retired_at"],
   "authorization.authorization_policy_versions": ["id","code","version","ruleset_checksum","status","effective_from","effective_until","created_at","retired_at"],
   "authorization.user_role_assignments": ["id","tenant_id","tenant_membership_id","role_id","company_id","branch_id","status","valid_from","valid_until","created_at","created_by_actor_type","created_by_actor_id","revoked_at","version"],
+  "authorization.platform_role_assignments": ["id","user_id","role_id","role_scope_type","status","valid_from","valid_until","created_at","created_by_actor_type","created_by_actor_id","revoked_at","revoked_by_actor_type","revoked_by_actor_id","revocation_reason","version"],
   "identity.sessions": ["id","user_id","tenant_id","tenant_membership_id","device_id","authenticated_at","expires_at","last_reauthenticated_at","mfa_status","authorization_policy_version_id","offline_valid_until","revoked_at","revoked_by_actor_type","revoked_by_actor_id","revocation_reason","created_at","version"],
   "identity.session_refresh_tokens": ["id","session_id","token_family_id","parent_token_id","token_hash","issued_at","expires_at","consumed_at","replacement_token_id","revoked_at","revocation_reason","reuse_detected_at","retained_until"],
   "identity.security_events": ["id","user_id","session_id","tenant_id","device_id","event_code","result","reason_code","ip_address","evidence_checksum","correlation_id","occurred_at","server_recorded_at"],
+  "identity.password_recovery_requests": ["id","user_id","token_hash","channel","status","requested_by_actor_type","requested_by_actor_id","support_verified","attempt_count","max_attempts","requested_at","expires_at","verified_at","consumed_at","last_sent_at","correlation_id","version"],
   "tenancy.onboarding_operations": ["id","actor_type","actor_id","idempotency_key","request_checksum","correlation_id","tenant_id","company_id","branch_id","owner_user_id","tenant_membership_id","owner_membership_type","status","reason_code","license_reference","requested_plan","effective_plan","pricing_policy_version","tax_policy_version","rounding_policy_version","authorization_policy_version_id","required_action","created_at","updated_at","completed_at","cancelled_at","version"],
   "sync.sync_operations": ["id","tenant_id","company_id","branch_id","source_kind","device_id","installation_id","session_id","actor_type","actor_id","aggregate_type","aggregate_id","operation_type","idempotency_key","expected_version","authority_policy","parent_operation_id","causation_id","correlation_id","schema_version","payload","payload_checksum","sync_status","occurred_at_local","recorded_at_local","received_at_server","committed_at_server","version"],
   "sync.outbox_entries": ["id","tenant_id","operation_id","device_id","local_sequence","operation_type","schema_version","payload_checksum","correlation_id","causation_id","sync_status","created_at","available_at","attempt_count","last_attempt_at","next_attempt_at","last_error_code","acknowledged_at","updated_at","version"],
   "audit.audit_events": ["id","tenant_id","company_id","branch_id","actor_type","actor_id","session_id","device_id","action_code","resource_type","resource_reference_kind","resource_id","operation_id","correlation_id","causation_id","schema_version","reported_at","server_recorded_at","result","reason_code","reason_detail","previous_value","new_value","reviewer_actor_type","reviewer_actor_id","approver_actor_type","approver_actor_id","evidence_reference","evidence_checksum","payload_checksum"],
 } as const;
+
+// Stage-specific contract: 001/002 must not require tables owned by 007/008.
+export const POSTGRES_001_TABLE_COLUMNS = Object.fromEntries(
+  Object.entries(POSTGRES_TABLE_COLUMNS).filter(([name]) =>
+    name !== "identity.password_recovery_requests" && name !== "authorization.platform_role_assignments"
+  ),
+) as Pick<typeof POSTGRES_TABLE_COLUMNS, Exclude<keyof typeof POSTGRES_TABLE_COLUMNS, "identity.password_recovery_requests" | "authorization.platform_role_assignments">>;
 
 export const RLS_TABLES = [
   "tenancy.tenants",
@@ -54,6 +63,7 @@ export const RLS_TABLES = [
   "organization.branches",
   "tenancy.tenant_memberships",
   "authorization.user_role_assignments",
+  "authorization.platform_role_assignments",
   "identity.sessions",
   "identity.security_events",
   "sync.sync_operations",
@@ -67,6 +77,7 @@ export const REQUIRED_POLICIES = [
   "branches_tenant_isolation",
   "tenant_memberships_tenant_isolation",
   "user_role_assignments_tenant_isolation",
+  "platform_role_assignments_platform_only",
   "security_events_tenant_isolation",
   "sync_operations_tenant_isolation",
   "outbox_entries_tenant_isolation",
@@ -82,7 +93,7 @@ export const REQUIRED_POLICIES = [
 export const PROHIBITED_TABLE_NAMES = [
   "products","product_variants","barcodes","sales","sale_items","payments",
   "inventory_movements","stock_balances","price_lists","tax_rules","electronic_documents",
-  "devices","device_keys","licenses","license_activations","inbox_entries","sync_checkpoints",
+  "devices","device_keys","license_activations","inbox_entries","sync_checkpoints",
   "sync_conflicts","sync_reviews","sync_dead_letters","kysely_migration","kysely_migration_lock",
 ] as const;
 
@@ -110,7 +121,7 @@ export const POSTGRES_001_DESCRIPTOR: MigrationDescriptor = {
   downArtifact: "postgres/001_central_foundation.down.sql",
   checksum: "DERIVED_FROM_UP_ARTIFACT",
   ownedSchemas: TARGET_SCHEMAS,
-  ownedTables: Object.keys(POSTGRES_TABLE_COLUMNS).filter((name) => !name.startsWith("platform.")),
+  ownedTables: Object.keys(POSTGRES_001_TABLE_COLUMNS).filter((name) => !name.startsWith("platform.")),
   ownedPolicies: "DERIVED_FROM_UP_ARTIFACT",
   ownedConstraints: "DERIVED_FROM_UP_ARTIFACT",
   ownedIndexes: "DERIVED_FROM_UP_ARTIFACT",

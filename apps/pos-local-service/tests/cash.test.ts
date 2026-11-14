@@ -175,6 +175,25 @@ function openRequest(overrides: Partial<{
   };
 }
 
+it("licensed capacity: denial prevents a cash shift and never substitutes user authorization", async () => {
+  const { db, masterStore, shiftStore } = await buildEnv();
+  insertRegisterFixture(db);
+  const now = () => new Date("2026-09-05T10:00:00.000Z");
+  let calls = 0;
+  const guarded = new OpenCashShiftUseCase(masterStore, shiftStore, now, (scope, id) => {
+    expect(scope).toEqual(SCOPE); expect(id).toBe(REGISTER_ID); calls++;
+    return "LICENSE_REGISTER_NOT_ALLOCATED";
+  });
+  expect(guarded.execute(SCOPE, SESSION, buildAuth(USER_A, ["CASH_SHIFT_OPEN"]), openRequest()))
+    .toEqual({ kind: "UNAUTHORIZED", reason: "LICENSE_REGISTER_NOT_ALLOCATED" });
+  expect(calls).toBe(1);
+  expect(db.native.prepare("SELECT count(*) AS n FROM cash_shift").get()).toEqual({n:0});
+  expect(guarded.execute(SCOPE, SESSION, buildAuth(USER_A, []), openRequest()).kind).toBe("UNAUTHORIZED");
+  expect(calls).toBe(1);
+  const allowed = new OpenCashShiftUseCase(masterStore, shiftStore, now, () => null);
+  expect(allowed.execute(SCOPE, SESSION, buildAuth(USER_A, ["CASH_SHIFT_OPEN"]), openRequest()).kind).toBe("OPENED");
+});
+
 // ── UC-CASH-001 — Open ────────────────────────────────────────────────────────
 
 describe("OpenCashShiftUseCase", () => {

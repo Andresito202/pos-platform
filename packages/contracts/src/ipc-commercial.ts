@@ -1,3 +1,4 @@
+import {PublicLicenseCatalogSchema} from "./license-offer.js";
 import * as z from "zod";
 import { createRequestEnvelopeSchema, createResponseEnvelopeSchema } from "./envelope.js";
 import { SignedSessionAssertionSchema } from "./session-assertion.js";
@@ -306,12 +307,58 @@ export const CashShiftCloseResultSchema = z.strictObject({
 
 export const CashShiftCloseResponseSchema = createResponseEnvelopeSchema(CashShiftCloseResultSchema);
 
+/** Display snapshots only. Prices are recalculated by sale.create. */
+export const WaitingCartLineSchema = z.strictObject({
+  productId: UuidSchema, presentationId: UuidSchema,
+  name: z.string().max(200), presentationName: z.string().max(200),
+  priceAmount: NonNegativeScale6Schema, currencyCode: CurrencyCodeSchema,
+  quantity: PositiveScale6Schema, identifier: z.string().max(200),
+});
+export const WaitingCartPayloadSchema = z.strictObject({
+  customer_id: UuidSchema.nullable().optional(),
+  label: z.string().trim().max(80),
+  cash_register_id: UuidSchema,
+  lines: z.array(WaitingCartLineSchema).min(1).max(200),
+});
+export const WaitingCartSchema = z.strictObject({
+  id: UuidSchema, version: z.number().int().positive(),
+  active_shift: z.strictObject({shift_id:UuidSchema,version:z.number().int().positive()}).nullable().optional(),
+  updated_at: z.string(), line_count: z.number().int().nonnegative(),
+  payload: WaitingCartPayloadSchema.extend({lines:z.array(WaitingCartLineSchema).max(200)}),
+});
+export const WaitingCartSaveRequestSchema = createRequestEnvelopeSchema(z.strictObject({
+  cart_id: UuidSchema, expected_version: z.number().int().nonnegative(), cart: WaitingCartPayloadSchema,
+})).safeExtend({message_type:z.literal("cart.waiting.save")}).superRefine((request,context)=>{
+  forbidCallerAssertedIdentity(request,context);requireIdempotentOperation(request,context);
+});
+export const WaitingCartListRequestSchema = createRequestEnvelopeSchema(z.strictObject({})).safeExtend({
+  message_type:z.literal("cart.waiting.list"),
+}).superRefine(forbidCallerAssertedIdentity);
+export const WaitingCartGetRequestSchema = createRequestEnvelopeSchema(z.strictObject({cart_id:UuidSchema})).safeExtend({
+  message_type:z.literal("cart.waiting.get"),
+}).superRefine(forbidCallerAssertedIdentity);
+export const WaitingCartDiscardRequestSchema = createRequestEnvelopeSchema(z.strictObject({
+  cart_id:UuidSchema,expected_version:z.number().int().positive(),
+})).safeExtend({message_type:z.literal("cart.waiting.discard")}).superRefine((request,context)=>{
+  forbidCallerAssertedIdentity(request,context);requireIdempotentOperation(request,context);
+});
+export const WaitingCartResultSchema = z.strictObject({
+  outcome:z.enum(["SAVED","FOUND","DISCARDED","UNAUTHORIZED","NOT_FOUND","VERSION_CONFLICT","IDEMPOTENCY_CONFLICT","CART_LIMIT"]),
+  carts:z.array(WaitingCartSchema).max(50), has_more:z.boolean(),
+});
+export const WaitingCartResponseSchema = createResponseEnvelopeSchema(WaitingCartResultSchema);
+export type WaitingCart = z.infer<typeof WaitingCartSchema>;
+export type WaitingCartPayload = z.infer<typeof WaitingCartPayloadSchema>;
+
 // ── sale.create ──────────────────────────────────────────────────────────────
 
 export const SaleCreateLineSchema = z.strictObject({
   product_id: UuidSchema,
   presentation_id: UuidSchema,
   quantity: PositiveScale6Schema,
+  /** D-23: actual scanned/selected identifier; backend resolves it against catalog.
+   * Omitted by legacy callers, never synthesized as a barcode. */
+  identifier: z.string().min(1).max(128).optional(),
 });
 
 /**
@@ -351,6 +398,8 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
      * verificado, así que una caja ajena simplemente no resuelve turno.
      */
     cash_register_id: UuidSchema.nullable(),
+    customer_id: UuidSchema.nullable().optional(),
+    waiting_cart: z.strictObject({ id: UuidSchema, version: z.number().int().positive() }).optional(),
     channel: SaleChannelSchema,
     business_date: BusinessDateSchema,
     timezone_id: TimezoneIdSchema,
@@ -366,10 +415,16 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
   });
 
 export const SaleCreateOutcomeSchema = z.enum([
+  "CUSTOMER_NOT_FOUND",
+  "LICENSE_BLOCKED",
+  "CASH_SHIFT_NOT_OPEN",
   "CREATED",
+  "WAITING_CART_NOT_FOUND",
+  "WAITING_CART_CONFLICT",
   "IDEMPOTENT",
   "UNAUTHORIZED",
   "CATALOG_NOT_FOUND",
+  "IDENTIFIER_MISMATCH",
   "PRICE_NOT_FOUND",
   "CURRENCY_MISMATCH",
   // La cantidad no cabe en la precisión que declara la unidad: media botella no
@@ -733,6 +788,45 @@ export const CustomerReadResultSchema = z.strictObject({
 
 export const CustomerReadResponseSchema = createResponseEnvelopeSchema(CustomerReadResultSchema);
 
+
+export const CustomerMarketingSubscribeRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ customer_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("customer.marketing.subscribe") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CustomerMarketingUnsubscribeRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ customer_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("customer.marketing.unsubscribe") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CustomerMarketingGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ customer_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("customer.marketing.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+const CustomerMarketingSubscriptionResultSchema = z.strictObject({
+  outcome: z.enum(["SUBSCRIBED", "UNSUBSCRIBED", "IDEMPOTENT", "UNAUTHORIZED", "CUSTOMER_NOT_FOUND", "EMAIL_REQUIRED", "IDEMPOTENCY_CONFLICT", "NOT_SUBSCRIBED", "FOUND"]),
+  customer_id: UuidSchema.nullable(),
+  channel: z.literal("EMAIL").nullable(),
+  topic: z.literal("POS_NEWS").nullable(),
+  status: z.enum(["SUBSCRIBED", "UNSUBSCRIBED"]).nullable(),
+  consent_version: z.string().min(1).max(32).nullable(),
+  consented_at: UtcDateTimeSchema.nullable(),
+  unsubscribed_at: UtcDateTimeSchema.nullable(),
+  source: z.literal("POS").nullable(),
+  updated_at: UtcDateTimeSchema.nullable(),
+});
+
+export const CustomerMarketingSubscribeResponseSchema = createResponseEnvelopeSchema(CustomerMarketingSubscriptionResultSchema);
+export const CustomerMarketingUnsubscribeResponseSchema = createResponseEnvelopeSchema(CustomerMarketingSubscriptionResultSchema);
+export const CustomerMarketingGetResponseSchema = createResponseEnvelopeSchema(CustomerMarketingSubscriptionResultSchema);
+
 // ── fiscal.document.issue ────────────────────────────────────────────────────
 
 /**
@@ -752,6 +846,7 @@ export const CustomerReadResponseSchema = createResponseEnvelopeSchema(CustomerR
  * confiable con `DOCUMENT_TYPE_CODE_NOT_VERIFIED`, nunca aquí.
  */
 const FiscalCustomerReferenceSchema = z.union([
+  z.strictObject({kind:z.literal("SALE_CUSTOMER")}),
   z.strictObject({ kind: z.literal("IDENTIFIED"), customer_id: UuidSchema }),
   z.strictObject({
     kind: z.literal("NOT_IDENTIFIED"),
@@ -776,6 +871,7 @@ export const FiscalDocumentIssueOutcomeSchema = z.enum([
   "UNAUTHORIZED",
   "ALREADY_ISSUED",
   "ISSUED",
+  "FISCAL_REJECTED",
   "REQUIRES_RECONCILIATION",
   "NOT_ELIGIBLE",
   "BLOCKED",
@@ -827,6 +923,15 @@ export const FiscalDocumentIssueResponseSchema = createResponseEnvelopeSchema(Fi
  */
 const BarcodeSchema = z.string().min(4).max(64).regex(/^[0-9A-Za-z-]+$/);
 
+/** Shape only. Verified fiscal code membership is enforced by Local Service. */
+export const CatalogFiscalAttributeSchema = z.strictObject({
+  code_reference: z.string().min(1).max(80),
+  unit_measure_code: z.string().min(1).max(8),
+  standard_code: z.string().min(1).max(8),
+  tax_code: z.string().min(1).max(8),
+  tax_rate: NonNegativeScale6Schema,
+});
+
 export const CatalogProductRegisterRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     code: z.string().min(1).max(64),
@@ -838,6 +943,7 @@ export const CatalogProductRegisterRequestSchema = createRequestEnvelopeSchema(
     barcode: BarcodeSchema.nullable(),
     price_amount: PositiveScale6Schema,
     currency_code: CurrencyCodeSchema,
+    fiscal_attributes: CatalogFiscalAttributeSchema.optional(),
   }),
 ).safeExtend({ message_type: z.literal("catalog.product.register") })
   .superRefine((request, context) => {
@@ -852,6 +958,7 @@ export const CatalogProductRegisterOutcomeSchema = z.enum([
   "IDEMPOTENCY_CONFLICT",
   "CODE_ALREADY_REGISTERED",
   "BARCODE_ALREADY_REGISTERED",
+  "INVALID_FISCAL_ATTRIBUTES",
 ]);
 
 /**
@@ -906,6 +1013,40 @@ export const CatalogItemResultSchema = z.strictObject({
 
 export const CatalogItemResponseSchema = createResponseEnvelopeSchema(CatalogItemResultSchema);
 
+export const CatalogItemListRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    query: z.string().max(200),
+    limit: z.number().int().min(1).max(60),
+    offset: z.number().int().min(0).max(100000),
+  }),
+).safeExtend({ message_type: z.literal("catalog.item.list") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogItemListItemSchema = z.strictObject({
+  product_id: UuidSchema,
+  presentation_id: UuidSchema,
+  code: z.string().min(1).max(64),
+  name: z.string().min(1).max(200),
+  presentation_name: z.string().min(1).max(200),
+  unit_code: z.string().min(1).max(16),
+  unit_precision: z.number().int().min(0).max(6),
+  barcode: BarcodeSchema.nullable(),
+  stock_controlled: z.boolean(),
+  price_amount: PositiveScale6Schema,
+  currency_code: CurrencyCodeSchema,
+});
+
+export const CatalogItemListResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "UNAUTHORIZED"]),
+  items: z.array(CatalogItemListItemSchema).max(60),
+  has_more: z.boolean(),
+});
+
+export const CatalogItemListResponseSchema =
+  createResponseEnvelopeSchema(CatalogItemListResultSchema);
+
+
+
 // ── inventory.stock.receive · inventory.stock.adjust · inventory.stock.get ───
 
 /**
@@ -955,6 +1096,9 @@ export const InventoryStockAdjustRequestSchema = createRequestEnvelopeSchema(
   });
 
 export const InventoryMovementOutcomeSchema = z.enum([
+  "INVALID_QUANTITY",
+  "QUANTITY_PRECISION_EXCEEDED",
+  "STOCK_QUANTITY_OVERFLOW",
   "POSTED",
   "IDEMPOTENT",
   "UNAUTHORIZED",
@@ -1073,6 +1217,81 @@ export const SalesReceiptGetResultSchema = z.strictObject({
 export const SalesReceiptGetResponseSchema =
   createResponseEnvelopeSchema(SalesReceiptGetResultSchema);
 
+// ── admin.metrics.get ───────────────────────────────────────────────────────
+
+export const LicenseOffersListRequestSchema=createRequestEnvelopeSchema(z.strictObject({})).safeExtend({message_type:z.literal("license.offers.list")}).superRefine(forbidCallerAssertedIdentity);
+export const LicenseOffersListResultSchema=z.strictObject({outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),catalog:PublicLicenseCatalogSchema.nullable()});
+export const LicenseOffersListResponseSchema=createResponseEnvelopeSchema(LicenseOffersListResultSchema);
+export const AdminMetricsGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({ message_type: z.literal("admin.metrics.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const AdminMetricsGetResultSchema = z.strictObject({
+  outcome: z.literal("AVAILABLE"),
+  sales_completed_count: z.number().int().nonnegative().nullable(),
+  sales_completed_amount: NonNegativeScale6Schema.nullable(),
+  inventory_tracked_count: z.number().int().nonnegative().nullable(),
+  cash_open_shift_count: z.number().int().nonnegative().nullable(),
+});
+
+export const AdminMetricsGetResponseSchema =
+  createResponseEnvelopeSchema(AdminMetricsGetResultSchema);
+
+// ── audit.event.list ──────────────────────────────────────────────────────────
+
+/**
+ * Read-only local audit projection. The renderer can filter evidence, but it
+ * cannot assert tenant/company/branch identity. Sensitive JSON evidence is not
+ * returned by this V1 contract.
+ */
+export const AuditEventListRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    query: z.string().max(200),
+    action_code: StableCodeSchema.nullable(),
+    resource_type: StableCodeSchema.nullable(),
+    actor_type: z.enum(["USER", "DEVICE", "SYSTEM"]).nullable(),
+    from: UtcDateTimeSchema.nullable(),
+    to: UtcDateTimeSchema.nullable(),
+    limit: z.number().int().min(1).max(100),
+    offset: z.number().int().min(0).max(100000),
+  }),
+).safeExtend({ message_type: z.literal("audit.event.list") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    if (request.payload.from !== null && request.payload.to !== null &&
+        request.payload.from > request.payload.to) {
+      context.addIssue({
+        code: "custom",
+        path: ["payload", "from"],
+        message: "from must be earlier than or equal to to",
+      });
+    }
+  });
+
+export const AuditEventListItemSchema = z.strictObject({
+  sequence: z.number().int().positive(),
+  actor_type: z.enum(["USER", "DEVICE", "SYSTEM"]),
+  actor_id: UuidSchema.nullable(),
+  session_id: UuidSchema,
+  action_code: StableCodeSchema,
+  resource_type: StableCodeSchema,
+  resource_id: UuidSchema.nullable(),
+  correlation_id: UuidSchema,
+  causation_id: UuidSchema.nullable(),
+  reason_code: StableCodeSchema.nullable(),
+  created_at: UtcDateTimeSchema,
+});
+
+export const AuditEventListResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "UNAUTHORIZED"]),
+  events: z.array(AuditEventListItemSchema).max(100),
+  has_more: z.boolean(),
+});
+
+export const AuditEventListResponseSchema =
+  createResponseEnvelopeSchema(AuditEventListResultSchema);
+
 // ── Registro canónico de métodos ─────────────────────────────────────────────
 
 /**
@@ -1084,12 +1303,17 @@ export const SalesReceiptGetResponseSchema =
  * correspondencia está tabulada en `DEC-014` §3.2.
  */
 export const CommercialIpcMessageTypeSchema = z.enum([
+  "hardware.command",
   "authorization.capabilities.get",
   "session.activate",
   "session.recover",
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
+  "cart.waiting.save",
+  "cart.waiting.list",
+  "cart.waiting.get",
+  "cart.waiting.discard",
   "payment.register.cash",
   "payment.register.transfer",
   "payment.transfer.confirm",
@@ -1098,12 +1322,18 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "customer.register",
   "customer.get",
   "customer.find",
+  "customer.marketing.subscribe",
+  "customer.marketing.unsubscribe",
+  "customer.marketing.get",
   "catalog.product.register",
   "catalog.item.find",
   "catalog.item.get",
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.stock.get",
+  "audit.event.list",
+  "admin.metrics.get",
+  "license.offers.list",
 ]);
 
 /**
@@ -1113,11 +1343,16 @@ export const CommercialIpcMessageTypeSchema = z.enum([
  * ampliaría la superficie del renderer sin contrapartida.
  */
 export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
+  "pos:hardware.command",
   "pos:session.activate",
   "pos:session.recover",
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",
+  "pos:cart.waiting.save",
+  "pos:cart.waiting.list",
+  "pos:cart.waiting.get",
+  "pos:cart.waiting.discard",
   "pos:payment.register.cash",
   "pos:payment.register.transfer",
   "pos:payment.transfer.confirm",
@@ -1126,12 +1361,18 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
+  "pos:customer.marketing.subscribe",
+  "pos:customer.marketing.unsubscribe",
+  "pos:customer.marketing.get",
   "pos:catalog.product.register",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   "pos:inventory.stock.receive",
   "pos:inventory.stock.adjust",
   "pos:inventory.stock.get",
+  "pos:audit.event.list",
+  "pos:admin.metrics.get",
+  "pos:license.offers.list",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -1149,12 +1390,16 @@ export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;
 export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema>;
 export type CustomerReadResult = z.infer<typeof CustomerReadResultSchema>;
 export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;
+export type CustomerMarketingSubscriptionResult = z.infer<typeof CustomerMarketingSubscriptionResultSchema>;
 export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResultSchema>;
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
+export type CatalogItemListItem = z.infer<typeof CatalogItemListItemSchema>;
 export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;
 export type InventoryStockGetResult = z.infer<typeof InventoryStockGetResultSchema>;
+export type AuditEventListResult = z.infer<typeof AuditEventListResultSchema>;
+export type AdminMetricsGetResult = z.infer<typeof AdminMetricsGetResultSchema>;

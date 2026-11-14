@@ -8,6 +8,8 @@
     "test:domain": "pnpm --filter @pos-platform/domain test",
     "test:application": "pnpm --filter @pos-platform/application test",
     "test:fiscal-adapters": "pnpm --filter @pos-platform/fiscal-adapters test",
+    "certify:local:free": "node tools/ci/free-local-certification.mjs",
+    "windows:native:runtime-smoke": "node tools/operators/windows-native-addon-runtime-smoke.mjs",
     "ci:repository-policy": "node tools/ci/validate-repository-policy.mjs",
     "ci:dependency-inventory": "node tools/ci/generate-dependency-inventory.mjs",
     "preflight:migration:003": "pnpm --filter @pos-platform/target-migrations preflight:003",
@@ -26,11 +28,12 @@
     "ci:license-tests": "node --test tools/ci/validate-spdx-license.test.mjs tools/ci/run-license-compatibility-gate.test.mjs",
     "ci:provenance-tests": "node --test tools/ci/provenance-manifest.test.mjs",
     "test:runtime": "pnpm --filter @pos-platform/database-sqlite test && pnpm --filter @pos-platform/observability test && pnpm --filter @pos-platform/pos-local-service test && pnpm --filter @pos-platform/pos-desktop test",
-    "test:database-postgres": "pnpm --filter @pos-platform/database-postgres test"
+    "test:database-postgres": "pnpm --filter @pos-platform/pos-local-service test -- tests/postgres-onboarding.test.ts"
   },
   "devDependencies": {
-    "nx": "23.1.2",
-    "typescript": "6.0.3"
+    "nx": "23.2.1",
+    "typescript": "6.0.3",
+    "vite": "8.2.4"
   },
   "nx": {
     "targets": {
@@ -44,7 +47,12 @@
   },
   "pnpm": {
     "overrides": {
-      "smol-toml": ">=1.7.1"
+      "smol-toml": "1.9.0",
+      "axios": "1.20.0",
+      "undici": "7.30.1",
+      "follow-redirects": "1.16.2",
+      "brace-expansion": "5.0.12",
+      "source-map-js": ">=1.2.2"
     }
   }
 }

@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { POSTGRES_TABLE_COLUMNS, PROHIBITED_TABLE_NAMES, REQUIRED_POLICIES, RLS_TABLES, TARGET_SCHEMAS } from "../src/contract.js";
+import { POSTGRES_001_TABLE_COLUMNS, PROHIBITED_TABLE_NAMES, REQUIRED_POLICIES, RLS_TABLES, TARGET_SCHEMAS } from "../src/contract.js";
 import { postgresDatabase, queryRows } from "../src/database.js";
 import { validatePostgresCatalog } from "../src/postgres-introspection.js";
 import { runPostgresSmoke } from "../src/postgres-smoke.js";
@@ -130,15 +130,15 @@ describe("001_central_foundation", () => {
   it("repeat APPLIED retains execution identity", () => expect(facts.sameExecution).toBe(true));
   it("checksum mismatch fails closed", () => expect(facts.checksumRejected).toBe(true));
   it("has exactly 20 target tables", () => expect((facts.tables as string[]).length).toBe(20));
-  it("has the exact table contract", () => expect(facts.tables).toEqual(Object.keys(POSTGRES_TABLE_COLUMNS).sort()));
+  it("has the exact table contract", () => expect(facts.tables).toEqual(Object.keys(POSTGRES_001_TABLE_COLUMNS).sort()));
   it("has all six body schemas", () => expect(facts.schemas).toEqual([...TARGET_SCHEMAS].sort()));
   it("has zero prohibited commercial objects", () => expect(facts.prohibited).toEqual([]));
   it("materializes UUID v7 checks", () => expect(facts.uuidChecks as number).toBeGreaterThanOrEqual(20));
   it("materializes tenant-aware composite foreign keys", () => expect(facts.tenantAwareFks as number).toBeGreaterThanOrEqual(10));
   it("enables RLS on exactly 10 tables", () => expect((facts.rls as unknown[]).length).toBe(10));
-  it("enables RLS on the approved set", () => expect((facts.rls as Array<{name:string}>).map((row) => row.name)).toEqual([...RLS_TABLES].sort()));
+  it("enables RLS on the approved set", () => expect((facts.rls as Array<{name:string}>).map((row) => row.name)).toEqual(RLS_TABLES.filter((name) => name !== "authorization.platform_role_assignments").slice().sort()));
   it("forces RLS on all 10 tables", () => expect((facts.rls as Array<{forced:boolean}>).every((row) => row.forced)).toBe(true));
-  it("installs the exact policy set", () => expect(facts.policies).toEqual([...REQUIRED_POLICIES].sort()));
+  it("installs the exact policy set", () => expect(facts.policies).toEqual(REQUIRED_POLICIES.filter((name) => name !== "platform_role_assignments_platform_only").slice().sort()));
   it("tenant A cannot select tenant B", () => expect(facts.smokeAssertions as number).toBeGreaterThanOrEqual(20));
   it("tenant A cannot insert tenant B", () => expect(facts.smokeAssertions as number).toBeGreaterThanOrEqual(20));
   it("tenant A cannot update tenant B", () => expect(facts.smokeAssertions as number).toBeGreaterThanOrEqual(20));

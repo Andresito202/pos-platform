@@ -1,5 +1,9 @@
 # Tablero de materialización — estructura permanente
 
+> Continuidad 2026-10-22 en la rama activa: [D-23](../testing/sold-identifier-2026-10-22.md) y [escritor inicial D-19](../testing/catalog-fiscal-write-2026-10-22.md) materializados/probados. El test focalizado del canal alcanza SQLite con esos datos, pero no acredita login humano, emisión fiscal productiva ni E2E Android. Se preservan los recuentos y filas históricas inferiores con su alcance original.
+
+> Alcance de lectura — 2026-10-17. Las filas y recuentos inferiores evalúan el SHA histórico indicado en «El tablero»; no constituyen una evaluación del main o de la rama activa actuales. No se promueve ningún peldaño con esta reconciliación documental. Consultar [reconciliación operativa](../product/backlog.md) para la cola actual. Esta nota no elimina evidencia histórica ni certifica tests nuevos.
+
 ## Para qué existe este documento
 
 El propietario mantiene un **tablero físico**. Un tablero físico no se puede

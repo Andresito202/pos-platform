@@ -3,13 +3,32 @@ import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type {Server,Socket} from "node:net";
 import {
   LocalChannelAuthenticator,
   LocalChannelClient,
   localChannelEndpoint,
 } from "@pos-platform/local-channel";
 import { LocalChannelServer } from "../src/index.js";
+
+// Keep actual sockets, framing and MAC. On non-Windows use ephemeral loopback
+// TCP because managed Linux may prohibit Unix sockets. Windows keeps the real
+// named pipe. Handler responses below remain fixtures, not business E2E.
+const loopback=vi.hoisted(()=>({server:undefined as Server|undefined}));
+vi.mock("node:net",async original=>{
+  const net=await original<typeof import("node:net")>();
+  if(process.platform==="win32")return net;
+  return {...net,createServer:(listener:(socket:Socket)=>void)=>{
+    const server=net.createServer(listener),listen=server.listen.bind(server);
+    Object.defineProperty(server,"listen",{value:(_endpoint:string,ready:()=>void)=>listen({host:"127.0.0.1",port:0},ready)});
+    loopback.server=server;return server;
+  },createConnection:()=>{
+    const address=loopback.server?.address();
+    if(!address||typeof address==="string")throw Error("TCP_TEST_LISTENER_REQUIRED");
+    return net.createConnection({host:"127.0.0.1",port:address.port});
+  }};
+});
 
 /**
  * Ida y vuelta **real** de las operaciones comerciales por el canal local.
@@ -20,8 +39,8 @@ import { LocalChannelServer } from "../src/index.js";
  * comerciales se podía parsear**. Las pruebas del canal sólo ejercitaban
  * `runtime.status.get`, que sí tenía su esquema.
  *
- * Corre sobre socket POSIX —`localChannelEndpoint` lo admite con directorio de
- * prueba—, así que **se ejecuta en Linux**.
+ * Linux usa TCP loopback efímero; Windows conserva named pipe. No acredita
+ * identidad de pares Windows ni transporte SCM multicuenta.
  *
  * El named pipe y su DACL **no** quedan sin verificar por ello: `channel.test.ts`
  * los ejercita con `windowsIt` y CI ejecuta esa suite en `windows-2022`. Lo que
@@ -135,7 +154,7 @@ const INVENTORY_STOCK = {
   quantity_on_hand: "10.000000", last_movement_sequence: 1,
 } as const;
 
-/** Las cuatro respuestas de la vertical comercial del Bloque 1. */
+/** Respuestas comerciales del canal: vertical de caja y catálogo público de licencias. */
 const COMMERCIAL_CASES = [
   {
     messageType: "cash.shift.open",
@@ -196,6 +215,7 @@ const COMMERCIAL_CASES = [
       payable_amount: "3500.000000", change_amount: "0.000000",
     },
   },
+  {messageType:"license.offers.list",payload:{},resultCode:"AVAILABLE",result:{outcome:"AVAILABLE",catalog:{profile:"CAMACHO_PUBLIC_LICENSE_CATALOG_V1",offers:[]}}},
 ] as const;
 
 const PAYLOAD_BY_MESSAGE_TYPE: Record<string, unknown> = {
@@ -321,7 +341,7 @@ describe("transporte de las operaciones comerciales", () => {
         ) as { result: { outcome: string } };
         outcomes.push(response.result.outcome);
       }
-      expect(outcomes).toEqual(["OPENED", "FOUND", "CREATED", "CONFIRMED"]);
+      expect(outcomes).toEqual(["OPENED", "FOUND", "CREATED", "CONFIRMED", "AVAILABLE"]);
     });
   }, 20_000);
 

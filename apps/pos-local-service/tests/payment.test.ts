@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { uuidV7 } from "@pos-platform/contracts";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -144,7 +145,7 @@ function seedSale(
   const saleId = options.saleId ?? randomUUID();
   const payable = options.payable ?? "10000.000000";
   const shiftId = options.shiftId === undefined ? null : options.shiftId;
-  const operationId = randomUUID();
+  const operationId = uuidV7(NOW.getTime());
   const at = NOW.toISOString();
   const zero = "0.000000";
   // `sales_sales_document_idx` es UNIQUE por (tenant, branch, serie, número):
@@ -1063,7 +1064,7 @@ describe("salida de existencia al completar la venta", () => {
       sessionId: SESSION,
       operatorUserId: USER,
       movementId: randomUUID(),
-      operationId: randomUUID(),
+      operationId: uuidV7(NOW.getTime()),
       presentationId,
       movementType: "OPENING_COUNT",
       quantity,

@@ -1,0 +1,240 @@
+name: Windows login hosted ephemeral SCM lab
+
+on:
+  push:
+    branches:
+      - feat/p0-windows-login-install-readiness
+    paths:
+      - '.github/workflows/windows-login-hosted-ephemeral-lab.yml'
+      - 'tools/operators/ci-windows-scm-identity-service.ps1'
+      - 'tools/operators/ci-windows-scm-identity-service.cs'
+      - 'tools/operators/ci-windows-scm-native-peer.mjs'
+      - 'packages/local-channel/native/**'
+      - 'apps/pos-local-service/tests/windows-handoff-lease-state.test.ts'
+      - 'apps/pos-local-service/tests/windows-scm-runtime.test.ts'
+      - 'apps/pos-local-service/tests/native-session-close-lifecycle.test.ts'
+      - 'apps/pos-local-service/tests/windows-scm-commercial-entry-process.test.ts'
+      - 'apps/pos-desktop/e2e/**'
+      - 'apps/pos-local-service/e2e-host/**'
+      - 'apps/pos-desktop/src/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-ephemeral-scm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hosted-scm-service-desktop:
+    name: Real ephemeral SCM virtual account and native desktop peer
+    runs-on: windows-2022
+    timeout-minutes: 30
+    env:
+      CAMACHO_NATIVE_G1_DIAGNOSTICS: '1'
+    steps:
+      - name: Checkout immutable commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install locked dependencies
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compile production Windows native pipe
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/local-channel native:build:win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $addon='packages/local-channel/native/build/Release/camacho_windows_pipe.node'
+          if (-not (Test-Path -LiteralPath $addon -PathType Leaf)) { throw 'NATIVE_ADDON_MISSING' }
+          Write-Host ('NATIVE_SHA256=' + (Get-FileHash -LiteralPath $addon -Algorithm SHA256).Hash)
+      - name: Validate native operator and peer scripts
+        shell: powershell
+        run: |
+          $tokens=$null
+          $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath 'tools/operators/ci-windows-scm-identity-service.ps1').Path,
+            [ref]$tokens,[ref]$errors)
+          if (@($errors).Count -ne 0) { throw 'HOSTED_SCM_OPERATOR_SYNTAX_FAILED' }
+          node --check tools/operators/ci-windows-scm-native-peer.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Execute real Windows SCM plus real interactive peer and DPAPI
+        shell: powershell
+        run: |
+          & ./tools/operators/ci-windows-scm-identity-service.ps1 -Run -NativePipe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'HOSTED_SCM_NATIVE_OS_IDENTITY=PASS'
+      - name: Verify G2 lease and revocation logic on same Windows runner
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-handoff-lease-state.test.ts tests/windows-scm-runtime.test.ts tests/native-session-close-lifecycle.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'HOSTED_SCM_G2_REGRESSIONS=PASS'
+      - name: Prove production SCM service entry rejects before DB and DPAPI
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-scm-commercial-entry-process.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'SCM_PRODUCTION_ENTRY_FAIL_CLOSED=PASS'
+      - name: Fail closed on commercial login claim
+        shell: pwsh
+        run: |
+          $guard=Get-Content -LiteralPath 'apps/pos-local-service/src/security/windows-commercial-host-identity.ts' -Raw
+          if (-not $guard.Contains('SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN')) { throw 'COMMERCIAL_FAIL_CLOSED_GUARD_REMOVED' }
+          Write-Host 'SCM_VIRTUAL_ACCOUNT_NATIVE_PEER=TESTED'
+          Write-Host 'ELECTRON_COMMERCIAL_RUNTIME=NOT_TESTED'
+          Write-Host 'CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED'
+          Write-Host 'BUSINESS_REAL_SESSION=NOT_TESTED'
+          Write-Host 'HUMAN_MFA=NOT_TESTED'
+          Write-Host 'COMMERCIAL_LOGIN_CERTIFIED=NO'
+
+  hosted-electron-service-integration:
+    name: Real Electron and Local Service Windows integration (isolated identity)
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - name: Checkout immutable commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install locked dependencies
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify actual Windows Electron executable
+        shell: pwsh
+        run: |
+          $electron = pnpm --filter @pos-platform/pos-desktop exec node -p "require('electron')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $path = ($electron | Select-Object -Last 1).Trim()
+          if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw 'ELECTRON_WINDOWS_EXECUTABLE_MISSING' }
+          Write-Host 'ELECTRON_WINDOWS_EXECUTABLE=VERIFIED'
+      - name: Build actual Electron main, preload and renderer
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'ELECTRON_MAIN_PRELOAD_RENDERER_BUILD=PASS'
+      - name: Bundle isolated custody probe for Electron E2E
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop exec esbuild src/electron-business-login.ts --bundle --platform=node --format=esm --external:electron --outfile=dist/native-business-custody-probe.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $probe='apps/pos-desktop/dist/native-business-custody-probe.mjs'
+          if (-not (Test-Path -LiteralPath $probe -PathType Leaf)) { throw 'NATIVE_CUSTODY_E2E_BUNDLE_MISSING' }
+          Write-Host 'ELECTRON_CUSTODY_E2E_BUNDLE=PASS'
+      - name: Exercise service-backed BUSINESS native main contracts on Windows
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop exec vitest run tests/native-commercial-service-login.test.ts tests/native-business-login.test.ts tests/scm-channel-start.test.ts tests/desktop-commercial-startup-secrecy.test.ts tests/commercial-account.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'ELECTRON_BUSINESS_CONTRACTS_WINDOWS=PASS'
+      - name: Launch actual Electron and Local Service E2E with isolated fixture identity
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/boot.spec.ts e2e/native-custody.spec.ts e2e/real-channel.spec.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'ELECTRON_LOCAL_SERVICE_E2E_ISOLATED=PASS'
+      - name: Verify isolated Windows UI and backend permissions for each development role
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          foreach ($role in @('CAJERO','SUPERVISOR','ADMINISTRADOR','SUPERADMINISTRADOR')) {
+            $env:POS_E2E_ROLE=$role
+            pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/role-isolation.spec.ts --retries=0
+            if ($LASTEXITCODE -ne 0) { throw "ISOLATED_ROLE_E2E_FAILED:$role" }
+            Write-Host "ISOLATED_ROLE_E2E_PASS:$role"
+          }
+          Remove-Item Env:POS_E2E_ROLE -ErrorAction SilentlyContinue
+          Write-Host 'ISOLATED_ROLE_PERMISSION_MATRIX=PASS'
+      - name: Prove development SQLite survives complete Electron and service restarts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $env:POS_E2E_ROLE='ADMINISTRADOR'
+          $env:POS_E2E_PERSISTENT_DEV='1'
+          $env:POS_E2E_PERSISTENCE_SMOKE='1'
+          $env:POS_E2E_PERSISTENCE_ROOT=Join-Path $env:RUNNER_TEMP 'camacho-pos-role-persistence-proof'
+          New-Item -ItemType Directory -Path $env:POS_E2E_PERSISTENCE_ROOT -Force | Out-Null
+          try {
+            Remove-Item Env:POS_E2E_PERSISTENCE_EXPECT_EXISTING -ErrorAction SilentlyContinue
+            pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/role-isolation.spec.ts --retries=0
+            if ($LASTEXITCODE -ne 0) { throw 'DEV_SQLITE_FIRST_BOOT_FAILED' }
+            $env:POS_E2E_PERSISTENCE_EXPECT_EXISTING='1'
+            pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/role-isolation.spec.ts --retries=0
+            if ($LASTEXITCODE -ne 0) { throw 'DEV_SQLITE_REOPEN_FAILED' }
+            Write-Host 'DEV_PERSISTENT_SQLITE_TWO_INDEPENDENT_LAUNCHES=PASS'
+          } finally {
+            Remove-Item Env:POS_E2E_ROLE,Env:POS_E2E_PERSISTENT_DEV,Env:POS_E2E_PERSISTENCE_SMOKE,Env:POS_E2E_PERSISTENCE_ROOT,Env:POS_E2E_PERSISTENCE_EXPECT_EXISTING -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'camacho-pos-role-persistence-proof') -Recurse -Force -ErrorAction SilentlyContinue
+          }
+      - name: Prohibit certification by fixture results
+        if: ${{ always() }}
+        shell: pwsh
+        run: |
+          Write-Host 'ELECTRON_COMPILED_RUNTIME_TEST=ATTEMPTED'
+          Write-Host 'ELECTRON_SCM_COMMERCIAL_INTEROPERABILITY=NOT_TESTED'
+          Write-Host 'CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED'
+          Write-Host 'BUSINESS_REAL_SESSION=NOT_TESTED'
+          Write-Host 'HUMAN_MFA=NOT_TESTED'
+          Write-Host 'COMMERCIAL_LOGIN_CERTIFIED=NO'
+
+  isolated-hosted-p0-evidence:
+    name: Aggregate hosted Windows G1 and Electron E2E (not BUSINESS)
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs:
+      - hosted-scm-service-desktop
+      - hosted-electron-service-integration
+    permissions:
+      contents: read
+    steps:
+      - name: Reject missing, failed or cancelled host-side evidence
+        shell: bash
+        env:
+          SCM_RESULT: ${{ needs.hosted-scm-service-desktop.result }}
+          ELECTRON_RESULT: ${{ needs.hosted-electron-service-integration.result }}
+        run: |
+          set -euo pipefail
+          printf 'P0_HOSTED_SCM_RESULT=%s\n' "$SCM_RESULT"
+          printf 'P0_HOSTED_ELECTRON_RESULT=%s\n' "$ELECTRON_RESULT"
+          if [[ "$SCM_RESULT" != success || "$ELECTRON_RESULT" != success ]]; then
+            echo 'P0_HOSTED_ISOLATED_EVIDENCE=FAIL'
+            exit 1
+          fi
+          echo 'P0_HOSTED_ISOLATED_EVIDENCE=PASS'
+          echo 'SCM_PRODUCTION_RUNTIME_PLUS_ELECTRON=NOT_TESTED'
+          echo 'CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED'
+          echo 'BUSINESS_REAL_SESSION=NOT_TESTED'
+          echo 'HUMAN_MFA=NOT_TESTED'
+          echo 'COMMERCIAL_LOGIN_CERTIFIED=NO'

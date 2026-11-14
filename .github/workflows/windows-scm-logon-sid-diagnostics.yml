@@ -1,0 +1,34 @@
+name: Windows SCM interactive logon SID diagnostic
+on:
+  push:
+    branches: [feat/p0-windows-login-install-readiness]
+    paths: ['.github/workflows/windows-scm-logon-sid-diagnostics.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  token:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    steps:
+      - name: Examine logon group availability (no SID disclosure)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $groups=@($id.Groups | ForEach-Object {$_.Value})
+          $lines=@(& whoami.exe /groups /fo csv /nh)
+          $matches=@([regex]::Matches(($lines -join [Environment]::NewLine),'S-1-5-5-[0-9]+-[0-9]+') | ForEach-Object {$_.Value} | Select-Object -Unique)
+          $interactive=$groups -contains 'S-1-5-4'
+          $remote=$groups -contains 'S-1-5-14'
+          $batch=$groups -contains 'S-1-5-3'
+          $service=$groups -contains 'S-1-5-6'
+          Write-Output ('GROUP_COUNT='+$groups.Count)
+          Write-Output ('IDENTITY_LOGON_SID_COUNT='+@($groups | Where-Object {$_ -match '^S-1-5-5-[0-9]+-[0-9]+$'}).Count)
+          Write-Output ('WHOAMI_LOGON_SID_COUNT='+$matches.Count)
+          Write-Output ('INTERACTIVE='+$interactive)
+          Write-Output ('REMOTE='+$remote)
+          Write-Output ('BATCH='+$batch)
+          Write-Output ('SERVICE='+$service)
+          Write-Output ('WHOAMI_EXIT='+$LASTEXITCODE)
+          Write-Output ('USER_SID_IS_LOCAL='+($id.User.Value -match '^S-1-5-21-'))

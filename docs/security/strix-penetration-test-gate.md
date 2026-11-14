@@ -17,8 +17,7 @@ Lo que la CLI declara en su propio banner, transcrito del log del job del
 
 ```
 Required environment variables:
-• STRIX_LLM - Model name to use (e.g., 'openrouter/z-ai/glm-5.3' or
-  'anthropic/claude-opus-4-7')
+• STRIX_LLM - Model name to use (ejemplos de proveedores omitidos)
 
 Optional environment variables:
 • LLM_API_BASE - Custom API base URL if using local models (e.g., Ollama, LMStudio)

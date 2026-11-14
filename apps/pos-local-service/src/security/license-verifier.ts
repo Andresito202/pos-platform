@@ -2,6 +2,9 @@ import { verify, type KeyObject } from "node:crypto";
 import {
   LicenseClaimsSchema,
   SignedLicenseSchema,
+  SignedLicenseCapacitySchema,
+  LicenseCapacityClaimsSchema,
+  type LicenseCapacityClaims,
   type LicenseClaims,
   type SignedLicense,
 } from "@pos-platform/contracts";
@@ -30,9 +33,9 @@ export interface LicenseBinding {
   readonly deviceId: string;
 }
 
-export interface LicenseVerificationResult {
+export interface LicenseVerificationResult<C extends LicenseClaims = LicenseClaims> {
   readonly decision: LicenseDecision;
-  readonly claims: LicenseClaims | null;
+  readonly claims: C | null;
   readonly evaluatedAt: string;
 }
 
@@ -44,17 +47,33 @@ export class LicenseVerifier {
   ) {}
 
   verify(input: unknown, binding: LicenseBinding, online: boolean): LicenseVerificationResult {
+    return this.verifySigned(SignedLicenseSchema.parse(input), binding, online);
+  }
+
+  verifyCapacity(input: unknown, binding: LicenseBinding, online: boolean): LicenseVerificationResult<LicenseCapacityClaims> {
+    const result = this.verifySigned(SignedLicenseCapacitySchema.parse(input), binding, online);
+    // Capacity expiry already includes the centrally signed subscription grace.
+    // Its endpoint is exclusive, matching Central; no extra local grace is added.
+    if (result.decision === "VALID" && result.claims?.expires_at !== null && result.claims?.expires_at !== undefined &&
+        Date.parse(result.evaluatedAt) >= Date.parse(result.claims.expires_at)) return {...result,decision:"EXPIRED"};
+    return result;
+  }
+
+  private verifySigned<C extends LicenseClaims>(signed: {claims:C;signature:string}, binding: LicenseBinding, online: boolean): LicenseVerificationResult<C> {
     const evaluatedAt = this.now();
     this.trustedClock.accept(evaluatedAt);
 
-    const signed = SignedLicenseSchema.parse(input);
-    const claims = LicenseClaimsSchema.parse(signed.claims);
+    const claims = signed.claims;
     const trustedKey = this.keys.get(claims.key_id);
     if (!trustedKey) {
       return { decision: "SIGNATURE_INVALID", claims: null, evaluatedAt: evaluatedAt.toISOString() };
     }
     if (trustedKey.status === "REVOKED") {
       return { decision: "SIGNING_KEY_REVOKED", claims: null, evaluatedAt: evaluatedAt.toISOString() };
+    }
+    if ((trustedKey.validFrom !== undefined && evaluatedAt.getTime() < Date.parse(trustedKey.validFrom)) ||
+        (trustedKey.validUntil != null && evaluatedAt.getTime() > Date.parse(trustedKey.validUntil))) {
+      return { decision: "SIGNATURE_INVALID", claims: null, evaluatedAt: evaluatedAt.toISOString() };
     }
 
     const valid = verify(
@@ -86,5 +105,8 @@ export class LicenseVerifier {
 
 export function unsignedLicenseBytes(claims: LicenseClaims): Buffer {
   return Buffer.from(canonicalJson(LicenseClaimsSchema.parse(claims)));
+}
+export function unsignedLicenseCapacityBytes(claims: LicenseCapacityClaims): Buffer {
+  return Buffer.from(canonicalJson(LicenseCapacityClaimsSchema.parse(claims)));
 }
 export type { SignedLicense };

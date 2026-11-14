@@ -46,3 +46,19 @@ export type { Postgres004RunnerConfig, Postgres004ApplyResult } from "./postgres
 export { POSTGRES_005_DESCRIPTOR } from "./postgres-005-contract.js";
 export { applyPostgres005 } from "./postgres-005-runner.js";
 export type { Postgres005RunnerConfig, Postgres005ApplyResult } from "./postgres-005-runner.js";
+
+export { POSTGRES_006_DESCRIPTOR, LICENSING_006_TABLES } from "./postgres-006-contract.js";
+export { applyPostgres006 } from "./postgres-006-runner.js";
+export type { Postgres006RunnerConfig, Postgres006ApplyResult } from "./postgres-006-runner.js";
+export { POSTGRES_007_DESCRIPTOR, PASSWORD_RECOVERY_007_TABLES } from "./postgres-007-contract.js";
+export { applyPostgres007 } from "./postgres-007-runner.js";
+export type { Postgres007RunnerConfig, Postgres007ApplyResult } from "./postgres-007-runner.js";
+
+export { POSTGRES_008_DESCRIPTOR, PLATFORM_ROLE_008_COLUMNS, PLATFORM_ROLE_008_TABLES } from "./postgres-008-platform-roles-contract.js";
+
+export { POSTGRES_009_DESCRIPTOR, WEBAUTHN_009_COLUMNS, WEBAUTHN_009_TABLES } from "./postgres-009-webauthn-contract.js";
+export { POSTGRES_010_DESCRIPTOR, WEBAUTHN_010_COLUMNS, WEBAUTHN_010_TABLES } from "./postgres-010-webauthn-material-contract.js";
+export { POSTGRES_011_DESCRIPTOR, POSTGRES_011_SSA_SEQUENCE_TABLES, POSTGRES_011_SSA_SEQUENCE_COLUMNS } from "./postgres-011-ssa-sequence-contract.js";
+export { POSTGRES_012_DESCRIPTOR, DEVICE_PROOF_012_TABLES, DEVICE_PROOF_012_COLUMNS } from "./postgres-012-device-proof-contract.js";
+export {POSTGRES_013_DESCRIPTOR,BROWSER_SESSION_013_TABLES} from "./postgres-013-browser-sessions-contract.js";
+export {applyCommercialMigrations,COMMERCIAL_MIGRATIONS,POSTGRES_014_DESCRIPTOR,POSTGRES_015_DESCRIPTOR,POSTGRES_016_DESCRIPTOR} from "./postgres-commercial-runner.js";

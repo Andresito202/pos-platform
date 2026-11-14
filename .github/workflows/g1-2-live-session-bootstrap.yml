@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - claude/pos-camacho-bloque-4c-ld43py
+      - "*/pos-camacho-bloque-4c-ld43py"
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -44,8 +44,14 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate checked-in session trust root fingerprint
+        run: node --test tools/ci/session-trust-anchor.test.mjs
+
       - name: Typecheck POS Local Service
         run: pnpm --filter @pos-platform/pos-local-service typecheck
 
       - name: Execute G1.2 real Windows runtime
-        run: pnpm --filter @pos-platform/pos-local-service test -- session-trust-key.test.ts session-trust-key-resolver.test.ts session-trust-key-store.test.ts session-bootstrap-runtime.test.ts session-bootstrap-main-runtime.test.ts
+        run: pnpm --filter @pos-platform/pos-local-service test -- config.test.ts session-trust-key.test.ts session-trust-key-resolver.test.ts session-trust-key-store.test.ts session-trust-bundle-fetcher.test.ts session-trust-refresh-component.test.ts session-bootstrap-runtime.test.ts session-bootstrap-main-runtime.test.ts
+
+      - name: Verify Central Authority trust publication contract
+        run: pnpm --filter @pos-platform/central-authority test -- session-trust-publication.test.ts

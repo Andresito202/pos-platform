@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
-import { uuidV7 } from "@pos-platform/contracts";
+import { uuidV7, CanonicalPermission } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
@@ -18,16 +18,20 @@ export const PRICING_POLICY_VERSION = "SANDBOX_PRICE_V1";
 export const TAX_POLICY_VERSION = "TAX_POLICY_LINE_RATE_V1";
 export const ROUNDING_POLICY_VERSION = "NEAREST_50_HALF_AWAY_FROM_ZERO_V1";
 
-export const PERMISSION_SALES_SALE_CREATE = "SALES_SALE_CREATE";
+export const PERMISSION_SALES_SALE_CREATE = CanonicalPermission.SALES_SALE_CREATE;
 
 export interface CreateSaleRequestLine {
   readonly productId: string;
   readonly presentationId: string;
   /** TEXT a escala 6, e.g. "1.000000" */
   readonly quantity: string;
+  readonly identifier?: string;
 }
 
 export interface CreateSaleRequest {
+  readonly customerId?: string | null;
+  /** Trusted counter adapter policy; not an IPC input. */
+  readonly requireOpenCashShift?: boolean;
   /** Caja seleccionada, o `null` cuando la venta no pasa por caja. */
   readonly cashRegisterId: string | null;
   readonly idempotencyKey: string;
@@ -59,6 +63,7 @@ export type CreateSaleResult =
     }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string }
   | { readonly kind: "CATALOG_NOT_FOUND"; readonly productId: string; readonly presentationId: string }
+  | { readonly kind: "IDENTIFIER_MISMATCH"; readonly presentationId: string }
   | { readonly kind: "PRICE_NOT_FOUND"; readonly presentationId: string }
   | { readonly kind: "CURRENCY_MISMATCH"; readonly presentationId: string }
   | {
@@ -72,11 +77,15 @@ export type CreateSaleResult =
       readonly available: string;
       readonly requested: string;
     }
-  | { readonly kind: "IDEMPOTENCY_CONFLICT" };
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
+  | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string }
+  | { readonly kind: "CUSTOMER_NOT_FOUND" };
 
 function requestChecksum(request: CreateSaleRequest, operatorUserId: string): string {
   return createHash("sha256")
     .update(canonicalJson({
+      ...(request.customerId ? {customer_id:request.customerId}:{}),
       idempotency_key: request.idempotencyKey,
       channel: request.channel,
       business_date: request.businessDate,
@@ -86,6 +95,7 @@ function requestChecksum(request: CreateSaleRequest, operatorUserId: string): st
         product_id: line.productId,
         presentation_id: line.presentationId,
         quantity: line.quantity,
+        ...(line.identifier === undefined ? {} : { identifier: line.identifier }),
       })),
       operator_user_id: operatorUserId,
     }))
@@ -138,6 +148,11 @@ export class CreateSaleUseCase {
       return { kind: "UNAUTHORIZED", reason: decision.reason };
     }
 
+    if (request.customerId) {
+      const customerAccess=evaluatePermission({actor,permission:CanonicalPermission.CUSTOMERS_CUSTOMER_READ,scope:operationScope,at,assignments});
+      if(!customerAccess.allowed)return {kind:"UNAUTHORIZED",reason:customerAccess.reason};
+    }
+
     // 3. Resolución de catálogo y precio para cada línea
     const resolvedLines: Array<{
       productId: string;
@@ -150,6 +165,7 @@ export class CreateSaleUseCase {
       priceAmount: string;
       quantity: string;
       fiscal: CatalogFiscalAttribute | null;
+      identifier: string | null;
     }> = [];
 
     // El catálogo es de la compañía, no de la sucursal: un producto no cambia
@@ -175,6 +191,13 @@ export class CreateSaleUseCase {
       const presentation = this.catalogStore.findActivePresentation(catalogScope, line.presentationId);
       if (!presentation || presentation.productId !== line.productId) {
         return { kind: "CATALOG_NOT_FOUND", productId: line.productId, presentationId: line.presentationId };
+      }
+
+      // Identification is provenance, never price or authority. The caller may
+      // report what was used, but cannot freeze another product's identifier.
+      if (line.identifier !== undefined && (!line.identifier || line.identifier.length > 128
+        || (line.identifier !== presentation.barcode && line.identifier !== product.code))) {
+        return { kind: "IDENTIFIER_MISMATCH", presentationId: line.presentationId };
       }
 
       // La cantidad tiene que caber en la precisión de la unidad. Se comprueba
@@ -232,6 +255,7 @@ export class CreateSaleUseCase {
         priceAmount: price.amount,
         quantity: line.quantity,
         fiscal: this.catalogStore.getFiscalAttribute(catalogScope, line.presentationId),
+        identifier: line.identifier ?? null,
       });
     }
 
@@ -302,6 +326,8 @@ export class CreateSaleUseCase {
     // participa: §25.3 le niega propiedad sobre la caja, y dos terminales pueden
     // trabajar la misma caja legítimamente.
     //
+    // El adaptador IPC de mostrador exige requireOpenCashShift: la transacción
+    // rechaza caja ausente/cerrada antes de escribir. Para otros llamadores internos:
     // Sin caja nombrada la venta nace sin turno, con el par en `NULL`: el
     // esquema lo admite y hay canales que no pasan por caja. Con caja nombrada
     // pero sin turno activo tampoco se vincula, y el cobro en efectivo lo
@@ -320,6 +346,8 @@ export class CreateSaleUseCase {
 
     // 9. Persistencia atómica
     const storeInput = {
+      customerId: request.customerId ?? null,
+      requireOpenCashShift: request.requireOpenCashShift === true,
       saleId,
       operationId,
       scope,
@@ -352,7 +380,7 @@ export class CreateSaleUseCase {
         unitId: resolved.unitId,
         unitCode: resolved.unitCode,
         unitPrecision: resolved.unitPrecision,
-        identifierSnapshot: null,
+        identifierSnapshot: resolved.identifier,
         calculation: calculatedLines[index]!.calculation,
         pricingResolutionSnapshot: {
           schema_version: 1,
@@ -392,6 +420,8 @@ export class CreateSaleUseCase {
     if (outcome.kind === "IDEMPOTENCY_CONFLICT") {
       return { kind: "IDEMPOTENCY_CONFLICT" };
     }
+
+    if (outcome.kind === "CASH_SHIFT_NOT_OPEN" || outcome.kind === "LICENSE_BLOCKED" || outcome.kind === "CUSTOMER_NOT_FOUND") return outcome;
 
     return {
       kind: outcome.kind === "CREATED" ? "CREATED" : "IDEMPOTENT",

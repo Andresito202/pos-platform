@@ -1,0 +1,54 @@
+name: Windows ephemeral interactive token feasibility
+on:
+  push:
+    branches: [feat/p0-windows-login-install-readiness]
+    paths: ['.github/workflows/windows-ephemeral-interactive-token.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-interactive-user:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - name: Create disposable local account and probe genuine logon token
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $name='camachoci'+([guid]::NewGuid().ToString('N').Substring(0,10))
+          $dir=Join-Path $env:RUNNER_TEMP ('camacho-ci-logon-'+[guid]::NewGuid().ToString('N'))
+          [IO.Directory]::CreateDirectory($dir) | Out-Null
+          $proof=Join-Path $dir 'proof.txt'
+          $probe=Join-Path $dir 'probe.ps1'
+          $plain=([guid]::NewGuid().ToString('N')+'!Aa9'+[guid]::NewGuid().ToString('N'))
+          $secret=ConvertTo-SecureString $plain -AsPlainText -Force
+          $userCreated=$false
+          try {
+            New-LocalUser -Name $name -Password $secret -PasswordNeverExpires -AccountNeverExpires -UserMayNotChangePassword -ErrorAction Stop | Out-Null
+            $userCreated=$true
+            Add-LocalGroupMember -Group 'Users' -Member $name -ErrorAction Stop
+            $userSid=(Get-LocalUser -Name $name).SID.Value
+            $acl=Get-Acl -LiteralPath $dir
+            $rule=[Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($userSid),[Security.AccessControl.FileSystemRights]::Modify,[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
+            $acl.AddAccessRule($rule)
+            Set-Acl -LiteralPath $dir -AclObject $acl
+            @'
+          $id=[Security.Principal.WindowsIdentity]::GetCurrent()
+          $memberships=@($id.Groups | ForEach-Object {$_.Value})
+          $logonText=(& whoami.exe /logonid | Out-String)
+          $logons=@([regex]::Matches($logonText,'S-1-5-5-[0-9]+-[0-9]+') | ForEach-Object {$_.Value} | Select-Object -Unique)
+          $interact=($memberships -contains 'S-1-5-4')
+          $session=[Diagnostics.Process]::GetCurrentProcess().SessionId
+          [IO.File]::WriteAllLines($args[0],[string[]]@(('LOGON_COUNT='+$logons.Count),('INTERACTIVE='+$interact),('SESSION='+$session)))
+          '@ | Set-Content -LiteralPath $probe -Encoding UTF8
+            $credential=New-Object PSCredential(('.\\'+$name),$secret)
+            $process=Start-Process -FilePath "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -Credential $credential -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',('"'+$probe+'"'),('"'+$proof+'"')) -PassThru -Wait -ErrorAction Stop
+            if($process.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $proof)){throw 'EPHEMERAL_INTERACTIVE_PROCESS_FAILED'}
+            $lines=Get-Content -LiteralPath $proof
+            $lines | ForEach-Object { Write-Output $_ }
+            if($lines -notcontains 'LOGON_COUNT=1' -or $lines -notcontains 'INTERACTIVE=True'){throw 'EPHEMERAL_LOGON_SID_NOT_ESTABLISHED'}
+          } finally {
+            $plain=$null; $secret=$null
+            if($userCreated){Remove-LocalUser -Name $name -ErrorAction Stop}
+            Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+          }

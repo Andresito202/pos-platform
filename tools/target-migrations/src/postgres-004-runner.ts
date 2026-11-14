@@ -1,8 +1,10 @@
+import {isSupportedMigrationPostgresVersion} from "./postgres-compatibility.js";
 import { sql } from "kysely";
 import type { SqlExecutor } from "./database.js";
 import { executeRaw, postgresDatabase, queryRows } from "./database.js";
 import { POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_003_DESCRIPTOR } from "./contract.js";
 import { DEVICE_TRUST_004_COLUMNS, POSTGRES_004_DESCRIPTOR } from "./postgres-004-contract.js";
+import { runPostgres004Smoke } from "./postgres-004-smoke.js";
 import { MigrationInvariantError, POSTGRES_004_MIGRATION_ID, POSTGRES_MIGRATION_LOCK_RESOURCE, RUNNER_VERSION, readArtifact, sha256, uuidV7 } from "./shared.js";
 
 interface ExecutionRow { execution_id:string; checksum:Buffer; status:"STARTED"|"FAILED"|"APPLIED"|"ROLLED_BACK"; body_committed_at:Date|null; }
@@ -15,7 +17,7 @@ function sameChecksum(actual:Buffer,expected:Buffer):boolean { return Buffer.fro
 async function acquireLock(db:SqlExecutor):Promise<void>{ await sql`SELECT pg_advisory_lock(hashtextextended(${POSTGRES_MIGRATION_LOCK_RESOURCE},0))`.execute(db); }
 async function releaseLock(db:SqlExecutor):Promise<void>{ await sql`SELECT pg_advisory_unlock(hashtextextended(${POSTGRES_MIGRATION_LOCK_RESOURCE},0))`.execute(db); }
 async function executionRows(db:SqlExecutor):Promise<ExecutionRow[]> { const result=await sql<ExecutionRow>`SELECT execution_id,checksum,status,body_committed_at FROM platform.target_migration_executions WHERE migration_id=${POSTGRES_004_MIGRATION_ID} ORDER BY started_at DESC`.execute(db); return result.rows; }
-async function verifyRuntime(db:SqlExecutor,expectedDatabase:string):Promise<void>{ const row=(await queryRows<{database:string;version:string;session_user:string;current_user:string}>(db,"SELECT current_database() database,current_setting('server_version_num') version,session_user,current_user"))[0]; invariant(row?.database===expectedDatabase&&row.version==="160014","004 target mismatch"); invariant(row.session_user==="pos_migrator"&&row.current_user==="pos_schema_owner","004 migrator identity mismatch"); }
+async function verifyRuntime(db:SqlExecutor,expectedDatabase:string):Promise<void>{ const row=(await queryRows<{database:string;version:string;session_user:string;current_user:string}>(db,"SELECT current_database() database,current_setting('server_version_num') version,session_user,current_user"))[0]; invariant(row?.database===expectedDatabase&&isSupportedMigrationPostgresVersion(row.version),"004 target mismatch"); invariant(row.session_user==="pos_migrator"&&row.current_user==="pos_schema_owner","004 migrator identity mismatch"); }
 async function verifyPredecessors(db:SqlExecutor):Promise<void>{
   const descriptors=[POSTGRES_001_DESCRIPTOR,POSTGRES_002_DESCRIPTOR,POSTGRES_003_DESCRIPTOR];
   for(const descriptor of descriptors){
@@ -47,13 +49,24 @@ export async function applyPostgres004(config:Postgres004RunnerConfig):Promise<P
       if(applied){ await validateCatalog(connection); return {executionId:applied.execution_id,noOp:true,reconciled:false,checksumHex,result:"ALREADY_APPLIED"}; }
       await verifyPredecessors(connection);
       const existing=rows.find(row=>row.status==="STARTED");
-      if(existing) invariant(existing.body_committed_at===null,"004 STARTED execution requires manual reconciliation before retry");
+      if(existing) throw new MigrationInvariantError("004 STARTED execution requires manual reconciliation before retry");
       const executionId=uuidV7();
       await sql`INSERT INTO platform.target_migration_executions (execution_id,migration_id,dialect,manifest_version,checksum,status,started_at,runner_version) VALUES (${executionId}::uuid,${POSTGRES_004_MIGRATION_ID},'POSTGRESQL',${POSTGRES_004_DESCRIPTOR.manifestVersion},${checksum},'STARTED',clock_timestamp(),${`${RUNNER_VERSION};migration=004;repo=${config.repositoryCommit}`})`.execute(connection);
       try{
         await connection.transaction().execute(async transaction=>{ await executeRaw(transaction,"SET LOCAL ROLE pos_schema_owner"); await executeRaw(transaction,upSql); await validateCatalog(transaction); });
       }catch(error){ await sql`UPDATE platform.target_migration_executions SET status='FAILED',error_code='BODY_004_ROLLED_BACK',finished_at=clock_timestamp() WHERE execution_id=${executionId}::uuid AND status='STARTED' AND body_committed_at IS NULL`.execute(connection); throw error; }
-      await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp(),smoke_verified_at=clock_timestamp(),applied_at=clock_timestamp(),finished_at=clock_timestamp(),status='APPLIED' WHERE execution_id=${executionId}::uuid AND status='STARTED'`.execute(connection);
+      // A committed 004 body must never be marked smoke-verified by timestamp
+      // alone. Durably record body commit first, then validate the live access
+      // matrix using fresh role-bound connections. Any failure leaves STARTED
+      // with a committed body, requiring explicit manual reconciliation.
+      await sql`UPDATE platform.target_migration_executions SET body_committed_at=clock_timestamp()
+        WHERE execution_id=${executionId}::uuid AND status='STARTED' AND body_committed_at IS NULL`.execute(connection);
+      const smokeAssertions=await runPostgres004Smoke(config.adminUrl,config.expectedDatabase);
+      invariant(smokeAssertions===132,"004 physical role ACL smoke count mismatch");
+      await sql`UPDATE platform.target_migration_executions
+        SET smoke_verified_at=clock_timestamp(),applied_at=clock_timestamp(),
+            finished_at=clock_timestamp(),status='APPLIED'
+        WHERE execution_id=${executionId}::uuid AND status='STARTED' AND body_committed_at IS NOT NULL`.execute(connection);
       return {executionId,noOp:false,reconciled:false,checksumHex,result:"APPLIED"};
     }finally{ await releaseLock(connection); await executeRaw(connection,"RESET ROLE"); }
   });}finally{ await migrator.destroy(); }

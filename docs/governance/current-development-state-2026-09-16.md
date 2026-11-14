@@ -3,7 +3,7 @@
 ## 1. Línea única
 
 - Canónica: `main`.
-- Activa: `claude/pos-camacho-bloque-4c-ld43py`.
+- Activa: [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92).
 - No existe autorización para crear otra línea de desarrollo en paralelo.
 
 Toda IA debe continuar desde esta línea y auditar primero lo ya construido.

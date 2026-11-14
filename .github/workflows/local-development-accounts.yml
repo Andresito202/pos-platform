@@ -1,0 +1,40 @@
+name: Local development accounts validation
+on:
+  push:
+    branches: [feat/p0-windows-login-install-readiness]
+    paths:
+      - 'tools/operators/local-development-accounts.mjs'
+      - 'tools/operators/local-development-accounts.test.mjs'
+      - 'tools/operators/open-local-role-preview.ps1'
+      - '.github/workflows/local-development-accounts.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  account-hash-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+      - name: Assert local password hash and negative validation tests
+        run: node --test tools/operators/local-development-accounts.test.mjs
+      - name: Check PowerShell profile launcher syntax on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $null=$tokens=$errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath 'tools/operators/open-local-role-preview.ps1').Path,
+            [ref]$tokens,[ref]$errors)
+          if (@($errors).Count -ne 0) { throw 'LOCAL_ROLE_POWERSHELL_PARSE_FAILED' }
+          Write-Host 'LOCAL_ROLE_POWERSHELL_PARSE=PASS'

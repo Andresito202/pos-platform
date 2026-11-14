@@ -77,6 +77,9 @@ export class AuthorizationSnapshotVerifier {
     if (trustedKey.status === "REVOKED") {
       return { decision: "SIGNING_KEY_REVOKED", claims: null, evaluatedAt: at };
     }
+    if((trustedKey.validFrom&&(!Number.isFinite(Date.parse(trustedKey.validFrom))||evaluatedAt.getTime()<Date.parse(trustedKey.validFrom)))||
+      (trustedKey.validUntil&&(!Number.isFinite(Date.parse(trustedKey.validUntil))||evaluatedAt.getTime()>=Date.parse(trustedKey.validUntil))))
+      return {decision:"SIGNING_KEY_REVOKED",claims:null,evaluatedAt:at};
 
     const valid = verify(
       null,

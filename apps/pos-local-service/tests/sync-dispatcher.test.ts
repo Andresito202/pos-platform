@@ -264,6 +264,39 @@ describe("SyncDispatcher — D-2", () => {
     database.close();
   });
 
+  it("acepta application/json con charset UTF-8 emitido por Central y avanza checkpoint", async () => {
+    const { database, store } = await seeded(1);
+    const transport = new ContractCheckingTransport((batch, requestId, correlationId) => {
+      const response = ok(envelope(requestId, correlationId, { result: acceptedResult(batch) }));
+      return {
+        ...response,
+        headers: { ...response.headers, "Content-Type": "application/json; charset=utf-8" },
+      };
+    });
+    const dispatcher = new SyncDispatcher(store, transport, credentials, BASE_URL, PROTOCOL);
+    expect(await dispatcher.dispatchOnce(scope))
+      .toMatchObject({ kind: "DELIVERED", operations: 1, acknowledgedThrough: 1 });
+    expect(store.checkpoint(scope)).toBe(1);
+    database.close();
+  });
+
+  it("rechaza charset distinto de UTF-8 sin confirmar SQLite", async () => {
+    const { database, store } = await seeded(1);
+    const transport = new ContractCheckingTransport((batch, requestId, correlationId) => {
+      const response = ok(envelope(requestId, correlationId, { result: acceptedResult(batch) }));
+      return {
+        ...response,
+        headers: { ...response.headers, "Content-Type": "application/json; charset=iso-8859-1" },
+      };
+    });
+    const dispatcher = new SyncDispatcher(store, transport, credentials, BASE_URL, PROTOCOL);
+    expect(await dispatcher.dispatchOnce(scope))
+      .toMatchObject({ kind: "TRANSPORT_FAILED", code: "RESPONSE_CONTRACT_VIOLATION" });
+    expect(store.checkpoint(scope)).toBe(0);
+    expect(statuses(database)).toEqual(["RETRY_WAIT"]);
+    database.close();
+  });
+
   it("envia exactamente lo que el contrato central exige", async () => {
     const { database, store } = await seeded(1);
     const transport = new ContractCheckingTransport((batch, requestId, correlationId) =>

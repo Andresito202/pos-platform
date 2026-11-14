@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+import { CANONICAL_PERMISSION_CODES } from "@pos-platform/contracts";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   CashShiftCloseRequestSchema,
   PaymentRegisterTransferRequestSchema,
   PaymentTransferConfirmRequestSchema,
+  PaymentCancelRequestSchema,
   CashShiftOpenRequestSchema,
   CatalogItemFindRequestSchema,
   PaymentRegisterCashRequestSchema,
@@ -81,7 +83,7 @@ async function openShift(): Promise<void> {
 async function addProduct(): Promise<void> {
   fireEvent.change(screen.getByTestId("barcode-input"), { target: { value: "7701234567890" } });
   fireEvent.click(screen.getByTestId("find-item-button"));
-  await screen.findByTestId("found-item");
+  await screen.findByTestId("found-product-tile");
   fireEvent.click(screen.getByTestId("add-item-button"));
   await screen.findByTestId("cart-line");
 }
@@ -93,6 +95,7 @@ async function createSale(): Promise<void> {
 
 const BASE_OVERRIDES = {
   "cash.shift.open": succeeded({ outcome: "OPENED", shift_id: SHIFT, version: 1 }),
+  "catalog.item.list": succeeded({ outcome: "FOUND", items: [], has_more: false }),
   "catalog.item.find": FOUND_ITEM,
   "sale.create": succeeded({
     outcome: "CREATED",
@@ -120,15 +123,33 @@ beforeEach(() => {
 });
 
 describe("SalePanel — vertical comercial", () => {
+  it("explains an invalid register beside the opening form without sending a mutation", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    fireEvent.change(screen.getByTestId("cash-register-input"),{target:{value:"Caja 1"}});
+    fireEvent.click(screen.getByTestId("open-shift-button"));
+    expect(screen.getByRole("alert").textContent).toContain("identificador válido");
+    expect(calls.get("cash.shift.open")).toBeUndefined();
+    expect(screen.getByTestId("shift-closed")).toBeTruthy();
+  });
+  it("shows an inactive register rejection without pretending the shift opened", async () => {
+    install({...BASE_OVERRIDES,"cash.shift.open":{status:"REJECTED",result_code:"REGISTER_INACTIVE",result:null}});
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    fireEvent.change(screen.getByTestId("cash-register-input"),{target:{value:REGISTER}});
+    fireEvent.click(screen.getByTestId("open-shift-button"));
+    await waitFor(()=>expect(screen.getByRole("alert").textContent).toContain("inactiva"));
+    expect(screen.getByTestId("shift-closed")).toBeTruthy();
+  });
+
   it("se monta con la caja cerrada", () => {
     install(BASE_OVERRIDES);
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     expect(screen.getByTestId("shift-closed")).toBeTruthy();
   });
 
   it("abre el turno nombrando la caja, y el request cumple el contrato", async () => {
     install(BASE_OVERRIDES);
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
 
     expect(screen.getByTestId("shift-register").textContent).toBe(REGISTER);
@@ -138,11 +159,11 @@ describe("SalePanel — vertical comercial", () => {
 
   it("busca el producto por código de barras con un request contractual", async () => {
     install(BASE_OVERRIDES);
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     fireEvent.change(screen.getByTestId("barcode-input"), { target: { value: "7701234567890" } });
     fireEvent.click(screen.getByTestId("find-item-button"));
-    await screen.findByTestId("found-item");
+    await screen.findByTestId("found-product-tile");
 
     expect(screen.getByTestId("found-item-name").textContent).toBe("Arroz");
     expect(() => CatalogItemFindRequestSchema.parse(calls.get("catalog.item.find")![0])).not.toThrow();
@@ -150,7 +171,7 @@ describe("SalePanel — vertical comercial", () => {
 
   it("el producto seleccionado entra en la venta", async () => {
     install(BASE_OVERRIDES);
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
 
@@ -159,20 +180,22 @@ describe("SalePanel — vertical comercial", () => {
 
   it("sale.create envía cash_register_id y el request cumple el contrato", async () => {
     install(BASE_OVERRIDES);
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
     await createSale();
 
     const request = calls.get("sale.create")![0] as { payload: Record<string, unknown> };
     expect(request.payload["cash_register_id"]).toBe(REGISTER);
+    expect(request.payload["lines"]).toEqual([{ product_id: PRODUCT, presentation_id: PRESENTATION, quantity: "1.000000", identifier: "7701234567890" }]);
     expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
-    expect(screen.getByTestId("payable-amount").textContent).toBe("3500.000000");
+    expect(screen.getByTestId("payable-amount").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("payable-amount").textContent).toMatch(/3\.500/);
   });
 
   it("sale.create NO envía cash_shift_id: la resolución no vive en el renderer", async () => {
     install(BASE_OVERRIDES);
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
     await createSale();
@@ -183,7 +206,7 @@ describe("SalePanel — vertical comercial", () => {
 
   it("ningún request comercial declara identidad: el ámbito lo deriva la capa confiable", async () => {
     install(BASE_OVERRIDES);
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
     await createSale();
@@ -197,9 +220,41 @@ describe("SalePanel — vertical comercial", () => {
     }
   });
 
+  it("selecting a payment method never registers money before explicit confirmation", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByTestId("select-payment-transfer"));
+    expect(calls.get("payment.register.transfer")).toBeUndefined();
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+    fireEvent.click(screen.getByTestId("select-payment-cash"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Efectivo recibido (COP)" }), { target: { value: "4000" } });
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar cobro en efectivo" }));
+    await screen.findByTestId("sale-completed");
+    expect(calls.get("payment.register.cash")).toHaveLength(1);
+    expect(calls.get("payment.register.cash")![0]).toMatchObject({ payload: { tendered_amount: "4000.000000" } });
+  });
+
+  it("keeps denomination counting optional and preserves its amount when collapsed", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    const toggle = screen.getByRole("button", { name: "Ver billetes y monedas" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Añadir billete de $5.000" })).toBeNull();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Añadir billete de $5.000" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("$5.000");
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar billetes y monedas" }));
+    expect(screen.queryByRole("button", { name: "Añadir billete de $5.000" })).toBeNull();
+    expect(screen.getByTestId("tendered-display").textContent).toBe("$5.000");
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+  });
+
   it("el cobro en efectivo usa el contrato y el importe emitido por el servicio", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
     await createSale();
@@ -212,9 +267,185 @@ describe("SalePanel — vertical comercial", () => {
     expect(() => PaymentRegisterCashRequestSchema.parse(request)).not.toThrow();
   });
 
+
+  it("normalizes typed cash before sending the payment contract", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByRole("button", { name: "4" }));
+    fireEvent.click(screen.getByRole("button", { name: "00" }));
+    fireEvent.click(screen.getByRole("button", { name: "0" }));
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("sale-completed");
+    const request = calls.get("payment.register.cash")![0];
+    expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
+    expect((request as { payload: { tendered_amount: string } }).payload.tendered_amount).toBe("4000.000000");
+  });
+
+
+  it("reuses the exact payment request after an uncertain transport failure", async () => {
+    install(BASE_OVERRIDES);
+    const charge = vi.fn().mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce(cashResult("IDEMPOTENT", true));
+    Object.defineProperty(window.posService, "payment.register.cash", { value: charge });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await waitFor(() => expect(screen.getByTestId("sale-error").textContent).toBe("response lost"));
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await screen.findByTestId("sale-completed");
+    expect(charge).toHaveBeenCalledTimes(2);
+    expect(charge.mock.calls[1]?.[0]).toEqual(charge.mock.calls[0]?.[0]);
+    expect(chime).not.toHaveBeenCalled();
+  });
+
+
+  it.each([
+    { status: "REJECTED", result_code: "UNAUTHORIZED", result: null },
+    { status: "REJECTED", result_code: "VERSION_CONFLICT", result: null },
+    { status: "UNKNOWN", result_code: "UNKNOWN_OUTCOME", result: null },
+  ])("retains the exact cash request after loss and a nonconclusive retry: %j", async response => {
+    install(BASE_OVERRIDES);
+    const charge = vi.fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(cashResult("IDEMPOTENT", true));
+    Object.defineProperty(window.posService, "payment.register.cash", { value: charge });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await waitFor(() => expect(screen.getByTestId("sale-error").textContent).toBe("response lost"));
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await waitFor(() => expect(screen.getByTestId("sale-error").textContent).toBe(response.result_code));
+    const closing = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(closing);
+    expect(closing.defaultPrevented).toBe(true);
+    expect(screen.getByTestId("retry-pending-operation")).toBeTruthy();
+    expect((screen.getByTestId("charge-cash-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await screen.findByTestId("sale-completed");
+    const recoveredClose = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(recoveredClose);
+    expect(recoveredClose.defaultPrevented).toBe(false);
+    expect(charge).toHaveBeenCalledTimes(3);
+    expect(charge.mock.calls[1]?.[0]).toEqual(charge.mock.calls[0]?.[0]);
+    expect(charge.mock.calls[2]?.[0]).toEqual(charge.mock.calls[0]?.[0]);
+    expect(chime).not.toHaveBeenCalled();
+  });
+
+  it("supports a partial cash payment without calculating a new total in the renderer", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", false) });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.change(screen.getByTestId("payment-amount-input"), { target: { value: "2000" } });
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("payment-partial");
+    const request = calls.get("payment.register.cash")![0];
+    expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
+    expect(request).toMatchObject({ payload: { amount: "2000.000000", tendered_amount: "2000.000000" } });
+    expect(screen.getByTestId("payable-amount").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("payable-amount").textContent).toMatch(/3\.500/);
+    expect(chime).not.toHaveBeenCalled();
+  });
+
+  it("blocks a different amount after a lost response and explicitly retries the original request", async () => {
+    install(BASE_OVERRIDES);
+    const charge = vi.fn().mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce(cashResult("IDEMPOTENT", true));
+    Object.defineProperty(window.posService, "payment.register.cash", { value: charge });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("retry-pending-operation");
+    await waitFor(() => expect((screen.getByTestId("retry-pending-operation") as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.change(screen.getByTestId("payment-amount-input"), { target: { value: "2000" } });
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    expect((screen.getByTestId("charge-cash-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(charge).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await screen.findByTestId("sale-completed");
+    expect(charge.mock.calls[1]?.[0]).toEqual(charge.mock.calls[0]?.[0]);
+    expect(screen.queryByTestId("retry-pending-operation")).toBeNull();
+  });
+
+  it("recovers a saved cart and server-owned open shift in a fresh panel", async () => {
+    const cart={id:PRODUCT,version:3,updated_at:"2026-11-13T10:00:00Z",line_count:1,
+      active_shift:{shift_id:SHIFT,version:7},payload:{label:"Guardado",cash_register_id:REGISTER,
+        lines:[{productId:PRODUCT,presentationId:PRESENTATION,name:"Arroz",presentationName:"Bolsa",priceAmount:"3500.000000",currencyCode:"COP",quantity:"2.000000",identifier:"7701234567890"}]}};
+    const found={status:"SUCCEEDED",result_code:"FOUND",result:{outcome:"FOUND",carts:[cart],has_more:false}};
+    install({...BASE_OVERRIDES,"cart.waiting.list":found,"cart.waiting.get":found});
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)}/>);
+    fireEvent.click(screen.getByTestId("list-waiting"));
+    fireEvent.click(await screen.findByRole("button",{name:/Guardado · 1 líneas/}));
+    await screen.findByTestId("shift-open");await screen.findByTestId("cart-line");
+    expect(calls.get("cash.shift.open")).toBeUndefined();
+    await createSale();
+    expect(calls.get("sale.create")?.[0]).toMatchObject({payload:{cash_register_id:REGISTER,waiting_cart:{id:PRODUCT,version:3},lines:[{quantity:"2.000000"}]}});
+  });
+
+  it("does not clear a cart on lost save response and retries the same snapshot", async () => {
+    install(BASE_OVERRIDES);
+    const save=vi.fn().mockRejectedValueOnce(Error("response lost")).mockImplementationOnce(async (request:any)=>({
+      status:"SUCCEEDED",result_code:"SAVED",result:{outcome:"SAVED",has_more:false,carts:[{id:request.payload.cart_id,version:1,
+        updated_at:new Date().toISOString(),line_count:1,payload:request.payload.cart}]},
+    }));
+    Object.defineProperty(window.posService,"cart.waiting.save",{value:save});
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)}/>);
+    await openShift();await addProduct();fireEvent.click(screen.getByTestId("hold-cart"));
+    await waitFor(()=>expect(screen.getByTestId("sale-error").textContent).toBe("response lost"));
+    expect(screen.getAllByTestId("cart-line")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await waitFor(()=>expect(screen.queryAllByTestId("cart-line")).toHaveLength(0));
+    expect(save.mock.calls[1]?.[0]).toEqual(save.mock.calls[0]?.[0]);
+  });
+
+  it("links the real customer, holds a cart and restores both identity and quantities", async () => {
+    const customer = succeeded({outcome:"FOUND",customer_id:PAYMENT,names:"Cliente real",company:null});
+    install({...BASE_OVERRIDES,"customer.find":customer,"customer.get":customer});
+    let saved:any;
+    const save=vi.fn(async (request:any)=>{
+      saved={id:request.payload.cart_id,version:1,updated_at:new Date().toISOString(),line_count:request.payload.cart.lines.length,payload:request.payload.cart};
+      return {status:"SUCCEEDED",result_code:"SAVED",result:{outcome:"SAVED",carts:[saved],has_more:false}};
+    });
+    Object.defineProperty(window.posService,"cart.waiting.save",{value:save});
+    Object.defineProperty(window.posService,"cart.waiting.get",{value:vi.fn(async()=>({status:"SUCCEEDED",result_code:"FOUND",result:{outcome:"FOUND",carts:[saved],has_more:false}}))});
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)}/>);
+    await openShift();await addProduct();
+    fireEvent.change(screen.getByLabelText("Documento del cliente"),{target:{value:"1020304050"}});
+    fireEvent.click(screen.getByRole("button",{name:"Buscar cliente"}));
+    await screen.findByRole("button",{name:"Vincular al carrito"});
+    fireEvent.click(screen.getByRole("button",{name:"Vincular al carrito"}));
+    expect(calls.get("customer.find")?.[0]).toMatchObject({payload:{identification_document_code:"13",identification:"1020304050"}});
+    fireEvent.change(screen.getByLabelText("Referencia del cliente en espera"),{target:{value:"Cliente A"}});
+    fireEvent.click(screen.getByTestId("hold-cart"));
+    await waitFor(()=>expect(screen.queryAllByTestId("cart-line")).toHaveLength(0));
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(saved.payload.customer_id).toBe(PAYMENT);
+    expect(screen.queryByRole("button",{name:"Quitar cliente"})).toBeNull();
+    expect(calls.get("sale.create")).toBeUndefined();
+    await addProduct();
+    expect((screen.getByRole("button",{name:/Cliente A · 1 líneas/}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("reset-button"));
+    fireEvent.click(screen.getByRole("button",{name:/Cliente A · 1 líneas/}));
+    await screen.findByTestId("cart-line");
+    expect((screen.getByLabelText("Referencia del cliente en espera") as HTMLInputElement).value).toBe("Cliente A");
+    expect(screen.getByRole("button",{name:"Quitar cliente"})).toBeTruthy();
+    await waitFor(()=>expect(calls.get("customer.get")?.length).toBeGreaterThanOrEqual(2));
+    await createSale();
+    expect(calls.get("sale.create")?.[0]).toMatchObject({payload:{customer_id:PAYMENT,waiting_cart:{id:saved.id,version:1},lines:[{quantity:"1.000000"}]}});
+    expect((screen.getByTestId("hold-cart") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("removes a draft cart line without sending a sale mutation", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await addProduct();
+    fireEvent.click(screen.getByRole("button", { name: "Quitar Arroz del carrito" }));
+    expect(screen.queryByTestId("cart-line")).toBeNull();
+    expect(calls.get("sale.create")).toBeUndefined();
+  });
+
   it("sale_completed = true produce EXACTAMENTE un cha-ching", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
     await createSale();
@@ -226,20 +457,21 @@ describe("SalePanel — vertical comercial", () => {
 
   it("un pago parcial confirmado NO suena, y la UI lo dice", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", false) });
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
     await createSale();
     fireEvent.click(screen.getByTestId("charge-cash-button"));
     await screen.findByTestId("payment-partial");
 
-    expect(screen.getByTestId("confirmed-coverage").textContent).toBe("2000.000000");
+    expect(screen.getByTestId("confirmed-coverage").getAttribute("data-amount")).toBe("2000.000000");
+    expect(screen.getByTestId("confirmed-coverage").textContent).toMatch(/2\.000/);
     expect(chime).not.toHaveBeenCalled();
   });
 
   it("un reintento idempotente no vuelve a sonar aunque la venta esté cobrada", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("IDEMPOTENT", true) });
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
     await createSale();
@@ -254,7 +486,7 @@ describe("SalePanel — vertical comercial", () => {
       ...BASE_OVERRIDES,
       "payment.register.cash": { status: "REJECTED", result_code: "CASH_SHIFT_NOT_OPEN", result: null },
     });
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
     await createSale();
@@ -269,7 +501,7 @@ describe("SalePanel — vertical comercial", () => {
 
   it("sin turno abierto la venta viaja con cash_register_id nulo", async () => {
     install(BASE_OVERRIDES);
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await addProduct();
     await createSale();
 
@@ -299,7 +531,7 @@ describe("SalePanel · cierre de turno", () => {
         difference_amount: "0.000000",
       }),
     });
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
 
     fireEvent.change(screen.getByTestId("counted-amount-input"), { target: { value: "50000" } });
@@ -326,16 +558,17 @@ describe("SalePanel · cierre de turno", () => {
         difference_amount: "-2000.000000",
       }),
     });
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
 
     fireEvent.change(screen.getByTestId("counted-amount-input"), { target: { value: "48000" } });
     fireEvent.click(screen.getByTestId("close-shift-button"));
     await waitFor(() => { expect(screen.getByTestId("shift-close-result")).toBeTruthy(); });
 
-    expect(screen.getByTestId("shift-expected-cash").textContent).toBe("50000.000000");
-    expect(screen.getByTestId("shift-counted-amount").textContent).toBe("48000.000000");
-    expect(screen.getByTestId("shift-difference").textContent).toBe("-2000.000000");
+    expect(screen.getByTestId("shift-expected-cash").getAttribute("data-amount")).toBe("50000.000000");
+    expect(screen.getByTestId("shift-counted-amount").getAttribute("data-amount")).toBe("48000.000000");
+    expect(screen.getByTestId("shift-difference").getAttribute("data-amount")).toBe("-2000.000000");
+    expect(screen.getByTestId("shift-difference").textContent).toMatch(/-?\$.*2\.000/);
     // El turno deja de estar abierto y la caja vuelve a admitir apertura.
     expect(screen.queryByTestId("shift-open")).toBeNull();
     expect(screen.getByTestId("shift-close-result")).toBeTruthy();
@@ -350,7 +583,7 @@ describe("SalePanel · cierre de turno", () => {
         expected_cash: null, counted_amount: null, difference_amount: null,
       }),
     });
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
 
     fireEvent.change(screen.getByTestId("counted-amount-input"), { target: { value: "50000" } });
@@ -365,7 +598,7 @@ describe("SalePanel · cierre de turno", () => {
 
   it("no pide cierre sin efectivo contado", async () => {
     install(BASE_OVERRIDES);
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     expect((screen.getByTestId("close-shift-button") as HTMLButtonElement).disabled).toBe(true);
     expect(calls.get("cash.shift.close")).toBeUndefined();
@@ -379,7 +612,7 @@ describe("SalePanel · transferencia", () => {
 
   const registered = (outcome: string) => succeeded({ outcome, payment_id: PAYMENT });
 
-  const fetched = (version: number, status = "REPORTED") => succeeded({
+  const fetched = (version: number, status = "CREATED") => succeeded({
     outcome: "FOUND", payment_id: PAYMENT, sale_id: SALE,
     method: "TRANSFER", status, expected_amount: "3500.000000",
     confirmed_amount: null, currency_code: "COP", version,
@@ -401,13 +634,14 @@ describe("SalePanel · transferencia", () => {
 
   async function reachSale(overrides: Record<string, unknown>): Promise<void> {
     install({ ...BASE_OVERRIDES, ...overrides });
-    render(<SalePanel />);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await openShift();
     await addProduct();
     await createSale();
   }
 
   async function registerTransfer(): Promise<void> {
+    fireEvent.click(screen.getByTestId("select-payment-transfer"));
     fireEvent.click(screen.getByTestId("register-transfer-button"));
     await waitFor(() => { expect(screen.getByTestId("transfer-registered")).toBeTruthy(); });
   }
@@ -429,8 +663,23 @@ describe("SalePanel · transferencia", () => {
 
     // payment.get se consulta de verdad: es la única fuente de la versión.
     expect(calls.get("payment.get")).toHaveLength(1);
-    expect(screen.getByTestId("transfer-status").textContent).toBe("REPORTED");
-    expect(screen.getByTestId("transfer-expected-amount").textContent).toBe("3500.000000");
+    expect(screen.getByTestId("transfer-status").textContent).toBe("CREATED");
+    expect(screen.getByTestId("transfer-expected-amount").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("transfer-expected-amount").textContent).toMatch(/3\.500/);
+  });
+
+  it.each([['nequi', 'NEQUI'], ['daviplata', 'DAVIPLATA']])("registra %s separado sin dar el pago por confirmado", async (button, provider) => {
+    await reachSale({ "payment.register.transfer": registered("REGISTERED"), "payment.get": fetched(3) });
+    fireEvent.click(screen.getByTestId(`select-payment-${button}`));
+    fireEvent.click(screen.getByTestId("register-transfer-button"));
+    await screen.findByTestId("transfer-registered");
+    const request = calls.get("payment.register.transfer")![0] as { payload: Record<string, unknown> };
+    expect(PaymentRegisterTransferRequestSchema.safeParse(request).success).toBe(true);
+    expect(request.payload["provider_code"]).toBe(provider);
+    expect(request.payload["amount"]).toBe("3500.000000");
+    expect(calls.get("payment.transfer.confirm")).toBeUndefined();
+    expect(screen.queryByTestId("transfer-sale-completed")).toBeNull();
+    expect(chime).not.toHaveBeenCalled();
   });
 
   it("registrar NO es cobrar: no suena, no completa y queda pendiente", async () => {
@@ -477,7 +726,8 @@ describe("SalePanel · transferencia", () => {
     expect(conf.payload["payment_id"]).toBe(PAYMENT);
     expect(conf.payload["expected_version"]).toBe(4);
     // La cobertura viene del servicio, no de la pantalla.
-    expect(screen.getByTestId("transfer-confirmed-coverage").textContent).toBe("3500.000000");
+    expect(screen.getByTestId("transfer-confirmed-coverage").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("transfer-confirmed-coverage").textContent).toMatch(/3\.500/);
     expect(chime).toHaveBeenCalledTimes(1);
   });
 
@@ -545,4 +795,48 @@ describe("SalePanel · transferencia", () => {
     expect(screen.queryByTestId("confirm-transfer-button")).toBeNull();
     expect(calls.get("payment.transfer.confirm")).toBeUndefined();
   });
+  it("allows a supervisor to load and confirm an existing transfer with its stored version", async () => {
+    install({ "payment.get": fetched(9), "payment.transfer.confirm": confirmed("CONFIRMED", true) });
+    render(<SalePanel permissions={new Set(["PAYMENTS_PAYMENT_READ", "PAYMENTS_TRANSFER_CONFIRM"])} />);
+    fireEvent.change(screen.getByTestId("transfer-lookup-input"), { target: { value: PAYMENT } });
+    fireEvent.click(screen.getByTestId("transfer-lookup-button"));
+    await screen.findByTestId("transfer-registered");
+    fireEvent.click(screen.getByTestId("confirm-transfer-button"));
+    await screen.findByTestId("transfer-sale-completed");
+    const request = calls.get("payment.transfer.confirm")![0];
+    expect(PaymentTransferConfirmRequestSchema.safeParse(request).success).toBe(true);
+    expect(request).toMatchObject({ payload: { payment_id: PAYMENT, expected_version: 9 } });
+    expect(calls.get("cash.shift.open")).toBeUndefined();
+    expect(calls.get("sale.create")).toBeUndefined();
+  });
+
+  it("cancels only an unconfirmed transfer and reloads its persisted state", async () => {
+    install({ "payment.cancel": succeeded({ outcome: "CANCELLED", payment_id: PAYMENT }) });
+    const getPayment = vi.fn().mockResolvedValueOnce(fetched(4)).mockResolvedValueOnce(fetched(5, "CANCELLED"));
+    Object.defineProperty(window.posService, "payment.get", { value: getPayment });
+    render(<SalePanel permissions={new Set(["PAYMENTS_PAYMENT_READ", "PAYMENTS_PAYMENT_CANCEL"])} />);
+    fireEvent.change(screen.getByTestId("transfer-lookup-input"), { target: { value: PAYMENT } });
+    fireEvent.click(screen.getByTestId("transfer-lookup-button"));
+    await screen.findByTestId("transfer-registered");
+    fireEvent.click(screen.getByTestId("cancel-transfer-button"));
+    await waitFor(() => expect(screen.getByTestId("transfer-status").textContent).toBe("CANCELLED"));
+    const request = calls.get("payment.cancel")![0];
+    expect(PaymentCancelRequestSchema.safeParse(request).success).toBe(true);
+    expect(request).toMatchObject({ payload: { payment_id: PAYMENT, expected_version: 4 } });
+    expect((screen.getByTestId("confirm-transfer-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("cancel-transfer-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(chime).not.toHaveBeenCalled();
+  });
+
+  it("retains the registered payment ID when the reporter has no payment-read grant", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.transfer": registered("REGISTERED") });
+    render(<SalePanel permissions={new Set(["CASH_SHIFT_OPEN", "CATALOG_PRODUCT_READ", "SALES_SALE_CREATE", "PAYMENTS_TRANSFER_REPORT"])} />);
+    await openShift(); await addProduct(); await createSale(); await registerTransfer();
+    expect(screen.getByTestId("transfer-payment-id").textContent).toBe(PAYMENT);
+    expect(calls.get("payment.get")).toBeUndefined();
+    expect((screen.getByTestId("confirm-transfer-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("select-payment-cash"));
+    expect((screen.getByTestId("charge-cash-button") as HTMLButtonElement).disabled).toBe(true);
+  });
+
 });

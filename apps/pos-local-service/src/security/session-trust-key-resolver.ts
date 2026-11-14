@@ -23,7 +23,26 @@ export class SessionTrustKeyResolver {
   ) {}
 
   resolve(): SessionTrustKeyResolution {
+    return this.resolveInternal(undefined, false);
+  }
+
+  /** Installs a freshly fetched artifact only after the store verifies its root signature. */
+  resolveWithArtifact(artifact: unknown): SessionTrustKeyResolution {
+    return this.resolveInternal(artifact, true);
+  }
+
+  private resolveInternal(remoteArtifact: unknown, hasRemoteArtifact: boolean): SessionTrustKeyResolution {
     try {
+      let remoteInstallError: unknown;
+      if (hasRemoteArtifact) {
+        try {
+          this.store.install(remoteArtifact, this.verifier);
+        } catch (error) {
+          // A failed remote update must not discard a previously protected trust bundle.
+          // If this is first bootstrap, still try the independently configured installer artifact.
+          if (!this.store.has()) remoteInstallError = error;
+        }
+      }
       if (this.installerArtifactPath !== undefined) {
         try {
           const artifact = JSON.parse(readFileSync(this.installerArtifactPath, "utf8"));
@@ -32,10 +51,13 @@ export class SessionTrustKeyResolver {
           // An already trusted local bundle remains usable offline. A first
           // bootstrap with no protected copy cannot continue without a valid
           // installer artifact, so that case remains fail-closed.
-          if (!this.store.has()) throw error;
+          if (!this.store.has()) throw remoteInstallError ?? error;
         }
       }
-      if (!this.store.has()) return { keys: new Map(), decision: "MISSING" };
+      if (!this.store.has()) {
+        if (remoteInstallError !== undefined) throw remoteInstallError;
+        return { keys: new Map(), decision: "MISSING" };
+      }
 
       const bundle = this.store.load();
       const keys = new Map<string, TrustedSigningKey>();

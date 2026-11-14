@@ -1,0 +1,35 @@
+/* Commercial Precision (B), approved by the owner on 2026-10-24.
+   Presentation only: no role, scope, session or lifecycle authority. */
+:root {
+  font-family: Bahnschrift, "Segoe UI", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--camacho-ink);
+  background: var(--camacho-surface);
+  --camacho-brand-yellow: #ffc400;
+  --camacho-navy: #10283d;
+  --camacho-navy-hover: #203d54;
+  --camacho-blue: #2577b0;
+  --camacho-blue-text: #123d68;
+  --camacho-blue-soft: #e9f1f6;
+  --camacho-green: #087052;
+  --camacho-green-soft: #e4f3ec;
+  --camacho-surface: #f3f6f8;
+  --camacho-card: #fff;
+  --camacho-border: #d6dfe6;
+  --camacho-muted: #536475;
+  --camacho-on-dark: #e7eef4;
+  --camacho-on-dark-muted: #bacbd6;
+  --camacho-ink: #142b3a;
+  --camacho-danger: #9f2525;
+  --camacho-danger-soft: #fbe7e7;
+  --camacho-warning: #805500;
+  --camacho-warning-soft: #fff2d4;
+  --camacho-control: 36px;
+  --camacho-radius: 4px;
+  --camacho-space: 8px;
+}
+
+@media (pointer: coarse) {
+  :root { --camacho-control: 48px; font-size: 16px; }
+}

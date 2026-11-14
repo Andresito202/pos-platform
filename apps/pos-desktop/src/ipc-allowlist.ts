@@ -1,4 +1,5 @@
 export const IPC_ALLOWED_CHANNELS = [
+  "pos:hardware.command",
   "pos:runtime.status.get",
   "pos:authorization.capabilities.get",
   "pos:operation.result.get",
@@ -8,9 +9,16 @@ export const IPC_ALLOWED_CHANNELS = [
   // `runtime.handshake` sigue sin exponerse: es main ↔ servicio.
   "pos:session.activate",
   "pos:session.recover",
+  "pos:local.operator.login",
+  "pos:local.operator.session",
+  "pos:local.operator.logout",
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",
+  "pos:cart.waiting.save",
+  "pos:cart.waiting.list",
+  "pos:cart.waiting.get",
+  "pos:cart.waiting.discard",
   // Payment V1 — `DEC-016`.
   "pos:payment.register.cash",
   "pos:payment.register.transfer",
@@ -20,17 +28,24 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:customer.register",
   "pos:customer.get",
   "pos:customer.find",
+  "pos:customer.marketing.subscribe",
+  "pos:customer.marketing.unsubscribe",
+  "pos:customer.marketing.get",
   // Emisión fiscal — `DEC-021` F5.
   "pos:fiscal.document.issue",
   "pos:catalog.product.register",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
+  "pos:catalog.item.list",
   // Inventario — `MIGRATION_015`.
   "pos:inventory.stock.receive",
   "pos:inventory.stock.adjust",
   "pos:inventory.stock.get",
   // Recibo — `DEC-019`. Sólo lectura: proyecta la venta ya cobrada.
   "pos:sales.receipt.get",
+  "pos:audit.event.list",
+  "pos:admin.metrics.get",
+  "pos:license.offers.list",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

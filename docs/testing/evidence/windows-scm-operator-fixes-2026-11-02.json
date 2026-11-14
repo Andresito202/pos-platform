@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "date": "2026-11-02",
+  "code_sha": "7372a408e48b9a343aae020526626daa91483650",
+  "platform": "win32",
+  "node": "v22.19.0",
+  "command": [
+    "node",
+    "--test",
+    "tools/operators/windows-scm-lab-dependency-acl.test.mjs",
+    "tools/operators/windows-scm-lab-binding.test.mjs",
+    "tools/operators/windows-scm-manifest-pair.test.mjs"
+  ],
+  "exit": 0,
+  "tests": 15,
+  "pass": 15,
+  "fail": 0,
+  "skip": 0,
+  "evidence_level": "WINDOWS_POWERSHELL_5_1_TEMP_FIXTURES_NOT_SCM",
+  "vm_access": "HYPER_V_ACCESS_DENIED_NO_SESSION",
+  "scm_interoperability": "NOT_EXECUTED",
+  "human_login": "NOT_EXECUTED",
+  "production": "NOT_CERTIFIED",
+  "tap_sha256": "0f68e0c5ef18f2600a88f15e458898b9a5f9bd43ecefe4138a343cbf8a7ebc65",
+  "sources": [
+    {
+      "path": "tools/operators/windows-scm-five-stage.ps1",
+      "sha256": "a0806f4f405dfa186a6639a5a1648541a86f7f24f61c20800df0b787cf07ac95"
+    },
+    {
+      "path": "tools/operators/windows-scm-lab-binding.ps1",
+      "sha256": "174ee55d7fb4bcb8ea80b32af5fe9218c1dfd862980c98bb890ebddd8d9bf115"
+    },
+    {
+      "path": "tools/operators/windows-scm-lab-binding.test.mjs",
+      "sha256": "7fb2de20bc14051f41020bd812bc32eaed5633a950cdbe6132074ba80cefca3b"
+    },
+    {
+      "path": "tools/operators/windows-scm-lab-dependency-acl.ps1",
+      "sha256": "26d82f41b9af5b78db96bbb3f1e385e78b525ec59eac00239b1ceb012beed543"
+    },
+    {
+      "path": "tools/operators/windows-scm-lab-dependency-acl.test.mjs",
+      "sha256": "e2aecfdd94d34da28d6b1f7934c415135bc54217d5d424ac7075062b06584052"
+    },
+    {
+      "path": "tools/operators/windows-scm-lab-gate.ps1",
+      "sha256": "9cbaca94fb23047f237963a36692e2862c8a2c950b09b87d3fd0a9d91450e741"
+    },
+    {
+      "path": "tools/operators/windows-scm-lab-provision.ps1",
+      "sha256": "03467eca0d49fcba4418041e8597b3a71a12f813cd743cdfb79645169eb52f92"
+    },
+    {
+      "path": "tools/operators/windows-scm-manifest-pair.mjs",
+      "sha256": "a76ce3617e265780c1859a925a905243eb148e49b5cf00dfe7be3d33b317834c"
+    },
+    {
+      "path": "tools/operators/windows-scm-manifest-pair.test.mjs",
+      "sha256": "c9afbb4738e8591cfddc788391739f7b6e0ba6cdd14aa3cb8cc215e9fee9cca7"
+    },
+    {
+      "path": "tools/operators/windows-scm-physical-one-shot.ps1",
+      "sha256": "e1c72ff3475ffe581cdb53a8c9df3594d128214a04a03c37fdf694574b481a7d"
+    }
+  ]
+}

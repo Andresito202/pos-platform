@@ -5,9 +5,10 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
-import type { ContractError, ErrorCategory, IpcRequest } from "@pos-platform/contracts";
+import { CanonicalPermission, type ContractError, type ErrorCategory, type IpcRequest } from "@pos-platform/contracts";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
+import { localOperatorAuthorization, type LocalAuthorizedSession } from "../security/local-operator-development-bridge.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { boundIdentityFromClaims, type BoundSessionIdentity } from "../session/session-binding-registry.js";
@@ -21,14 +22,18 @@ type CommercialRequest = Extract<
     message_type:
       | "authorization.capabilities.get"
       | "session.activate" | "session.recover"
-      | "cash.shift.open" | "cash.shift.close" | "sale.create"
+      | "cash.shift.open" | "cash.shift.close" | "sale.create" | "cart.waiting.save" | "cart.waiting.list" | "cart.waiting.get" | "cart.waiting.discard"
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
+      | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
       | "fiscal.document.issue"
-      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
+      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
-      | "sales.receipt.get";
+      | "sales.receipt.get"
+      | "hardware.command"
+      | "audit.event.list"
+      | "admin.metrics.get" | "license.offers.list";
   }
 >;
 
@@ -48,15 +53,22 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   INCOMPATIBLE_SHIFT: "CONFLICT",
   IDEMPOTENCY_CONFLICT: "CONFLICT",
   NOT_FOUND: "NOT_FOUND",
+  WAITING_CART_NOT_FOUND: "NOT_FOUND",
+  WAITING_CART_CONFLICT: "CONFLICT",
+  CART_LIMIT: "VALIDATION",
   ALREADY_CLOSED: "CONFLICT",
   VERSION_CONFLICT: "CONFLICT",
   CATALOG_NOT_FOUND: "NOT_FOUND",
+  IDENTIFIER_MISMATCH: "VALIDATION",
+  INVALID_FISCAL_ATTRIBUTES: "VALIDATION",
   // La venta existe pero no esta cobrada: es un conflicto de estado, no una
   // ausencia. El cajero tiene que cobrarla, no buscarla en otra caja.
   NOT_COMPLETED: "CONFLICT",
   PRICE_NOT_FOUND: "NOT_FOUND",
   CURRENCY_MISMATCH: "VALIDATION",
   QUANTITY_PRECISION_EXCEEDED: "VALIDATION",
+  INVALID_QUANTITY: "VALIDATION",
+  STOCK_QUANTITY_OVERFLOW: "VALIDATION",
   // No hay existencia: es un conflicto con el estado del inventario, no una
   // petición mal formada.
   INSUFFICIENT_STOCK: "CONFLICT",
@@ -66,6 +78,7 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   OVERPAYMENT_NOT_ALLOWED: "CONFLICT",
   CASH_SHIFT_MISSING: "CONFLICT",
   CASH_SHIFT_NOT_OPEN: "CONFLICT",
+  LICENSE_BLOCKED: "AUTHORIZATION",
   INSUFFICIENT_TENDER: "VALIDATION",
   PAYMENT_NOT_FOUND: "NOT_FOUND",
   PAYMENT_NOT_CONFIRMABLE: "CONFLICT",
@@ -75,6 +88,7 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   CODE_ALREADY_REGISTERED: "CONFLICT",
   BARCODE_ALREADY_REGISTERED: "CONFLICT",
   FISCAL_NOT_CONFIGURED: "CONFLICT",
+  FISCAL_REJECTED: "VALIDATION",
   CUSTOMER_NOT_FOUND: "NOT_FOUND",
   NOT_ELIGIBLE: "CONFLICT",
   BLOCKED: "VALIDATION",
@@ -146,6 +160,7 @@ export class CommercialRequestHandler {
   constructor(
     private readonly config: ServiceConfig,
     private readonly commercial: CommercialComponent,
+    private readonly resolveLocalOperator?: (connectionId: string) => LocalAuthorizedSession | null,
   ) {}
 
   private scope(): SyncScope {
@@ -168,10 +183,30 @@ export class CommercialRequestHandler {
     connectionId: string,
   ): { identity: BoundSessionIdentity; snapshot: StoredAuthorizationSnapshot } | { rejection: string } {
     const identity = this.commercial.bindings.resolve(connectionId);
-    if (identity === null) return { rejection: SESSION_NOT_BOUND };
+    if (identity === null) {
+      // Explicit LOCAL development authority. No signed commercial SSA/SAS or
+      // CommercialComponent binding is invented. Every business operation
+      // rechecks the backend-owned connection's currently live login.
+      if (this.config.local_operator_auth_store !== undefined && this.resolveLocalOperator) {
+        const local = this.resolveLocalOperator(connectionId);
+        if (local !== null) {
+          const {userId, snapshot} = localOperatorAuthorization(local, this.config);
+          return {
+            identity: {
+              userId,
+              ssaSessionId: local.sessionId,
+              tenantMembershipId: this.config.tenant_id,
+              offlineValidUntil: local.expiresAt,
+            },
+            snapshot,
+          };
+        }
+      }
+      return { rejection: SESSION_NOT_BOUND };
+    }
 
     const { installationId, deviceId } = this.commercial.deviceBinding();
-    const snapshot = this.commercial.authorizationStore.loadActive({
+    const snapshot = this.commercial.loadVerifiedAuthorization({
       userId: identity.userId,
       installationId,
       deviceId,
@@ -197,6 +232,10 @@ export class CommercialRequestHandler {
       case "cash.shift.open": return this.openShift(request, connectionId);
       case "cash.shift.close": return this.closeShift(request, connectionId);
       case "sale.create": return this.createSale(request, connectionId);
+      case "cart.waiting.save":
+      case "cart.waiting.discard":
+      case "cart.waiting.get":
+      case "cart.waiting.list": return this.waitingCart(request, connectionId);
       case "payment.register.cash": return this.registerCashPayment(request, connectionId);
       case "payment.register.transfer": return this.registerTransferPayment(request, connectionId);
       case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
@@ -205,14 +244,22 @@ export class CommercialRequestHandler {
       case "customer.register": return this.registerCustomer(request, connectionId);
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
+      case "customer.marketing.subscribe":
+      case "customer.marketing.unsubscribe":
+      case "customer.marketing.get": return this.marketingSubscription(request, connectionId);
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
+      case "catalog.item.list": return this.listCatalogItems(request, connectionId);
       case "inventory.stock.receive":
       case "inventory.stock.adjust": return this.moveStock(request, connectionId);
       case "inventory.stock.get": return this.getStock(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
+      case "hardware.command": return this.hardwareCommand(request,connectionId);
+      case "audit.event.list": return this.listAuditEvents(request, connectionId);
+      case "admin.metrics.get": return this.getAdminMetrics(request, connectionId);
+      case "license.offers.list": return this.listLicenseOffers(request,connectionId);
     }
   }
 
@@ -252,6 +299,8 @@ export class CommercialRequestHandler {
     );
 
     if (result.kind === "CONFIRMED") {
+      void this.commercial.hardware.afterConfirmedCashPayment(this.scope(),authenticated.snapshot,
+        {userId:authenticated.identity.userId,sessionId:authenticated.identity.ssaSessionId},result.paymentId);
       return succeeded(request, "CONFIRMED", {
         outcome: "CONFIRMED",
         payment_id: result.paymentId,
@@ -568,6 +617,108 @@ export class CommercialRequestHandler {
     return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
   }
 
+
+  // ── customer.marketing.* ──────────────────────────────────────────────────
+
+  private marketingSubscription(
+    request: Extract<CommercialRequest, {
+      message_type: "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get";
+    }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      customer_id: request.payload.customer_id,
+      channel: null,
+      topic: null,
+      status: null,
+      consent_version: null,
+      consented_at: null,
+      unsubscribed_at: null,
+      source: null,
+      updated_at: null,
+    };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const scope = this.scope();
+    if (request.message_type === "customer.marketing.get") {
+      const decision = evaluatePermission({
+        actor: createActor("USER", authenticated.snapshot.claims.user_id),
+        permission: CanonicalPermission.CUSTOMERS_CUSTOMER_READ,
+        scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+        at: new Date(),
+        assignments: toRoleAssignments(authenticated.snapshot.claims),
+      });
+      if (!decision.allowed) return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+      const subscription = this.commercial.customerMarketing.get(scope, request.payload.customer_id);
+      if (!subscription) {
+        return succeeded(request, "NOT_SUBSCRIBED", {
+          outcome: "NOT_SUBSCRIBED",
+          ...empty,
+          customer_id: request.payload.customer_id,
+        });
+      }
+      return succeeded(request, "FOUND", {
+        outcome: subscription.status,
+        customer_id: subscription.customerId,
+        channel: subscription.channel,
+        topic: subscription.topic,
+        status: subscription.status,
+        consent_version: subscription.consentVersion,
+        consented_at: subscription.consentedAt,
+        unsubscribed_at: subscription.unsubscribedAt,
+        source: subscription.source,
+        updated_at: subscription.updatedAt,
+      });
+    }
+
+    const result = request.message_type === "customer.marketing.subscribe"
+      ? this.commercial.customerMarketing.executeSubscribe({
+          scope,
+          sessionId: authenticated.identity.ssaSessionId,
+          authSnapshot: authenticated.snapshot,
+          customerId: request.payload.customer_id,
+          idempotencyKey: request.idempotency_key as string,
+          correlationId: request.correlation_id,
+          causationId: request.causation_id ?? null,
+          at: new Date(),
+        })
+      : this.commercial.customerMarketing.executeUnsubscribe({
+          scope,
+          sessionId: authenticated.identity.ssaSessionId,
+          authSnapshot: authenticated.snapshot,
+          customerId: request.payload.customer_id,
+          idempotencyKey: request.idempotency_key as string,
+          correlationId: request.correlation_id,
+          causationId: request.causation_id ?? null,
+          at: new Date(),
+        });
+
+    if (result.kind === "SUBSCRIBED" || result.kind === "UNSUBSCRIBED" || result.kind === "IDEMPOTENT") {
+      const subscription = result.subscription;
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        customer_id: subscription.customerId,
+        channel: subscription.channel,
+        topic: subscription.topic,
+        status: subscription.status,
+        consent_version: subscription.consentVersion,
+        consented_at: subscription.consentedAt,
+        unsubscribed_at: subscription.unsubscribedAt,
+        source: subscription.source,
+        updated_at: subscription.updatedAt,
+      });
+    }
+
+    return rejected(request, result.kind, {
+      outcome: result.kind,
+      ...empty,
+    });
+  }
+
   // ── fiscal.document.issue ───────────────────────────────────────────────────
 
   /**
@@ -604,19 +755,25 @@ export class CommercialRequestHandler {
     }
 
     const payload = request.payload;
+    const scope=this.scope();
+    const access=evaluatePermission({actor:createActor("USER",authenticated.identity.userId),permission:CanonicalPermission.FISCAL_DOCUMENT_ISSUE,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(authenticated.snapshot.claims)});
+    if(!access.allowed)return rejected(request,"UNAUTHORIZED",{outcome:"UNAUTHORIZED",...empty});
+    const sale=this.commercial.fiscalSaleSource.read(scope,payload.sale_id);
+    const linkedId=sale?.customerId ?? null;
+    if (linkedId && (payload.customer.kind === "NOT_IDENTIFIED" ||
+      (payload.customer.kind === "IDENTIFIED" && payload.customer.customer_id !== linkedId))) {
+      return rejected(request,"BLOCKED",{outcome:"BLOCKED",...empty,block_code:"SALE_CUSTOMER_MISMATCH"});
+    }
     let customer: FiscalCustomerResolution;
-    if (payload.customer.kind === "IDENTIFIED") {
-      const found = this.commercial.getCustomer.execute(
-        this.scope(),
-        authenticated.snapshot,
-        { by: "ID", customerId: payload.customer.customer_id },
-      );
-      if (found.kind !== "FOUND") {
-        return rejected(request, "CUSTOMER_NOT_FOUND", { outcome: "BLOCKED", ...empty, block_code: "CUSTOMER_NOT_FOUND" });
-      }
-      customer = { kind: "IDENTIFIED", customer: found.customer };
+    if (payload.customer.kind === "IDENTIFIED" || payload.customer.kind === "SALE_CUSTOMER") {
+      const customerId=payload.customer.kind === "IDENTIFIED" ? payload.customer.customer_id : linkedId;
+      if(!customerId) return rejected(request,"BLOCKED",{outcome:"BLOCKED",...empty,block_code:"SALE_CUSTOMER_NOT_ASSIGNED"});
+      const found = this.commercial.getCustomer.execute(scope,authenticated.snapshot,{by:"ID",customerId});
+      if(found.kind!=="FOUND")return rejected(request,"BLOCKED",{outcome:"BLOCKED",...empty,block_code:"CUSTOMER_NOT_FOUND"});
+      customer={kind:"IDENTIFIED",customer:found.customer};
     } else {
-      customer = { kind: "NOT_IDENTIFIED", reason: payload.customer.reason };
+      customer={kind:"NOT_IDENTIFIED",reason:payload.customer.reason};
     }
 
     const result = await useCase.execute(
@@ -699,6 +856,10 @@ export class CommercialRequestHandler {
         unitCode: payload.unit_code,
         unitPrecision: payload.unit_precision,
         barcode: payload.barcode,
+        ...(payload.fiscal_attributes === undefined ? {} : { fiscalAttributes: {
+          codeReference: payload.fiscal_attributes.code_reference, unitMeasureCode: payload.fiscal_attributes.unit_measure_code,
+          standardCode: payload.fiscal_attributes.standard_code, taxCode: payload.fiscal_attributes.tax_code, taxRate: payload.fiscal_attributes.tax_rate,
+        } }),
         priceAmount: payload.price_amount,
         currencyCode: payload.currency_code,
         idempotencyKey: request.idempotency_key ?? "",
@@ -775,6 +936,140 @@ export class CommercialRequestHandler {
       return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
     }
     return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+  }
+
+  // ── catalog.item.list ─────────────────────────────────────────────────────
+
+  /** Lista sólo presentaciones activas con precio activo; el catálogo sigue siendo autoridad. */
+  private listCatalogItems(
+    request: Extract<CommercialRequest, { message_type: "catalog.item.list" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { items: [], has_more: false };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.listCatalogItems.execute(
+      this.scope(),
+      authenticated.snapshot,
+      {
+        query: request.payload.query,
+        limit: request.payload.limit,
+        offset: request.payload.offset,
+      },
+    );
+
+    if (result.kind === "UNAUTHORIZED") {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    return succeeded(request, "FOUND", {
+      outcome: "FOUND",
+      items: result.items.map(({ product, presentation, price }) => ({
+        product_id: product.id,
+        presentation_id: presentation.id,
+        code: product.code,
+        name: product.name,
+        presentation_name: presentation.name,
+        unit_code: presentation.unitCode,
+        unit_precision: presentation.unitPrecision,
+        barcode: presentation.barcode,
+        stock_controlled: product.stockControlled,
+        price_amount: price.amount,
+        currency_code: price.currencyCode,
+      })),
+      has_more: result.hasMore,
+    });
+  }
+
+  /** Public prices only; never account data or GLOBAL mutation authority. */
+  private async listLicenseOffers(request:Extract<CommercialRequest,{message_type:"license.offers.list"}>,connectionId:string){
+    const authenticated=this.authenticate(connectionId);
+    if("rejection" in authenticated)return rejected(request,authenticated.rejection,{outcome:"UNAUTHORIZED",catalog:null});
+    try{const catalog=await this.commercial.readPublicLicenseCatalog(),current=this.authenticate(connectionId);
+      if("rejection" in current||current.identity.ssaSessionId!==authenticated.identity.ssaSessionId)
+        return rejected(request,"UNAUTHORIZED",{outcome:"UNAUTHORIZED",catalog:null});
+      return succeeded(request,"AVAILABLE",{outcome:"AVAILABLE",catalog});
+    }catch{return rejected(request,"LICENSE_CATALOG_UNAVAILABLE",{outcome:"UNAVAILABLE",catalog:null});}
+  }
+  private getAdminMetrics(
+    request: Extract<CommercialRequest, { message_type: "admin.metrics.get" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "AVAILABLE",
+        sales_completed_count: null,
+        sales_completed_amount: null,
+        inventory_tracked_count: null,
+        cash_open_shift_count: null,
+      });
+    }
+
+    const result = this.commercial.getAdminMetrics.execute(
+      this.scope(),
+      authenticated.snapshot,
+    );
+
+    return succeeded(request, "AVAILABLE", {
+      outcome: "AVAILABLE",
+      ...result,
+    });
+  }
+
+  // ── Auditoría local append-only ─────────────────────────────────────────────
+
+  private listAuditEvents(
+    request: Extract<CommercialRequest, { message_type: "audit.event.list" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { events: [], has_more: false };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.listAuditEvents.execute(
+      this.scope(),
+      authenticated.snapshot,
+      {
+        query: request.payload.query,
+        actionCode: request.payload.action_code,
+        resourceType: request.payload.resource_type,
+        actorType: request.payload.actor_type,
+        from: request.payload.from,
+        to: request.payload.to,
+        limit: request.payload.limit,
+        offset: request.payload.offset,
+      },
+    );
+
+    if (result.kind === "UNAUTHORIZED") {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    return succeeded(request, "FOUND", {
+      outcome: "FOUND",
+      events: result.events.map((event) => ({
+        sequence: event.sequence,
+        actor_type: event.actorType,
+        actor_id: event.actorId,
+        session_id: event.sessionId,
+        action_code: event.actionCode,
+        resource_type: event.resourceType,
+        resource_id: event.resourceId,
+        correlation_id: event.correlationId,
+        causation_id: event.causationId,
+        reason_code: event.reasonCode,
+        created_at: event.createdAt,
+      })),
+      has_more: result.hasMore,
+    });
   }
 
   // ── Inventario — `MIGRATION_015` ───────────────────────────────────────────
@@ -863,6 +1158,14 @@ export class CommercialRequestHandler {
   }
 
   // ── sales.receipt.get — `DEC-019` ──────────────────────────────────────────
+  private async hardwareCommand(request:Extract<CommercialRequest,{message_type:"hardware.command"}>,connectionId:string):Promise<unknown> {
+    const authenticated=this.authenticate(connectionId);
+    if("rejection" in authenticated)return rejected(request,authenticated.rejection,{kind:"UNAUTHORIZED",data:null,reason:authenticated.rejection});
+    const result=await this.commercial.hardware.execute(this.scope(),authenticated.snapshot,
+      {userId:authenticated.identity.userId,sessionId:authenticated.identity.ssaSessionId},request.payload);
+    return result.kind==="UNAUTHORIZED"||result.kind==="REJECTED"?rejected(request,result.reason??result.kind,result):succeeded(request,result.kind,result);
+  }
+
 
   /**
    * El recibo de una venta cobrada.
@@ -1202,6 +1505,28 @@ export class CommercialRequestHandler {
     });
   }
 
+  private waitingCart(request: Extract<CommercialRequest,{message_type:"cart.waiting.save"|"cart.waiting.list"|"cart.waiting.get"|"cart.waiting.discard"}>,connectionId:string):unknown {
+    const auth=this.authenticate(connectionId);
+    const denied={outcome:"UNAUTHORIZED",carts:[],has_more:false};
+    if("rejection" in auth) return rejected(request,auth.rejection,denied);
+    const scope=this.scope();
+    const decision=evaluatePermission({actor:createActor("USER",auth.identity.userId),permission:CanonicalPermission.SALES_SALE_CREATE,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(auth.snapshot.claims)});
+    if(!decision.allowed) return rejected(request,"UNAUTHORIZED",denied);
+    if (request.message_type === "cart.waiting.save" && request.payload.cart.customer_id) {
+      const customer = this.commercial.getCustomer.execute(scope, auth.snapshot,
+        { by: "ID", customerId: request.payload.cart.customer_id });
+      if (customer.kind !== "FOUND") return rejected(request, customer.kind,
+        { outcome: customer.kind, carts: [], has_more: false });
+    }
+    const owner={...scope,operatorId:auth.identity.userId};
+    const result=request.message_type==="cart.waiting.list" ? this.commercial.waitingCarts.list(owner)
+      : request.message_type==="cart.waiting.get" ? this.commercial.waitingCarts.get(owner,request.payload.cart_id)
+      : request.message_type==="cart.waiting.discard" ? this.commercial.waitingCarts.discard(owner,request.payload.cart_id,request.payload.expected_version)
+      :this.commercial.waitingCarts.save(owner,request.payload.cart_id,request.payload.expected_version,request.idempotency_key!,request.payload.cart);
+    return ["FOUND","SAVED","DISCARDED"].includes(result.outcome)?succeeded(request,result.outcome,result):rejected(request,result.outcome,result);
+  }
+
   // ── sale.create ────────────────────────────────────────────────────────────
 
   private createSale(
@@ -1216,11 +1541,13 @@ export class CommercialRequestHandler {
       });
     }
 
-    const result = this.commercial.createSale.execute(
+    const create = () => this.commercial.createSale.execute(
       this.scope(),
       authenticated.identity.ssaSessionId,
       authenticated.snapshot,
       {
+        customerId: request.payload.customer_id ?? null,
+        requireOpenCashShift: true,
         cashRegisterId: request.payload.cash_register_id,
         idempotencyKey: request.idempotency_key as string,
         channel: request.payload.channel,
@@ -1235,9 +1562,20 @@ export class CommercialRequestHandler {
           productId: line.product_id,
           presentationId: line.presentation_id,
           quantity: line.quantity,
+          ...(line.identifier === undefined ? {} : { identifier: line.identifier }),
         })),
       },
     );
+
+    // Recheck authorization even for a replay of a consumed waiting cart.
+    const scope=this.scope();
+    const allowed=evaluatePermission({actor:createActor("USER",authenticated.identity.userId),permission:CanonicalPermission.SALES_SALE_CREATE,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(authenticated.snapshot.claims)});
+    const waiting=request.payload.waiting_cart;
+    const result=!allowed.allowed ? {kind:"UNAUTHORIZED" as const} : waiting
+      ? this.commercial.waitingCarts.consume({...scope,operatorId:authenticated.identity.userId},waiting.id,waiting.version,
+        request.idempotency_key!,request.payload,request.payload.cash_register_id,create)
+      : create();
 
     if (result.kind === "CREATED" || result.kind === "IDEMPOTENT") {
       return succeeded(request, result.kind, {

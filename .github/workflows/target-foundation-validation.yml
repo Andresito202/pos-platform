@@ -223,6 +223,9 @@ jobs:
       - name: Validate PostgreSQL onboarding adapter
         run: pnpm test:database-postgres
 
+      - name: Validate PostgreSQL security event repository
+        run: pnpm --filter @pos-platform/database-postgres test
+
       - name: Typecheck
         run: pnpm typecheck
 

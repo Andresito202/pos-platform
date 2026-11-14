@@ -1,0 +1,41 @@
+{
+  "schema": "CAMACHO_LAB_LIVE_PREREQUISITES_TOOL_EVIDENCE_V1",
+  "date": "2026-11-04",
+  "sourceBaseSha": "58cc8fcb35a5cc5051f08ae7d83e58a09ae111fd",
+  "sourceFileSha256": {
+    "tools/operators/windows-login-lab-commercial-readiness.mts": "84d2fb864c014382256e57319dcbadf50b598259e464d49bdc2c30c361d9bbdf",
+    "tools/operators/windows-login-lab-commercial-readiness.test.mts": "85141d2f007d2ec95ff94bd78ccd58ce2df41b88cdaa0872bc81c91474a10627",
+    "tools/operators/windows-login-lab-commercial-provision.mts": "f3eb81d62105accfdc5614b3dbab1721f3b0361ad9dc606c111bf8e9a9771fb2"
+  },
+  "checks": [
+    {
+      "passed": 17,
+      "command": "pnpm --filter @pos-platform/central-authority exec tsx --test ../../tools/operators/windows-login-lab-commercial-readiness.test.mts ../../tools/operators/windows-login-lab-commercial-provision.test.mts",
+      "new": 5,
+      "exit": 0,
+      "affectedRegression": 12,
+      "scope": "Unit and temporary filesystem checks; not live VM or PostgreSQL"
+    },
+    {
+      "exit": 0,
+      "command": "pnpm --filter @pos-platform/central-authority exec tsc --ignoreConfig --noEmit --strict --skipLibCheck --target ES2022 --module NodeNext --moduleResolution NodeNext --allowImportingTsExtensions ../../tools/operators/windows-login-lab-commercial-readiness.mts ../../tools/operators/windows-login-lab-commercial-readiness.test.mts ../../tools/operators/windows-login-lab-commercial-provision.mts"
+    },
+    {
+      "passed": 16,
+      "command": "pnpm architecture:check",
+      "exit": 0
+    }
+  ],
+  "actualVmDeviceUuidVersion": "NOT_YET_OBSERVED",
+  "livePostgresReadiness": "NOT_YET_EXECUTED",
+  "scmGateChanged": false,
+  "newDeviceRegistered": false,
+  "businessSessionIssued": false,
+  "humanLoginCertified": false,
+  "actionsDispatched": 0,
+  "preservedConcurrentWork": [
+    ".claude/",
+    "apps/pos-desktop/renderer/public/"
+  ],
+  "otherBranchIntegration": "NONE"
+}

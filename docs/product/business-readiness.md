@@ -1,5 +1,28 @@
 # Qué comercios puede atender hoy el POS
 
+> **ATENCIÓN — corte histórico, no estado actual.** La evaluación original de este documento corresponde al 7–8 de septiembre de 2026 y a `main` de ese momento. Las frases posteriores «no existe interfaz de caja», «ningún comercio puede vender» y «no existe ni el perfil ni la interfaz» describen ese corte histórico. **No deben emplearse como diagnóstico del HEAD actual.** La actualización verificable de la rama única `cursor/commercial-design-review-0d11` se expone a continuación. Esta actualización es una reconciliación documental, no una nueva prueba de producto ni una certificación de producción.
+
+## Estado actualizado — 2026-11-13 (rama de consolidación)
+
+| Capacidad | Evidencia posterior inspeccionada | Estado demostrable y límite |
+| --- | --- | --- |
+| Interfaz de caja | `apps/pos-desktop/renderer/src/App.tsx` monta `SalePanel` si existe `SALES_SALE_CREATE`; `SalePanel.tsx` contiene operaciones de carrito/cobro y clientes en espera; `README.md` registra las integraciones | **Implementada en la rama de trabajo**. No significa Windows/Android E2E, instalación comercial ni autorización BUSINESS certificadas. Ya no es correcto afirmar que falta toda la interfaz. |
+| Catálogo e inventario | `CatalogPanel`, `InventoryPanel`, `ReceiveStockUseCase`, `AdjustStockUseCase`; evidencia documentada en `integration-verification-20261110.md` | Base conectada para operaciones actuales; no cubre ciclo completo de lotes/FEFO, transformación, recetas ni todas las reglas sectoriales. |
+| Importación de existencias | Plantilla CSV UTF-8 editable en Excel y confirmación por fila bajo autorización; documentado en `integration-verification-20261110.md` | Existe **CSV**, no lectura nativa XLSX. Un movimiento manual incierto no conserva su identidad tras cerrar la pantalla; la reejecución requiere cuidado. |
+| Ventas en espera | `SalePanel.tsx` y `waiting-carts.md` documentan guardado/recuperación/eliminación en SQLite | Implementado antes del cobro, sin recuperar automáticamente pagos externos inciertos. |
+| Venta por peso | `unit_precision` y validaciones de escala, magnitud y saldo registradas en `business-types.md` | Existe base de cantidades fraccionarias; no acredita balanza física, tara, lotes, ni conversión fiscal externa. La regla histórica D-14 requiere revalidación con adaptador Factus y contrato vigente; no se declara resuelta. |
+| Especialización del comercio | `business-types.md` enumera faltantes concretos para fruver, salsamentaria/avícola, droguería y pastelería | **No hay certificación de una modalidad sectorial completa**. Una pantalla genérica no prueba el módulo sectorial ni su habilitación/licencia firmada. |
+| Hardware y Android | README y backlog mantienen deltas exclusivos de Android/balanza/QR pendientes de incorporar selectivamente | No afirmar que esos cambios están integrados al POS comercial por existir en otras ramas; la verificación física sigue pendiente. |
+| Emisión fiscal y pagos externos | `integration-verification-20261110.md` documenta servicios y pruebas con simulación de proveedor | Factus externo, confirmación bancaria y operación comercial completa no acreditados. |
+
+**Prioridad vigente del propietario:** farmacia/droguería, salsamentaria a partir de la base avícola y pastelería. Esta prioridad sustituye el orden de urgencia comercial de la tabla histórica inferior; no implica que sus flujos especializados estén terminados. El núcleo de POS sigue siendo uno solo. La fuente posterior de requisitos sectoriales es [business-types.md](business-types.md); la evidencia y los límites de integraciones, [integration-verification-20261110.md](integration-verification-20261110.md).
+
+**Niveles de evidencia:** los archivos consultados comprueban presencia de código y documentación en la rama. Los conteos de pruebas citados en documentos previos son antecedentes atribuidos a sus respectivos SHAs; **no se reejecutaron pruebas nuevas durante esta actualización**. La certificación BUSINESS/SCM, la instalación Windows, Android comercial y el despliegue quedan pendientes.
+
+---
+
+## Registro histórico (septiembre de 2026; no vigente como diagnóstico)
+
 ## Para qué existe este documento
 
 `business-types.md` declara a qué comercios apunta el producto. Este documento

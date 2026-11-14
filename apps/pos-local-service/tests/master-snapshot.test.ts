@@ -33,11 +33,13 @@ const OTHER_TENANT = "018f0000-0000-7000-8000-00000000cfff";
 const REGISTER_A = "018f0000-0000-7000-8000-00000000d001";
 const REGISTER_B = "018f0000-0000-7000-8000-00000000d002";
 const KEY_ID = "MASTER_SNAPSHOT_KEY_1";
+const INSTALLATION_A = "018f0000-0000-7000-8000-00000000c004";
 
 const SCOPE = {
   tenantId: TENANT,
   companyId: COMPANY,
   branchId: BRANCH,
+  installationId: INSTALLATION_A,
   environment: "PRODUCTION" as const,
 };
 const SCOPE_KEY = { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH };
@@ -125,9 +127,11 @@ function keyMap(
   }]]);
 }
 
-const centralFloor = (value: number | null): AcknowledgedFloorSource => ({ floorFor: () => value });
+const centralFloor = (value: number | null): AcknowledgedFloorSource => ({
+  floorFor: async () => value,
+});
 const unavailableFloor: AcknowledgedFloorSource = {
-  floorFor: () => { throw new Error("central unavailable"); },
+  floorFor: async () => { throw new Error("central unavailable"); },
 };
 
 async function harness(options: {
@@ -194,14 +198,14 @@ describe("A. contrato de claims", () => {
 describe("C. alcance de snapshot_type", () => {
   it("acepta CASH_REGISTER", async () => {
     const { service } = await harness();
-    const outcome = service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    const outcome = await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
     expect(outcome).toEqual({ kind: "ACTIVATED", sequence: 1 });
   });
 
   it.each(["CATALOG", "PRICING", "TAX"])("rechaza %s en la frontera del contrato", async (type) => {
     const { service } = await harness();
     const claims = { ...claimsFor(1, [register(REGISTER_A)]), snapshot_type: type };
-    const outcome = service.accept({ claims, signature: "a".repeat(86) }, SCOPE);
+    const outcome = await service.accept({ claims, signature: "a".repeat(86) }, SCOPE);
     expect(outcome).toEqual({ kind: "REJECTED", code: "INVALID_SCHEMA" });
   });
 
@@ -219,36 +223,36 @@ describe("C. alcance de snapshot_type", () => {
 describe("B. seguridad", () => {
   it("rechaza firma inválida", async () => {
     const { service } = await harness();
-    const outcome = service.accept(signedWith(claimsFor(1, [register(REGISTER_A)]), otherKeyPair), SCOPE);
+    const outcome = await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)]), otherKeyPair), SCOPE);
     expect(outcome).toEqual({ kind: "REJECTED", code: "INVALID_SIGNATURE" });
   });
 
   it("rechaza clave desconocida", async () => {
     const { service } = await harness({ keys: new Map() });
-    const outcome = service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    const outcome = await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
     expect(outcome).toEqual({ kind: "REJECTED", code: "UNKNOWN_KEY" });
   });
 
   it("rechaza una clave de otro propósito criptográfico", async () => {
     const { service } = await harness({ keys: keyMap("ACTIVE", "LICENSE") });
-    const outcome = service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    const outcome = await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
     expect(outcome).toEqual({ kind: "REJECTED", code: "WRONG_KEY_PURPOSE" });
   });
 
   it("rechaza clave revocada y acepta VERIFY_ONLY", async () => {
     const revoked = await harness({ keys: keyMap("REVOKED") });
-    expect(revoked.service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
+    expect(await revoked.service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "REJECTED", code: "REVOKED_KEY" });
 
     const rotating = await harness({ keys: keyMap("VERIFY_ONLY") });
-    expect(rotating.service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
+    expect(await rotating.service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "ACTIVATED", sequence: 1 });
   });
 
   it("rechaza ambiente incorrecto", async () => {
     const { service } = await harness();
     const claims = claimsFor(1, [register(REGISTER_A)], { environment: "STAGING" });
-    expect(service.accept(signedWith(claims), SCOPE))
+    expect(await service.accept(signedWith(claims), SCOPE))
       .toEqual({ kind: "REJECTED", code: "WRONG_ENVIRONMENT" });
   });
 
@@ -259,13 +263,13 @@ describe("B. seguridad", () => {
       tenant_id: OTHER_TENANT,
       payload: [],
     });
-    expect(service.accept(signedWith(foreign), SCOPE))
+    expect(await service.accept(signedWith(foreign), SCOPE))
       .toEqual({ kind: "REJECTED", code: "WRONG_SCOPE" });
   });
 
   it("el artefacto es append-only: no admite modificación ni borrado", async () => {
     const { service, database } = await harness();
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
     expect(() => database.native.prepare(
       "UPDATE local_master_snapshot_artifact SET claims_checksum=? WHERE sequence=1",
     ).run("f".repeat(64))).toThrow();
@@ -276,7 +280,7 @@ describe("B. seguridad", () => {
 
   it("no devuelve un artefacto cuyo checksum no coincide con sus claims", async () => {
     const { service, store, database } = await harness();
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
     expect(store.artifactAt(SCOPE_KEY, 1)).not.toBeNull();
 
     // Corrupción fuera del control de la aplicación: los triggers protegen de
@@ -294,13 +298,13 @@ describe("B. seguridad", () => {
 describe("D. anti-replay", () => {
   it("acepta mayor, rechaza igual y rechaza menor", async () => {
     const { service } = await harness();
-    expect(service.accept(signedWith(claimsFor(5, [register(REGISTER_A)])), SCOPE))
+    expect(await service.accept(signedWith(claimsFor(5, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "ACTIVATED", sequence: 5 });
-    expect(service.accept(signedWith(claimsFor(6, [register(REGISTER_A)])), SCOPE))
+    expect(await service.accept(signedWith(claimsFor(6, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "ACTIVATED", sequence: 6 });
-    expect(service.accept(signedWith(claimsFor(6, [register(REGISTER_A)])), SCOPE))
+    expect(await service.accept(signedWith(claimsFor(6, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "REJECTED", code: "DUPLICATE_SEQUENCE" });
-    expect(service.accept(signedWith(claimsFor(5, [register(REGISTER_A)])), SCOPE))
+    expect(await service.accept(signedWith(claimsFor(5, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "REJECTED", code: "OBSOLETE_SEQUENCE" });
   });
 });
@@ -308,9 +312,9 @@ describe("D. anti-replay", () => {
 describe("E. recuperación", () => {
   it("respeta la cota local", async () => {
     const { service, store } = await harness();
-    service.accept(signedWith(claimsFor(10, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(10, [register(REGISTER_A)])), SCOPE);
     expect(store.highestAcceptedSequence(SCOPE_KEY)).toBe(10);
-    expect(service.accept(signedWith(claimsFor(9, [register(REGISTER_A)])), SCOPE))
+    expect(await service.accept(signedWith(claimsFor(9, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "REJECTED", code: "OBSOLETE_SEQUENCE" });
   });
 
@@ -318,34 +322,69 @@ describe("E. recuperación", () => {
     // La base restaurada sólo conoce 5; la central acusó hasta 8. Un artefacto
     // auténtico de 7 no puede volver a aceptarse.
     const { service } = await harness({ floor: centralFloor(8) });
-    service.accept(signedWith(claimsFor(5, [register(REGISTER_A)])), SCOPE);
-    expect(service.accept(signedWith(claimsFor(7, [register(REGISTER_A)])), SCOPE))
+    await service.accept(signedWith(claimsFor(5, [register(REGISTER_A)])), SCOPE);
+    expect(await service.accept(signedWith(claimsFor(7, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "REJECTED", code: "OBSOLETE_SEQUENCE" });
-    expect(service.accept(signedWith(claimsFor(9, [register(REGISTER_A)])), SCOPE))
+    expect(await service.accept(signedWith(claimsFor(9, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "ACTIVATED", sequence: 9 });
   });
 
   it("prevalece la cota local cuando es mayor que la central", async () => {
     const { service } = await harness({ floor: centralFloor(2) });
-    service.accept(signedWith(claimsFor(6, [register(REGISTER_A)])), SCOPE);
-    expect(service.accept(signedWith(claimsFor(3, [register(REGISTER_A)])), SCOPE))
+    await service.accept(signedWith(claimsFor(6, [register(REGISTER_A)])), SCOPE);
+    expect(await service.accept(signedWith(claimsFor(3, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "REJECTED", code: "OBSOLETE_SEQUENCE" });
   });
 
   it("sin cota central confirmada no acepta nada", async () => {
     const { service, store } = await harness({ floor: unavailableFloor });
-    expect(service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
+    expect(await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "REJECTED", code: "TRANSPORT_FAILURE" });
     expect(store.highestAcceptedSequence(SCOPE_KEY)).toBeNull();
+  });
+
+  it("consulta la cota central con instalación, tipo y binding exactos", async () => {
+    const requests: unknown[] = [];
+    const floor: AcknowledgedFloorSource = {
+      floorFor: async (request) => {
+        requests.push(request);
+        return null;
+      },
+    };
+    const { service } = await harness({ floor });
+    expect(await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
+      .toEqual({ kind: "ACTIVATED", sequence: 1 });
+    expect(requests).toEqual([{
+      installationId: INSTALLATION_A,
+      snapshotType: "CASH_REGISTER",
+      binding: SCOPE_KEY,
+    }]);
+  });
+
+  it("no activa el snapshot antes de resolver la consulta asíncrona de cota central", async () => {
+    let resolveFloor!: (value: number | null) => void;
+    const floorPromise = new Promise<number | null>((resolve) => {
+      resolveFloor = resolve;
+    });
+    const floor: AcknowledgedFloorSource = {
+      floorFor: async () => floorPromise,
+    };
+    const { service, store } = await harness({ floor });
+    const pending = service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+
+    expect(store.highestAcceptedSequence(SCOPE_KEY)).toBeNull();
+    resolveFloor(null);
+    expect(await pending).toEqual({ kind: "ACTIVATED", sequence: 1 });
+    expect(store.highestAcceptedSequence(SCOPE_KEY)).toBe(1);
   });
 });
 
 describe("F. atomicidad", () => {
   it("un rechazo no altera la proyección anterior ni avanza la cota", async () => {
     const { service, store } = await harness();
-    service.accept(signedWith(claimsFor(3, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(3, [register(REGISTER_A)])), SCOPE);
 
-    expect(service.accept(signedWith(claimsFor(4, [register(REGISTER_B)]), otherKeyPair), SCOPE))
+    expect(await service.accept(signedWith(claimsFor(4, [register(REGISTER_B)]), otherKeyPair), SCOPE))
       .toEqual({ kind: "REJECTED", code: "INVALID_SIGNATURE" });
 
     expect(store.highestAcceptedSequence(SCOPE_KEY)).toBe(3);
@@ -354,7 +393,7 @@ describe("F. atomicidad", () => {
 
   it("un fallo durante la escritura deja intacta la proyección y la cota", async () => {
     const { service, store, database } = await harness();
-    service.accept(signedWith(claimsFor(3, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(3, [register(REGISTER_A)])), SCOPE);
 
     // Una caja de otro ámbito comparte `code_normalized` con la existente: el
     // índice único aborta a mitad del reemplazo.
@@ -365,7 +404,7 @@ describe("F. atomicidad", () => {
       register(REGISTER_B, { code_normalized: "colision" }),
       register(REGISTER_A, { code_normalized: "otra" }),
     ];
-    const outcome = service.accept(signedWith(claimsFor(4, colliding)), SCOPE);
+    const outcome = await service.accept(signedWith(claimsFor(4, colliding)), SCOPE);
 
     expect(outcome).toEqual({ kind: "REJECTED", code: "SQLITE_FAILURE" });
     expect(store.highestAcceptedSequence(SCOPE_KEY)).toBe(3);
@@ -377,8 +416,8 @@ describe("F. atomicidad", () => {
 describe("G. P-6 y G1", () => {
   it("la ausencia en el snapshot posterior no marca RETIRED ni borra la fila", async () => {
     const { service, store, database } = await harness();
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A), register(REGISTER_B)])), SCOPE);
-    service.accept(signedWith(claimsFor(2, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A), register(REGISTER_B)])), SCOPE);
+    await service.accept(signedWith(claimsFor(2, [register(REGISTER_A)])), SCOPE);
 
     const stored = database.native.prepare(
       "SELECT status, retired_at, last_seen_sequence FROM cash_register WHERE id=?",
@@ -392,9 +431,9 @@ describe("G. P-6 y G1", () => {
 
   it("la reaparición actualiza la última presencia", async () => {
     const { service, store } = await harness();
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A), register(REGISTER_B)])), SCOPE);
-    service.accept(signedWith(claimsFor(2, [register(REGISTER_A)])), SCOPE);
-    service.accept(signedWith(claimsFor(3, [register(REGISTER_A), register(REGISTER_B)])), SCOPE);
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A), register(REGISTER_B)])), SCOPE);
+    await service.accept(signedWith(claimsFor(2, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(3, [register(REGISTER_A), register(REGISTER_B)])), SCOPE);
 
     expect(store.activeRegisters(SCOPE_KEY).map((row) => row.id).sort())
       .toEqual([REGISTER_A, REGISTER_B].sort());
@@ -402,8 +441,8 @@ describe("G. P-6 y G1", () => {
 
   it("RETIRED sólo aparece cuando el maestro lo emite explícitamente", async () => {
     const { service, database } = await harness();
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
-    service.accept(signedWith(claimsFor(2, [
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(2, [
       register(REGISTER_A, { status: "RETIRED", retired_at: "2026-09-03T00:00:00.000Z", version: 2 }),
     ])), SCOPE);
 
@@ -415,7 +454,7 @@ describe("G. P-6 y G1", () => {
 describe("H. integridad de la persistencia", () => {
   async function seeded(): Promise<LocalDatabase> {
     const { database, service } = await harness();
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
     database.native.prepare(
       `INSERT INTO cash_shift
         (id, tenant_id, company_id, branch_id, cash_register_id, origin_device_id,
@@ -529,7 +568,7 @@ describe("H. integridad de la persistencia", () => {
 describe("I. auditoría y observabilidad", () => {
   it("registra la aceptación con su coordenada", async () => {
     const { service, database } = await harness();
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
     const row = database.native.prepare(
       "SELECT event_type, details_json FROM local_security_audit ORDER BY sequence DESC LIMIT 1",
     ).get() as { event_type: string; details_json: string };
@@ -539,7 +578,7 @@ describe("I. auditoría y observabilidad", () => {
 
   it("registra el rechazo con su motivo", async () => {
     const { service, database } = await harness();
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)]), otherKeyPair), SCOPE);
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)]), otherKeyPair), SCOPE);
     const row = database.native.prepare(
       "SELECT event_type, details_json FROM local_security_audit ORDER BY sequence DESC LIMIT 1",
     ).get() as { event_type: string; details_json: string };
@@ -561,8 +600,8 @@ describe("I. auditoría y observabilidad", () => {
         rejected: (_scope, code) => events.push(`rejected:${code}`),
       },
     );
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE);
     expect(events).toEqual(["accepted:1", "rejected:DUPLICATE_SEQUENCE"]);
   });
 
@@ -576,8 +615,8 @@ describe("I. auditoría y observabilidad", () => {
       centralFloor(null),
       { advance: (_scope, cursor) => advanced.push(cursor) },
     );
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE, { cursor: "c1" });
-    service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE, { cursor: "c2" });
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE, { cursor: "c1" });
+    await service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE, { cursor: "c2" });
     expect(advanced).toEqual(["c1"]);
   });
 });

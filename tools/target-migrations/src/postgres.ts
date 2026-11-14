@@ -1,7 +1,7 @@
 import { sql } from "kysely";
 import type { SqlExecutor } from "./database.js";
 import { executeRaw, postgresDatabase, queryRows } from "./database.js";
-import { INTEGRATION_TABLES, POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_TABLE_COLUMNS } from "./contract.js";
+import { INTEGRATION_TABLES, POSTGRES_001_DESCRIPTOR, POSTGRES_002_DESCRIPTOR, POSTGRES_001_TABLE_COLUMNS } from "./contract.js";
 import { bootstrapPresence, integrationsCatalogState, targetCatalogState, validateBootstrap, validateBtreeGist, validatePostgres002Catalog, validatePostgresCatalog } from "./postgres-introspection.js";
 import {
   MANIFEST_VERSION,
@@ -322,7 +322,7 @@ export async function downPostgres001(config: Pick<PostgresRunnerConfig, "adminU
         const execution = rows.find((row) => row.status === "APPLIED" || (row.status === "STARTED" && row.body_committed_at !== null));
         if (!execution) throw new MigrationInvariantError("no committed execution is eligible for down");
 
-        const domainTables = Object.keys(POSTGRES_TABLE_COLUMNS).filter((name) => !name.startsWith("platform."));
+        const domainTables = Object.keys(POSTGRES_001_TABLE_COLUMNS).filter((name) => !name.startsWith("platform."));
         const quoteQualifiedName = (name: string): string => name
           .split(".")
           .map((part) => `"${part.replaceAll('"', '""')}"`)

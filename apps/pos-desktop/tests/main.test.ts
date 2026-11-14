@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { OperationConfirmRequestSchema, RuntimeStatusRequestSchema } from "@pos-platform/contracts";
 import { IPC_ALLOWED_CHANNELS } from "../src/ipc-allowlist.js";
 import { WINDOW_SECURITY_CONFIG } from "../src/window-security.js";
 import type { ServiceChannel } from "../src/channel-bridge.js";
@@ -9,12 +10,15 @@ interface CapturedWindow {
   loadFile: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
   show: ReturnType<typeof vi.fn>;
+  reload: ReturnType<typeof vi.fn>;
 }
 
 const created: CapturedWindow[] = [];
 const handlers = new Map<string, (event: unknown, payload: unknown) => unknown>();
 const appEvents = new Map<string, () => void>();
 const quit = vi.fn();
+const menuItems:{label:string;submenu:{label:string;click:()=>void}[]}[]=[];
+const showMessageBox=vi.fn().mockResolvedValue({response:0});
 
 vi.mock("electron", () => {
   class BrowserWindow {
@@ -22,6 +26,7 @@ vi.mock("electron", () => {
     loadFile = vi.fn().mockResolvedValue(undefined);
     on = vi.fn();
     show = vi.fn();
+    reload = vi.fn();
     constructor(options: Record<string, unknown>) {
       created.push(this as unknown as CapturedWindow);
       (this as unknown as CapturedWindow).options = options;
@@ -31,6 +36,9 @@ vi.mock("electron", () => {
     }
   }
   return {
+    Menu:class{static getApplicationMenu(){return null;}static setApplicationMenu(){}append(value:typeof menuItems[number]){menuItems.push(value);}},
+    MenuItem:class{constructor(value:typeof menuItems[number]){return value;}},
+    dialog:{showMessageBox},
     app: {
       whenReady: () => Promise.resolve(),
       on: (event: string, listener: () => void) => {
@@ -67,7 +75,29 @@ beforeEach(() => {
   handlers.clear();
   appEvents.clear();
   quit.mockClear();
+  menuItems.length=0;showMessageBox.mockClear();
   vi.resetModules();
+});
+
+it("main mounts account actions only in its native menu and reloads backend authorization after activation",async()=>{
+  const {bootstrap}=await import("../src/main.js"),login=vi.fn().mockResolvedValue("SESSION_ACTIVATED"),logout=vi.fn().mockResolvedValue("SIGNED_OUT_LOCAL"),stop=vi.fn();
+  await bootstrap(makeServiceChannel(),undefined,{login,logout,stop});
+  expect(menuItems[0]?.label).toBe("Cuenta");menuItems[0]!.submenu[0]!.click();
+  await vi.waitFor(()=>expect(showMessageBox).toHaveBeenCalledTimes(1));expect(login).toHaveBeenCalledTimes(1);expect(created[0]!.reload).toHaveBeenCalledTimes(1);
+  menuItems[0]!.submenu[2]!.click();await vi.waitFor(()=>expect(showMessageBox).toHaveBeenCalledTimes(2));
+  expect(showMessageBox.mock.calls[1]![0].message).toContain("sin confirmar");
+  expect(handlers.has("pos:commercial.native.logout")).toBe(false);
+  appEvents.get("before-quit")!();expect(stop).toHaveBeenCalledTimes(1);
+});
+
+it("main mounts safe cache maintenance without a renderer channel or session deletion",async()=>{
+  const {bootstrap}=await import("../src/main.js"),{BrowserCacheMaintenance}=await import("../src/browser-cache-maintenance.js");
+  let bytes=4096;const clearCache=vi.fn(async()=>{bytes=0;}),cache=new BrowserCacheMaintenance({getCacheSize:async()=>bytes,clearCache},{maximum_cache_bytes:1024,interval_ms:60000});
+  await bootstrap(makeServiceChannel(),undefined,undefined,cache);
+  expect(menuItems[0]?.label).toBe("Mantenimiento");menuItems[0]!.submenu[0]!.click();
+  await vi.waitFor(()=>expect(showMessageBox).toHaveBeenCalledTimes(1));expect(clearCache).toHaveBeenCalledTimes(1);
+  expect(showMessageBox.mock.calls[0]![0].message).toContain("4096 → 0");expect(handlers.has("pos:cache.clear")).toBe(false);
+  appEvents.get("before-quit")!();await cache.stop();
 });
 
 describe("main bootstrap IPC registration", () => {
@@ -87,7 +117,17 @@ describe("main bootstrap IPC registration", () => {
     const service = makeServiceChannel();
     await bootstrapWith(service);
     const handler = handlers.get("pos:operation.confirm");
-    const payload = { operation_id: "op-99" };
+    const payload = {
+      protocol_version: "1.0.0",
+      message_type: "operation.confirm",
+      request_id: "00000000-0000-4000-8000-000000000091",
+      correlation_id: "00000000-0000-4000-8000-000000000092",
+      payload_schema_version: "1.0.0",
+      operation_id: "00000000-0000-4000-8000-000000000099",
+      idempotency_key: "main-test-operation",
+      payload: { operation_type: "DIAGNOSTIC", payload: { source: "main-test" } },
+    };
+    expect(OperationConfirmRequestSchema.safeParse(payload).success).toBe(true);
     await handler?.({}, payload);
     expect(service.request).toHaveBeenCalledWith(payload);
   });
@@ -97,7 +137,16 @@ describe("main bootstrap IPC registration", () => {
     service.request.mockRejectedValue(new Error("servicio local caido"));
     await bootstrapWith(service);
     const handler = handlers.get("pos:runtime.status.get");
-    await expect(handler?.({}, {})).rejects.toThrow("servicio local caido");
+    const payload = {
+      protocol_version: "1.0.0",
+      message_type: "runtime.status.get",
+      request_id: "00000000-0000-4000-8000-0000000000a1",
+      correlation_id: "00000000-0000-4000-8000-0000000000a2",
+      payload_schema_version: "1.0.0",
+      payload: {},
+    };
+    expect(RuntimeStatusRequestSchema.safeParse(payload).success).toBe(true);
+    await expect(handler?.({}, payload)).rejects.toThrow("servicio local caido");
   });
 });
 

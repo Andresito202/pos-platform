@@ -1,0 +1,73 @@
+name: Hosted Windows SCM feasibility (no commercial activation)
+
+on:
+  push:
+    branches: [feat/p0-windows-login-install-readiness]
+    paths:
+      - '.github/workflows/windows-hosted-scm-feasibility.yml'
+      - 'packages/local-channel/src/windows-handoff-native.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-windows:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact PR99 source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Inspect hosted Windows SCM ability without mutation
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $os=Get-CimInstance Win32_OperatingSystem
+          $machine=Get-CimInstance Win32_ComputerSystem
+          $principal=[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+          $admin=$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+          Write-Output ('OS_BUILD='+$os.BuildNumber)
+          Write-Output ('OS_PRODUCT_TYPE='+$os.ProductType)
+          Write-Output ('VM_VENDOR='+$machine.Manufacturer)
+          Write-Output ('ADMIN_TOKEN='+$admin)
+          Write-Output ('SESSION='+[Diagnostics.Process]::GetCurrentProcess().SessionId)
+          Write-Output ('SCM_AVAILABLE='+([bool](Get-Service -Name 'EventLog' -ErrorAction SilentlyContinue)))
+          $groups=@([Security.Principal.WindowsIdentity]::GetCurrent().Groups | ForEach-Object { $_.Value })
+          Write-Output ('INTERACTIVE_TOKEN='+($groups -contains 'S-1-5-4'))
+          Write-Output ('REMOTE_INTERACTIVE_TOKEN='+($groups -contains 'S-1-5-14'))
+          Write-Output ('BATCH_TOKEN='+($groups -contains 'S-1-5-3'))
+          Write-Output ('SERVICE_TOKEN='+($groups -contains 'S-1-5-6'))
+          if($os.BuildNumber -ne '20348') { throw 'HOSTED_NOT_WINDOWS_SERVER_2022' }
+      - name: Repair Windows PowerShell 5.1 module path in isolated runner
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $winModules=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\Modules'
+          $all=@($winModules,(Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'))
+          $env:PSModulePath=($all -join ';')
+          & powershell.exe -NoProfile -NonInteractive -Command "Import-Module Microsoft.PowerShell.Security -ErrorAction Stop; Get-Acl -LiteralPath '$env:WINDIR' | Out-Null; 'WINPS_SECURITY_MODULE_OK'"
+          if($LASTEXITCODE -ne 0){throw 'WINDOWS_POWERSHELL_SECURITY_MODULE_UNAVAILABLE'}
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value ('PSModulePath='+$env:PSModulePath)
+      - name: Real Windows DPAPI receiver with proper owner ACL and tampering regressions
+        shell: powershell
+        run: |
+          pnpm --filter @pos-platform/local-channel exec vitest run tests/windows-handoff.test.ts -t "real Windows receiver:" --no-file-parallelism --reporter=verbose
+      - name: Boundaries
+        if: ${{ !cancelled() }}
+        run: echo 'HOSTED_WINDOWS_TOKEN_NOT_ORIGINAL_SERVICE_OR_USER_PROVISION'

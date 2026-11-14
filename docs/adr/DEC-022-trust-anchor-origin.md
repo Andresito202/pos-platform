@@ -112,4 +112,4 @@ trust root verificado
 
 ## Ratificación
 
-Ratificada expresamente por el usuario el `2026-09-16`, autorizando la implementación D-3 sobre la línea única activa `claude/pos-camacho-bloque-4c-ld43py`.
+Ratificada expresamente por el usuario el `2026-09-16`, autorizando la implementación D-3 sobre la línea única activa [rama de origen de PR #92](https://github.com/Andresito202/pos-platform/pull/92).

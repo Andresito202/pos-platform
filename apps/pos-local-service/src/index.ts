@@ -23,3 +23,4 @@ export * from "./sales/sale-calculation.js";
 export * from "./sales/sale-checksum.js";
 export * from "./sales/sqlite-sale-store.js";
 export * from "./sales/create-sale-use-case.js";
+export * from "./onboarding/initialize-tenant.js";

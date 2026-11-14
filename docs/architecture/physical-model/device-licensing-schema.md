@@ -4,6 +4,15 @@
 
 `IN_REVIEW` dentro de `TECH-002`.
 
+Reconciliación aprobada por el propietario 2026-10-27: la implementación Central
+de activación continuará sobre DEV-003 (`identity.device_registry` y
+`identity.device_credentials`). Sus IDs textuales de clave no se convierten en
+UUID ni crean una segunda identidad `devices.device_keys`. Los cuadros legacy
+inferiores conservan referencia histórica; para el montaje DEV-003 mandan el
+binding exacto tenant/company/device/installation/credential, la prueba de
+posesión de propósito específico y capacidad V2 intacta. La aprobación no
+materializa por sí sola el emisor/distribuidor ni aporta raíces o credenciales.
+
 Este bloque materializa la cadena separada exigida por `DEC-008`, `UC-DEV-001`, `UC-DEV-002`, `UC-LIC-001`, `UC-LIC-002` y `SEC-004`:
 
 ```text

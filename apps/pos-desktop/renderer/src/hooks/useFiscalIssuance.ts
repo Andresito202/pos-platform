@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import type { FiscalDocumentIssueResult } from "@pos-platform/contracts";
+import { useCallback, useRef, useState } from "react";
+import { FiscalDocumentIssueResultSchema, type FiscalDocumentIssueResult } from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 
 /**
@@ -22,11 +22,14 @@ import { callCommercial, newIdempotencyKey } from "../pos-service.js";
  */
 
 export type FiscalCustomerChoice =
+  | { readonly kind: "SALE_CUSTOMER" }
   | { readonly kind: "IDENTIFIED"; readonly customerId: string }
   | { readonly kind: "NOT_IDENTIFIED"; readonly reason: "ANONYMOUS_COUNTER_SALE" | "IDENTIFICATION_PENDING" };
 
 export interface FiscalIssuanceState {
   readonly busy: boolean;
+  readonly resultSaleId: string | null;
+  isBlocked(saleId: string, documentType: string): boolean;
   readonly issued: FiscalDocumentIssueResult | null;
   readonly error: string | null;
 }
@@ -35,6 +38,10 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
   issue(saleId: string, documentType: string, customer: FiscalCustomerChoice): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const blocked = useRef(new Set<string>());
+  const [resultSaleId, setResultSaleId] = useState<string | null>(null);
+  const isBlocked = useCallback((saleId: string, documentType: string) => blocked.current.has(JSON.stringify([saleId, documentType])), []);
   const [issued, setIssued] = useState<FiscalDocumentIssueResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,6 +50,14 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
     documentType: string,
     customer: FiscalCustomerChoice,
   ): Promise<void> => {
+    const identity = JSON.stringify([saleId, documentType]);
+    if (inFlight.current) return;
+    if (blocked.current.has(identity)) {
+      setError("Esta venta requiere revisión del resultado fiscal antes de otra emisión.");
+      return;
+    }
+    inFlight.current = true;
+    setResultSaleId(saleId);
     setBusy(true);
     setError(null);
     setIssued(null);
@@ -54,22 +69,33 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
           document_type: documentType,
           customer: customer.kind === "IDENTIFIED"
             ? { kind: "IDENTIFIED", customer_id: customer.customerId }
-            : { kind: "NOT_IDENTIFIED", reason: customer.reason },
+            : customer.kind === "SALE_CUSTOMER" ? {kind:"SALE_CUSTOMER"} : { kind: "NOT_IDENTIFIED", reason: customer.reason },
           observation: null,
         },
         newIdempotencyKey(),
       );
       if (response.result === null) {
+        blocked.current.add(identity);
         setError(response.result_code);
         return;
       }
-      setIssued(response.result);
+      const parsed = FiscalDocumentIssueResultSchema.safeParse(response.result);
+      if (!parsed.success || response.result_code !== parsed.data.outcome ||
+          response.status !== (["ISSUED", "ALREADY_ISSUED"].includes(parsed.data.outcome) ? "SUCCEEDED" : "REJECTED")) {
+        blocked.current.add(identity);
+        setError("Respuesta fiscal no verificable. Consulta el documento antes de emitir de nuevo.");
+        return;
+      }
+      if (["UNCERTAIN", "REQUIRES_RECONCILIATION", "FISCAL_REJECTED"].includes(parsed.data.outcome)) blocked.current.add(identity);
+      setIssued(parsed.data);
     } catch (thrown) {
+      blocked.current.add(identity);
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);
 
-  return { busy, issued, error, issue };
+  return { busy, resultSaleId, isBlocked, issued, error, issue };
 }

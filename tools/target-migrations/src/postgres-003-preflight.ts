@@ -1,3 +1,4 @@
+import {isSupportedMigrationPostgresVersion} from "./postgres-compatibility.js";
 import type { SqlExecutor } from "./database.js";
 import { executeRaw, postgresDatabase, queryRows } from "./database.js";
 import { validatePostgres002Catalog } from "./postgres-introspection.js";
@@ -126,7 +127,7 @@ async function acquireLock(db:SqlExecutor):Promise<void>{
 }
 
 async function inspectPredecessor(db:SqlExecutor,runtime:RuntimeState,options:Mat003PreflightOptions):Promise<Mat003DatabaseState>{
-  invariant(runtime.server_version_num==="160014","PostgreSQL 16.14 required");
+  invariant(isSupportedMigrationPostgresVersion(runtime.server_version_num),"PostgreSQL 16.14 or 17.11 required");
   const sql001=await readArtifact("postgres/001_central_foundation.up.sql");const sql002=await readArtifact("postgres/002_external_integrations_foundation.up.sql");
   const expected001=sha256(sql001).toString("hex");const expected002=sha256(sql002).toString("hex");
   const ledger=await queryRows<{migration_id:string;status:string;checksum_hex:string}>(db,`SELECT migration_id,status,encode(checksum,'hex') checksum_hex FROM platform.target_migration_executions WHERE migration_id IN ('001_central_foundation','002_external_integrations_foundation') ORDER BY migration_id`);

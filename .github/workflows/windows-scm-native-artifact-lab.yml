@@ -1,0 +1,111 @@
+name: Windows SCM native artifact lab
+
+on:
+  push:
+    branches:
+      - feat/p0-windows-login-install-readiness
+    paths:
+      - '.github/workflows/windows-scm-native-artifact-lab.yml'
+      - 'packages/local-channel/native/**'
+      - 'packages/local-channel/package.json'
+      - 'tools/operators/windows-native-addon-runtime-smoke.mjs'
+      - 'pnpm-lock.yaml'
+      - 'tools/operators/ci-windows-scm-identity-service.cs'
+      - 'tools/operators/ci-windows-scm-identity-service.ps1'
+      - 'apps/pos-local-service/src/security/windows-commercial-host-identity.ts'
+      - 'apps/pos-local-service/tests/windows-scm-physical.test.ts'
+      - 'tools/operators/ci-windows-scm-native-peer.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-scm-g1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-native-addon:
+    name: Compile native pipe and reject SCM impersonation on Node/Electron
+    runs-on: windows-2022
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Validate PowerShell CI operator syntax before native compilation
+        shell: powershell
+        run: |
+          $file='tools/operators/ci-windows-scm-identity-service.ps1'
+          $tokens=$null
+          $errors=$null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $file).Path,[ref]$tokens,[ref]$errors)
+          if(@($errors).Count -ne 0){throw 'SCM_G1_CI_OPERATOR_POWERSHELL_PARSE_FAILED'}
+          Write-Host 'SCM_G1_OPERATOR_SYNTAX=PASS'
+      - name: pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate ephemeral G1 peer JavaScript syntax
+        shell: pwsh
+        run: |
+          node --check tools/operators/ci-windows-scm-native-peer.mjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - name: Compile production native Windows pipe addon x64
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/local-channel native:build:win
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          $addon='packages/local-channel/native/build/Release/camacho_windows_pipe.node'
+          if(-not (Test-Path -LiteralPath $addon -PathType Leaf)){throw 'NATIVE_BINARY_NOT_BUILT'}
+          Write-Host ('NATIVE_SHA256='+(Get-FileHash -LiteralPath $addon -Algorithm SHA256).Hash)
+      - name: Verify real Windows kernel process birth reader and PID reuse rejection
+        shell: pwsh
+        run: |
+          node --test tools/operators/windows-native-process-birth.test.mjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - name: Native API, actual service SID and Node/Electron fail-closed smoke
+        shell: pwsh
+        run: |
+          node tools/operators/windows-native-addon-runtime-smoke.mjs
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - name: Real SCM virtual account, session-zero and DPAPI isolation (disposable)
+        shell: powershell
+        env:
+          CAMACHO_NATIVE_G1_DIAGNOSTICS: '1'
+        run: |
+          & ./tools/operators/ci-windows-scm-identity-service.ps1 -Run -NativePipe
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+      - name: G2 durable lease, replay, revocation and close regressions after real G1
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-handoff-lease-state.test.ts tests/windows-scm-runtime.test.ts tests/native-session-close-lifecycle.test.ts --no-file-parallelism
+          if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
+          Write-Output 'G2_LEASE_REPLAY_REVOCATION_REGRESSIONS=PASS'
+          Write-Output 'G2_REAL_SCM_BUSINESS_SESSION=NOT_TESTED'
+      - name: Assert native listener and SCM controls are not mistaken for G1 commercial interoperability
+        shell: pwsh
+        run: |
+          $source=Get-Content -LiteralPath 'apps/pos-local-service/src/security/windows-commercial-host-identity.ts' -Raw
+          if(-not $source.Contains('SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN')){throw 'UNAUTHORIZED_COMMERCIAL_GATE_REMOVAL'}
+          $physical=Get-Content -LiteralPath 'apps/pos-local-service/tests/windows-scm-physical.test.ts' -Raw
+          if(-not $physical.Contains('CAMACHO_SCM_PHYSICAL_PROVISION')){throw 'PHYSICAL_PROVISION_GATE_REMOVED'}
+          Write-Host 'SCM_NATIVE_ARTIFACT=PASS'
+          Write-Host 'SCM_VIRTUAL_SERVICE_DPAPI=PASS'
+          Write-Host 'G1_NATIVE_PIPED_SERVICE_TO_DESKTOP=REQUIRES_REAL_RECEIPTS'
+          Write-Host 'COMMERCIAL_BUSINESS_SERVICE_TO_ELECTRON=NOT_CERTIFIED'
+          Write-Host 'COMMERCIAL_GATE=ACTIVE'
+      - name: Scope statement
+        run: echo 'NATIVE_WINDOWS_BINARY_AND_BOTH_RUNTIME_SMOKE_ONLY_NO_INSTALLED_SCM_CONNECTION_OR_DEV003'

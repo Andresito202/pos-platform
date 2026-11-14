@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="co.camachopos.android.probe">
+    <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28" />
+    <application android:icon="@drawable/camacho_pos" android:label="Camacho SQLite Probe" android:allowBackup="false" android:usesCleartextTraffic="false" android:debuggable="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        <activity android:name="co.camachopos.android.SqliteProbeActivity" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+        </activity>
+    </application>
+</manifest>
+

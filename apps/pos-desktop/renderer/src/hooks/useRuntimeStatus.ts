@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getPosService } from "../pos-service.js";
+import { callCommercial } from "../pos-service.js";
 
 export type RuntimeStatus =
   | { phase: "loading" }
@@ -14,13 +14,17 @@ export function useRuntimeStatus(pollIntervalMs = 5_000): RuntimeStatus {
 
     async function poll(): Promise<void> {
       try {
-        const result = await getPosService()["runtime.status.get"]({});
-        if (!cancelled) setStatus({ phase: "connected", details: result });
-      } catch (error) {
+        const result = await callCommercial("runtime.status.get", {});
+        if (!cancelled) {
+          setStatus(result.status === "SUCCEEDED"
+            ? { phase: "connected", details: result.result }
+            : { phase: "error", message: result.result_code });
+        }
+      } catch {
         if (!cancelled) {
           setStatus({
             phase: "error",
-            message: error instanceof Error ? error.message : String(error),
+            message: "LOCAL_SERVICE_UNAVAILABLE",
           });
         }
       }
