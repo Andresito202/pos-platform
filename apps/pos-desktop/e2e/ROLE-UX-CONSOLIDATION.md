@@ -215,3 +215,19 @@ El rol local SUPERVISOR conserva consulta de catálogo/clientes/inventario y rev
 - [ ] Dejar DesignReview como arnés de QA delimitado, no acceso principal recomendado para el cliente; retirar únicamente duplicados demostrados y con autorización, nunca datos o referencias desconocidos.
 
 **Estado:** confusión de rutas reconciliada documentalmente; no se ejecutaron scripts Windows ni se validó el checkout local. Se conserva el trabajo de pruebas pendiente de controversias 1, 2 y 3 en este mismo documento.
+
+## Controversia 5 — documento histórico de disponibilidad comercial (2026-11-13)
+
+Se corrigió `docs/product/business-readiness.md`: la afirmación de septiembre sobre ausencia completa de la interfaz de Caja ya no debe aplicarse a la rama actual. Se añadió una tabla que distingue el código existente de los faltantes de certificación. **No se eliminaron las afirmaciones históricas ni se declararon sectores completos.**
+
+### Trabajo pendiente de Codex
+
+- [ ] Confirmar HEAD y archivo actual de `App.tsx` / `SalePanel.tsx`; ejecutar build, typecheck y pruebas focalizadas con `pnpm install --frozen-lockfile`; registrar salidas y SHA. No reutilizar resultados de HEAD anteriores como resultados nuevos.
+- [ ] Ejecutar E2E real para Cajero: login autorizado → apertura de turno → búsqueda/escaneo de producto → carrito → guardar/recuperar en espera → venta → cobro → comprobante → cierre; comprobar SQLite durable, aislamiento por tenant/company/branch y ausencia de doble efecto por reintentos.
+- [ ] Verificar permisos backend de cuatro roles y denegaciones de operaciones forjadas; enlazar con las pruebas pendientes de controversias 1–4. No confundir Bridge LOCAL con sesión BUSINESS.
+- [ ] Probar inventario y CSV de existencias por fila con idempotencia, rechazo, reintento incierto y reinicio. No declarar XLSX disponible ni recuperación durable del formulario manual si no existe.
+- [ ] Revisar `unit_precision`, peso, tara/balanza y D-14 con adaptador Factus actual; separar exactitud comercial de límites de serialización del proveedor. No inventar una resolución normativa ni redondear cantidades silenciosamente.
+- [ ] Contrastar módulos de farmacia/droguería, salsamentaria/avícola y pastelería con `business-types.md`; emitir matriz de operaciones realmente alcanzables y faltantes: lotes, FEFO, vencimientos, transformación, recetas, habilitación sectorial firmada, Windows/Android/hardware.
+- [ ] Revalidar con código y pruebas cualquier fila de readiness que se vaya a promover a `TESTED`, `END_TO_END` o `PRODUCTION`; no confundir integración parcial y producto terminado.
+
+**Estado:** contradicción temporal/documental corregida; pruebas funcionales de controversia 5 y de 1–4 pendientes de ejecución por Codex. No se cambió el runtime ni se fusionó `main`.
