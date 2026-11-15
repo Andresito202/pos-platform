@@ -1197,6 +1197,43 @@ export const InventoryBatchStatusResultSchema=z.strictObject({
 });
 export const InventoryBatchStatusResponseSchema=createResponseEnvelopeSchema(InventoryBatchStatusResultSchema);
 
+// ── inventory.conversion.* — same local SQLite, additive v23 ──────────────
+export const InventoryConversionRuleApproveRequestSchema=createRequestEnvelopeSchema(
+  z.strictObject({
+    source_presentation_id:UuidSchema,target_presentation_id:UuidSchema,
+    numerator:z.string().regex(/^[1-9][0-9]{0,11}$/),
+    denominator:z.string().regex(/^[1-9][0-9]{0,11}$/),
+    version:z.number().int().positive(),
+  }),
+).safeExtend({message_type:z.literal("inventory.conversion.rule.approve")})
+ .superRefine((request,ctx)=>{forbidCallerAssertedIdentity(request,ctx);requireIdempotentOperation(request,ctx);});
+export const InventoryConversionRuleApproveResultSchema=z.strictObject({
+  outcome:z.enum(["APPROVED","IDEMPOTENT","CONFLICT","PRESENTATION_NOT_FOUND","UNAUTHORIZED"]),
+  rule_id:UuidSchema.nullable(),
+});
+export const InventoryConversionRuleApproveResponseSchema=
+ createResponseEnvelopeSchema(InventoryConversionRuleApproveResultSchema);
+
+export const InventoryConversionExecuteRequestSchema=createRequestEnvelopeSchema(
+  z.strictObject({
+    rule_id:UuidSchema,source_lot_id:UuidSchema,quantity:PositiveScale6Schema,
+    business_date:BusinessDateSchema,
+    reason_code:z.string().min(2).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
+  }),
+).safeExtend({message_type:z.literal("inventory.conversion.execute")})
+ .superRefine((request,ctx)=>{forbidCallerAssertedIdentity(request,ctx);requireIdempotentOperation(request,ctx);});
+export const InventoryConversionExecuteResultSchema=z.strictObject({
+  outcome:z.enum(["CONVERTED","IDEMPOTENT","CONFLICT","RULE_NOT_FOUND","LOT_NOT_FOUND",
+    "LOT_NOT_SELLABLE","INSUFFICIENT_STOCK","INVALID_QUANTITY",
+    "QUANTITY_PRECISION_EXCEEDED","LEGACY_STOCK_RECONCILIATION_REQUIRED",
+    "STOCK_QUANTITY_OVERFLOW","UNAUTHORIZED"]),
+  conversion_id:UuidSchema.nullable(),
+  target_lot_id:UuidSchema.nullable(),
+  target_quantity:NonNegativeScale6Schema.nullable(),
+});
+export const InventoryConversionExecuteResponseSchema=
+ createResponseEnvelopeSchema(InventoryConversionExecuteResultSchema);
+
 // ── sales.receipt.get ────────────────────────────────────────────────────────
 
 /**
@@ -1414,6 +1451,8 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.stock.get",
   "inventory.batch.list",
   "inventory.batch.status",
+  "inventory.conversion.rule.approve",
+  "inventory.conversion.execute",
   "audit.event.list",
   "admin.metrics.get",
   "license.offers.list",
@@ -1456,6 +1495,8 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.stock.get",
   "pos:inventory.batch.list",
   "pos:inventory.batch.status",
+  "pos:inventory.conversion.rule.approve",
+  "pos:inventory.conversion.execute",
   "pos:audit.event.list",
   "pos:admin.metrics.get",
   "pos:license.offers.list",
