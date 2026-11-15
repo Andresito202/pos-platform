@@ -252,6 +252,32 @@ describe("shared v22 batch ledger and FEFO on original inventory",()=>{
     .toEqual({event_type:"MATERIAL_CONSUMPTION"});
   expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("2.000000");
  });
+ it("rejects expired or quarantined material consumption but permits audited disposal",async()=>{
+  const {receive,adjust,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"EXPIRED-INGREDIENT","2026-09-06")).kind).toBe("POSTED");
+  const expired=store.listBatches(SCOPE,presentationId)[0]!;
+  const consume=(lotId:string)=>({
+    ...receipt(presentationId,{quantity:"1.000000",reasonCode:"MATERIAL_CONSUMPTION"}),
+    movementType:"ADJUSTMENT_NEGATIVE" as const,lotId,
+  });
+  expect(adjust.execute(SCOPE,SESSION,auth(),consume(expired.id)).kind).toBe("LOT_NOT_SELLABLE");
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"QUARANTINED-INGREDIENT","2026-09-30")).kind).toBe("POSTED");
+  const quarantined=store.listBatches(SCOPE,presentationId).find(x=>x.batchCode==="QUARANTINED-INGREDIENT")!;
+  const change=new ChangeBatchStatusUseCase(store);
+  expect(change.execute(SCOPE,SESSION,auth(),{
+    lotId:quarantined.id,status:"QUARANTINE",reasonCode:"QUALITY_HOLD",
+    idempotencyKey:key(),correlationId:CORRELATION,causationId:null,
+  }).kind).toBe("UPDATED");
+  expect(adjust.execute(SCOPE,SESSION,auth(),consume(quarantined.id)).kind).toBe("LOT_NOT_SELLABLE");
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("6.000000");
+  expect(database.native.prepare("SELECT count(*) AS n FROM inventory_lot_movement WHERE event_type='MATERIAL_CONSUMPTION'").get()).toEqual({n:0});
+  const loss={
+    ...receipt(presentationId,{quantity:"1.000000",reasonCode:"QUALITY_DISPOSAL"}),
+    movementType:"SHRINKAGE" as const,lotId:quarantined.id,
+  };
+  expect(adjust.execute(SCOPE,SESSION,auth(),loss).kind).toBe("POSTED");
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("5.000000");
+ });
  it("requires signed backend stock-adjust grant before lot recall or quarantine",async()=>{
   const {receive,store,presentationId}=await buildEnv();
   expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"RECALL","2026-10-10")).kind).toBe("POSTED");
