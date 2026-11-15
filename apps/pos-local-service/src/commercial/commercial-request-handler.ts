@@ -1134,7 +1134,14 @@ export class CommercialRequestHandler {
     const result = request.message_type === "inventory.stock.receive"
       ? this.commercial.receiveStock.execute(
           this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot,
-          { ...common, movementType: request.payload.movement_type },
+          { ...common, movementType: request.payload.movement_type,
+             ...(request.payload.batch?{batch:{
+               code:request.payload.batch.code,
+               manufactureDate:request.payload.batch.manufacture_date,
+               expiryDate:request.payload.batch.expiry_date,
+               supplierReference:request.payload.batch.supplier_reference,
+               receiptDocument:request.payload.batch.receipt_document,
+             }}:{}) },
         )
       : this.commercial.adjustStock.execute(
           this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot,
