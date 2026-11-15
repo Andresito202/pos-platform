@@ -39,8 +39,8 @@ export interface InventoryAdminState {
 
 export function useInventoryAdmin(): InventoryAdminState & {
   retryPending(): Promise<void>;
-  receive(presentationId: string, movementType: ReceiveMovement, quantity: string, reasonCode: string, businessDate: string): Promise<void>;
-  adjust(presentationId: string, movementType: AdjustMovement, quantity: string, reasonCode: string, businessDate: string): Promise<void>;
+  receive(presentationId: string, movementType: ReceiveMovement, quantity: string, reasonCode: string, businessDate: string, batch?:{code:string;manufacture_date:string|null;expiry_date:string|null;supplier_reference:string;receipt_document:string}): Promise<void>;
+  adjust(presentationId: string, movementType: AdjustMovement, quantity: string, reasonCode: string, businessDate: string, lotId?:string): Promise<void>;
   getStock(presentationId: string): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
@@ -53,7 +53,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     window.addEventListener("beforeunload", preventLoss);
     return () => window.removeEventListener("beforeunload", preventLoss);
   }, [pending]);
-  const pendingOperation = useRef<{ messageType: "inventory.stock.receive" | "inventory.stock.adjust"; payload: Record<string, string>; key: string } | null>(null);
+  const pendingOperation = useRef<{ messageType: "inventory.stock.receive" | "inventory.stock.adjust"; payload: Record<string, unknown>; key: string } | null>(null);
   const retryPending = useCallback(async (): Promise<void> => {
     const operation = pendingOperation.current;
     if (!operation || inFlight.current) return;
@@ -65,7 +65,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
         response.result_code === parsed.data.outcome && ["POSTED", "IDEMPOTENT"].includes(parsed.data.outcome) &&
         parsed.data.stock_sequence !== null && parsed.data.quantity_after !== null;
       const definitiveRejection = !uncertain.current && response.status === "REJECTED" && parsed.success &&
-        response.result_code === parsed.data.outcome && ["PRESENTATION_NOT_FOUND", "INSUFFICIENT_STOCK", "INVALID_QUANTITY", "QUANTITY_PRECISION_EXCEEDED", "STOCK_QUANTITY_OVERFLOW"].includes(parsed.data.outcome);
+        response.result_code === parsed.data.outcome && ["PRESENTATION_NOT_FOUND", "INSUFFICIENT_STOCK", "INVALID_QUANTITY", "QUANTITY_PRECISION_EXCEEDED", "STOCK_QUANTITY_OVERFLOW","LOT_TRACKING_REQUIRED","LEGACY_STOCK_RECONCILIATION_REQUIRED","LOT_NOT_FOUND","LOT_NOT_SELLABLE"].includes(parsed.data.outcome);
       if (success || definitiveRejection) {
         setMovement(parsed.data!);
       } else {
@@ -90,6 +90,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     quantity: string,
     reasonCode: string,
     businessDate: string,
+    extras?:Record<string,unknown>,
   ): Promise<void> => {
     if (inFlight.current || pendingOperation.current) return;
     const normalized = toScale6(quantity);
@@ -98,6 +99,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     pendingOperation.current = { messageType, key: newIdempotencyKey(), payload: {
       presentation_id: presentationId, movement_type: movementType, quantity: normalized,
       reason_code: reasonCode, business_date: businessDate,
+      ...(extras??{}),
     } };
     setPending(true);
     await retryPending();
@@ -109,7 +111,9 @@ export function useInventoryAdmin(): InventoryAdminState & {
     quantity: string,
     reasonCode: string,
     businessDate: string,
-  ) => post("inventory.stock.receive", presentationId, movementType, quantity, reasonCode, businessDate), [post]);
+    batch?:{code:string;manufacture_date:string|null;expiry_date:string|null;supplier_reference:string;receipt_document:string},
+  ) => post("inventory.stock.receive", presentationId, movementType, quantity, reasonCode, businessDate,
+    batch?{batch}:undefined), [post]);
 
   const adjust = useCallback((
     presentationId: string,
@@ -117,7 +121,9 @@ export function useInventoryAdmin(): InventoryAdminState & {
     quantity: string,
     reasonCode: string,
     businessDate: string,
-  ) => post("inventory.stock.adjust", presentationId, movementType, quantity, reasonCode, businessDate), [post]);
+    lotId?:string,
+  ) => post("inventory.stock.adjust", presentationId, movementType, quantity, reasonCode, businessDate,
+    lotId?{lot_id:lotId}:undefined), [post]);
 
   const getStock = useCallback(async (presentationId: string): Promise<void> => {
     if (inFlight.current) return;
