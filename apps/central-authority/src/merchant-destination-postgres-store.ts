@@ -69,9 +69,9 @@ export class PostgresMerchantDestinationStore implements DestinationMutationStor
       begun=true;
       await client.query("SELECT set_config('app.tenant_id',$1,true)",[this.scope.tenantId]);
       await client.query("SELECT set_config('app.company_id',$1,true)",[this.scope.companyId]);
-      await this.authorizeSensitiveWrite(client);
       await client.query("SET LOCAL lock_timeout = '5s'");
       await client.query("SET LOCAL statement_timeout = '10s'");
+      await this.authorizeSensitiveWrite(client);
       const ensureScope=(tenantId:string,companyId:string):void=>{
         if(tenantId!==this.scope.tenantId||companyId!==this.scope.companyId)
           throw new Error("NOT_FOUND");
