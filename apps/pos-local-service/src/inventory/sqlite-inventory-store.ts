@@ -773,7 +773,7 @@ export class SqliteInventoryStore {
         ?{kind:"IDEMPOTENT",conversionId:prior.id,targetLotId:prior.target_lot_id,
            targetQuantity:prior.target_quantity}:{kind:"CONFLICT"};
       if(!/^[A-Z][A-Z0-9_]{1,63}$/.test(input.reasonCode)||
-         !/^(0|[1-9]\\d{0,12})\\.\\d{6}$/.test(input.quantity))
+         !/^(0|[1-9]\d{0,12})\.\d{6}$/.test(input.quantity))
         return {kind:"INVALID_QUANTITY"};
       const sourceUnits=scale6ToBigInt(input.quantity);
       if(sourceUnits<=0n)return {kind:"INVALID_QUANTITY"};
