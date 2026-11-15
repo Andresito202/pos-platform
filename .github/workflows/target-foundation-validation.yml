@@ -383,7 +383,7 @@ jobs:
         run: pnpm --filter @pos-platform/database-sqlite test
 
       - name: Validate Windows POS Local Service runtime
-        run: pnpm --filter @pos-platform/pos-local-service test
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run --testTimeout 15000
 
   provenance:
     name: Provenance evidence
