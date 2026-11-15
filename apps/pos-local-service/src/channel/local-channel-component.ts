@@ -244,6 +244,8 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "inventory.stock.receive":
       case "inventory.stock.adjust":
       case "inventory.stock.get":
+      case "inventory.batch.list":
+      case "inventory.batch.status":
       case "sales.receipt.get":
       case "hardware.command":
       case "audit.event.list":
