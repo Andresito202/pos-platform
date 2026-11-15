@@ -1,3 +1,4 @@
+import {MerchantDestinationSyncComponent} from "./payments/merchant-destination-sync.js";
 import { LocalOperatorPasswordGate } from "./security/local-operator-password-gate.js";
 import { LocalOperatorSessionRegistry } from "./security/local-operator-session-registry.js";
 import {fetchPublicLicenseCatalog} from "./security/license-offer-catalog.js";
@@ -327,6 +328,25 @@ try {
         },
       },
     ));
+  }
+
+  // Optional signed merchant QR feed. Never receives private keys or a bank
+  // payment webhook. Disabled unless an OS-protected installer provisions all
+  // fields and a separate device enrolment is active.
+  if(config.qr001_public_key_file&&config.qr001_key_id&&config.qr001_environment&&config.central_base_url){
+    if(process.platform!=="win32"||!centralDeviceCredentials.isProvisioned?.())
+      throw Error("QR001_OS_PROTECTED_DEVICE_REQUIRED");
+    const stat=lstatSync(config.qr001_public_key_file);
+    if(!stat.isFile()||stat.isSymbolicLink()||stat.size>4096)
+      throw Error("QR001_PUBLIC_KEY_FILE_INVALID");
+    const publicKey=createPublicKey(readFileSync(config.qr001_public_key_file));
+    if(publicKey.type!=="public"||publicKey.asymmetricKeyType!=="ed25519")
+      throw Error("QR001_PUBLIC_KEY_REJECTED");
+    components.push(new MerchantDestinationSyncComponent(localDatabase,centralDeviceCredentials,{
+      origin:config.central_base_url,tenantId:config.tenant_id,companyId:config.company_id,
+      installationId:config.installation_id,environment:config.qr001_environment,
+      keyId:config.qr001_key_id,publicKey,intervalMs:30000,
+    },reason=>logger.log(reason==="ACTIVATED_AND_ACKNOWLEDGED"?"info":"warn","qr001.sync",{reason})));
   }
 
   if (process.platform === "win32") {
