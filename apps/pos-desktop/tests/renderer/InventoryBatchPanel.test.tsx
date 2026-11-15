@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import {afterEach,beforeEach,describe,expect,it,vi} from "vitest";
+import {afterEach,beforeEach,describe,expect,it} from "vitest";
 import {render,screen,fireEvent,waitFor,cleanup} from "@testing-library/react";
 import {InventoryBatchPanel} from "../../renderer/src/components/InventoryBatchPanel.js";
 import {RENDERER_API_METHODS} from "../../src/preload-api.js";
@@ -31,7 +31,7 @@ describe("Original inventory panel batch controls",()=>{
    install();
    render(<InventoryBatchPanel presentationId={id} canAdjust={false}/>);
    fireEvent.click(screen.getByText("Consultar lotes"));
-   await screen.findByText("L-01");
+   await screen.findByRole("cell",{name:"L-01"});
    expect(screen.getByText("3.000000")).toBeTruthy();
    expect(screen.queryByText("Registrar estado")).toBeNull();
    expect(calls.every(c=>c.name!=="inventory.batch.status")).toBe(true);
@@ -40,7 +40,7 @@ describe("Original inventory panel batch controls",()=>{
    install();
    render(<InventoryBatchPanel presentationId={id} canAdjust/>);
    fireEvent.click(screen.getByText("Consultar lotes"));
-   await screen.findByText("L-01");
+   await screen.findByRole("cell",{name:"L-01"});
    fireEvent.change(screen.getByLabelText("Lote"),{target:{value:lot}});
    fireEvent.click(screen.getByText("Registrar estado"));
    await waitFor(()=>expect(calls.some(c=>c.name==="inventory.batch.status")).toBe(true));
@@ -53,7 +53,7 @@ describe("Original inventory panel batch controls",()=>{
    install(false);
    render(<InventoryBatchPanel presentationId={id} canAdjust/>);
    fireEvent.click(screen.getByText("Consultar lotes"));
-   await screen.findByText("L-01");
+   await screen.findByRole("cell",{name:"L-01"});
    fireEvent.change(screen.getByLabelText("Lote"),{target:{value:lot}});
    fireEvent.click(screen.getByText("Registrar estado"));
    await screen.findByText(/Sin respuesta del servicio/);
