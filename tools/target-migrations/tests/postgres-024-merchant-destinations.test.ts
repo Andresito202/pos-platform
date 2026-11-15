@@ -13,6 +13,8 @@ describe("QR-001 registered central migration 024",()=>{
  it("protects every owned table with forced RLS and denies local POS roles",async()=>{
   const sql=await readArtifact(POSTGRES_024_DESCRIPTOR.upArtifact);
   expect(sql).toContain("FORCE ROW LEVEL SECURITY");
+  expect(sql).toContain("merchant_destination_owner_evidence_read");
+  expect(sql).toContain("FOR SELECT TO pos_schema_owner USING (true)");
   expect(sql).toContain("app.tenant_id");
   expect(sql).toContain("app.company_id");
   expect(sql).toContain("REVOKE ALL ON payments.%I FROM PUBLIC,pos_app,pos_worker,pos_reporting");
