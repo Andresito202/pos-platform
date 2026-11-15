@@ -12,8 +12,14 @@ test("Electron OS custody encrypts restores and destroys a test credential witho
   const executablePath=createRequire(import.meta.url)("electron") as string;
   const application=await _electron.launch({args:[resolve("e2e/native-custody-entry.mjs")],executablePath,env});
   try{
+    const storageBackend=await application.evaluate(({safeStorage})=>safeStorage.getSelectedStorageBackend());
+    const unavailable=process.platform==="linux"&&["basic_text","unknown"].includes(storageBackend);
+    // An insecure Linux backend must fail closed; a secure backend must round-trip.
+    const expected=unavailable
+      ? {platform:process.platform,restored:false,cleared:false,phase:"OS_CUSTODY_UNAVAILABLE"}
+      : {platform:process.platform,restored:true,cleared:true,phase:"COMPLETE"};
     await expect.poll(()=>application.evaluate(()=>
-      (globalThis as unknown as {nativeCustodyResult?:unknown}).nativeCustodyResult),{timeout:15_000}).toEqual({platform:process.platform,restored:true,cleared:true,phase:"COMPLETE"});
+      (globalThis as unknown as {nativeCustodyResult?:unknown}).nativeCustodyResult),{timeout:15_000}).toEqual(expected);
   }finally{
     await application.close();
     if(dirname(resolve(directory))!==resolve(tmpdir())||!basename(directory).startsWith("camacho-electron-custody-"))throw Error("CUSTODY_CLEANUP_PATH_REJECTED");
