@@ -141,7 +141,7 @@ describe("shared v22 batch ledger and FEFO on original inventory",()=>{
   const first=batchReceive(presentationId,"SOURCE","2026-10-10");
   expect(receive.execute(SCOPE,SESSION,auth(),first).kind).toBe("POSTED");
   expect(receive.execute(SCOPE,SESSION,auth(),{
-    ...first,batch:{...first.batch,receiptDocument:"FAKE-DOCUMENT"},
+    ...first,batch:batch("SOURCE","2026-10-10",{receiptDocument:"FAKE-DOCUMENT"}),
   }).kind).toBe("IDEMPOTENCY_CONFLICT");
   expect(store.listBatches(SCOPE,presentationId)[0]?.quantityOnHand).toBe("3.000000");
  });
