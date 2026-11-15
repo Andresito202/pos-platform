@@ -38,6 +38,27 @@ function signed(sequence:number, destination:unknown={
 }
 afterEach(()=>{for(const folder of folders.splice(0))rmSync(folder,{recursive:true,force:true});});
 describe("QR-001 signed snapshot to real SQLite projection",()=>{
+ it("projects one signed company destination to four independent SQLite registers without touching Payments",async()=>{
+   const registers=Array.from({length:4},()=>create());
+   try{
+     for(const register of registers){
+       const before=register.db.native.prepare(
+         "SELECT (SELECT count(*) FROM payments_payments) AS payments, (SELECT count(*) FROM payments_payment_allocations) AS allocations, (SELECT count(*) FROM sales_sales) AS sales"
+       ).get();
+       expect(await register.service.acceptSigned(signed(1),scope)).toEqual({kind:"ACTIVATED",sequence:1});
+       expect(register.store.display(scope,now)?.destination_reference).toBe("3001234567");
+       expect(register.store.display({...scope,companyId:"44444444-4444-4444-8444-444444444444"},now)).toBeNull();
+       expect(register.db.native.prepare(
+         "SELECT (SELECT count(*) FROM payments_payments) AS payments, (SELECT count(*) FROM payments_payment_allocations) AS allocations, (SELECT count(*) FROM sales_sales) AS sales"
+       ).get()).toEqual(before);
+     }
+     for(const register of registers){
+       expect(await register.service.acceptSigned(signed(2,null),scope)).toEqual({kind:"ACTIVATED",sequence:2});
+       expect(register.store.display(scope,now)).toBeNull();
+       expect(await register.service.acceptSigned(signed(1),scope)).toEqual({kind:"REJECTED",reason:"OBSOLETE_OR_REPLAYED_SEQUENCE"});
+     }
+   }finally{for(const register of registers)register.db.close();}
+ });
  it("accepts real signature then makes company destination visible",async()=>{
    const {db,store,service}=create();
    try{
