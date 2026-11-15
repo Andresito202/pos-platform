@@ -104,6 +104,13 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE fiscal_electronic_document;
       DROP TABLE fiscal_numbering_range;
       DROP TABLE customer_marketing_subscriptions;
+      DROP TRIGGER inventory_conversion_event_no_update;
+      DROP TRIGGER inventory_conversion_event_no_delete;
+      DROP TABLE inventory_conversion_event;
+      DROP TRIGGER inventory_conversion_rule_same_product;
+      DROP TRIGGER inventory_conversion_rule_no_update;
+      DROP TRIGGER inventory_conversion_rule_no_delete;
+      DROP TABLE inventory_conversion_rule;
       DROP TABLE inventory_movement;
       DROP TABLE inventory_stock;
       DROP TABLE catalog_price;
