@@ -29,6 +29,18 @@
 
 **Criterio de certificación:** no se considera completo mientras el job TARGET correspondiente al HEAD actual no acredite migración, pruebas SQLite, tipos, renderer y regresión de Payments. El éxito de tests aislados o de un commit anterior no sustituye ese resultado.
 
+## Incremento 023 — conversión exacta en el núcleo existente
+
+- **MIGRATION_023**, aditiva: `inventory_conversion_rule` (equivalencia por producto, versiones inmutables y aprobación de usuario) e `inventory_conversion_event` (genealogía inmutable). Sin editar migraciones 001–022 ni alterar ventas antiguas.
+- `ApprovePresentationConversionUseCase` exige simultáneamente `CATALOG_PRODUCT_REGISTER` y `INVENTORY_STOCK_ADJUST`; `ConvertPresentationUseCase` exige `INVENTORY_STOCK_ADJUST`. Ninguna autorización nace del renderer.
+- `SqliteInventoryStore.convertPresentation` usa el ratio aprobado más reciente por dirección, aritmética `BigInt` de escala 6, saldo y elegibilidad del lote, procedencia y atomicidad entre los dos asientos. Una cantidad destino no representable con la precisión de la presentación se rechaza, nunca se aproxima.
+- Los asientos se registran en los libros existentes `inventory_movement`/`inventory_stock` y `inventory_lot_movement`/`inventory_lot`; la genealogía origen/destino queda en `inventory_conversion_event`. Los dos movimientos conservan auditoría y outbox del inventario.
+- Contratos `inventory.conversion.rule.approve` y `inventory.conversion.execute` incorporados al IPC real y al `InventoryPanel` existente con gating de permisos. Los reintentos inciertos conservan la clave idempotente.
+- `MATERIAL_CONSUMPTION` manual ya estaba presente. Se refuerza con rechazo de insumos vencidos, bloqueados o en cuarentena, manteniendo la merma física autorizada para retirada.
+- Las pruebas nuevas cubren ratio exacto, dos saldos, genealogía, doble envío, alteración de clave, denegación de permisos, fracciones no representables y actualización 22→23. El resultado de CI debe comprobarse **en el HEAD definitivo**, no extrapolarse de TARGET #1389.
+
+**Limitación de catálogo**: el producto actual registra inicialmente una presentación. La conversión requiere que la presentación destino ya esté aprovisionada dentro del mismo producto. Falta una operación comercial completa para añadir presentaciones secundarias desde catálogo, no debe sembrarse producción con filas SQL manuales. No declarar lista una conversión sectorial hasta cubrir esta precondición.
+
 ## Pendientes delimitados — SIN afirmar implementación
 
 ### Sync Central y concurrencia distribuida
@@ -41,7 +53,7 @@
 
 ### Catalog, conversiones y Pastelería
 
-1. **Conversiones de presentaciones:** falta una equivalencia canónica por producto, expresada como fracción exacta y versionada/aprobada. Nunca aceptar factores libres del cajero ni multiplicar saldo duplicando el origen. El caso de uso deberá debitar origen y acreditar destino en una sola transacción, conservar genealogía de lotes, rechazar residuos submicroscópicos y probar reversión.
+1. **Conversiones de presentaciones:** la equivalencia exacta y el débito/crédito local se añaden en 023; **pendiente** aprovisionamiento de presentaciones secundarias por flujo comercial, validación de CI del HEAD, reglas de negocio sectoriales y sincronización Central del evento de genealogía.
 2. **Consumo de materia prima:** el ajuste `MATERIAL_CONSUMPTION` manual registra salida por lote y requiere permiso de ajuste, pero **no es** un sistema de recetas/escandallos. Faltan BOM versionados, rendimiento, mermas de proceso, elaboración/producción e idempotencia de órdenes.
 3. **Farmacia:** falta política por producto para exigir lote/vencimiento y controles regulatorios de dispensación. Un vencimiento nulo no se debe interpretar como permitido en todas las categorías.
 4. **Recepción con stock legado:** falta conciliación administrativa documentada para activar lotes sin perder historia ni inventar procedencia.
