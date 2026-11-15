@@ -37,6 +37,10 @@
 3. **Realmente confirmado:** solo resultado del caso de uso autorizado y de una fuente humana o financiera comprobada. Un SMS, QR, importe igual o dispositivo enrolado no tiene esta autoridad.
 4. `UNVERIFIED` jamás cambia `Payment`, `PaymentAttempt`, `Sale`, cobertura ni outbox de cobro. Dos ventas por el mismo importe no se vinculan a un aviso. Los datos financieros reales y la referencia única se obtienen de otra fuente.
 
+## Corrección crítica de seguridad en reversión 024
+
+La migración histórica 024 tenía `FORCE ROW LEVEL SECURITY` en las seis tablas, pero su guard `down` hacía `SELECT EXISTS(...)` como `pos_schema_owner`, un rol sin BYPASSRLS ni política de lectura. Podía interpretar filas ajenas como inexistentes y continuar con un DROP destructivo. Se añadió una política `FOR SELECT TO pos_schema_owner USING (true)` a esas tablas, sin conceder lectura a POS tenant, y una regresión física que crea evidencia y exige el error `cannot downgrade`. Solo se cambió el artefacto 024 **no desplegado** en esta línea: su checksum resultante debe observarse en el migrador antes de cualquier aplicación.
+
 ## Pruebas incorporadas y alcance
 
 - Unitarias de contratos: versiones, caducidad offline, cuatro cajas, tenant/company distintos, importes SMS menores/iguales/mayores, datos ausentes, rechazo de móviles completos, duplicados exactos, mismo importe/dos ventas, sin autoridad bancaria.
