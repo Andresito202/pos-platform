@@ -109,3 +109,31 @@ export class AdjustStockUseCase {
       :this.inventoryStore.debitBatch(movement,request.lotId);
   }
 }
+
+/** Distinct operation: changing lot eligibility never adds/removes physical units. */
+export class ChangeBatchStatusUseCase {
+  constructor(private readonly inventoryStore:SqliteInventoryStore){}
+  execute(scope:SyncScope,sessionId:string,authSnapshot:StoredAuthorizationSnapshot,
+    request:{lotId:string;status:"AVAILABLE"|"QUARANTINE"|"BLOCKED"|"RECALLED";
+      reasonCode:string;idempotencyKey:string;correlationId:string;causationId:string|null},
+    at:Date=new Date()){
+    const decision=evaluatePermission({
+      actor:createActor("USER",authSnapshot.claims.user_id),
+      permission:CanonicalPermission.INVENTORY_STOCK_ADJUST,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),
+      at,assignments:toRoleAssignments(authSnapshot.claims),
+    });
+    if(!decision.allowed)return {kind:"UNAUTHORIZED" as const};
+    const checksum=createHash("sha256").update(canonicalJson({
+      tenant_id:scope.tenantId,company_id:scope.companyId,branch_id:scope.branchId,
+      lot_id:request.lotId,next_status:request.status,reason_code:request.reasonCode,
+      actor_id:authSnapshot.claims.user_id,idempotency_key:request.idempotencyKey,
+    })).digest("hex");
+    return {kind:this.inventoryStore.changeBatchStatus({
+      scope,sessionId,lotId:request.lotId,status:request.status,
+      actorId:authSnapshot.claims.user_id,reasonCode:request.reasonCode,
+      idempotencyKey:request.idempotencyKey,requestChecksum:checksum,
+      correlationId:request.correlationId,causationId:request.causationId,
+    })};
+  }
+}
