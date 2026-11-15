@@ -12,6 +12,8 @@ import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js
 import { ReceiveStockUseCase } from "../src/inventory/receive-stock-use-case.js";
 import { AdjustStockUseCase,ChangeBatchStatusUseCase } from "../src/inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../src/inventory/get-stock-use-case.js";
+import { randomUUID } from "node:crypto";
+import { ApprovePresentationConversionUseCase,ConvertPresentationUseCase } from "../src/inventory/presentation-conversion-use-cases.js";
 import { scale6ToBigInt } from "../src/money.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../src/sync/durable-sync-store.js";
@@ -122,6 +124,77 @@ const batch=(code:string,expiryDate:string|null,overrides:Record<string,unknown>
 function batchReceive(presentationId:string,code:string,expiryDate:string|null,quantity="3.000000"){
   return receipt(presentationId,{quantity,batch:batch(code,expiryDate)});
 }
+
+describe("shared v23 exact presentation conversion",()=>{
+  async function fixture(){
+    const env=await buildEnv();
+    const product=env.database.native.prepare(
+      "SELECT product_id FROM catalog_presentation WHERE tenant_id=? AND id=?"
+    ).get(TENANT,env.presentationId) as {product_id:string};
+    const target=randomUUID(),at=NOW.toISOString();
+    env.database.native.prepare(`INSERT INTO catalog_presentation(
+      id,tenant_id,product_id,name,unit_code,unit_precision,barcode,status,created_at,updated_at)
+      VALUES(?,?,?,'Caja 2 unidades','UND',0,NULL,'ACTIVE',?,?)`)
+      .run(target,TENANT,product.product_id,at,at);
+    return {...env,target,approve:new ApprovePresentationConversionUseCase(env.store),
+      convert:new ConvertPresentationUseCase(env.store)};
+  }
+  it("atomically debits source, credits target, keeps genealogy and blocks altered replay",async()=>{
+    const env=await fixture();
+    expect(env.receive.execute(SCOPE,SESSION,auth(),batchReceive(env.presentationId,"SOURCE","2026-09-30")).kind).toBe("POSTED");
+    const lot=env.store.listBatches(SCOPE,env.presentationId)[0]!;
+    const approved=env.approve.execute(SCOPE,SESSION,auth(),{
+      sourcePresentationId:env.presentationId,targetPresentationId:env.target,
+      numerator:"2",denominator:"1",version:1,idempotencyKey:key(),
+      correlationId:CORRELATION,causationId:null,
+    },NOW);
+    expect(approved.kind).toBe("APPROVED");
+    if(!approved.ruleId)throw Error("conversion fixture approval missing");
+    const request={ruleId:approved.ruleId,sourceLotId:lot.id,quantity:"2.000000",
+      reasonCode:"PRESENTATION_CONVERSION",businessDate:"2026-09-07",
+      idempotencyKey:key(),correlationId:CORRELATION,causationId:null};
+    const converted=env.convert.execute(SCOPE,SESSION,auth(),request,NOW);
+    expect(converted.kind).toBe("CONVERTED");
+    expect(converted.targetQuantity).toBe("4.000000");
+    expect(env.store.getStock(SCOPE,env.presentationId)?.quantityOnHand).toBe("1.000000");
+    expect(env.store.getStock(SCOPE,env.target)?.quantityOnHand).toBe("4.000000");
+    expect(env.store.listBatches(SCOPE,env.target)).toMatchObject([
+      {quantityOnHand:"4.000000",expiryDate:"2026-09-30",status:"AVAILABLE"},
+    ]);
+    expect(env.convert.execute(SCOPE,SESSION,auth(),request,NOW).kind).toBe("IDEMPOTENT");
+    expect(env.convert.execute(SCOPE,SESSION,auth(),{...request,quantity:"1.000000"},NOW).kind).toBe("CONFLICT");
+    expect(env.database.native.prepare("SELECT count(*) AS n FROM inventory_conversion_event").get()).toEqual({n:1});
+    expect(env.database.native.prepare(
+      "SELECT count(*) AS n FROM inventory_lot_movement WHERE event_type='CONVERSION'"
+    ).get()).toEqual({n:2});
+    expect(()=>env.database.native.prepare(
+      "UPDATE inventory_conversion_event SET source_quantity='4.000000'"
+    ).run()).toThrow(/append-only/);
+    env.database.assertIntegrity();
+  });
+  it("rejects forbidden conversion and does not write partial movements",async()=>{
+    const env=await fixture();
+    expect(env.receive.execute(SCOPE,SESSION,auth(),batchReceive(env.presentationId,"FORBIDDEN","2026-09-06")).kind).toBe("POSTED");
+    const lot=env.store.listBatches(SCOPE,env.presentationId)[0]!;
+    const approved=env.approve.execute(SCOPE,SESSION,auth(),{
+      sourcePresentationId:env.presentationId,targetPresentationId:env.target,
+      numerator:"1",denominator:"3",version:1,idempotencyKey:key(),
+      correlationId:CORRELATION,causationId:null,
+    },NOW);
+    expect(approved.kind).toBe("APPROVED");
+    const request={ruleId:approved.ruleId!,sourceLotId:lot.id,quantity:"1.000000",
+      reasonCode:"PRESENTATION_CONVERSION",businessDate:"2026-09-07",
+      idempotencyKey:key(),correlationId:CORRELATION,causationId:null};
+    expect(env.convert.execute(SCOPE,SESSION,auth([]),request,NOW).kind).toBe("UNAUTHORIZED");
+    expect(env.convert.execute(SCOPE,SESSION,auth(),request,NOW).kind).toBe("QUANTITY_PRECISION_EXCEEDED");
+    // No fractional destination unit may be rounded to 0 or 1.
+    expect(env.database.native.prepare("SELECT count(*) AS n FROM inventory_conversion_event").get()).toEqual({n:0});
+    expect(env.store.getStock(SCOPE,env.presentationId)?.quantityOnHand).toBe("3.000000");
+    const other=env.convert.execute({...SCOPE,branchId:OTHER_BRANCH},SESSION,auth(),request,NOW);
+    expect(other.kind).not.toBe("CONVERTED");
+  });
+});
+
 describe("shared v22 batch ledger and FEFO on original inventory",()=>{
  it("persists exact lot balance and audit through SQLite process restart",async()=>{
   const {receive,store,database,presentationId}=await buildEnv();
