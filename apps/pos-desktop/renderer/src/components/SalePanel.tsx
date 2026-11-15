@@ -11,6 +11,7 @@ import {
   parseCopMicros,
 } from "../money-display.js";
 import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
+import {MerchantPaymentMethods} from "./MerchantPaymentMethods.js";
 import { ProductAvatar } from "./ProductAvatar.js";
 
 const paymentButtons = [
@@ -298,6 +299,10 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                 </button>)}
               </div>
 
+              {(paymentMethod==="nequi"||paymentMethod==="transfer")&&
+                <MerchantPaymentMethods
+                  enabled={permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ)}
+                  amount={formatScale6Display(sale.sale.payableAmount)} />}
               {paymentMethod === "cash" && <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
                 <label>Efectivo recibido (COP)<input aria-label="Efectivo recibido (COP)" inputMode="numeric" value={manualTendered}
                   onChange={event=>{const value=event.target.value; if (/^\d{0,12}$/.test(value)) setManualTendered(value.replace(/^0+(?=\d)/, ""));}}
