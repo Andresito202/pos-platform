@@ -1,4 +1,5 @@
 import { InventoryBatchPanel } from "./InventoryBatchPanel.js";
+import { InventoryConversionPanel } from "./InventoryConversionPanel.js";
 import { InventoryCsvImport } from "./InventoryCsvImport.js";
 import { CanonicalPermission } from "@pos-platform/contracts";
 import { useEffect, useState } from "react";
@@ -224,6 +225,10 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
       </button>
 
       </>}
+
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)&&target!==""&&
+        <InventoryConversionPanel key={target} sourcePresentationId={target}
+          canApprove={permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)} />}
 
       <h3>Consulta</h3>
       {permissions.has(CanonicalPermission.INVENTORY_STOCK_READ)&&target!==""&&
