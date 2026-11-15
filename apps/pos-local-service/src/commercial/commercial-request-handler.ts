@@ -31,6 +31,7 @@ type CommercialRequest = Extract<
       | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
+      | "inventory.batch.list" | "inventory.batch.status"
       | "sales.receipt.get"
       | "hardware.command"
       | "audit.event.list"
@@ -74,6 +75,11 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   // petición mal formada.
   INSUFFICIENT_STOCK: "CONFLICT",
   PRESENTATION_NOT_FOUND: "NOT_FOUND",
+  LOT_NOT_FOUND:"NOT_FOUND",
+  LOT_NOT_SELLABLE:"CONFLICT",
+  LOT_TRACKING_REQUIRED:"CONFLICT",
+  LEGACY_STOCK_RECONCILIATION_REQUIRED:"CONFLICT",
+  CONFLICT:"CONFLICT",
   SALE_NOT_PAYABLE: "CONFLICT",
   SALE_ALREADY_COMPLETED: "CONFLICT",
   OVERPAYMENT_NOT_ALLOWED: "CONFLICT",
@@ -258,6 +264,8 @@ export class CommercialRequestHandler {
       case "inventory.stock.receive":
       case "inventory.stock.adjust": return this.moveStock(request, connectionId);
       case "inventory.stock.get": return this.getStock(request, connectionId);
+      case "inventory.batch.list": return this.listBatches(request,connectionId);
+      case "inventory.batch.status": return this.changeBatchStatus(request,connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
       case "hardware.command": return this.hardwareCommand(request,connectionId);
       case "audit.event.list": return this.listAuditEvents(request, connectionId);
@@ -1193,6 +1201,40 @@ export class CommercialRequestHandler {
     }
 
     return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  private listBatches(
+    request:Extract<CommercialRequest,{message_type:"inventory.batch.list"}>,
+    connectionId:string,
+  ):unknown{
+    const rejectedResult={outcome:"UNAUTHORIZED",tracked:false,batches:[]};
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,rejectedResult);
+    const result=this.commercial.listBatches.execute(
+      this.scope(),session.snapshot,request.payload.presentation_id);
+    if(result.kind==="UNAUTHORIZED")return rejected(request,"UNAUTHORIZED",rejectedResult);
+    return succeeded(request,"FOUND",{outcome:"FOUND",tracked:result.tracked,batches:result.batches.map(lot=>({
+      id:lot.id,batch_code:lot.batchCode,quantity_on_hand:lot.quantityOnHand,status:lot.status,
+      manufacture_date:lot.manufactureDate,expiry_date:lot.expiryDate,
+      supplier_reference:lot.supplierReference,receipt_document:lot.receiptDocument,
+    }))});
+  }
+
+  private changeBatchStatus(
+    request:Extract<CommercialRequest,{message_type:"inventory.batch.status"}>,
+    connectionId:string,
+  ):unknown{
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,{outcome:"UNAUTHORIZED"});
+    const result=this.commercial.changeBatchStatus.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        lotId:request.payload.lot_id,status:request.payload.status,
+        reasonCode:request.payload.reason_code,idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,causationId:request.causation_id??null,
+      });
+    if(result.kind==="UPDATED"||result.kind==="IDEMPOTENT")
+      return succeeded(request,result.kind,{outcome:result.kind});
+    return rejected(request,result.kind,{outcome:result.kind});
   }
 
   // ── sales.receipt.get — `DEC-019` ──────────────────────────────────────────
