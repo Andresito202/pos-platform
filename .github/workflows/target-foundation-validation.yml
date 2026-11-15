@@ -229,6 +229,9 @@ jobs:
       - name: Validate BUSINESS role grants with disposable PostgreSQL
         run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/business-role-grants-audit.test.ts
 
+      - name: Build the existing commercial renderer for GLOBAL HTTPS assets
+        run: pnpm --filter @pos-platform/pos-desktop build:renderer
+
       - name: Validate GLOBAL license issuance and device activation on isolated PostgreSQL
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/subscription-quotes-physical.test.ts --maxWorkers 1 --testTimeout 120000 --hookTimeout 180000
 
