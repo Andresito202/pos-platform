@@ -365,7 +365,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // —correctamente: una conexión tiene una sesión, no dos—. Un cajero tampoco
   // cambia de sesión para mirar lo que acaba de vender.
 
-  const saleId = (await page.locator(".pos-payment-reference").textContent())?.replace("Venta ", "").trim() ?? "";
+  const saleId = (await page.locator(".pos-payment-reference").textContent())?.replace(/^Referencia de la venta\s*/, "").trim() ?? "";
   expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
 
   // La verdad contra la que se contrasta la pantalla: lo que el canal real
@@ -462,7 +462,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   await page.getByTestId("create-sale-button").click();
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
-  const pendingSale = (await page.locator(".pos-payment-reference").textContent())?.replace("Venta ", "").trim() ?? "";
+  const pendingSale = (await page.locator(".pos-payment-reference").textContent())?.replace(/^Referencia de la venta\s*/, "").trim() ?? "";
   expect(pendingSale).not.toBe(saleId);
   await page.getByRole("button", { name: "Comprobantes", exact: true }).click();
   await page.getByTestId("receipt-sale-id-input").fill(pendingSale);
@@ -717,7 +717,7 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await page.getByTestId("charge-cash-button").click();
   await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
 
-  const saleId = (await page.locator(".pos-payment-reference").textContent())?.replace("Venta ", "").trim() ?? "";
+  const saleId = (await page.locator(".pos-payment-reference").textContent())?.replace(/^Referencia de la venta\s*/, "").trim() ?? "";
   expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
 
   // --- Y aqui empieza lo que esta prueba existe para comprobar ---------------
