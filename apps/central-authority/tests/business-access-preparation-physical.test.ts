@@ -47,7 +47,7 @@ import { BusinessAccessPreparation, type BusinessAccessPreparationReference } fr
 import { PostgresBusinessSessionAccessRepository, BUSINESS_SSA_DEVICE_PROOF_PATH, type TrustedBusinessSessionBinding } from "@pos-platform/database-postgres";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import {createIsolatedCommercialHttpsServer} from "../src/isolated-commercial-https.js";
-import {labTls,postLabHttps,getLabHttps,closeLabHttps} from "./helpers/lab-https.js";
+import {labOpenSslExecutable,labTls,postLabHttps,getLabHttps,closeLabHttps} from "./helpers/lab-https.js";
 import type {AuthenticationResponseJSON} from "@simplewebauthn/server";
 
 const serverUrl = process.env.POSTGRES_TEST_URL;
@@ -216,7 +216,7 @@ describe.runIf(Boolean(serverUrl))("BUSINESS access preparation - physical compo
     const dir=await mkdtemp(join(tmpdir(),"camacho-central-trust-")),keyFile=join(dir,"tls.key"),certFile=join(dir,"tls.crt");
     const probe=createPortProbe();await new Promise<void>(resolve=>probe.listen(0,"127.0.0.1",resolve));const address=probe.address();
     if(!address||typeof address==="string")throw Error("CENTRAL_TEST_PORT_REQUIRED");const port=address.port;await new Promise<void>(resolve=>probe.close(()=>resolve()));
-    execFileSync("C:/Program Files/Git/usr/bin/openssl.exe",["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN=localhost","-addext","subjectAltName=DNS:localhost","-keyout",keyFile,"-out",certFile],{stdio:"ignore",windowsHide:true});
+    execFileSync(labOpenSslExecutable(),["req","-x509","-newkey","rsa:2048","-nodes","-days","1","-subj","/CN=localhost","-addext","subjectAltName=DNS:localhost","-keyout",keyFile,"-out",certFile],{stdio:"ignore",windowsHide:true});
     const root=generateKeyPairSync("ed25519"),operational=generateKeyPairSync("ed25519"),origin=`https://localhost:${port}`,artifact=join(dir,"sas.json"),sasToken=join(dir,"sas-token"),enrollmentToken=join(dir,"enrollment-token"),issuerKey=join(dir,"issuer.key");
     const token=randomBytes(48).toString("base64url"),now=Date.now(),from=new Date(now-60_000).toISOString(),until=new Date(now+120_000).toISOString();
     const signed=signAuthorizationTrust({profile:"CAMACHO_SAS_TRUST_V1",mode:"DEPLOYMENT",schema_version:1,purpose:"AUTHORIZATION_SNAPSHOT",environment:"PREPRODUCTION",issuer:origin,authority_id:"CENTRAL_REMOTE_TEST",recipient:{tenant_id:tenantId,company_id:companyId,branch_id:uuidV7(),installation_id:installationId,device_id:deviceId},generation:1,complete:true,issued_at:from,valid_from:from,valid_until:until,
