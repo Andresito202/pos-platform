@@ -244,6 +244,9 @@ jobs:
       - name: Validate merchant QR and UNVERIFIED notices with disposable PostgreSQL
         run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations-physical.test.ts --testTimeout 120000 --hookTimeout 120000
 
+      - name: Validate signed Nequi/Bre-B projections on real SQLite
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-activation.test.ts tests/merchant-destination-projection.test.ts tests/merchant-destination-snapshot-verifier.test.ts
+
       - name: Verify existing manual Payments against SQLite after QR changes
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/payment.test.ts
 
