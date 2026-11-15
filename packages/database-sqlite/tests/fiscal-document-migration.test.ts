@@ -515,7 +515,10 @@ it("upgrades v19 sales without assigning or changing historical customer identit
     DROP INDEX sales_sales_customer_idx;
     ALTER TABLE sales_sales DROP COLUMN customer_id;
     DROP TRIGGER local_schema_migrations_no_delete;
-    DELETE FROM local_schema_migrations WHERE version=20;`);
+    -- Reconstruct an actual v19 fixture: remove the disposable v21 projection
+    -- as well as both later ledger entries, preserving immutable real history.
+    DROP TABLE local_merchant_payment_destination_snapshot;
+    DELETE FROM local_schema_migrations WHERE version>=20;`);
   const before=database.native.prepare("SELECT * FROM sales_sales WHERE id=?").get(saleId) as Record<string,unknown>;
   database.close();
   const upgraded=LocalDatabase.open({dataDirectory});openDatabases.push(upgraded);
