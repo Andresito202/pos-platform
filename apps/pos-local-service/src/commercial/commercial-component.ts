@@ -32,8 +32,8 @@ import { ListCatalogItemsUseCase } from "../catalog/list-catalog-items-use-case.
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
-import { AdjustStockUseCase } from "../inventory/adjust-stock-use-case.js";
-import { GetStockUseCase } from "../inventory/get-stock-use-case.js";
+import { AdjustStockUseCase,ChangeBatchStatusUseCase } from "../inventory/adjust-stock-use-case.js";
+import { GetStockUseCase,ListBatchesUseCase } from "../inventory/get-stock-use-case.js";
 import { GetReceiptUseCase } from "../receipts/get-receipt-use-case.js";
 import { SqliteReceiptStore } from "../receipts/sqlite-receipt-store.js";
 import { SqlitePaymentStore } from "../payments/sqlite-payment-store.js";
@@ -107,6 +107,8 @@ export class CommercialComponent implements RuntimeComponent {
         readonly receiveStock: ReceiveStockUseCase;
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
+        readonly listBatches:ListBatchesUseCase;
+        readonly changeBatchStatus:ChangeBatchStatusUseCase;
         readonly getReceipt: GetReceiptUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
@@ -231,6 +233,8 @@ export class CommercialComponent implements RuntimeComponent {
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
   get getStock(): GetStockUseCase { return this.ready.getStock; }
+  get listBatches():ListBatchesUseCase{return this.ready.listBatches;}
+  get changeBatchStatus():ChangeBatchStatusUseCase{return this.ready.changeBatchStatus;}
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
 
@@ -305,6 +309,8 @@ export class CommercialComponent implements RuntimeComponent {
       receiveStock: new ReceiveStockUseCase(inventoryStore),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),
+       listBatches:new ListBatchesUseCase(inventoryStore),
+       changeBatchStatus:new ChangeBatchStatusUseCase(inventoryStore),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct: new RegisterProductUseCase(catalogStore),
