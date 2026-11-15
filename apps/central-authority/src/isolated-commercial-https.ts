@@ -186,9 +186,9 @@ export async function prepareCommercialHttpHandler(input:{
             (req.headers.origin && req.headers.origin!==input.origin) || Number(req.headers["content-length"]??0)!==0)throw new Rejection(400);
           sendCommercialBrowserEntry(res,input.browserEntry);return;
         }
-        const merchantDeviceAction=req.url?.match(/^\\/v1\\/commercial\\/merchant-destinations\\/(snapshot|floor|ack)$/)?.[1] as
+        const merchantDeviceAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(snapshot|floor|ack)$/)?.[1] as
           "snapshot"|"floor"|"ack"|undefined;
-        const merchantAction=req.url?.match(/^\\/v1\\/commercial\\/merchant-destinations\\/(list|upload|asset|create|publish|revoke)$/)?.[1] as
+        const merchantAction=req.url?.match(/^\/v1\/commercial\/merchant-destinations\/(list|upload|asset|create|publish|revoke)$/)?.[1] as
           "list"|"upload"|"asset"|"create"|"publish"|"revoke"|undefined;
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
           (!merchantDeviceAction&&!merchantAction&&!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
