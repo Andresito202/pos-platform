@@ -161,6 +161,12 @@ DO $setup$ DECLARE object text; BEGIN
        AND company_id = nullif(current_setting('app.company_id',true),'')::uuid)
     WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id',true),'')::uuid
        AND company_id = nullif(current_setting('app.company_id',true),'')::uuid)$policy$,object);
+  -- FORCE RLS applies even to the table owner. The empty-only DOWN guard
+  -- must see every company's rows, or could drop nonempty merchant records.
+  -- This grants visibility solely to the NOLOGIN schema owner; never to POS
+  -- tenant runtime, reporting, or the public database roles.
+  EXECUTE format($owner$CREATE POLICY merchant_destination_owner_evidence_read ON payments.%I
+    FOR SELECT TO pos_schema_owner USING (true)$owner$,object);
   EXECUTE format('CREATE TRIGGER merchant_no_truncate BEFORE TRUNCATE ON payments.%I FOR EACH STATEMENT EXECUTE FUNCTION audit.reject_append_only_mutation()',object);
  END LOOP;
 END $setup$;
