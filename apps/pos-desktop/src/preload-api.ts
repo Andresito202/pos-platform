@@ -38,6 +38,8 @@ export const RENDERER_API_METHODS = [
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.stock.get",
+  "inventory.batch.list",
+  "inventory.batch.status",
   "sales.receipt.get",
   "audit.event.list",
   "admin.metrics.get",
