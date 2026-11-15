@@ -136,6 +136,15 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE sales_waiting_carts;
       -- v21 merchant QR projection is later than this historical v7 fixture.
       -- Remove only the disposable fixture's future schema before replay.
+      DROP TRIGGER inventory_lot_status_event_no_update;
+      DROP TRIGGER inventory_lot_status_event_no_delete;
+      DROP TABLE inventory_lot_status_event;
+      DROP TRIGGER inventory_lot_movement_no_update;
+      DROP TRIGGER inventory_lot_movement_no_delete;
+      DROP TABLE inventory_lot_movement;
+      DROP TRIGGER inventory_lot_no_delete;
+      DROP TABLE inventory_lot;
+      DROP TABLE inventory_lot_tracking;
       DROP TABLE local_merchant_payment_destination_snapshot;
       DELETE FROM local_schema_migrations WHERE version > 7;
       CREATE TRIGGER local_schema_migrations_no_delete
