@@ -27,6 +27,13 @@ describe("SQLite v22 shared batch schema migration",()=>{
    const raw=new Database(join(dir,"pos-local.db"));
    raw.pragma("foreign_keys = OFF");
    raw.exec(`
+     DROP TRIGGER inventory_conversion_event_no_update;
+     DROP TRIGGER inventory_conversion_event_no_delete;
+     DROP TABLE inventory_conversion_event;
+     DROP TRIGGER inventory_conversion_rule_same_product;
+     DROP TRIGGER inventory_conversion_rule_no_update;
+     DROP TRIGGER inventory_conversion_rule_no_delete;
+     DROP TABLE inventory_conversion_rule;
      DROP TRIGGER inventory_lot_status_event_no_update;
      DROP TRIGGER inventory_lot_status_event_no_delete;
      DROP TABLE inventory_lot_status_event;
@@ -37,7 +44,7 @@ describe("SQLite v22 shared batch schema migration",()=>{
      DROP TABLE inventory_lot;
      DROP TABLE inventory_lot_tracking;
      DROP TRIGGER local_schema_migrations_no_delete;
-     DELETE FROM local_schema_migrations WHERE version=22;
+     DELETE FROM local_schema_migrations WHERE version IN (22,23);
      CREATE TRIGGER local_schema_migrations_no_delete
        BEFORE DELETE ON local_schema_migrations
        BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;
