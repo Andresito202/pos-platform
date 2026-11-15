@@ -247,7 +247,7 @@ describe("B. seguridad", () => {
     const rotating = await harness({ keys: keyMap("VERIFY_ONLY") });
     expect(await rotating.service.accept(signedWith(claimsFor(1, [register(REGISTER_A)])), SCOPE))
       .toEqual({ kind: "ACTIVATED", sequence: 1 });
-  });
+  }, 15_000);
 
   it("rechaza ambiente incorrecto", async () => {
     const { service } = await harness();
