@@ -171,7 +171,7 @@ describe("shared v22 batch ledger and FEFO on original inventory",()=>{
   expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("3.000000");
   expect(database.native.prepare("SELECT count(*) AS n FROM inventory_movement").get()).toEqual({n:1});
   expect(database.native.prepare("SELECT count(*) AS n FROM inventory_lot_movement").get()).toEqual({n:1});
-  expect(database.native.prepare("SELECT count(*) AS n FROM local_sync_outbox WHERE aggregate_type='INVENTORY_STOCK'").get()).toEqual({n:1});
+  expect(database.native.prepare("SELECT count(*) AS n FROM local_sync_outbox WHERE operation_type='INVENTORY_MOVEMENT_APPEND'").get()).toEqual({n:1});
   expect(database.native.prepare("SELECT count(*) AS n FROM local_operation_audit WHERE action_code='INVENTORY_MOVEMENT_APPEND'").get()).toEqual({n:1});
   expect(()=>database.native.prepare("UPDATE inventory_lot_movement SET reason_code='TAMPER'").run()).toThrow(/append-only/);
  });
