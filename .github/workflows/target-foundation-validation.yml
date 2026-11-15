@@ -250,6 +250,12 @@ jobs:
       - name: Validate fail-closed Central merchant destination and QR asset stores
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-postgres-store.test.ts tests/merchant-destination-qr-asset-store.test.ts
 
+      - name: Validate Central recipient DeviceProof acknowledgement and company isolation
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-acknowledgements.test.ts
+
+      - name: Validate signed recipient sync transport and offline lifecycle
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-sync.test.ts
+
       - name: Validate Central merchant QR PNG and Ed25519 snapshot issuer
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-snapshot-publisher.test.ts
 
