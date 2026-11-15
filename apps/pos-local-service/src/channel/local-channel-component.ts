@@ -12,6 +12,7 @@ import type { LocalDatabaseComponent } from "../local-database-component.js";
 import type { ServiceConfig } from "../config.js";
 import type { OperationConfirmationComponent } from "../operations/operation-confirmation-component.js";
 import type { CommercialComponent } from "../commercial/commercial-component.js";
+import {SqliteMerchantDestinationProjectionStore} from "../payments/sqlite-merchant-destination-projection-store.js";
 import { CommercialRequestHandler } from "../commercial/commercial-request-handler.js";
 import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/local-channel";
 import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
@@ -63,7 +64,8 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly localOperatorSessions?: () => LocalOperatorSessionRegistry,
   ) {
     this.commercialHandler = new CommercialRequestHandler(config, commercial,
-      connectionId => this.getLocalOperatorRegistry()?.resolve(connectionId) ?? null);
+      connectionId => this.getLocalOperatorRegistry()?.resolve(connectionId) ?? null,
+      ()=>new SqliteMerchantDestinationProjectionStore(localDatabase.database));
     this.endpoint = localChannelEndpoint(config.installation_id);
   }
 
@@ -227,6 +229,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "payment.transfer.confirm":
       case "payment.cancel":
       case "payment.get":
+      case "payment.destination.get":
       case "customer.register":
       case "customer.get":
       case "customer.find":
