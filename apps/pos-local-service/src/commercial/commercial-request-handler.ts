@@ -5,13 +5,14 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
-import { CanonicalPermission, type ContractError, type ErrorCategory, type IpcRequest } from "@pos-platform/contracts";
+import { visibleCompanyDestinations, CanonicalPermission, type ContractError, type ErrorCategory, type IpcRequest } from "@pos-platform/contracts";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
 import { localOperatorAuthorization, type LocalAuthorizedSession } from "../security/local-operator-development-bridge.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { boundIdentityFromClaims, type BoundSessionIdentity } from "../session/session-binding-registry.js";
+import type {SqliteMerchantDestinationProjectionStore} from "../payments/sqlite-merchant-destination-projection-store.js";
 import type { CommercialComponent } from "./commercial-component.js";
 
 const RESULT_SCHEMA_VERSION = "1.0.0";
@@ -24,7 +25,7 @@ type CommercialRequest = Extract<
       | "session.activate" | "session.recover"
       | "cash.shift.open" | "cash.shift.close" | "sale.create" | "cart.waiting.save" | "cart.waiting.list" | "cart.waiting.get" | "cart.waiting.discard"
       | "payment.register.cash" | "payment.register.transfer"
-      | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
+      | "payment.transfer.confirm" | "payment.cancel" | "payment.get" | "payment.destination.get"
       | "customer.register" | "customer.get" | "customer.find"
       | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
       | "fiscal.document.issue"
@@ -161,6 +162,7 @@ export class CommercialRequestHandler {
     private readonly config: ServiceConfig,
     private readonly commercial: CommercialComponent,
     private readonly resolveLocalOperator?: (connectionId: string) => LocalAuthorizedSession | null,
+    private readonly destinationStore?: ()=>SqliteMerchantDestinationProjectionStore,
   ) {}
 
   private scope(): SyncScope {
@@ -241,6 +243,7 @@ export class CommercialRequestHandler {
       case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
       case "payment.cancel": return this.cancelPayment(request, connectionId);
       case "payment.get": return this.getPayment(request, connectionId);
+      case "payment.destination.get": return this.getPaymentDestinations(request,connectionId);
       case "customer.register": return this.registerCustomer(request, connectionId);
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
@@ -427,6 +430,33 @@ export class CommercialRequestHandler {
       return succeeded(request, result.kind, { outcome: result.kind, payment_id: result.paymentId });
     }
     return rejected(request, result.kind, { outcome: result.kind, payment_id: null });
+  }
+
+  /** Read-only signed configuration, NEVER a transfer confirmation. */
+  private getPaymentDestinations(
+    request:Extract<CommercialRequest,{message_type:"payment.destination.get"}>,
+    connectionId:string,
+  ):unknown {
+    const blank={sequence:null,destinations:[]};
+    const authenticated=this.authenticate(connectionId);
+    if("rejection" in authenticated)return rejected(request,authenticated.rejection,{outcome:"UNAUTHORIZED",...blank});
+    const scope=createOperationScope(this.config.tenant_id,this.config.company_id,this.config.branch_id);
+    if(!evaluatePermission({
+      actor:createActor("USER",authenticated.snapshot.claims.user_id),
+      permission:CanonicalPermission.PAYMENTS_PAYMENT_READ,
+      scope,at:new Date(),assignments:toRoleAssignments(authenticated.snapshot.claims),
+    }).allowed)return rejected(request,"UNAUTHORIZED",{outcome:"UNAUTHORIZED",...blank});
+    if(!this.destinationStore)return rejected(request,"UNAVAILABLE",{outcome:"UNAVAILABLE",...blank});
+    try{
+      const company={tenantId:this.config.tenant_id,companyId:this.config.company_id};
+      const state=this.destinationStore().load(company);
+      if(!state)return rejected(request,"UNAVAILABLE",{outcome:"UNAVAILABLE",...blank});
+      const now=new Date().toISOString();
+      const destinations=visibleCompanyDestinations(state,company,now);
+      if(Date.parse(state.snapshot.expires_at)<=Date.parse(now))
+        return rejected(request,"UNAVAILABLE",{outcome:"UNAVAILABLE",...blank});
+      return succeeded(request,"AVAILABLE",{outcome:"AVAILABLE",sequence:state.snapshot.sequence,destinations});
+    }catch{return rejected(request,"UNAVAILABLE",{outcome:"UNAVAILABLE",...blank});}
   }
 
   /** `payment.get` — lectura acotada al tenant de configuración. */
