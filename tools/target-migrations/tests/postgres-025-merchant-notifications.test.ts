@@ -1,0 +1,65 @@
+import {describe,expect,it} from "vitest";
+import {commercialMigrationManifest,POSTGRES_024_DESCRIPTOR,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR,POSTGRES_027_DESCRIPTOR} from "../src/postgres-commercial-runner.js";
+import {readArtifact,sha256} from "../src/shared.js";
+
+describe("QR-002 migration 025: explicit consent-gated notification evidence",()=>{
+ it("is registered only under an explicit successor migration target",async()=>{
+  expect(POSTGRES_025_DESCRIPTOR.migrationId).toBe("025_merchant_payment_notifications");
+  expect(POSTGRES_025_DESCRIPTOR.dependencies).toEqual([POSTGRES_024_DESCRIPTOR.migrationId]);
+  const source=await readArtifact(POSTGRES_025_DESCRIPTOR.upArtifact);
+  const manifest=await commercialMigrationManifest("MERCHANT_NOTIFICATIONS");
+  expect(manifest[POSTGRES_025_DESCRIPTOR.migrationId]).toBe(sha256(source).toString("hex"));
+  expect((await commercialMigrationManifest("MERCHANT_DESTINATIONS"))[POSTGRES_025_DESCRIPTOR.migrationId]).toBeUndefined();
+ });
+ it("registers an additive 026 SMS detail migration without rewriting 025",async()=>{
+  expect(POSTGRES_026_DESCRIPTOR.dependencies).toEqual([POSTGRES_025_DESCRIPTOR.migrationId]);
+  const up=await readArtifact(POSTGRES_026_DESCRIPTOR.upArtifact);
+  const down=await readArtifact(POSTGRES_026_DESCRIPTOR.downArtifact);
+  expect(up).toContain("ADD COLUMN reported_amount_cop bigint NULL");
+  expect(up).toContain("ADD COLUMN payer_display text NULL");
+  expect(up).toContain("merchant_notice_reported_amount_positive");
+  expect(up).toContain("SMS, not confirmed settlement");
+  expect(down).toContain("cannot downgrade reported SMS evidence");
+  const manifest=await commercialMigrationManifest("MERCHANT_NOTIFICATIONS");
+  expect(manifest[POSTGRES_026_DESCRIPTOR.migrationId]).toBe(sha256(up).toString("hex"));
+  expect((await commercialMigrationManifest("MERCHANT_DESTINATIONS"))[POSTGRES_026_DESCRIPTOR.migrationId]).toBeUndefined();
+ });
+ it("registers 027 as an additive one-way revocation repair, without changing 025",async()=>{
+  expect(POSTGRES_027_DESCRIPTOR.dependencies).toEqual([POSTGRES_026_DESCRIPTOR.migrationId]);
+  const up=await readArtifact(POSTGRES_027_DESCRIPTOR.upArtifact);
+  const down=await readArtifact(POSTGRES_027_DESCRIPTOR.downArtifact);
+  expect(up).toContain("CREATE OR REPLACE FUNCTION payments.guard_merchant_notice_consent()");
+  expect(up).toContain("IF TG_OP='UPDATE' THEN");
+  expect(up).toContain("OR OLD.revoked_at IS NOT NULL OR NEW.revoked_at IS NULL");
+  expect(up).toContain("RETURN NEW;");
+  expect(up).toContain("d.status='ACTIVE'");
+  expect(down).toContain("cannot downgrade consent revocation with existing evidence");
+  const manifest=await commercialMigrationManifest("MERCHANT_NOTIFICATIONS");
+  expect(manifest[POSTGRES_027_DESCRIPTOR.migrationId]).toBe(sha256(up).toString("hex"));
+  expect((await commercialMigrationManifest("MERCHANT_DESTINATIONS"))[POSTGRES_027_DESCRIPTOR.migrationId]).toBeUndefined();
+ });
+ it("requires device consent and never enables bank-confirmed or sale-confirmed state",async()=>{
+  const sql=await readArtifact(POSTGRES_025_DESCRIPTOR.upArtifact);
+  expect(sql).toContain("FORCE ROW LEVEL SECURITY");
+  expect(sql).toContain("merchant_notice_company_scope");
+  expect(sql).toContain("merchant_notice_owner_evidence_read");
+  expect(sql).toContain("merchant_notice_owner_guard_lock");
+  expect(sql).toContain("merchant_notice_intake_guard");
+  expect(sql).toContain("FOR SHARE OF c,d");
+  expect(sql).toContain("merchant_notice_inbox_immutable");
+  expect(sql).toContain("CHECK(bank_confirmed=false)");
+  expect(sql).toContain("CHECK(sale_confirmed=false)");
+  expect(sql).toContain("source_installation_id,message_sha256");
+  expect(sql).not.toContain("payment.transfer.confirm");
+  expect(sql).not.toContain("raw_sms");
+  expect(sql).not.toContain("sms_body");
+  expect(POSTGRES_025_DESCRIPTOR.ownedTables).toHaveLength(2);
+ });
+ it("refuses dropping stored notices or consent histories",async()=>{
+  const down=await readArtifact(POSTGRES_025_DESCRIPTOR.downArtifact);
+  expect(down).toContain("cannot downgrade");
+  expect(down).toContain("EXISTS(SELECT 1 FROM payments.merchant_payment_notification_inbox)");
+  expect(down).toContain("EXISTS(SELECT 1 FROM payments.merchant_notification_bridge_consents)");
+  expect(down).not.toContain("CASCADE");
+ });
+});
