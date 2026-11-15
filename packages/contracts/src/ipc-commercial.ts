@@ -1093,6 +1093,7 @@ export const InventoryStockReceiveRequestSchema = createRequestEnvelopeSchema(
 export const InventoryStockAdjustRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     presentation_id: UuidSchema,
+    lot_id:UuidSchema.optional(),
     movement_type: z.enum([
       "ADJUSTMENT_POSITIVE",
       "ADJUSTMENT_NEGATIVE",
