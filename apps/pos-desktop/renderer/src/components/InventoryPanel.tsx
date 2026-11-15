@@ -46,7 +46,8 @@ function today(): string {
 export function InventoryPanel({ permissions, initialPresentationId = null }: { permissions: ReadonlySet<string>; initialPresentationId?: string | null }): React.JSX.Element {
   const inventory = useInventoryAdmin();
   const [presentationId, setPresentationId] = useState("");
-  useEffect(() => { if (initialPresentationId !== null) setPresentationId(initialPresentationId); }, [initialPresentationId]);
+  const [batchPending,setBatchPending]=useState(false);
+  useEffect(() => { if (initialPresentationId !== null&&!batchPending) setPresentationId(initialPresentationId); }, [initialPresentationId,batchPending]);
   const [receiveType, setReceiveType] = useState<ReceiveMovement>("PURCHASE_RECEIPT");
   const [receiveQuantity, setReceiveQuantity] = useState("");
   const [receiveReason, setReceiveReason] = useState("PURCHASE");
@@ -79,7 +80,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         value={presentationId}
         onChange={(e) => { setPresentationId(e.target.value); }}
         placeholder="ID de presentación"
-        disabled={inventory.busy || inventory.pending}
+        disabled={inventory.busy || inventory.pending || batchPending}
       />
       </label>
       {(permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)) && <label className="pos-field">Fecha de negocio
@@ -226,7 +227,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
 
       <h3>Consulta</h3>
       {permissions.has(CanonicalPermission.INVENTORY_STOCK_READ)&&target!==""&&
-        <InventoryBatchPanel presentationId={target} canAdjust={permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)}/>}
+        <InventoryBatchPanel key={target} presentationId={target} canAdjust={permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)} onPendingChange={setBatchPending}/>}
 
       <button
         data-testid="get-stock-button"
