@@ -134,6 +134,9 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE hardware_bindings;
       -- v19 editable carts must also be absent in this reconstructed v7 fixture.
       DROP TABLE sales_waiting_carts;
+      -- v21 merchant QR projection is later than this historical v7 fixture.
+      -- Remove only the disposable fixture's future schema before replay.
+      DROP TABLE local_merchant_payment_destination_snapshot;
       DELETE FROM local_schema_migrations WHERE version > 7;
       CREATE TRIGGER local_schema_migrations_no_delete
         BEFORE DELETE ON local_schema_migrations
