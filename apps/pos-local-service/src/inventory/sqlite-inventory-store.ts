@@ -577,6 +577,13 @@ export class SqliteInventoryStore {
     return this.database.native.transaction(()=>{
       if(!this.isLotTracked(input.scope,input.presentationId))
         return {kind:"LOT_TRACKING_REQUIRED"} as AppendMovementOutcome;
+      // The original request has already been durably applied. Return the
+      // persisted outcome before re-checking a stock or eligibility state that
+      // may have changed since that commit. Conflicting payloads still fail.
+      const previous=this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?"
+      ).get(input.idempotencyKey) as OperationRow|undefined;
+      if(previous)return this.appendMovement(input,true);
       const record=this.database.native.prepare(`SELECT quantity_on_hand,status,expiry_date FROM inventory_lot
         WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=? AND id=?`)
         .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,
