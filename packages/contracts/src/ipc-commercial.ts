@@ -1161,6 +1161,42 @@ export const InventoryStockGetResultSchema = z.strictObject({
 export const InventoryStockGetResponseSchema =
   createResponseEnvelopeSchema(InventoryStockGetResultSchema);
 
+// ── inventory.batch.* — additive 022, same commercial/SQLite service ──────
+export const InventoryBatchListRequestSchema=createRequestEnvelopeSchema(
+  z.strictObject({presentation_id:UuidSchema}),
+).safeExtend({message_type:z.literal("inventory.batch.list")})
+ .superRefine(forbidCallerAssertedIdentity);
+
+export const InventoryBatchListResultSchema=z.strictObject({
+  outcome:z.enum(["FOUND","UNAUTHORIZED"]),
+  tracked:z.boolean(),
+  batches:z.array(z.strictObject({
+    id:UuidSchema,batch_code:z.string().min(1).max(96),
+    quantity_on_hand:NonNegativeScale6Schema,
+    status:z.enum(["AVAILABLE","QUARANTINE","BLOCKED","RECALLED"]),
+    manufacture_date:BusinessDateSchema.nullable(),
+    expiry_date:BusinessDateSchema.nullable(),
+    supplier_reference:z.string().min(1).max(160),
+    receipt_document:z.string().min(1).max(160),
+  })).max(500),
+});
+export const InventoryBatchListResponseSchema=createResponseEnvelopeSchema(InventoryBatchListResultSchema);
+export const InventoryBatchStatusRequestSchema=createRequestEnvelopeSchema(
+ z.strictObject({
+  lot_id:UuidSchema,
+  status:z.enum(["AVAILABLE","QUARANTINE","BLOCKED","RECALLED"]),
+  reason_code:z.string().min(2).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
+ }),
+).safeExtend({message_type:z.literal("inventory.batch.status")})
+ .superRefine((request,ctx)=>{
+  forbidCallerAssertedIdentity(request,ctx);
+  requireIdempotentOperation(request,ctx);
+ });
+export const InventoryBatchStatusResultSchema=z.strictObject({
+ outcome:z.enum(["UPDATED","IDEMPOTENT","CONFLICT","NOT_FOUND","UNAUTHORIZED"]),
+});
+export const InventoryBatchStatusResponseSchema=createResponseEnvelopeSchema(InventoryBatchStatusResultSchema);
+
 // ── sales.receipt.get ────────────────────────────────────────────────────────
 
 /**
@@ -1376,6 +1412,8 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.stock.get",
+  "inventory.batch.list",
+  "inventory.batch.status",
   "audit.event.list",
   "admin.metrics.get",
   "license.offers.list",
@@ -1416,6 +1454,8 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.stock.receive",
   "pos:inventory.stock.adjust",
   "pos:inventory.stock.get",
+  "pos:inventory.batch.list",
+  "pos:inventory.batch.status",
   "pos:audit.event.list",
   "pos:admin.metrics.get",
   "pos:license.offers.list",
