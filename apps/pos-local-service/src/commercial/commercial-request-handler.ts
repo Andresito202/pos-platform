@@ -1145,7 +1145,8 @@ export class CommercialRequestHandler {
         )
       : this.commercial.adjustStock.execute(
           this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot,
-          { ...common, movementType: request.payload.movement_type },
+          { ...common, movementType: request.payload.movement_type,
+              ...(request.payload.lot_id?{lotId:request.payload.lot_id}:{}) },
         );
 
     if (result.kind === "POSTED" || result.kind === "IDEMPOTENT") {
