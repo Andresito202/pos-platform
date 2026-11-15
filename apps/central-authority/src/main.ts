@@ -131,10 +131,13 @@ if(collectionsProvision&&(!deployment||deployment.environment==="LOCAL"))throw E
 const collectionsRuntime=collectionsProvision?await prepareSubscriptionCollectionRuntime({pool,provisionFile:collectionsProvision,
   onError:code=>process.stderr.write(JSON.stringify({service:"subscription-collections",code})+"\n")}):undefined;
 const commercialProvision=process.env.CENTRAL_COMMERCIAL_PROVISION_FILE;
+const merchantQrProvision=process.env.CENTRAL_MERCHANT_QR001_PROVISION_FILE;
+if(merchantQrProvision&&!commercialProvision)throw Error("QR001_REAL_COMMERCIAL_DEPLOYMENT_REQUIRED");
 if(commercialProvision&&(!deployment||deployment.environment==="LOCAL"||!sessionTrustPublication||!authorizationTrustPublication))throw Error("COMMERCIAL_REAL_DEPLOYMENT_TRUST_REQUIRED");
 const commercialHandler=commercialProvision?await prepareCentralCommercialRuntime({pool,provisionFile:commercialProvision,
   origin:deployment!.origin,environment:deployment!.environment as "PREPRODUCTION"|"PRODUCTION",tls:{key:tlsKey,cert:tlsCert},
-  publishedSsaFile:required("SESSION_TRUST_ARTIFACT_FILE"),publishedSasFile:required("AUTHORIZATION_TRUST_ARTIFACT_FILE")}):undefined;
+  publishedSsaFile:required("SESSION_TRUST_ARTIFACT_FILE"),publishedSasFile:required("AUTHORIZATION_TRUST_ARTIFACT_FILE"),
+  ...(merchantQrProvision?{merchantQrProvisionFile:merchantQrProvision}:{})}):undefined;
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
 const handler = new DeviceEnrollmentHttpHandler(issuer, {
