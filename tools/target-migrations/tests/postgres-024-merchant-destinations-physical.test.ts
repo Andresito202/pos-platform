@@ -2,12 +2,46 @@ import {beforeAll,afterAll,describe,expect,it} from "vitest";
 import {Pool} from "pg";
 import {readArtifact} from "../src/shared.js";
 
-const connection=process.env.POSTGRES_QR001_URL;
-const test=connection?it:it.skip;
+const serverUrl=process.env.POSTGRES_TEST_URL;
+const eligible=(()=>{
+  if(!serverUrl)return false;
+  try{
+    const u=new URL(serverUrl);
+    return (u.hostname==="127.0.0.1"||u.hostname==="localhost")&&
+      u.port==="55433"&&u.pathname==="/postgres"&&u.username==="postgres";
+  }catch{return false;}
+})();
+const test=eligible?it:it.skip;
+const databaseName="qr001_physical_"+Math.random().toString(16).slice(2,14);
 let pool:Pool;
 beforeAll(async()=>{
- if(!connection)return;
- pool=new Pool({connectionString:connection,max:2});
+ if(!eligible)return;
+ const control=new Pool({connectionString:serverUrl});
+ try{
+   // Production databases and credentials are never accepted by this fixture.
+   await control.query('CREATE DATABASE "'+databaseName+'"');
+ }finally{await control.end();}
+ const u=new URL(serverUrl!);u.pathname="/"+databaseName;
+ pool=new Pool({connectionString:u.toString(),max:3});
+ await pool.query(`
+   DO $roles$ BEGIN
+     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='pos_schema_owner') THEN
+       CREATE ROLE pos_schema_owner NOLOGIN;
+     END IF;
+     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='pos_platform_app') THEN
+       CREATE ROLE pos_platform_app NOLOGIN;
+     END IF;
+     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='pos_app') THEN
+       CREATE ROLE pos_app NOLOGIN;
+     END IF;
+     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='pos_worker') THEN
+       CREATE ROLE pos_worker NOLOGIN;
+     END IF;
+     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='pos_reporting') THEN
+       CREATE ROLE pos_reporting NOLOGIN;
+     END IF;
+   END $roles$;
+ `);
  await pool.query(`
    CREATE ROLE pos_schema_owner NOLOGIN;
    CREATE ROLE pos_platform_app NOLOGIN;
@@ -40,7 +74,13 @@ beforeAll(async()=>{
  try{await pool.query(await readArtifact("postgres/024_merchant_payment_destinations.up.sql"));}
  finally{await pool.query("RESET ROLE");}
 });
-afterAll(async()=>{if(connection)await pool?.end();});
+afterAll(async()=>{
+ if(!eligible)return;
+ await pool?.end();
+ const control=new Pool({connectionString:serverUrl});
+ try{await control.query('DROP DATABASE IF EXISTS "'+databaseName+'" WITH (FORCE)');}
+ finally{await control.end();}
+},120000);
 
 describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protections",()=>{
  test("creates all six RLS-forced tables with expected owner",async()=>{
