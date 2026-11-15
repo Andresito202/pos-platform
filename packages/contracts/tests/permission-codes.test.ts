@@ -23,6 +23,7 @@ describe("canonical permission catalog", () => {
       "PAYMENTS_PAYMENT_CANCEL",
       "PAYMENTS_TRANSFER_REPORT",
       "PAYMENTS_TRANSFER_CONFIRM",
+      "PAYMENTS_PROVIDER_CONFIGURE",
       "CASH_SHIFT_OPEN",
       "CASH_SHIFT_CLOSE",
       "FISCAL_DOCUMENT_ISSUE",
