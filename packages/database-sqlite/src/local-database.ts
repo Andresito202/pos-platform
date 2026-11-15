@@ -1532,8 +1532,8 @@ CREATE TABLE inventory_lot_movement (
   reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
   supplier_reference TEXT CHECK(supplier_reference IS NULL OR length(supplier_reference) BETWEEN 1 AND 160),
   receipt_document TEXT CHECK(receipt_document IS NULL OR length(receipt_document) BETWEEN 1 AND 160),
-  CHECK ((event_type='RECEIPT')=(supplier_reference IS NOT NULL AND receipt_document IS NOT NULL)),
   occurred_at TEXT NOT NULL,
+  CHECK ((event_type='RECEIPT')=(supplier_reference IS NOT NULL AND receipt_document IS NOT NULL)),
   PRIMARY KEY(tenant_id,branch_id,id),
   FOREIGN KEY(tenant_id,branch_id,lot_id) REFERENCES inventory_lot(tenant_id,branch_id,id),
   FOREIGN KEY(tenant_id,inventory_movement_id) REFERENCES inventory_movement(tenant_id,id)
