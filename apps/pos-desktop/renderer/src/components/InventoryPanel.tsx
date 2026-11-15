@@ -1,3 +1,4 @@
+import { InventoryBatchPanel } from "./InventoryBatchPanel.js";
 import { InventoryCsvImport } from "./InventoryCsvImport.js";
 import { CanonicalPermission } from "@pos-platform/contracts";
 import { useEffect, useState } from "react";
@@ -49,6 +50,13 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
   const [receiveType, setReceiveType] = useState<ReceiveMovement>("PURCHASE_RECEIPT");
   const [receiveQuantity, setReceiveQuantity] = useState("");
   const [receiveReason, setReceiveReason] = useState("PURCHASE");
+  const [batchEnabled,setBatchEnabled]=useState(false);
+  const [batchCode,setBatchCode]=useState("");
+  const [batchManufacture,setBatchManufacture]=useState("");
+  const [batchExpiry,setBatchExpiry]=useState("");
+  const [supplierReference,setSupplierReference]=useState("");
+  const [receiptDocument,setReceiptDocument]=useState("");
+  const [adjustLotId,setAdjustLotId]=useState("");
   const [adjustType, setAdjustType] = useState<AdjustMovement>("ADJUSTMENT_NEGATIVE");
   const [adjustQuantity, setAdjustQuantity] = useState("");
   const [adjustReason, setAdjustReason] = useState("COUNT_CORRECTION");
@@ -119,14 +127,44 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         disabled={inventory.busy || inventory.pending}
       />
       </label>
+      {receiveType==="PURCHASE_RECEIPT"&&<label className="pos-field">
+        <input type="checkbox" checked={batchEnabled} onChange={e=>setBatchEnabled(e.target.checked)}
+          disabled={inventory.busy||inventory.pending}/> Recepción con lote trazable
+      </label>}
+      {batchEnabled&&receiveType==="PURCHASE_RECEIPT"&&<fieldset className="pos-form-grid" aria-label="Datos del lote">
+        <label className="pos-field">Código de lote
+          <input data-testid="batch-code-input" value={batchCode} onChange={e=>setBatchCode(e.target.value)}
+            disabled={inventory.busy||inventory.pending} required/>
+        </label>
+        <label className="pos-field">Fabricación (opcional)
+          <input type="date" value={batchManufacture} onChange={e=>setBatchManufacture(e.target.value)}
+            disabled={inventory.busy||inventory.pending}/>
+        </label>
+        <label className="pos-field">Vencimiento (opcional)
+          <input type="date" value={batchExpiry} onChange={e=>setBatchExpiry(e.target.value)}
+            disabled={inventory.busy||inventory.pending}/>
+        </label>
+        <label className="pos-field">Proveedor
+          <input value={supplierReference} onChange={e=>setSupplierReference(e.target.value)}
+            disabled={inventory.busy||inventory.pending} required/>
+        </label>
+        <label className="pos-field">Documento de recepción
+          <input value={receiptDocument} onChange={e=>setReceiptDocument(e.target.value)}
+            disabled={inventory.busy||inventory.pending} required/>
+        </label>
+      </fieldset>}
       <button
         data-testid="receive-stock-button"
         onClick={() => {
           void inventory.receive(
             target, receiveType, receiveQuantity, receiveReason.trim(), businessDate.trim(),
+            batchEnabled&&receiveType==="PURCHASE_RECEIPT"?{
+              code:batchCode.trim(),manufacture_date:batchManufacture||null,expiry_date:batchExpiry||null,
+              supplier_reference:supplierReference.trim(),receipt_document:receiptDocument.trim(),
+            }:undefined,
           );
         }}
-        disabled={inventory.busy || inventory.pending || !permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || target === "" || receiveQuantity.trim() === ""}
+        disabled={inventory.busy || inventory.pending || !permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || target === "" || receiveQuantity.trim() === "" || (batchEnabled&&receiveType==="PURCHASE_RECEIPT"&&(!batchCode.trim()||!supplierReference.trim()||!receiptDocument.trim()))}
       >
         Recibir
       </button>
@@ -167,11 +205,16 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         disabled={inventory.busy || inventory.pending}
       />
       </label>
+      <label className="pos-field">ID de lote (solo si hay control por lotes)
+        <input data-testid="adjust-batch-id" value={adjustLotId} onChange={e=>setAdjustLotId(e.target.value)}
+          disabled={inventory.busy||inventory.pending} placeholder="UUID del lote"/>
+      </label>
       <button
         data-testid="adjust-stock-button"
         onClick={() => {
           void inventory.adjust(
             target, adjustType, adjustQuantity, adjustReason.trim(), businessDate.trim(),
+            adjustLotId.trim()||undefined,
           );
         }}
         disabled={inventory.busy || inventory.pending || !permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) || target === "" || adjustQuantity.trim() === ""}
@@ -182,6 +225,9 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
       </>}
 
       <h3>Consulta</h3>
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_READ)&&target!==""&&
+        <InventoryBatchPanel presentationId={target} canAdjust={permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)}/>}
+
       <button
         data-testid="get-stock-button"
         onClick={() => { void inventory.getStock(target); }}
