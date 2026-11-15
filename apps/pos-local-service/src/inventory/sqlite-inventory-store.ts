@@ -619,6 +619,7 @@ export class SqliteInventoryStore {
   /** A mutable lot status always has an immutable audit event and a checksum. */
   changeBatchStatus(input:{
     scope:SyncScope;lotId:string;status:"AVAILABLE"|"QUARANTINE"|"BLOCKED"|"RECALLED";
+    sessionId?:string;correlationId?:string;causationId?:string|null;
     actorId:string;reasonCode:string;idempotencyKey:string;requestChecksum:string;
   }):"UPDATED"|"IDEMPOTENT"|"CONFLICT"|"NOT_FOUND" {
     return this.database.native.transaction(()=>{
@@ -649,6 +650,17 @@ export class SqliteInventoryStore {
       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(input.scope.tenantId,input.scope.companyId,
         input.scope.branchId,uuidV7(),input.lotId,row.status,input.status,input.actorId,
         input.reasonCode,input.idempotencyKey,input.requestChecksum,when);
+      if(input.sessionId&&input.correlationId){
+        this.database.native.prepare(`INSERT INTO local_operation_audit(
+          tenant_id,company_id,branch_id,device_id,actor_type,actor_id,session_id,
+          action_code,resource_type,resource_id,correlation_id,causation_id,
+          reason_code,details_json,created_at
+        ) VALUES(?,?,?,?,'USER',?,?,'INVENTORY_LOT_STATUS_CHANGED','INVENTORY_LOT',?,?,?,?,?,?)`)
+          .run(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.scope.deviceId,
+            input.actorId,input.sessionId,input.lotId,input.correlationId,
+            input.causationId??null,input.reasonCode,
+            canonicalJson({previous_status:row.status,next_status:input.status}),when);
+      }
       return "UPDATED";
     })();
   }
