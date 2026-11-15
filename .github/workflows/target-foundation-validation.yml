@@ -226,6 +226,9 @@ jobs:
       - name: Validate PostgreSQL security event repository
         run: pnpm --filter @pos-platform/database-postgres test
 
+      - name: Validate BUSINESS role grants with disposable PostgreSQL
+        run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/business-role-grants-audit.test.ts
+
       - name: Typecheck
         run: pnpm typecheck
 
