@@ -128,6 +128,53 @@ describe.skipIf(!enabled)("BUSINESS role-grant SQL audit against PostgreSQL", ()
     await expect(runAudit()).rejects.toThrow("BUSINESS_GRANT_SEPARATION_VIOLATION");
   });
 
+  async function createMember(label: string): Promise<{ tenant: string; membership: string }> {
+    const tenant = uuidV7(), user = uuidV7(), membership = uuidV7();
+    const email = label + "-" + randomBytes(5).toString("hex") + "@example.test";
+    await db.query(
+      `INSERT INTO identity.users
+        (id,email,email_normalized,full_name,status,created_at,updated_at)
+        VALUES($1,$2,$2,'Role grant fixture','ACTIVE',clock_timestamp(),clock_timestamp())`,
+      [user, email],
+    );
+    await db.query(
+      `INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at)
+       VALUES($1,$2,'ACTIVE',clock_timestamp(),clock_timestamp())`,
+      [tenant, label],
+    );
+    await db.query(
+      `INSERT INTO tenancy.tenant_memberships
+        (id,tenant_id,user_id,membership_type,status,created_by_actor_type,created_at,activated_at)
+       VALUES($1,$2,$3,'MEMBER','ACTIVE','SYSTEM',clock_timestamp(),clock_timestamp())`,
+      [membership, tenant, user],
+    );
+    return { tenant, membership };
+  }
+
+  it("rejects a PLATFORM role assigned through the BUSINESS assignment table", async () => {
+    await grant("CASHIER", "SALES_SALE_CREATE");
+    const { tenant, membership } = await createMember("wrong-platform-role");
+    const platformRole = await putRole("PLATFORM_OWNER", "PLATFORM");
+    await db.query(
+      `INSERT INTO "authorization".user_role_assignments
+        (id,tenant_id,tenant_membership_id,role_id,status,valid_from,created_at,created_by_actor_type)
+       VALUES($1,$2,$3,$4,'ACTIVE',clock_timestamp(),clock_timestamp(),'SYSTEM')`,
+      [uuidV7(), tenant, membership, platformRole],
+    );
+    await expect(runAudit()).rejects.toThrow("BUSINESS_ASSIGNMENT_PLATFORM_ROLE");
+  });
+
+  it("rejects an assignment whose membership belongs to a different tenant", async () => {
+    const a = await createMember("tenant-a");
+    const b = await createMember("tenant-b");
+    await expect(db.query(
+      `INSERT INTO "authorization".user_role_assignments
+        (id,tenant_id,tenant_membership_id,role_id,status,valid_from,created_at,created_by_actor_type)
+       VALUES($1,$2,$3,$4,'ACTIVE',clock_timestamp(),clock_timestamp(),'SYSTEM')`,
+      [uuidV7(), a.tenant, b.membership, ids.get("role:CASHIER")],
+    )).rejects.toMatchObject({ code: "23503" });
+  });
+
   it("ignores retired grants and permits safe read-only SUPERVISOR grants", async () => {
     await grant("CASHIER", "SALES_SALE_CREATE");
     await grant("SUPERVISOR", "CATALOG_PRODUCT_READ");
