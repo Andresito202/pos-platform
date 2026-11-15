@@ -1596,10 +1596,11 @@ CREATE TABLE inventory_conversion_rule (
   CHECK(source_presentation_id<>target_presentation_id),
   FOREIGN KEY(tenant_id,source_presentation_id) REFERENCES catalog_presentation(tenant_id,id),
   FOREIGN KEY(tenant_id,target_presentation_id) REFERENCES catalog_presentation(tenant_id,id),
-  FOREIGN KEY(tenant_id,company_id,product_id) REFERENCES catalog_product(tenant_id,company_id,id)
+  FOREIGN KEY(tenant_id,product_id) REFERENCES catalog_product(tenant_id,id)
 ) WITHOUT ROWID, STRICT;
 CREATE TRIGGER inventory_conversion_rule_same_product BEFORE INSERT ON inventory_conversion_rule
-WHEN (SELECT product_id FROM catalog_presentation WHERE tenant_id=NEW.tenant_id AND id=NEW.source_presentation_id)<>NEW.product_id
+WHEN (SELECT company_id FROM catalog_product WHERE tenant_id=NEW.tenant_id AND id=NEW.product_id)<>NEW.company_id
+ OR (SELECT product_id FROM catalog_presentation WHERE tenant_id=NEW.tenant_id AND id=NEW.source_presentation_id)<>NEW.product_id
  OR (SELECT product_id FROM catalog_presentation WHERE tenant_id=NEW.tenant_id AND id=NEW.target_presentation_id)<>NEW.product_id
 BEGIN SELECT RAISE(ABORT,'conversion presentations must share a product'); END;
 CREATE TRIGGER inventory_conversion_rule_no_update BEFORE UPDATE ON inventory_conversion_rule
