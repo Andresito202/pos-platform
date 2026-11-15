@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { formatScale6Display, formatQuantityDisplay } from "../renderer/src/money-display.js";
 import { _electron as electron, type ElectronApplication } from "playwright";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -405,12 +406,12 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.getByTestId("receipt-document").textContent())
     .toBe(`${String(truth["document_series"])}-${String(truth["sale_number"])}`);
   expect(await page.getByTestId("receipt-business-date").textContent()).toBe(truth["business_date"]);
-  expect(await page.getByTestId("receipt-subtotal").textContent()).toBe(truth["subtotal_amount"]);
-  expect(await page.getByTestId("receipt-discount").textContent()).toBe(truth["discount_amount"]);
-  expect(await page.getByTestId("receipt-tax").textContent()).toBe(truth["tax_amount"]);
+  expect(await page.getByTestId("receipt-subtotal").textContent()).toBe(formatScale6Display(String(truth["subtotal_amount"])));
+  expect(await page.getByTestId("receipt-discount").textContent()).toBe(formatScale6Display(String(truth["discount_amount"])));
+  expect(await page.getByTestId("receipt-tax").textContent()).toBe(formatScale6Display(String(truth["tax_amount"])));
   expect(await page.getByTestId("receipt-rounding").textContent())
-    .toBe(truth["commercial_rounding_adjustment"]);
-  expect(await page.getByTestId("receipt-payable").textContent()).toBe(truth["payable_amount"]);
+    .toBe(formatScale6Display(String(truth["commercial_rounding_adjustment"])));
+  expect(await page.getByTestId("receipt-payable").textContent()).toBe(formatScale6Display(String(truth["payable_amount"])));
   expect(await page.getByTestId("receipt-currency").textContent()).toBe(truth["currency_code"]);
 
   // Las líneas llegan completas a la pantalla, no resumidas.
@@ -421,11 +422,11 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.getByTestId("receipt-line-presentation").first().textContent())
     .toBe(receiptLines[0]!["presentation_name"]);
   expect(await page.getByTestId("receipt-line-quantity").first().textContent())
-    .toBe(receiptLines[0]!["quantity"]);
+    .toBe(formatQuantityDisplay(String(receiptLines[0]!["quantity"]), null));
   expect(await page.getByTestId("receipt-line-unit-price").first().textContent())
-    .toBe(receiptLines[0]!["unit_price_amount"]);
+    .toBe(formatScale6Display(String(receiptLines[0]!["unit_price_amount"])));
   expect(await page.getByTestId("receipt-line-total").first().textContent())
-    .toBe(receiptLines[0]!["line_total_amount"]);
+    .toBe(formatScale6Display(String(receiptLines[0]!["line_total_amount"])));
 
   // Y los cobros: importe y cambio, que es lo que el cliente revisa.
   const receiptPayments = truth["payments"] as Array<Record<string, unknown>>;
@@ -433,7 +434,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.getByTestId("receipt-payment-method").first().textContent())
     .toBe(receiptPayments[0]!["payment_method"]);
   expect(await page.getByTestId("receipt-payment-amount").first().textContent())
-    .toBe(receiptPayments[0]!["confirmed_amount"]);
+    .toBe(formatScale6Display(String(receiptPayments[0]!["confirmed_amount"])));
   await captureState("receipt-found");
 
   // ── 7 · Los dos desenlaces que no son un recibo ────────────────────────────
