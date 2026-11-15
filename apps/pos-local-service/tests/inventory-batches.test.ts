@@ -391,4 +391,92 @@ describe("shared v22 batch ledger and FEFO on original inventory",()=>{
   expect(store.isLotTracked(SCOPE,presentationId)).toBe(false);
   expect(database.native.prepare("SELECT count(*) AS n FROM inventory_lot_movement").get()).toEqual({n:0});
  });
+ it("INV-015 reserves reduce availability without changing physical stock and release restores it",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"HOLD-A","2026-09-12","2.000000")).kind).toBe("POSTED");
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"HOLD-B","2026-09-20","3.000000")).kind).toBe("POSTED");
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("5.000000");
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(5_000_000n);
+  const first=store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"4.000000",
+    referenceType:"MANUAL",referenceId:"order-1",idempotencyKey:"reserve-1",
+    requestChecksum:"c".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  });
+  expect(first.kind).toBe("RESERVED");
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("5.000000");
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(1_000_000n);
+  const second=store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"2.000000",
+    referenceType:"MANUAL",referenceId:"order-2",idempotencyKey:"reserve-2",
+    requestChecksum:"d".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  });
+  expect(second).toEqual({kind:"INSUFFICIENT_STOCK",available:"1.000000"});
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"4.000000",
+    referenceType:"MANUAL",referenceId:"order-1",idempotencyKey:"reserve-1",
+    requestChecksum:"c".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  })).toMatchObject({kind:"IDEMPOTENT"});
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"4.000000",
+    referenceType:"MANUAL",referenceId:"order-1",idempotencyKey:"reserve-1",
+    requestChecksum:"e".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  }).kind).toBe("IDEMPOTENCY_CONFLICT");
+  if(first.kind!=="RESERVED")throw new Error("expected reservation");
+  expect(store.releaseReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,reservationId:first.reservationId,
+    reasonCode:"HOLD_CANCELLED",idempotencyKey:"release-1",requestChecksum:"f".repeat(64),
+    correlationId:CORRELATION,causationId:null,
+  })).toBe("RELEASED");
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(5_000_000n);
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("5.000000");
+  expect(database.native.prepare(
+    "SELECT count(*) AS n FROM local_sync_outbox WHERE operation_type='INVENTORY_RESERVATION_CREATE'"
+  ).get()).toEqual({n:1});
+ });
+ it("INV-015 sale reservation is consumed by FEFO deduction without double debit",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"S1","2026-09-11","2.000000")).kind).toBe("POSTED");
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"S2","2026-09-25","2.000000")).kind).toBe("POSTED");
+  const saleId="018f0000-0000-7000-8000-0000000000f1";
+  const reserved=store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"3.000000",
+    referenceType:"SALE",referenceId:saleId,idempotencyKey:`inventory_reserve:sale:${saleId}:${presentationId}`,
+    requestChecksum:"a".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  });
+  expect(reserved.kind).toBe("RESERVED");
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(1_000_000n);
+  expect(store.appendSaleDeduction({
+    scope:SCOPE,sessionId:SESSION,operatorUserId:USER,saleId,presentationId,
+    quantity:"3.000000",businessDate:"2026-09-07",correlationId:CORRELATION,causationId:null,
+  }).kind).toBe("POSTED");
+  expect(store.appendSaleDeduction({
+    scope:SCOPE,sessionId:SESSION,operatorUserId:USER,saleId,presentationId,
+    quantity:"3.000000",businessDate:"2026-09-07",correlationId:CORRELATION,causationId:null,
+  }).kind).toBe("IDEMPOTENT");
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("1.000000");
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(1_000_000n);
+  expect(store.listBatches(SCOPE,presentationId).find(x=>x.batchCode==="S1")?.quantityOnHand).toBe("0.000000");
+  expect(store.listBatches(SCOPE,presentationId).find(x=>x.batchCode==="S2")?.quantityOnHand).toBe("1.000000");
+  expect(database.native.prepare(
+    "SELECT status FROM inventory_reservation WHERE reference_id=?"
+  ).get(saleId)).toEqual({status:"CONSUMED"});
+  const operation=JSON.parse(String((database.native.prepare(
+    "SELECT operation_json AS p FROM local_sync_outbox WHERE operation_type='INVENTORY_MOVEMENT_APPEND' ORDER BY local_sequence DESC LIMIT 1"
+  ).get() as {p:string}).p));
+  expect(operation.payload?.lot_allocations?.length).toBe(2);
+ });
+ it("INV-015 expires due reservations without inventing inbound stock",async()=>{
+  const {receive,store,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"EXP","2026-09-30","2.000000")).kind).toBe("POSTED");
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"2.000000",
+    referenceType:"MANUAL",referenceId:"temp-hold",idempotencyKey:"reserve-exp",
+    requestChecksum:"1".repeat(64),correlationId:CORRELATION,causationId:null,
+    expiresAt:"2026-09-07T09:00:00.000Z",
+  }).kind).toBe("RESERVED");
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(0n);
+  expect(store.expireDueReservations(SCOPE,NOW)).toBe(1);
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(2_000_000n);
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("2.000000");
+ });
 });

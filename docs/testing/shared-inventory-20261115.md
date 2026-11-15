@@ -43,13 +43,19 @@
 
 ## Pendientes delimitados — SIN afirmar implementación
 
+### Incremento 024 — reservas locales duraderas
+
+- **MIGRATION_024**, aditiva: `inventory_reservation` + `inventory_reservation_lot`. Reduce disponibilidad, no on-hand físico. Consume al completar venta; release/expire liberan sin inventar stock.
+- `CreateSaleUseCase` reserva presentaciones `stock_controlled` dentro de la misma transacción de `READY_FOR_PAYMENT`. `appendSaleDeduction` consume la reserva y aplica los lotes FEFO preasignados.
+- IPC `inventory.reservation.create` / `inventory.reservation.release` con permiso `INVENTORY_STOCK_ADJUST`. Outbox local incluye `lot_allocations` en movimientos de venta y eventos de reserva.
+- Pruebas: INV-015 create/concurrencia/idempotencia/release/expire/consume en `inventory-batches.test.ts`; migración 23→24 en `inventory-v24-reservation-migration.test.ts`.
+
 ### Sync Central y concurrencia distribuida
 
-1. Publicar y consumir eventos tipados de lote (fecha, proveedor, documento, estado, movimiento, checksum, fuente, versión) en Central; el payload actual del outbox de inventario conserva principalmente el agregado por presentación.
-2. Resolver el **stock compartido entre cajas**. SQLite por dispositivo no es, por sí solo, una base de stock global. Dos cajas offline pueden ofrecer el mismo inventario. Se necesita titularidad por caja, reservas/asignaciones por sucursal o conciliación/limitación explícita, con pruebas de doble venta.
-3. Reserva de ventas `READY_FOR_PAYMENT`: no existe retención duradera de lotes; la seguridad actual rechaza la segunda deducción al completar, pero no garantiza reserva anticipada.
-4. Propagación de retiro, cuarentena y expiración entre dispositivos, con política para cajas offline y reloj confiable.
-5. Verificación de autorización y recepción en Central, no solamente envío de la outbox; reconciliación idempotente tras reinicio y particiones.
+1. Publicar y consumir eventos tipados de lote (fecha, proveedor, documento, estado, movimiento, checksum, fuente, versión) en Central; el outbox local ya puede llevar `lot_allocations`, pero **no** hay receptor Central certificado.
+2. Resolver el **stock compartido entre cajas**. SQLite por dispositivo no es, por sí solo, una base de stock global. La reserva 024 cubre concurrencia **en la misma caja/DB**; no certifica dos terminales offline.
+3. Propagación de retiro, cuarentena y expiración entre dispositivos, con política para cajas offline y reloj confiable.
+4. Verificación de autorización y recepción en Central, no solamente envío de la outbox; reconciliación idempotente tras reinicio y particiones.
 
 ### Catalog, conversiones y Pastelería
 
