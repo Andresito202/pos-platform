@@ -383,7 +383,9 @@ jobs:
         run: pnpm --filter @pos-platform/database-sqlite test
 
       - name: Validate Windows POS Local Service runtime
-        run: pnpm --filter @pos-platform/pos-local-service exec vitest run --testTimeout 15000
+        # A single physical Windows runner shares named-pipe and SQLite resources across this suite.
+        # Keep the original per-test 30s limit; serialize test files rather than hiding a deadlock.
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run --maxWorkers 1 --testTimeout 30000
 
   provenance:
     name: Provenance evidence
