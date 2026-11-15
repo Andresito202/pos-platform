@@ -682,6 +682,205 @@ export class SqliteInventoryStore {
     })();
   }
 
+
+  /**
+   * Approves an immutable, versioned, same-product presentation equivalence.
+   * Numerator/denominator measure TARGET units per SOURCE unit, not money.
+   * Only an authorized application use case may call this method.
+   */
+  approveConversionRule(input:{
+    scope:SyncScope;sourcePresentationId:string;targetPresentationId:string;
+    numerator:string;denominator:string;version:number;actorId:string;
+    sessionId:string;idempotencyKey:string;requestChecksum:string;
+    correlationId:string;causationId:string|null;
+  }):{kind:"APPROVED"|"IDEMPOTENT"|"CONFLICT"|"PRESENTATION_NOT_FOUND";ruleId?:string}{
+    const numeric=(v:string)=>/^[1-9][0-9]{0,11}$/.test(v);
+    if(!numeric(input.numerator)||!numeric(input.denominator)||
+       !Number.isSafeInteger(input.version)||input.version<1||
+       input.sourcePresentationId===input.targetPresentationId)
+      return {kind:"CONFLICT"};
+    return this.database.native.transaction(()=>{
+      const prior=this.database.native.prepare(`SELECT id,request_checksum
+        FROM inventory_conversion_rule WHERE tenant_id=? AND idempotency_key=?`)
+        .get(input.scope.tenantId,input.idempotencyKey) as
+          {id:string;request_checksum:string}|undefined;
+      if(prior)return prior.request_checksum===input.requestChecksum
+        ?{kind:"IDEMPOTENT" as const,ruleId:prior.id}:{kind:"CONFLICT" as const};
+      const rows=this.database.native.prepare(`SELECT cp.id,cp.product_id,cp.status
+        FROM catalog_presentation cp JOIN catalog_product p
+          ON p.tenant_id=cp.tenant_id AND p.id=cp.product_id
+        WHERE cp.tenant_id=? AND p.company_id=? AND p.status='ACTIVE'
+          AND cp.id IN (?,?)`).all(input.scope.tenantId,input.scope.companyId,
+          input.sourcePresentationId,input.targetPresentationId) as
+        Array<{id:string;product_id:string;status:string}>;
+      if(rows.length!==2||rows.some(x=>x.status!=="ACTIVE")||
+         rows[0]!.product_id!==rows[1]!.product_id)
+        return {kind:"PRESENTATION_NOT_FOUND" as const};
+      const existing=this.database.native.prepare(`SELECT 1 FROM inventory_conversion_rule
+        WHERE tenant_id=? AND company_id=? AND source_presentation_id=?
+          AND target_presentation_id=? AND version=?`).get(
+          input.scope.tenantId,input.scope.companyId,input.sourcePresentationId,
+          input.targetPresentationId,input.version);
+      if(existing)return {kind:"CONFLICT" as const};
+      const ruleId=uuidV7(),when=this.now().toISOString();
+      this.database.native.prepare(`INSERT INTO inventory_conversion_rule(
+        tenant_id,company_id,id,product_id,source_presentation_id,target_presentation_id,
+        numerator,denominator,version,approved_by,idempotency_key,request_checksum,created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        input.scope.tenantId,input.scope.companyId,ruleId,rows[0]!.product_id,
+        input.sourcePresentationId,input.targetPresentationId,input.numerator,
+        input.denominator,input.version,input.actorId,input.idempotencyKey,
+        input.requestChecksum,when);
+      this.database.native.prepare(`INSERT INTO local_operation_audit(
+        tenant_id,company_id,branch_id,device_id,actor_type,actor_id,session_id,
+        action_code,resource_type,resource_id,correlation_id,causation_id,
+        reason_code,details_json,created_at
+      ) VALUES(?,?,?,?,'USER',?,?,'INVENTORY_CONVERSION_RULE_APPROVED',
+        'INVENTORY_CONVERSION_RULE',?,?,?,?,?,?)`).run(
+        input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.scope.deviceId,
+        input.actorId,input.sessionId,ruleId,input.correlationId,input.causationId,
+        "CONVERSION_RULE_APPROVAL",canonicalJson({
+          source_presentation_id:input.sourcePresentationId,
+          target_presentation_id:input.targetPresentationId,
+          numerator:input.numerator,denominator:input.denominator,version:input.version,
+        }),when);
+      return {kind:"APPROVED" as const,ruleId};
+    })();
+  }
+
+  /**
+   * In one SQLite writer transaction: debit exactly one eligible source batch,
+   * credit one provenance-linked target batch, append both existing stock books,
+   * local audit/outbox, and immutable conversion genealogy. No stock duplication.
+   */
+  convertPresentation(input:{
+    scope:SyncScope;ruleId:string;sourceLotId:string;quantity:string;
+    actorId:string;sessionId:string;idempotencyKey:string;requestChecksum:string;
+    reasonCode:string;businessDate:string;correlationId:string;causationId:string|null;
+  }):{kind:"CONVERTED"|"IDEMPOTENT"|"CONFLICT"|"RULE_NOT_FOUND"|"LOT_NOT_FOUND"|
+    "LOT_NOT_SELLABLE"|"INSUFFICIENT_STOCK"|"INVALID_QUANTITY"|
+    "QUANTITY_PRECISION_EXCEEDED"|"LEGACY_STOCK_RECONCILIATION_REQUIRED"|
+    "STOCK_QUANTITY_OVERFLOW";conversionId?:string;targetLotId?:string;targetQuantity?:string}{
+    type Result=ReturnType<SqliteInventoryStore["convertPresentation"]>;
+    class AbortConversion extends Error{constructor(readonly result:Result){super("CONVERSION_ABORTED");}}
+    const abort=(kind:Result["kind"]):never=>{throw new AbortConversion({kind});};
+    try{return this.database.native.transaction(():Result=>{
+      const prior=this.database.native.prepare(`SELECT id,target_lot_id,target_quantity,request_checksum
+        FROM inventory_conversion_event WHERE tenant_id=? AND idempotency_key=?`)
+        .get(input.scope.tenantId,input.idempotencyKey) as
+          {id:string;target_lot_id:string;target_quantity:string;request_checksum:string}|undefined;
+      if(prior)return prior.request_checksum===input.requestChecksum
+        ?{kind:"IDEMPOTENT",conversionId:prior.id,targetLotId:prior.target_lot_id,
+           targetQuantity:prior.target_quantity}:{kind:"CONFLICT"};
+      if(!/^[A-Z][A-Z0-9_]{1,63}$/.test(input.reasonCode)||
+         !/^(0|[1-9]\\d{0,12})\\.\\d{6}$/.test(input.quantity))
+        return {kind:"INVALID_QUANTITY"};
+      const sourceUnits=scale6ToBigInt(input.quantity);
+      if(sourceUnits<=0n)return {kind:"INVALID_QUANTITY"};
+      const rule=this.database.native.prepare(`SELECT source_presentation_id,target_presentation_id,
+        numerator,denominator FROM inventory_conversion_rule
+        WHERE tenant_id=? AND company_id=? AND id=?`).get(
+          input.scope.tenantId,input.scope.companyId,input.ruleId) as {
+          source_presentation_id:string;target_presentation_id:string;
+          numerator:string;denominator:string;
+        }|undefined;
+      if(!rule)return {kind:"RULE_NOT_FOUND"};
+      const precisionRows=this.database.native.prepare(`SELECT id,unit_precision FROM catalog_presentation
+        WHERE tenant_id=? AND id IN (?,?) AND status='ACTIVE'`).all(
+          input.scope.tenantId,rule.source_presentation_id,rule.target_presentation_id) as
+        Array<{id:string;unit_precision:number}>;
+      if(precisionRows.length!==2)return {kind:"RULE_NOT_FOUND"};
+      const sourcePrecision=precisionRows.find(x=>x.id===rule.source_presentation_id)!.unit_precision;
+      const targetPrecision=precisionRows.find(x=>x.id===rule.target_presentation_id)!.unit_precision;
+      if(!quantityFitsUnitPrecision(input.quantity,sourcePrecision))
+        return {kind:"QUANTITY_PRECISION_EXCEEDED"};
+      const raw=sourceUnits*BigInt(rule.numerator),denominator=BigInt(rule.denominator);
+      if(raw%denominator!==0n)return {kind:"QUANTITY_PRECISION_EXCEEDED"};
+      const targetUnits=raw/denominator;
+      if(targetUnits<=0n||targetUnits>9_999_999_999_999_999_999n)
+        return {kind:"STOCK_QUANTITY_OVERFLOW"};
+      const targetQuantity=bigIntToScale6(targetUnits);
+      if(!quantityFitsUnitPrecision(targetQuantity,targetPrecision))
+        return {kind:"QUANTITY_PRECISION_EXCEEDED"};
+      const source=this.database.native.prepare(`SELECT batch_code,manufacture_date,expiry_date,
+        supplier_reference,receipt_document,status,quantity_on_hand FROM inventory_lot
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=? AND id=?`)
+        .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+          rule.source_presentation_id,input.sourceLotId) as {
+          batch_code:string;manufacture_date:string|null;expiry_date:string|null;
+          supplier_reference:string;receipt_document:string;status:string;
+          quantity_on_hand:string;
+        }|undefined;
+      if(!source)return {kind:"LOT_NOT_FOUND"};
+      if(source.status!=="AVAILABLE"||
+         (source.expiry_date!==null&&source.expiry_date<this.now().toISOString().slice(0,10)))
+        return {kind:"LOT_NOT_SELLABLE"};
+      if(scale6ToBigInt(source.quantity_on_hand)<sourceUnits)return {kind:"INSUFFICIENT_STOCK"};
+      const destinationStock=this.getStock(input.scope,rule.target_presentation_id);
+      if(!this.isLotTracked(input.scope,rule.target_presentation_id)&&
+         destinationStock&&scale6ToBigInt(destinationStock.quantityOnHand)>0n)
+        return {kind:"LEGACY_STOCK_RECONCILIATION_REQUIRED"};
+      if(destinationStock&&
+         scale6ToBigInt(destinationStock.quantityOnHand)+targetUnits>9_999_999_999_999_999_999n)
+        return {kind:"STOCK_QUANTITY_OVERFLOW"};
+      const code=`CV-${input.sourceLotId}`,when=this.now().toISOString();
+      const existingDest=this.database.native.prepare(`SELECT id,status,manufacture_date,expiry_date
+        FROM inventory_lot WHERE tenant_id=? AND company_id=? AND branch_id=?
+          AND presentation_id=? AND batch_code=?`).get(
+          input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+          rule.target_presentation_id,code) as {
+          id:string;status:string;manufacture_date:string|null;expiry_date:string|null;
+        }|undefined;
+      if(existingDest&&
+         (existingDest.status!=="AVAILABLE"||
+          existingDest.manufacture_date!==source.manufacture_date||
+          existingDest.expiry_date!==source.expiry_date))return {kind:"LOT_NOT_SELLABLE"};
+      if(!this.isLotTracked(input.scope,rule.target_presentation_id))
+        this.database.native.prepare(`INSERT INTO inventory_lot_tracking(
+          tenant_id,company_id,branch_id,presentation_id,enabled_at,actor_id)
+          VALUES(?,?,?,?,?,?)`).run(input.scope.tenantId,input.scope.companyId,
+          input.scope.branchId,rule.target_presentation_id,when,input.actorId);
+      const targetLotId=existingDest?.id??uuidV7();
+      if(!existingDest)this.database.native.prepare(`INSERT INTO inventory_lot(
+        id,tenant_id,company_id,branch_id,presentation_id,batch_code,manufacture_date,
+        expiry_date,supplier_reference,receipt_document,status,quantity_on_hand,version,
+        created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'AVAILABLE','0.000000',1,?,?)`).run(
+          targetLotId,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+          rule.target_presentation_id,code,source.manufacture_date,source.expiry_date,
+          source.supplier_reference,source.receipt_document,when,when);
+      const checksum=(leg:"OUT"|"IN")=>createHash("sha256").update(
+        canonicalJson({conversion_checksum:input.requestChecksum,leg})).digest("hex");
+      const base={scope:input.scope,sessionId:input.sessionId,operatorUserId:input.actorId,
+        reasonCode:input.reasonCode,saleId:null,businessDate:input.businessDate,
+        correlationId:input.correlationId,causationId:input.causationId};
+      const out:AppendMovementInput={...base,movementId:uuidV7(),operationId:uuidV7(),
+        presentationId:rule.source_presentation_id,movementType:"TRANSFER_OUT",
+        quantity:input.quantity,idempotencyKey:`conversion:${input.idempotencyKey}:out`,
+        requestChecksum:checksum("OUT")};
+      const inbound:AppendMovementInput={...base,movementId:uuidV7(),operationId:uuidV7(),
+        presentationId:rule.target_presentation_id,movementType:"TRANSFER_IN",
+        quantity:targetQuantity,idempotencyKey:`conversion:${input.idempotencyKey}:in`,
+        requestChecksum:checksum("IN")};
+      const debited=this.appendMovement(out,true);
+      if(debited.kind!=="POSTED")abort("CONFLICT");
+      this.writeLotLedger(out,input.sourceLotId,sourceUnits,"OUT","CONVERSION");
+      const credited=this.appendMovement(inbound,true);
+      if(credited.kind!=="POSTED")abort("CONFLICT");
+      this.writeLotLedger(inbound,targetLotId,targetUnits,"IN","CONVERSION");
+      const conversionId=uuidV7();
+      this.database.native.prepare(`INSERT INTO inventory_conversion_event(
+        tenant_id,company_id,branch_id,id,rule_id,source_lot_id,target_lot_id,
+        source_movement_id,target_movement_id,source_quantity,target_quantity,
+        idempotency_key,request_checksum,actor_id,reason_code,occurred_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        input.scope.tenantId,input.scope.companyId,input.scope.branchId,conversionId,
+        input.ruleId,input.sourceLotId,targetLotId,out.movementId,inbound.movementId,
+        input.quantity,targetQuantity,input.idempotencyKey,input.requestChecksum,
+        input.actorId,input.reasonCode,when);
+      return {kind:"CONVERTED",conversionId,targetLotId,targetQuantity};
+    })();}catch(error){if(error instanceof AbortConversion)return error.result;throw error;}
+  }
+
   /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */
   appendMovementInTransaction(input: AppendMovementInput): AppendMovementOutcome {
     return this.database.native.transaction(
