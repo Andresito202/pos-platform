@@ -2,6 +2,7 @@ import { LicenseCapacityGate } from "../src/security/license-capacity-gate.js";
 import { LocalSecurityLifecycle } from "../src/security/security-lifecycle.js";
 import { unsignedLicenseCapacityBytes } from "../src/security/license-verifier.js";
 import type { LicenseCapacityClaims } from "@pos-platform/contracts";
+import { uuidV7 } from "@pos-platform/contracts";
 import type {Server,Socket} from "node:net";
 // Linux test transport uses actual loopback sockets; Windows keeps named pipes.
 // Business handler, framing, MAC and SQLite remain real.
@@ -348,7 +349,7 @@ async function withRealChannel(
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
 
-  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
+  const endpoint = localChannelEndpoint(uuidV7(), process.platform, dir);
   const secret = randomBytes(32);
 
   let handlerFailure: unknown;
@@ -468,7 +469,7 @@ async function withRealFiscalChannel(
   await commercial.start();
   const handler = new CommercialRequestHandler(fiscalConfig(), commercial);
 
-  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
+  const endpoint = localChannelEndpoint(uuidV7(), process.platform, dir);
   const secret = randomBytes(32);
 
   const server = new LocalChannelServer(
