@@ -238,6 +238,15 @@ jobs:
       - name: Validate BUSINESS session and signed authorization composition on isolated PostgreSQL
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/business-access-preparation-physical.test.ts --maxWorkers 1 --testTimeout 120000 --hookTimeout 180000
 
+      - name: Validate opt-in merchant QR and notice migration descriptors
+        run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations.test.ts tests/postgres-025-merchant-notifications.test.ts
+
+      - name: Validate merchant QR and UNVERIFIED notices with disposable PostgreSQL
+        run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations-physical.test.ts --testTimeout 120000 --hookTimeout 120000
+
+      - name: Verify existing manual Payments against SQLite after QR changes
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/payment.test.ts
+
       - name: Typecheck
         run: pnpm typecheck
 
