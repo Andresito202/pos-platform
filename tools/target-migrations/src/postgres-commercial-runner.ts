@@ -40,8 +40,21 @@ export const POSTGRES_022_DESCRIPTOR=descriptor("022_license_activations",POSTGR
 export const LICENSE_ACTIVATION_MIGRATIONS=Object.freeze([...GLOBAL_ADMINISTRATION_MIGRATIONS,POSTGRES_022_DESCRIPTOR]);
 export const POSTGRES_023_DESCRIPTOR=descriptor("023_license_offer_terms",POSTGRES_022_DESCRIPTOR.migrationId,["licensing.plans"],"licensing");
 export const LICENSE_CATALOG_MIGRATIONS=Object.freeze([...LICENSE_ACTIVATION_MIGRATIONS,POSTGRES_023_DESCRIPTOR]);
-type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
+export const POSTGRES_024_DESCRIPTOR=descriptor("024_merchant_payment_destinations",POSTGRES_023_DESCRIPTOR.migrationId,
+  ["payments.merchant_qr_assets","payments.merchant_destinations","payments.merchant_destination_events",
+   "payments.merchant_destination_outbox","payments.merchant_destination_sequences","payments.merchant_destination_acknowledgements"],"payments");
+export const MERCHANT_DESTINATION_MIGRATIONS=Object.freeze([...LICENSE_CATALOG_MIGRATIONS,POSTGRES_024_DESCRIPTOR]);
+export const POSTGRES_025_DESCRIPTOR=descriptor("025_merchant_payment_notifications",POSTGRES_024_DESCRIPTOR.migrationId,
+ ["payments.merchant_notification_bridge_consents","payments.merchant_payment_notification_inbox"],"payments");
+export const POSTGRES_026_DESCRIPTOR=descriptor("026_merchant_payment_notice_reported_details",POSTGRES_025_DESCRIPTOR.migrationId,
+ ["payments.merchant_payment_notification_inbox"],"payments");
+export const POSTGRES_027_DESCRIPTOR=descriptor("027_merchant_notice_revocation_guard",POSTGRES_026_DESCRIPTOR.migrationId,
+ ["payments.merchant_notification_bridge_consents"],"payments");
+export const MERCHANT_NOTIFICATION_MIGRATIONS=Object.freeze([...MERCHANT_DESTINATION_MIGRATIONS,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR,POSTGRES_027_DESCRIPTOR]);
+type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG"|"MERCHANT_DESTINATIONS"|"MERCHANT_NOTIFICATIONS";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="MERCHANT_NOTIFICATIONS")return MERCHANT_NOTIFICATION_MIGRATIONS;
+  if(target==="MERCHANT_DESTINATIONS")return MERCHANT_DESTINATION_MIGRATIONS;
   if(target==="LICENSE_CATALOG")return LICENSE_CATALOG_MIGRATIONS;
   if(target==="LICENSE_ACTIVATIONS")return LICENSE_ACTIVATION_MIGRATIONS;
   if(target==="AUTHENTICATION")return COMMERCIAL_MIGRATIONS;
