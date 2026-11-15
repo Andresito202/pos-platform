@@ -2,8 +2,10 @@
 -- Source: docs/product/roles.md and docs/security/permission-matrix.md.
 -- Execute ONLY against a database selected by the operator with:
 --   psql -X -v ON_ERROR_STOP=1 -f tools/operators/audit-business-role-grants.sql
--- A successful run means no enumerated forbidden grants/assignment scopes exist
--- in THIS database at THIS instant. It is NOT a BUSINESS login or E2E certification.
+-- A successful run means at least one BUSINESS grant exists and no enumerated
+-- forbidden grants/assignment scopes exist in THIS database at THIS instant.
+-- It does not prove that all required roles have been provisioned, that every
+-- effective grant is correct, or that BUSINESS login and E2E have been certified.
 -- Do not pipe this through a privileged migration runner or add test grants.
 
 BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
@@ -37,7 +39,26 @@ SELECT r.code AS business_role,
 DO $business_grant_audit$
 DECLARE
     offending RECORD;
+    active_business_grants bigint;
 BEGIN
+    -- A green result on an empty or unprovisioned catalog would be meaningless.
+    -- Only effective grants count; merely declaring a role is not authorization.
+    SELECT count(*)
+      INTO active_business_grants
+      FROM "authorization".roles r
+      JOIN "authorization".role_permission_grants g ON g.role_id = r.id
+      JOIN "authorization".permissions p ON p.id = g.permission_id
+     WHERE r.scope_type = 'BUSINESS'
+       AND r.status = 'ACTIVE'
+       AND g.status = 'ACTIVE'
+       AND p.status = 'ACTIVE'
+       AND g.valid_from <= transaction_timestamp()
+       AND (g.valid_until IS NULL OR g.valid_until > transaction_timestamp());
+
+    IF active_business_grants = 0 THEN
+        RAISE EXCEPTION 'BUSINESS_GRANT_AUDIT_INCONCLUSIVE: no effective BUSINESS grants materialized';
+    END IF;
+
     SELECT r.code AS role_code,
            r.version AS role_version,
            p.code AS permission_code,
