@@ -27,6 +27,13 @@ export async function exerciseLicenseCapacity(f:{owner:Pool;runtime:Pool;user:st
   const password=randomBytes(24).toString("hex"),factor=id(),material=id(),passwordId=id(),credentialId=randomBytes(32).toString("base64url"),origin="https://business.example.test";
   const pair=generateKeyPairSync("ec",{namedCurve:"prime256v1"}),jwk=pair.publicKey.export({format:"jwk"});
   const cose=Buffer.concat([Buffer.from("a5010203262001215820","hex"),Buffer.from(jwk.x!,"base64url"),Buffer.from("225820","hex"),Buffer.from(jwk.y!,"base64url")]);
+  // The preceding GLOBAL browser-flow test leaves its own valid password
+  // on this disposable user. Retire that fixture credential first: PostgreSQL
+  // intentionally forbids two ACTIVE PASSWORD credentials for one identity.
+  // Only the isolated fixture is modified; the production rotation API is not.
+  await owner.query(`UPDATE identity.user_credentials
+    SET status='REVOKED',revoked_at=now(),version=version+1
+    WHERE user_id=$1 AND credential_type='PASSWORD' AND status='ACTIVE'`,[user]);
   await owner.query("INSERT INTO identity.user_credentials(id,user_id,credential_type,verifier,status,created_at) VALUES($1,$2,'PASSWORD',$3,'ACTIVE',now())",[passwordId,user,await createPlatformPasswordVerifier(password,"owasp-19m-t2-p1")]);
   await owner.query("INSERT INTO identity.mfa_factors(id,user_id,factor_type,secret_reference,status,enrolled_at,verified_at) VALUES($1,$2,'WEBAUTHN',$3,'ACTIVE',now(),now())",[factor,user,"webauthn:v1:"+material]);
   await owner.query("INSERT INTO identity.webauthn_credential_material(id,factor_id,credential_id,public_key_cose_base64url) VALUES($1,$2,$3,$4)",[material,factor,credentialId,cose.toString("base64url")]);
