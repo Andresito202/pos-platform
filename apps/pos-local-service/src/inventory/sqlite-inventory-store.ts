@@ -519,7 +519,7 @@ export class SqliteInventoryStore {
     supplierReference:string;receiptDocument:string;
   }):AppendMovementOutcome {
     if(input.movementType!=="PURCHASE_RECEIPT")throw Error("LOT_RECEIPT_TYPE_REQUIRED");
-    const validDate=(x:string)=>/^\\d{4}-\\d{2}-\\d{2}$/.test(x)&&
+    const validDate=(x:string)=>/^\d{4}-\d{2}-\d{2}$/.test(x)&&
       !Number.isNaN(Date.parse(x))&&new Date(x+"T00:00:00.000Z").toISOString().slice(0,10)===x;
     if(batch.code.trim().length<1||batch.code.length>96||batch.supplierReference.trim().length<1||
       batch.supplierReference.length>160||batch.receiptDocument.trim().length<1||
@@ -527,7 +527,7 @@ export class SqliteInventoryStore {
       (batch.expiryDate!==null&&!validDate(batch.expiryDate))||
       (batch.expiryDate!==null&&batch.manufactureDate!==null&&batch.manufactureDate>batch.expiryDate))
       return {kind:"INVALID_QUANTITY"};
-    if(!/^(0|[1-9]\\d{0,12})\\.\\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
+    if(!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
       return {kind:"INVALID_QUANTITY"};
     const check=()=>{
       const tracking=this.isLotTracked(input.scope,input.presentationId);
