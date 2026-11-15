@@ -59,6 +59,13 @@ export interface CreateSaleInput {
    * objeto y no dos campos sueltos que pudieran desparejarse.
    */
   readonly cashShift: { readonly cashRegisterId: string; readonly shiftId: string } | null;
+  /**
+   * Runs inside the sale writer transaction after the sale aggregate is inserted.
+   * Used to create inventory reservations atomically with READY_FOR_PAYMENT.
+   * Throwing rolls back the sale; returning a typed failure is not supported —
+   * callers map thrown codes to CreateSaleOutcome.
+   */
+  readonly afterInsert?: (saleId: string) => void;
 }
 
 export type CreateSaleOutcome =
@@ -386,6 +393,10 @@ export class SqliteSaleStore {
         occurred_at_local: nowIso,
         recorded_at_local: nowIso,
       });
+
+      // Hold sellable stock for READY_FOR_PAYMENT before the transaction commits.
+      // Failures throw and roll back the sale aggregate + outbox together.
+      if (input.afterInsert) input.afterInsert(input.saleId);
 
       return {
         kind: "CREATED",

@@ -177,6 +177,7 @@ export class CreateSaleUseCase {
     // comprobarlas de una en una dejaría pasar dos líneas de 3 con 4 en
     // existencia.
     const requestedByPresentation = new Map<string, bigint>();
+    const stockControlledByPresentation = new Map<string, bigint>();
     for (const line of request.lines) {
       const accumulated = requestedByPresentation.get(line.presentationId) ?? 0n;
       requestedByPresentation.set(line.presentationId, accumulated + scale6ToBigInt(line.quantity));
@@ -230,6 +231,7 @@ export class CreateSaleUseCase {
       // finalización revierte el cobro en vez de dejar existencia negativa.
       if (product.stockControlled) {
         const requestedUnits = requestedByPresentation.get(line.presentationId) ?? 0n;
+        stockControlledByPresentation.set(line.presentationId, requestedUnits);
         const available = this.inventoryStore.availableUnits(scope, line.presentationId);
         if (available < requestedUnits) {
           return {
@@ -413,9 +415,64 @@ export class CreateSaleUseCase {
             },
       })),
       totals,
+      afterInsert: (saleId: string) => {
+        // Durable hold: availability drops now; physical on-hand waits for payment.
+        for (const [presentationId, units] of stockControlledByPresentation) {
+          const quantity = bigIntToScale6(units);
+          const reservationKey = `inventory_reserve:sale:${saleId}:${presentationId}`;
+          const reservationChecksum = createHash("sha256")
+            .update(canonicalJson({
+              sale_id: saleId,
+              presentation_id: presentationId,
+              quantity,
+              actor_id: operatorUserId,
+            }))
+            .digest("hex");
+          const reserved = this.inventoryStore.createReservation({
+            scope,
+            sessionId,
+            actorId: operatorUserId,
+            presentationId,
+            quantity,
+            referenceType: "SALE",
+            referenceId: saleId,
+            idempotencyKey: reservationKey,
+            requestChecksum: reservationChecksum,
+            correlationId: request.correlationId,
+            causationId: request.causationId,
+            expiresAt: null,
+          });
+          if (reserved.kind === "INSUFFICIENT_STOCK") {
+            const error = new Error("INSUFFICIENT_STOCK_RESERVATION") as Error & {
+              presentationId: string; available: string; requested: string;
+            };
+            error.presentationId = presentationId;
+            error.available = reserved.available;
+            error.requested = quantity;
+            throw error;
+          }
+          if (reserved.kind !== "RESERVED" && reserved.kind !== "IDEMPOTENT") {
+            throw new Error(`inventory reservation failed: ${reserved.kind}`);
+          }
+        }
+      },
     };
 
-    const outcome: CreateSaleOutcome = this.saleStore.create(storeInput);
+    let outcome: CreateSaleOutcome;
+    try {
+      outcome = this.saleStore.create(storeInput);
+    } catch (error) {
+      if (error instanceof Error && error.message === "INSUFFICIENT_STOCK_RESERVATION") {
+        const typed = error as Error & { presentationId: string; available: string; requested: string };
+        return {
+          kind: "INSUFFICIENT_STOCK",
+          presentationId: typed.presentationId,
+          available: typed.available,
+          requested: typed.requested,
+        };
+      }
+      throw error;
+    }
 
     if (outcome.kind === "IDEMPOTENCY_CONFLICT") {
       return { kind: "IDEMPOTENCY_CONFLICT" };

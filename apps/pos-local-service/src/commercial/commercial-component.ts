@@ -35,6 +35,7 @@ import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
 import { AdjustStockUseCase,ChangeBatchStatusUseCase } from "../inventory/adjust-stock-use-case.js";
 import { GetStockUseCase,ListBatchesUseCase } from "../inventory/get-stock-use-case.js";
 import { ApprovePresentationConversionUseCase,ConvertPresentationUseCase } from "../inventory/presentation-conversion-use-cases.js";
+import { CreateInventoryReservationUseCase,ReleaseInventoryReservationUseCase } from "../inventory/reservation-use-cases.js";
 import { GetReceiptUseCase } from "../receipts/get-receipt-use-case.js";
 import { SqliteReceiptStore } from "../receipts/sqlite-receipt-store.js";
 import { SqlitePaymentStore } from "../payments/sqlite-payment-store.js";
@@ -112,6 +113,8 @@ export class CommercialComponent implements RuntimeComponent {
         readonly changeBatchStatus:ChangeBatchStatusUseCase;
         readonly approvePresentationConversion:ApprovePresentationConversionUseCase;
         readonly convertPresentation:ConvertPresentationUseCase;
+        readonly createInventoryReservation:CreateInventoryReservationUseCase;
+        readonly releaseInventoryReservation:ReleaseInventoryReservationUseCase;
         readonly getReceipt: GetReceiptUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
@@ -240,6 +243,8 @@ export class CommercialComponent implements RuntimeComponent {
   get changeBatchStatus():ChangeBatchStatusUseCase{return this.ready.changeBatchStatus;}
   get approvePresentationConversion():ApprovePresentationConversionUseCase{return this.ready.approvePresentationConversion;}
   get convertPresentation():ConvertPresentationUseCase{return this.ready.convertPresentation;}
+  get createInventoryReservation():CreateInventoryReservationUseCase{return this.ready.createInventoryReservation;}
+  get releaseInventoryReservation():ReleaseInventoryReservationUseCase{return this.ready.releaseInventoryReservation;}
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
 
@@ -318,6 +323,8 @@ export class CommercialComponent implements RuntimeComponent {
        changeBatchStatus:new ChangeBatchStatusUseCase(inventoryStore),
        approvePresentationConversion:new ApprovePresentationConversionUseCase(inventoryStore),
        convertPresentation:new ConvertPresentationUseCase(inventoryStore),
+       createInventoryReservation:new CreateInventoryReservationUseCase(inventoryStore),
+       releaseInventoryReservation:new ReleaseInventoryReservationUseCase(inventoryStore),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct: new RegisterProductUseCase(catalogStore),

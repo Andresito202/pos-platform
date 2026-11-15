@@ -172,7 +172,7 @@ export class SqliteInventoryStore {
     ).get(scope.tenantId,scope.companyId,scope.branchId,presentationId));
   }
 
-  /** Real sellable units, unlike consolidated physical stock containing quarantine. */
+  /** Physical/eligible units before subtracting ACTIVE reservations. */
   sellableUnits(scope:InventoryScope,presentationId:string,at:Date=this.now()):bigint {
     if(!this.isLotTracked(scope,presentationId)){
       const stock=this.getStock(scope,presentationId);
@@ -184,6 +184,32 @@ export class SqliteInventoryStore {
         AND status='AVAILABLE' AND (expiry_date IS NULL OR expiry_date>=?)`)
       .all(scope.tenantId,scope.companyId,scope.branchId,presentationId,today) as Array<{quantity_on_hand:string}>;
     return rows.reduce((sum,row)=>sum+scale6ToBigInt(row.quantity_on_hand),0n);
+  }
+
+  /** Remaining quantity held by ACTIVE/PARTIALLY_CONSUMED reservations. */
+  reservedUnits(scope:InventoryScope,presentationId:string):bigint {
+    const rows=this.database.native.prepare(`SELECT quantity,consumed_quantity,released_quantity
+      FROM inventory_reservation
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?
+        AND status IN ('ACTIVE','PARTIALLY_CONSUMED')`)
+      .all(scope.tenantId,scope.companyId,scope.branchId,presentationId) as Array<{
+        quantity:string;consumed_quantity:string;released_quantity:string;
+      }>;
+    return rows.reduce((sum,row)=>{
+      const held=scale6ToBigInt(row.quantity)-scale6ToBigInt(row.consumed_quantity)-scale6ToBigInt(row.released_quantity);
+      return sum+(held>0n?held:0n);
+    },0n);
+  }
+
+  private reservedUnitsForLot(scope:InventoryScope,lotId:string):bigint {
+    const rows=this.database.native.prepare(`SELECT rl.quantity AS quantity
+      FROM inventory_reservation_lot rl
+      JOIN inventory_reservation r
+        ON r.tenant_id=rl.tenant_id AND r.branch_id=rl.branch_id AND r.id=rl.reservation_id
+      WHERE rl.tenant_id=? AND rl.company_id=? AND rl.branch_id=? AND rl.lot_id=?
+        AND r.status IN ('ACTIVE','PARTIALLY_CONSUMED')`)
+      .all(scope.tenantId,scope.companyId,scope.branchId,lotId) as Array<{quantity:string}>;
+    return rows.reduce((sum,row)=>sum+scale6ToBigInt(row.quantity),0n);
   }
 
   private deductFefo(input:AppendMovementInput):{kind:"OK";lots:Array<{id:string;units:bigint}>}|
@@ -199,7 +225,9 @@ export class SqliteInventoryStore {
     const lots:Array<{id:string;units:bigint}>=[];
     for(const row of rows){
       if(remaining===0n)break;
-      const possible=scale6ToBigInt(row.quantity_on_hand);
+      const held=this.reservedUnitsForLot(input.scope,row.id);
+      const possible=scale6ToBigInt(row.quantity_on_hand)-held;
+      if(possible<=0n)continue;
       const taken=possible<remaining?possible:remaining;
       if(taken>0n){lots.push({id:row.id,units:taken});remaining-=taken;}
     }
@@ -242,8 +270,11 @@ export class SqliteInventoryStore {
    * La venta la consulta antes de aceptar la línea: rechazar al crear es lo
    * único honesto, porque al completar el cliente ya pagó.
    */
+  /** Sellable units minus durable ACTIVE reservations (physical stock unchanged). */
   availableUnits(scope: InventoryScope, presentationId: string): bigint {
-    return this.sellableUnits(scope,presentationId);
+    const sellable=this.sellableUnits(scope,presentationId);
+    const reserved=this.reservedUnits(scope,presentationId);
+    return sellable>reserved?sellable-reserved:0n;
   }
 
   // ── Escritura ──────────────────────────────────────────────────────────────
@@ -257,7 +288,11 @@ export class SqliteInventoryStore {
    * transacción; `receiveStock` y `adjustStock` la abren, y el puerto de la
    * venta se ejecuta dentro de la que ya está abierta.
    */
-  appendMovement(input: AppendMovementInput, batchWrite=false): AppendMovementOutcome {
+  appendMovement(
+    input: AppendMovementInput,
+    batchWrite=false,
+    preAllocatedLots: Array<{id:string;units:bigint}>|null=null,
+  ): AppendMovementOutcome {
     const nowIso = this.now().toISOString();
 
     const operation = this.database.native.prepare(
@@ -299,7 +334,11 @@ export class SqliteInventoryStore {
     const tracked=this.isLotTracked(input.scope,input.presentationId);
     if(tracked && input.movementType!=="SALE"&&!batchWrite)
       return {kind:"LOT_TRACKING_REQUIRED"};
-    const fefo=tracked&&input.movementType==="SALE"?this.deductFefo(input):null;
+    const fefo=tracked&&input.movementType==="SALE"
+      ?(preAllocatedLots!==null
+        ?{kind:"OK" as const,lots:preAllocatedLots}
+        :this.deductFefo(input))
+      :null;
     if(fefo?.kind==="INSUFFICIENT_STOCK")return fefo;
 
     const current = this.database.native.prepare(
@@ -399,7 +438,8 @@ export class SqliteInventoryStore {
       for(const entry of fefo.lots)this.writeLotLedger(input,entry.id,entry.units,"OUT","SALE");
     }
 
-    this.enqueue(input, direction, quantityAfter, stockSequence, nowIso);
+    this.enqueue(input, direction, quantityAfter, stockSequence, nowIso,
+      fefo?.kind==="OK"?fefo.lots:null);
 
     return { kind: "POSTED", stockSequence, quantityAfter };
   }
@@ -410,6 +450,7 @@ export class SqliteInventoryStore {
     quantityAfter: string,
     stockSequence: number,
     nowIso: string,
+    lotAllocations: Array<{id:string;units:bigint}>|null=null,
   ): void {
     const nextSequence = (this.database.native.prepare(
       `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
@@ -447,6 +488,12 @@ export class SqliteInventoryStore {
         reason_code: input.reasonCode,
         sale_id: input.saleId,
         business_date: input.businessDate,
+        // Local identity of FEFO/reservation lots for Central consumption when
+        // a typed lot-sync contract exists. Not a Central ACK.
+        lot_allocations: lotAllocations===null?null:lotAllocations.map((entry)=>({
+          lot_id: entry.id,
+          quantity: bigIntToScale6(entry.units),
+        })),
       },
       payload_checksum: input.requestChecksum,
       causation_id: input.causationId,
@@ -475,6 +522,11 @@ export class SqliteInventoryStore {
       }))
       .digest("hex");
 
+    const reservation=this.findActiveSaleReservation(
+      input.scope,input.saleId,input.presentationId);
+    const preAllocated=reservation===null?null:this.reservationLotAllocations(
+      input.scope,reservation.id);
+
     const outcome = this.appendMovement({
       scope: input.scope,
       sessionId: input.sessionId,
@@ -491,7 +543,11 @@ export class SqliteInventoryStore {
       requestChecksum,
       correlationId: input.correlationId,
       causationId: input.causationId,
-    });
+    }, false, preAllocated);
+
+    if(outcome.kind==="POSTED" && reservation!==null){
+      this.markReservationConsumed(input.scope,reservation.id,input.quantity,this.now().toISOString());
+    }
 
     switch (outcome.kind) {
       case "POSTED":
@@ -887,6 +943,231 @@ export class SqliteInventoryStore {
         input.actorId,input.reasonCode,when);
       return {kind:"CONVERTED",conversionId,targetLotId,targetQuantity};
     })();}catch(error){if(error instanceof AbortConversion)return error.result;throw error;}
+  }
+
+  private findActiveSaleReservation(
+    scope:InventoryScope,saleId:string,presentationId:string,
+  ):{id:string;quantity:string}|null {
+    const row=this.database.native.prepare(`SELECT id,quantity FROM inventory_reservation
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?
+        AND reference_type='SALE' AND reference_id=? AND status IN ('ACTIVE','PARTIALLY_CONSUMED')
+      ORDER BY created_at ASC,id ASC LIMIT 1`)
+      .get(scope.tenantId,scope.companyId,scope.branchId,presentationId,saleId) as
+        {id:string;quantity:string}|undefined;
+    return row??null;
+  }
+
+  private reservationLotAllocations(
+    scope:InventoryScope,reservationId:string,
+  ):Array<{id:string;units:bigint}> {
+    const rows=this.database.native.prepare(`SELECT lot_id,quantity FROM inventory_reservation_lot
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND reservation_id=?
+      ORDER BY lot_id ASC`)
+      .all(scope.tenantId,scope.companyId,scope.branchId,reservationId) as Array<{
+        lot_id:string;quantity:string;
+      }>;
+    return rows.map((row)=>({id:row.lot_id,units:scale6ToBigInt(row.quantity)}));
+  }
+
+  private markReservationConsumed(
+    scope:InventoryScope,reservationId:string,quantity:string,nowIso:string,
+  ):void {
+    const updated=this.database.native.prepare(`UPDATE inventory_reservation
+      SET status='CONSUMED',consumed_quantity=?,released_quantity='0.000000',
+          version=version+1,updated_at=?
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?
+        AND status IN ('ACTIVE','PARTIALLY_CONSUMED')`).run(
+      quantity,nowIso,scope.tenantId,scope.companyId,scope.branchId,reservationId);
+    if(updated.changes!==1)throw new Error("RESERVATION_CONSUME_CONFLICT");
+  }
+
+  /**
+   * Creates a durable reservation that reduces availability without changing
+   * physical on-hand. For lot-tracked presentations, FEFO lots are allocated
+   * immediately so concurrent sales cannot claim the same eligible units.
+   * Does not open a transaction — callers (sale create / IPC) own the commit.
+   */
+  createReservation(input:{
+    scope:SyncScope;sessionId:string;actorId:string;presentationId:string;
+    quantity:string;referenceType:"SALE"|"MANUAL";referenceId:string;
+    idempotencyKey:string;requestChecksum:string;correlationId:string;
+    causationId:string|null;expiresAt:string|null;
+  }):{kind:"RESERVED";reservationId:string}|{kind:"IDEMPOTENT";reservationId:string}|
+    {kind:"INSUFFICIENT_STOCK";available:string}|{kind:"INVALID_QUANTITY"}|
+    {kind:"IDEMPOTENCY_CONFLICT"}|{kind:"PRESENTATION_NOT_FOUND"} {
+    if(!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n){
+      return {kind:"INVALID_QUANTITY"};
+    }
+    const prior=this.database.native.prepare(`SELECT id,request_checksum FROM inventory_reservation
+      WHERE tenant_id=? AND idempotency_key=?`)
+      .get(input.scope.tenantId,input.idempotencyKey) as
+        {id:string;request_checksum:string}|undefined;
+    if(prior){
+      return prior.request_checksum===input.requestChecksum
+        ?{kind:"IDEMPOTENT",reservationId:prior.id}
+        :{kind:"IDEMPOTENCY_CONFLICT"};
+    }
+    const presentation=this.database.native.prepare(
+      `SELECT cp.id, cp.unit_precision FROM catalog_presentation cp
+       JOIN catalog_product p ON p.tenant_id=cp.tenant_id AND p.id=cp.product_id
+       WHERE cp.tenant_id=? AND p.company_id=? AND cp.id=?`,
+    ).get(input.scope.tenantId,input.scope.companyId,input.presentationId) as
+      {id:string;unit_precision:number}|undefined;
+    if(!presentation)return {kind:"PRESENTATION_NOT_FOUND"};
+    if(!quantityFitsUnitPrecision(input.quantity,presentation.unit_precision)){
+      return {kind:"INVALID_QUANTITY"};
+    }
+    const available=this.availableUnits(input.scope,input.presentationId);
+    const needed=scale6ToBigInt(input.quantity);
+    if(available<needed)return {kind:"INSUFFICIENT_STOCK",available:bigIntToScale6(available)};
+
+    let lots:Array<{id:string;units:bigint}>=[];
+    if(this.isLotTracked(input.scope,input.presentationId)){
+      const allocated=this.deductFefo({
+        scope:input.scope,sessionId:input.sessionId,operatorUserId:input.actorId,
+        movementId:uuidV7(),operationId:uuidV7(),presentationId:input.presentationId,
+        movementType:"SALE",quantity:input.quantity,reasonCode:"RESERVATION_HOLD",
+        saleId:input.referenceType==="SALE"?input.referenceId:null,
+        businessDate:this.now().toISOString().slice(0,10),
+        idempotencyKey:input.idempotencyKey,requestChecksum:input.requestChecksum,
+        correlationId:input.correlationId,causationId:input.causationId,
+      });
+      if(allocated.kind==="INSUFFICIENT_STOCK"){
+        return {kind:"INSUFFICIENT_STOCK",available:allocated.available};
+      }
+      lots=allocated.lots;
+    }
+
+    const reservationId=uuidV7();
+    const nowIso=this.now().toISOString();
+    this.database.native.prepare(`INSERT INTO inventory_reservation(
+      id,tenant_id,company_id,branch_id,presentation_id,reference_type,reference_id,
+      quantity,consumed_quantity,released_quantity,status,expires_at,origin_device_id,
+      actor_id,session_id,idempotency_key,request_checksum,correlation_id,causation_id,
+      version,created_at,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,'0.000000','0.000000','ACTIVE',?,?,?,?,?,?,?,?,1,?,?)`).run(
+      reservationId,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+      input.presentationId,input.referenceType,input.referenceId,input.quantity,
+      input.expiresAt,input.scope.deviceId,input.actorId,input.sessionId,
+      input.idempotencyKey,input.requestChecksum,input.correlationId,input.causationId,
+      nowIso,nowIso);
+    for(const lot of lots){
+      this.database.native.prepare(`INSERT INTO inventory_reservation_lot(
+        tenant_id,company_id,branch_id,reservation_id,lot_id,quantity
+      ) VALUES(?,?,?,?,?,?)`).run(
+        input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+        reservationId,lot.id,bigIntToScale6(lot.units));
+    }
+    this.database.native.prepare(`INSERT INTO local_operation_audit(
+      tenant_id,company_id,branch_id,device_id,actor_type,actor_id,session_id,
+      action_code,resource_type,resource_id,correlation_id,causation_id,reason_code,
+      details_json,created_at
+    ) VALUES(?,?,?,?,'USER',?,?,'INVENTORY_RESERVATION_CREATED','INVENTORY_RESERVATION',?,?,?,?,?,?)`)
+      .run(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.scope.deviceId,
+        input.actorId,input.sessionId,reservationId,input.correlationId,input.causationId,
+        "RESERVATION_HOLD",canonicalJson({
+          presentation_id:input.presentationId,quantity:input.quantity,
+          reference_type:input.referenceType,reference_id:input.referenceId,
+          lot_allocations:lots.map((lot)=>({lot_id:lot.id,quantity:bigIntToScale6(lot.units)})),
+        }),nowIso);
+    const nextSequence=(this.database.native.prepare(
+      `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
+       WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
+    ).get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+      input.scope.deviceId,input.scope.installationId) as NextSequenceRow).next_sequence;
+    this.durableSync.enqueue({
+      operation_id:uuidV7(),
+      tenant_id:input.scope.tenantId,company_id:input.scope.companyId,
+      branch_id:input.scope.branchId,device_id:input.scope.deviceId,
+      installation_id:input.scope.installationId,session_id:input.sessionId,
+      actor_id:input.actorId,aggregate_type:"INVENTORY_RESERVATION",
+      aggregate_id:reservationId,operation_type:"INVENTORY_RESERVATION_CREATE",
+      authority_policy:"LOCAL_AUTHORITATIVE_UNTIL_SYNC",local_sequence:nextSequence,
+      idempotency_key:input.idempotencyKey,expected_version:null,
+      payload_schema_version:INVENTORY_PAYLOAD_SCHEMA_VERSION,
+      payload:{
+        reservation_id:reservationId,presentation_id:input.presentationId,
+        quantity:input.quantity,reference_type:input.referenceType,
+        reference_id:input.referenceId,expires_at:input.expiresAt,
+        lot_allocations:lots.map((lot)=>({lot_id:lot.id,quantity:bigIntToScale6(lot.units)})),
+      },
+      payload_checksum:input.requestChecksum,causation_id:input.causationId,
+      correlation_id:input.correlationId,occurred_at_local:nowIso,recorded_at_local:nowIso,
+    });
+    return {kind:"RESERVED",reservationId};
+  }
+
+  /**
+   * Releases an ACTIVE reservation without creating physical inbound stock.
+   * Does not open a transaction.
+   */
+  releaseReservation(input:{
+    scope:SyncScope;sessionId:string;actorId:string;reservationId:string;
+    reasonCode:string;idempotencyKey:string;requestChecksum:string;
+    correlationId:string;causationId:string|null;
+  }):"RELEASED"|"IDEMPOTENT"|"CONFLICT"|"NOT_FOUND" {
+    const prior=this.database.native.prepare(`SELECT id,status,request_checksum,quantity
+      FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`)
+      .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.reservationId) as
+        {id:string;status:string;request_checksum:string;quantity:string}|undefined;
+    if(!prior)return "NOT_FOUND";
+    if(prior.status==="RELEASED"||prior.status==="EXPIRED"||prior.status==="CANCELLED"){
+      // Idempotent release of an already-freed hold uses the reservation checksum.
+      return "IDEMPOTENT";
+    }
+    if(prior.status!=="ACTIVE"&&prior.status!=="PARTIALLY_CONSUMED")return "CONFLICT";
+    const nowIso=this.now().toISOString();
+    const updated=this.database.native.prepare(`UPDATE inventory_reservation
+      SET status='RELEASED',released_quantity=?,version=version+1,updated_at=?
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=? AND version>=1
+        AND status IN ('ACTIVE','PARTIALLY_CONSUMED')`).run(
+      prior.quantity,nowIso,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+      input.reservationId);
+    if(updated.changes!==1)return "CONFLICT";
+    this.database.native.prepare(`INSERT INTO local_operation_audit(
+      tenant_id,company_id,branch_id,device_id,actor_type,actor_id,session_id,
+      action_code,resource_type,resource_id,correlation_id,causation_id,reason_code,
+      details_json,created_at
+    ) VALUES(?,?,?,?,'USER',?,?,'INVENTORY_RESERVATION_RELEASED','INVENTORY_RESERVATION',?,?,?,?,?,?)`)
+      .run(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.scope.deviceId,
+        input.actorId,input.sessionId,input.reservationId,input.correlationId,input.causationId,
+        input.reasonCode,canonicalJson({previous_status:prior.status,next_status:"RELEASED"}),nowIso);
+    return "RELEASED";
+  }
+
+  /**
+   * Expires ACTIVE reservations whose expires_at has passed. Explicit transition
+   * — clocks alone do not delete holds. Does not invent stock.
+   */
+  expireDueReservations(scope:InventoryScope,at:Date=this.now()):number {
+    const nowIso=at.toISOString();
+    const rows=this.database.native.prepare(`SELECT id,quantity FROM inventory_reservation
+      WHERE tenant_id=? AND company_id=? AND branch_id=?
+        AND status IN ('ACTIVE','PARTIALLY_CONSUMED')
+        AND expires_at IS NOT NULL AND expires_at<=?`)
+      .all(scope.tenantId,scope.companyId,scope.branchId,nowIso) as Array<{id:string;quantity:string}>;
+    let expired=0;
+    for(const row of rows){
+      const updated=this.database.native.prepare(`UPDATE inventory_reservation
+        SET status='EXPIRED',released_quantity=?,version=version+1,updated_at=?
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?
+          AND status IN ('ACTIVE','PARTIALLY_CONSUMED')`).run(
+        row.quantity,nowIso,scope.tenantId,scope.companyId,scope.branchId,row.id);
+      if(updated.changes===1)expired+=1;
+    }
+    return expired;
+  }
+
+  createReservationInTransaction(
+    input:Parameters<SqliteInventoryStore["createReservation"]>[0],
+  ):ReturnType<SqliteInventoryStore["createReservation"]> {
+    return this.database.native.transaction(()=>this.createReservation(input))();
+  }
+
+  releaseReservationInTransaction(
+    input:Parameters<SqliteInventoryStore["releaseReservation"]>[0],
+  ):ReturnType<SqliteInventoryStore["releaseReservation"]> {
+    return this.database.native.transaction(()=>this.releaseReservation(input))();
   }
 
   /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */
