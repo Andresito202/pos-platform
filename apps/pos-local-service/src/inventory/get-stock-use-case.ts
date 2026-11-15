@@ -45,3 +45,19 @@ export class GetStockUseCase {
     return stock === null ? { kind: "NOT_FOUND" } : { kind: "FOUND", stock };
   }
 }
+
+export class ListBatchesUseCase {
+  constructor(private readonly inventoryStore:SqliteInventoryStore){}
+  execute(scope:SyncScope,authSnapshot:StoredAuthorizationSnapshot,presentationId:string,at:Date=new Date()){
+    const allowed=evaluatePermission({
+      actor:createActor("USER",authSnapshot.claims.user_id),
+      permission:CanonicalPermission.INVENTORY_STOCK_READ,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),
+      at,assignments:toRoleAssignments(authSnapshot.claims),
+    }).allowed;
+    if(!allowed)return {kind:"UNAUTHORIZED" as const,batches:[],tracked:false};
+    return {kind:"FOUND" as const,
+      tracked:this.inventoryStore.isLotTracked(scope,presentationId),
+      batches:this.inventoryStore.listBatches(scope,presentationId)};
+  }
+}
