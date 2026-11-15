@@ -17,8 +17,9 @@ type BatchStatus="AVAILABLE"|"QUARANTINE"|"BLOCKED"|"RECALLED";
  * role flag. A network-uncertain state update keeps its original idempotency
  * key and exact payload; the operator may only retry that same operation.
  */
-export function InventoryBatchPanel({presentationId,canAdjust}:{
+export function InventoryBatchPanel({presentationId,canAdjust,onPendingChange}:{
  readonly presentationId:string;readonly canAdjust:boolean;
+ readonly onPendingChange?:(pending:boolean)=>void;
 }):React.JSX.Element{
  const [data,setData]=useState<BatchList|null>(null);
  const [busy,setBusy]=useState(false);
@@ -53,7 +54,7 @@ export function InventoryBatchPanel({presentationId,canAdjust}:{
        setError("Resultado no concluyente. Reintenta la misma operación sin cambiar los datos.");
        return;
      }
-     pending.current=null;
+     pending.current=null;onPendingChange?.(false);
      if(response.status!=="SUCCEEDED"||!["UPDATED","IDEMPOTENT"].includes(parsed.data.outcome)){
        setError("Cambio rechazado: "+parsed.data.outcome);return;
      }
@@ -61,7 +62,7 @@ export function InventoryBatchPanel({presentationId,canAdjust}:{
      setError("Estado registrado. Actualiza la consulta para verificar el saldo vendible.");
    }catch{setError("Sin respuesta del servicio. Reintenta exactamente la misma operación.");}
    finally{locked.current=false;setBusy(false);}
- },[]);
+ },[onPendingChange]);
  return <section aria-label="Inventario por lotes" data-testid="inventory-batches">
    <h3>Lotes de esta presentación</h3>
    <button type="button" onClick={()=>void load()} disabled={busy||pending.current!==null}>Consultar lotes</button>
@@ -98,6 +99,7 @@ export function InventoryBatchPanel({presentationId,canAdjust}:{
        onClick={()=>{
          if(!selected)return;
          pending.current={key:newIdempotencyKey(),payload:{lot_id:selected,status:nextStatus,reason_code:reason}};
+         onPendingChange?.(true);
          void write();
        }}>Registrar estado</button>
    </fieldset>}
