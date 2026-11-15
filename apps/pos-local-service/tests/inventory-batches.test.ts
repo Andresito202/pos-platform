@@ -10,7 +10,7 @@ import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../src/catalog/register-product-use-case.js";
 import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../src/inventory/receive-stock-use-case.js";
-import { AdjustStockUseCase } from "../src/inventory/adjust-stock-use-case.js";
+import { AdjustStockUseCase,ChangeBatchStatusUseCase } from "../src/inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../src/inventory/get-stock-use-case.js";
 import { scale6ToBigInt } from "../src/money.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
@@ -199,6 +199,35 @@ describe("shared v22 batch ledger and FEFO on original inventory",()=>{
   expect(store.listBatches(SCOPE,presentationId)[0]?.quantityOnHand).toBe("2.000000");
   expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("2.000000");
   expect(database.native.prepare("SELECT count(*) AS n FROM inventory_lot_movement WHERE event_type='SHRINKAGE'").get()).toEqual({n:1});
+ });
+ it("permits explicit material consumption only under signed inventory-adjustment permission",async()=>{
+  const {receive,adjust,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"RAW-MATERIAL","2026-11-30")).kind).toBe("POSTED");
+  const lot=store.listBatches(SCOPE,presentationId)[0]!;
+  const consumption={
+    ...receipt(presentationId,{quantity:"1.000000",reasonCode:"MATERIAL_CONSUMPTION"}),
+    movementType:"ADJUSTMENT_NEGATIVE" as const,lotId:lot.id,
+  };
+  const denied=adjust.execute(SCOPE,SESSION,auth([]),consumption);
+  expect(denied.kind).toBe("UNAUTHORIZED");
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("3.000000");
+  expect(adjust.execute(SCOPE,SESSION,auth(),consumption).kind).toBe("POSTED");
+  expect(database.native.prepare("SELECT event_type FROM inventory_lot_movement WHERE direction='OUT'").get())
+    .toEqual({event_type:"MATERIAL_CONSUMPTION"});
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("2.000000");
+ });
+ it("requires signed backend stock-adjust grant before lot recall or quarantine",async()=>{
+  const {receive,store,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"RECALL","2026-10-10")).kind).toBe("POSTED");
+  const lot=store.listBatches(SCOPE,presentationId)[0]!;
+  const useCase=new ChangeBatchStatusUseCase(store);
+  const req={lotId:lot.id,status:"RECALLED" as const,reasonCode:"SAFETY_RECALL",
+    idempotencyKey:key(),correlationId:CORRELATION,causationId:null};
+  expect(useCase.execute(SCOPE,SESSION,auth([]),req).kind).toBe("UNAUTHORIZED");
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(3_000_000n);
+  expect(useCase.execute(SCOPE,SESSION,auth(),req).kind).toBe("UPDATED");
+  expect(useCase.execute(SCOPE,SESSION,auth(),req).kind).toBe("IDEMPOTENT");
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(0n);
  });
  it("refuses fractions outside presentation precision and preserves ledger on rejection",async()=>{
   const {receive,store,database,presentationId}=await buildEnv();
