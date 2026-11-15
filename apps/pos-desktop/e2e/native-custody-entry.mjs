@@ -21,8 +21,9 @@ void app.whenReady().then(async()=>{
     vault.clear();
     const empty=await vault.use(async()=>true);
     globalThis.nativeCustodyResult={platform:process.platform,restored,cleared:empty===null,phase:"COMPLETE"};
-  }catch{
-    // Never report error.message, paths, PII or cryptographic data.
-    globalThis.nativeCustodyResult={platform:process.platform,restored:false,cleared:false,phase};
+  }catch(error){
+    // Only expose a fixed policy reason; never report the error message, paths or credentials.
+    const safePhase=error instanceof Error&&error.message==="NATIVE_OS_CUSTODY_UNAVAILABLE"?"OS_CUSTODY_UNAVAILABLE":phase;
+    globalThis.nativeCustodyResult={platform:process.platform,restored:false,cleared:false,phase:safePhase};
   }
 });
