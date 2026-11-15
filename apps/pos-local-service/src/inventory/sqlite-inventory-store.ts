@@ -123,7 +123,11 @@ export type AppendMovementOutcome =
   | { readonly kind: "INVALID_QUANTITY" }
   | { readonly kind: "QUANTITY_PRECISION_EXCEEDED" }
   | { readonly kind: "STOCK_QUANTITY_OVERFLOW" }
-  | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string };
+  | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string }
+  | { readonly kind: "LOT_TRACKING_REQUIRED" }
+  | { readonly kind: "LEGACY_STOCK_RECONCILIATION_REQUIRED" }
+  | { readonly kind: "LOT_NOT_FOUND" }
+  | { readonly kind: "LOT_NOT_SELLABLE" };
 
 interface StockRow {
   quantity_on_hand: string;
@@ -161,6 +165,77 @@ export class SqliteInventoryStore {
     };
   }
 
+  /** Lot control is per company/branch/presentation; legacy registers stay unchanged. */
+  isLotTracked(scope:InventoryScope,presentationId:string):boolean {
+    return Boolean(this.database.native.prepare(
+      "SELECT 1 FROM inventory_lot_tracking WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?"
+    ).get(scope.tenantId,scope.companyId,scope.branchId,presentationId));
+  }
+
+  /** Real sellable units, unlike consolidated physical stock containing quarantine. */
+  sellableUnits(scope:InventoryScope,presentationId:string,at:Date=this.now()):bigint {
+    if(!this.isLotTracked(scope,presentationId)){
+      const stock=this.getStock(scope,presentationId);
+      return stock?scale6ToBigInt(stock.quantityOnHand):0n;
+    }
+    const today=at.toISOString().slice(0,10);
+    const rows=this.database.native.prepare(`SELECT quantity_on_hand FROM inventory_lot
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?
+        AND status='AVAILABLE' AND (expiry_date IS NULL OR expiry_date>=?)`)
+      .all(scope.tenantId,scope.companyId,scope.branchId,presentationId,today) as Array<{quantity_on_hand:string}>;
+    return rows.reduce((sum,row)=>sum+scale6ToBigInt(row.quantity_on_hand),0n);
+  }
+
+  private deductFefo(input:AppendMovementInput):{kind:"OK";lots:Array<{id:string;units:bigint}>}|
+    {kind:"INSUFFICIENT_STOCK";available:string}{
+    const today=this.now().toISOString().slice(0,10);
+    const rows=this.database.native.prepare(`SELECT id,quantity_on_hand FROM inventory_lot
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?
+       AND status='AVAILABLE' AND (expiry_date IS NULL OR expiry_date>=?)
+      ORDER BY CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END,
+       expiry_date ASC, created_at ASC,id ASC`)
+      .all(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.presentationId,today) as Array<{id:string;quantity_on_hand:string}>;
+    let remaining=scale6ToBigInt(input.quantity);
+    const lots:Array<{id:string;units:bigint}>=[];
+    for(const row of rows){
+      if(remaining===0n)break;
+      const possible=scale6ToBigInt(row.quantity_on_hand);
+      const taken=possible<remaining?possible:remaining;
+      if(taken>0n){lots.push({id:row.id,units:taken});remaining-=taken;}
+    }
+    if(remaining>0n)return {kind:"INSUFFICIENT_STOCK",available:bigIntToScale6(scale6ToBigInt(input.quantity)-remaining)};
+    return {kind:"OK",lots};
+  }
+
+  /** Batch ledger update is called only inside the SAME active SQLite transaction
+   * as the pre-existing inventory_movement, operation/audit/outbox. */
+  private writeLotLedger(input:AppendMovementInput,lotId:string,units:bigint,
+    direction:"IN"|"OUT",eventType:"RECEIPT"|"SALE"|"SHRINKAGE"|"CONVERSION"|"MATERIAL_CONSUMPTION",
+    receipt?:{supplierReference:string;receiptDocument:string}):void {
+    const row=this.database.native.prepare(`SELECT quantity_on_hand,version FROM inventory_lot
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=? AND presentation_id=?`)
+      .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,lotId,input.presentationId) as
+        {quantity_on_hand:string;version:number}|undefined;
+    if(!row)throw Error("LOT_NOT_FOUND");
+    const next=scale6ToBigInt(row.quantity_on_hand)+(direction==="IN"?units:-units);
+    if(next<0n)throw Error("LOT_INSUFFICIENT_STOCK");
+    const timestamp=this.now().toISOString();
+    const written=this.database.native.prepare(`UPDATE inventory_lot
+      SET quantity_on_hand=?,version=version+1,updated_at=?
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=? AND version=?`)
+      .run(bigIntToScale6(next),timestamp,input.scope.tenantId,input.scope.companyId,
+        input.scope.branchId,lotId,row.version);
+    if(written.changes!==1)throw Error("LOT_CONCURRENT_MODIFICATION");
+    this.database.native.prepare(`INSERT INTO inventory_lot_movement(
+      tenant_id,company_id,branch_id,id,lot_id,inventory_movement_id,direction,
+      quantity,quantity_after,event_type,actor_id,reason_code,supplier_reference,receipt_document,occurred_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      input.scope.tenantId,input.scope.companyId,input.scope.branchId,uuidV7(),
+      lotId,input.movementId,direction,bigIntToScale6(units),bigIntToScale6(next),
+      eventType,input.operatorUserId,input.reasonCode,
+      receipt?.supplierReference??null,receipt?.receiptDocument??null,timestamp);
+  }
+
   /**
    * Existencia disponible como entero de escala 6. Sin fila es cero.
    *
@@ -168,8 +243,7 @@ export class SqliteInventoryStore {
    * único honesto, porque al completar el cliente ya pagó.
    */
   availableUnits(scope: InventoryScope, presentationId: string): bigint {
-    const stock = this.getStock(scope, presentationId);
-    return stock === null ? 0n : scale6ToBigInt(stock.quantityOnHand);
+    return this.sellableUnits(scope,presentationId);
   }
 
   // ── Escritura ──────────────────────────────────────────────────────────────
@@ -183,7 +257,7 @@ export class SqliteInventoryStore {
    * transacción; `receiveStock` y `adjustStock` la abren, y el puerto de la
    * venta se ejecuta dentro de la que ya está abierta.
    */
-  appendMovement(input: AppendMovementInput): AppendMovementOutcome {
+  appendMovement(input: AppendMovementInput, batchWrite=false): AppendMovementOutcome {
     const nowIso = this.now().toISOString();
 
     const operation = this.database.native.prepare(
@@ -221,6 +295,12 @@ export class SqliteInventoryStore {
     if (!quantityFitsUnitPrecision(input.quantity, presentation.unit_precision)) {
       return { kind: "QUANTITY_PRECISION_EXCEEDED" };
     }
+
+    const tracked=this.isLotTracked(input.scope,input.presentationId);
+    if(tracked && input.movementType!=="SALE"&&!batchWrite)
+      return {kind:"LOT_TRACKING_REQUIRED"};
+    const fefo=tracked&&input.movementType==="SALE"?this.deductFefo(input):null;
+    if(fefo?.kind==="INSUFFICIENT_STOCK")return fefo;
 
     const current = this.database.native.prepare(
       `SELECT quantity_on_hand, last_movement_sequence, version FROM inventory_stock
@@ -314,6 +394,10 @@ export class SqliteInventoryStore {
       }),
       nowIso,
     );
+
+    if(fefo?.kind==="OK"){
+      for(const entry of fefo.lots)this.writeLotLedger(input,entry.id,entry.units,"OUT","SALE");
+    }
 
     this.enqueue(input, direction, quantityAfter, stockSequence, nowIso);
 
@@ -424,6 +508,101 @@ export class SqliteInventoryStore {
       default:
         throw new Error(`inventory sale deduction failed: ${outcome.kind}`);
     }
+  }
+
+  /**
+   * Documented receiving within the original inventory transaction.
+   * No automatic migration of historical stock to an invented batch.
+   */
+  receiveBatch(input:AppendMovementInput,batch:{
+    code:string;manufactureDate:string|null;expiryDate:string|null;
+    supplierReference:string;receiptDocument:string;
+  }):AppendMovementOutcome {
+    if(input.movementType!=="PURCHASE_RECEIPT")throw Error("LOT_RECEIPT_TYPE_REQUIRED");
+    const validDate=(x:string)=>/^\\d{4}-\\d{2}-\\d{2}$/.test(x)&&
+      !Number.isNaN(Date.parse(x))&&new Date(x+"T00:00:00.000Z").toISOString().slice(0,10)===x;
+    if(batch.code.trim().length<1||batch.code.length>96||batch.supplierReference.trim().length<1||
+      batch.supplierReference.length>160||batch.receiptDocument.trim().length<1||
+      batch.receiptDocument.length>160||(batch.manufactureDate!==null&&!validDate(batch.manufactureDate))||
+      (batch.expiryDate!==null&&!validDate(batch.expiryDate))||
+      (batch.expiryDate!==null&&batch.manufactureDate!==null&&batch.manufactureDate>batch.expiryDate))
+      return {kind:"INVALID_QUANTITY"};
+    if(!/^(0|[1-9]\\d{0,12})\\.\\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
+      return {kind:"INVALID_QUANTITY"};
+    const check=()=>{
+      const tracking=this.isLotTracked(input.scope,input.presentationId);
+      if(!tracking&&this.availableUnits(input.scope,input.presentationId)!==0n)
+        return {kind:"LEGACY_STOCK_RECONCILIATION_REQUIRED"} as AppendMovementOutcome;
+      // Same account of a repeated receipt cannot alter supplier/document/lot.
+      const existing=this.database.native.prepare(`SELECT payload_checksum FROM runtime_operations
+        WHERE idempotency_key=?`).get(input.idempotencyKey) as {payload_checksum:string}|undefined;
+      if(existing)return this.appendMovement(input,true);
+      const posted=this.appendMovement(input,true);
+      if(posted.kind!=="POSTED")return posted;
+      const nowIso=this.now().toISOString();
+      if(!tracking)this.database.native.prepare(`INSERT INTO inventory_lot_tracking
+        (tenant_id,company_id,branch_id,presentation_id,enabled_at,actor_id)
+        VALUES(?,?,?,?,?,?)`).run(input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+          input.presentationId,nowIso,input.operatorUserId);
+      let lot=this.database.native.prepare(`SELECT id,manufacture_date,expiry_date FROM inventory_lot
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=? AND batch_code=?`)
+        .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.presentationId,batch.code) as
+          {id:string;manufacture_date:string|null;expiry_date:string|null}|undefined;
+      if(lot&&(lot.manufacture_date!==batch.manufactureDate||lot.expiry_date!==batch.expiryDate))
+        throw Error("LOT_METADATA_CONFLICT");
+      if(!lot){
+        const id=uuidV7();
+        this.database.native.prepare(`INSERT INTO inventory_lot(
+          id,tenant_id,company_id,branch_id,presentation_id,batch_code,manufacture_date,
+          expiry_date,supplier_reference,receipt_document,status,quantity_on_hand,version,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,'AVAILABLE','0.000000',1,?,?)`).run(
+          id,input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.presentationId,
+          batch.code,batch.manufactureDate,batch.expiryDate,batch.supplierReference,
+          batch.receiptDocument,nowIso,nowIso);
+        lot={id,manufacture_date:batch.manufactureDate,expiry_date:batch.expiryDate};
+      }
+      this.writeLotLedger(input,lot.id,scale6ToBigInt(input.quantity),"IN","RECEIPT",
+        {supplierReference:batch.supplierReference,receiptDocument:batch.receiptDocument});
+      return posted;
+    };
+    return this.database.native.transaction(check)();
+  }
+
+  /** A mutable lot status always has an immutable audit event and a checksum. */
+  changeBatchStatus(input:{
+    scope:SyncScope;lotId:string;status:"AVAILABLE"|"QUARANTINE"|"BLOCKED"|"RECALLED";
+    actorId:string;reasonCode:string;idempotencyKey:string;requestChecksum:string;
+  }):"UPDATED"|"IDEMPOTENT"|"CONFLICT"|"NOT_FOUND" {
+    return this.database.native.transaction(()=>{
+      const duplicate=this.database.native.prepare(`SELECT request_checksum FROM inventory_lot_status_event
+        WHERE tenant_id=? AND idempotency_key=?`).get(input.scope.tenantId,input.idempotencyKey) as
+          {request_checksum:string}|undefined;
+      if(duplicate)return duplicate.request_checksum===input.requestChecksum?"IDEMPOTENT":"CONFLICT";
+      if(!/^[A-Z][A-Z0-9_]{1,63}$/.test(input.reasonCode)||
+        !/^[a-f0-9]{64}$/.test(input.requestChecksum))return "CONFLICT";
+      const row=this.database.native.prepare(`SELECT status,version FROM inventory_lot
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`)
+        .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.lotId) as
+          {status:string;version:number}|undefined;
+      if(!row)return "NOT_FOUND";
+      if(row.status===input.status)return "CONFLICT";
+      // Recalled stock cannot be silently released; a real recall requires a
+      // documented compliance disposition outside normal stock adjustments.
+      if(row.status==="RECALLED"&&input.status==="AVAILABLE")return "CONFLICT";
+      const when=this.now().toISOString();
+      const updated=this.database.native.prepare(`UPDATE inventory_lot SET status=?,version=version+1,updated_at=?
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=? AND version=?`).run(
+        input.status,when,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+        input.lotId,row.version);
+      if(updated.changes!==1)throw Error("LOT_CONCURRENT_MODIFICATION");
+      this.database.native.prepare(`INSERT INTO inventory_lot_status_event(
+        tenant_id,company_id,branch_id,id,lot_id,previous_status,next_status,
+        actor_id,reason_code,idempotency_key,request_checksum,occurred_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(input.scope.tenantId,input.scope.companyId,
+        input.scope.branchId,uuidV7(),input.lotId,row.status,input.status,input.actorId,
+        input.reasonCode,input.idempotencyKey,input.requestChecksum,when);
+      return "UPDATED";
+    })();
   }
 
   /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */
