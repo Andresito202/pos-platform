@@ -244,6 +244,9 @@ jobs:
       - name: Validate merchant QR and UNVERIFIED notices with disposable PostgreSQL
         run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations-physical.test.ts --testTimeout 120000 --hookTimeout 120000
 
+      - name: Validate company-only QR admin grant and BUSINESS session gates
+        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-admin-authorization.test.ts tests/merchant-destination-business-operations.test.ts
+
       - name: Validate fail-closed Central merchant destination and QR asset stores
         run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-postgres-store.test.ts tests/merchant-destination-qr-asset-store.test.ts
 
