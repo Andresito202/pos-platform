@@ -47,10 +47,12 @@ const EXECUTABLE_PERMISSION_CODES = [
 
 describe("runtime permission catalog alignment", () => {
   it("keeps every executable backend permission in the shared canonical catalog", () => {
-    // The shared catalog also names the GLOBAL permission enforced by Central.
-    // Local POS operations must not claim to implement platform administration.
+    // The shared catalog names platform license management and sensitive QR
+    // provider configuration enforced by Central, never by a local POS use case.
+    // Keep the remaining executable local-permission set exhaustively checked.
     expect([...EXECUTABLE_PERMISSION_CODES].sort()).toEqual(
-      CANONICAL_PERMISSION_CODES.filter(code => code !== CanonicalPermission.LICENSE_PLAN_MANAGE).sort(),
+      CANONICAL_PERMISSION_CODES.filter(code => code !== CanonicalPermission.LICENSE_PLAN_MANAGE &&
+        code !== CanonicalPermission.PAYMENTS_PROVIDER_CONFIGURE).sort(),
     );
   });
 
