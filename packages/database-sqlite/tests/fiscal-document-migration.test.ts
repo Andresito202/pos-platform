@@ -517,6 +517,15 @@ it("upgrades v19 sales without assigning or changing historical customer identit
     DROP TRIGGER local_schema_migrations_no_delete;
     -- Reconstruct an actual v19 fixture: remove the disposable v21 projection
     -- as well as both later ledger entries, preserving immutable real history.
+    DROP TRIGGER inventory_lot_status_event_no_update;
+    DROP TRIGGER inventory_lot_status_event_no_delete;
+    DROP TABLE inventory_lot_status_event;
+    DROP TRIGGER inventory_lot_movement_no_update;
+    DROP TRIGGER inventory_lot_movement_no_delete;
+    DROP TABLE inventory_lot_movement;
+    DROP TRIGGER inventory_lot_no_delete;
+    DROP TABLE inventory_lot;
+    DROP TABLE inventory_lot_tracking;
     DROP TABLE local_merchant_payment_destination_snapshot;
     DELETE FROM local_schema_migrations WHERE version>=20;`);
   const before=database.native.prepare("SELECT * FROM sales_sales WHERE id=?").get(saleId) as Record<string,unknown>;
