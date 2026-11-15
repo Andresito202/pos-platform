@@ -36,7 +36,7 @@ export class PostgresMerchantQrAssetRepository {
       started=true;
       await client.query("SELECT set_config('app.tenant_id',$1,true)",[this.scope.tenantId]);
       await client.query("SELECT set_config('app.company_id',$1,true)",[this.scope.companyId]);
-      if(write&&this.authorizeSensitiveWrite)await this.authorizeSensitiveWrite(client);
+      if(write){await client.query("SET LOCAL lock_timeout = '5s'");await client.query("SET LOCAL statement_timeout = '10s'");await this.authorizeSensitiveWrite(client);}
       const result=await work(client.query.bind(client) as Pool["query"]);
       await client.query("COMMIT");
       started=false;
