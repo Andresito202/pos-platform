@@ -50,7 +50,7 @@ export class ConvertPresentationUseCase{
     idempotencyKey:string;correlationId:string;causationId:string|null;
   },at:Date=new Date()){
     if(!authorized(scope,snapshot,CanonicalPermission.INVENTORY_STOCK_ADJUST,at))
-      return {kind:"UNAUTHORIZED" as const};
+      return {kind:"UNAUTHORIZED" as const,conversionId:undefined,targetLotId:undefined,targetQuantity:undefined};
     const actorId=snapshot.claims.user_id;
     const requestChecksum=checksum({
       tenant_id:scope.tenantId,company_id:scope.companyId,branch_id:scope.branchId,
