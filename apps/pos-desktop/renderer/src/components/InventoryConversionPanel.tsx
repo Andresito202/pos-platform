@@ -1,8 +1,8 @@
 import { useEffect,useState } from "react";
 import { useInventoryConversion } from "../hooks/useInventoryConversion.js";
 
-export function InventoryConversionPanel({sourcePresentationId,canApprove}:{
-  sourcePresentationId:string;canApprove:boolean;
+export function InventoryConversionPanel({sourcePresentationId,canApprove,businessDate}:{
+  sourcePresentationId:string;canApprove:boolean;businessDate:string;
 }):React.JSX.Element{
   const conversion=useInventoryConversion();
   const [target,setTarget]=useState("");
@@ -71,7 +71,7 @@ export function InventoryConversionPanel({sourcePresentationId,canApprove}:{
       disabled={conversion.busy||conversion.pending||!ruleId||!lotId||!quantity||!reason}
       onClick={()=>{void conversion.convert({
         ruleId:ruleId.trim(),sourceLotId:lotId.trim(),quantity:quantity.trim(),
-        reasonCode:reason.trim(),businessDate:new Date().toISOString().slice(0,10),
+        reasonCode:reason.trim(),businessDate,
       });}}>Convertir existencias</button>
     {conversion.rule&&<output data-testid="conversion-rule-result">
       {conversion.rule.outcome} {conversion.rule.rule_id??""}
