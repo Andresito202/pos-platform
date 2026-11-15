@@ -31,7 +31,7 @@ type CommercialRequest = Extract<
       | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
-      | "inventory.batch.list" | "inventory.batch.status"
+      | "inventory.batch.list" | "inventory.batch.status" | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
       | "sales.receipt.get"
       | "hardware.command"
       | "audit.event.list"
@@ -266,6 +266,8 @@ export class CommercialRequestHandler {
       case "inventory.stock.get": return this.getStock(request, connectionId);
       case "inventory.batch.list": return this.listBatches(request,connectionId);
       case "inventory.batch.status": return this.changeBatchStatus(request,connectionId);
+      case "inventory.conversion.rule.approve": return this.approvePresentationConversion(request,connectionId);
+      case "inventory.conversion.execute": return this.convertPresentation(request,connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
       case "hardware.command": return this.hardwareCommand(request,connectionId);
       case "audit.event.list": return this.listAuditEvents(request, connectionId);
@@ -1235,6 +1237,47 @@ export class CommercialRequestHandler {
     if(result.kind==="UPDATED"||result.kind==="IDEMPOTENT")
       return succeeded(request,result.kind,{outcome:result.kind});
     return rejected(request,result.kind,{outcome:result.kind});
+  }
+
+
+  private approvePresentationConversion(
+    request:Extract<CommercialRequest,{message_type:"inventory.conversion.rule.approve"}>,
+    connectionId:string,
+  ):unknown{
+    const invalid={outcome:"UNAUTHORIZED",rule_id:null};
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,invalid);
+    const result=this.commercial.approvePresentationConversion.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        sourcePresentationId:request.payload.source_presentation_id,
+        targetPresentationId:request.payload.target_presentation_id,
+        numerator:request.payload.numerator,denominator:request.payload.denominator,
+        version:request.payload.version,idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,causationId:request.causation_id??null,
+      });
+    const response={outcome:result.kind,rule_id:result.ruleId??null};
+    return result.kind==="APPROVED"||result.kind==="IDEMPOTENT"
+      ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
+  }
+
+  private convertPresentation(
+    request:Extract<CommercialRequest,{message_type:"inventory.conversion.execute"}>,
+    connectionId:string,
+  ):unknown{
+    const empty={outcome:"UNAUTHORIZED",conversion_id:null,target_lot_id:null,target_quantity:null};
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,empty);
+    const result=this.commercial.convertPresentation.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        ruleId:request.payload.rule_id,sourceLotId:request.payload.source_lot_id,
+        quantity:request.payload.quantity,reasonCode:request.payload.reason_code,
+        businessDate:request.payload.business_date,idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,causationId:request.causation_id??null,
+      });
+    const response={outcome:result.kind,conversion_id:result.conversionId??null,
+      target_lot_id:result.targetLotId??null,target_quantity:result.targetQuantity??null};
+    return result.kind==="CONVERTED"||result.kind==="IDEMPOTENT"
+      ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
   }
 
   // ── sales.receipt.get — `DEC-019` ──────────────────────────────────────────
