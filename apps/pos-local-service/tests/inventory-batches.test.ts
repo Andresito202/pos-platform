@@ -1,7 +1,7 @@
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join,dirname } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { AuthorizationSnapshotClaims } from "@pos-platform/contracts";
@@ -123,6 +123,42 @@ function batchReceive(presentationId:string,code:string,expiryDate:string|null,q
   return receipt(presentationId,{quantity,batch:batch(code,expiryDate)});
 }
 describe("shared v22 batch ledger and FEFO on original inventory",()=>{
+ it("persists exact lot balance and audit through SQLite process restart",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"PERSIST","2026-12-01")).kind).toBe("POSTED");
+  const directory=dirname(database.native.name);
+  database.close();
+  const reopened=LocalDatabase.open({dataDirectory:directory});
+  databases.push(reopened);
+  const fresh=new SqliteInventoryStore(reopened,new DurableSyncStore(reopened),()=>NOW);
+  expect(fresh.listBatches(SCOPE,presentationId)[0]?.quantityOnHand).toBe("3.000000");
+  expect(fresh.availableUnits(SCOPE,presentationId)).toBe(3_000_000n);
+  expect(reopened.native.prepare("SELECT count(*) AS n FROM inventory_lot_movement").get()).toEqual({n:1});
+  reopened.assertIntegrity();
+ });
+ it("treats a duplicated receipt with altered supplier/documents as an idempotency conflict",async()=>{
+  const {receive,store,presentationId}=await buildEnv();
+  const first=batchReceive(presentationId,"SOURCE","2026-10-10");
+  expect(receive.execute(SCOPE,SESSION,auth(),first).kind).toBe("POSTED");
+  expect(receive.execute(SCOPE,SESSION,auth(),{
+    ...first,batch:{...first.batch,receiptDocument:"FAKE-DOCUMENT"},
+  }).kind).toBe("IDEMPOTENCY_CONFLICT");
+  expect(store.listBatches(SCOPE,presentationId)[0]?.quantityOnHand).toBe("3.000000");
+ });
+ it("never sells more than eligible FEFO stock even if physical stock is greater",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"FRESH","2026-09-30")).kind).toBe("POSTED");
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"OLD","2026-09-05")).kind).toBe("POSTED");
+  const result=store.appendSaleDeduction({
+    scope:SCOPE,sessionId:SESSION,operatorUserId:USER,
+    saleId:"018f0000-0000-7000-8000-0000000000ab",
+    presentationId,quantity:"4.000000",businessDate:"2026-09-07",
+    correlationId:CORRELATION,causationId:null,
+  });
+  expect(result).toEqual({kind:"INSUFFICIENT_STOCK",available:"3.000000"});
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("6.000000");
+  expect(database.native.prepare("SELECT count(*) AS n FROM inventory_lot_movement WHERE event_type='SALE'").get()).toEqual({n:0});
+ });
  it("creates a document-linked lot in the same SQLite transaction as stock, audit and outbox",async()=>{
   const {receive,store,database,presentationId}=await buildEnv();
   const req=batchReceive(presentationId,"LOT-001","2026-10-01");
