@@ -144,6 +144,7 @@ const PERMISSIONS = [
   "CATALOG_PRODUCT_REGISTER",
   "CATALOG_PRODUCT_READ",
   "INVENTORY_STOCK_RECEIVE",
+  "INVENTORY_STOCK_ADJUST",
   "INVENTORY_STOCK_READ",
   "SALES_SALE_CREATE",
   "PAYMENTS_PAYMENT_REGISTER",
@@ -976,6 +977,54 @@ function allocationsOf(database: LocalDatabase, saleId: string): number {
     saleId,
   );
 }
+
+describe("v23 conversion traverses the real signed IPC and original SQLite",()=>{
+  it("approves a versioned ratio and atomically converts a source batch",async()=>{
+    await withRealChannel(async(send,database)=>{
+      await prepareCounter(send,database,"convert-boot");
+      const product=await send(mutating("catalog.product.register",{
+        code:"CONVERT-BASE",name:"Aceite por presentación",stock_controlled:true,
+        presentation_name:"Unidad base",unit_code:"UND",unit_precision:0,
+        barcode:"7709876543210",price_amount:"4000.000000",currency_code:"COP",
+      },"convert:product"));
+      expect(product.result["outcome"]).toBe("REGISTERED");
+      const sourceId=product.result["presentation_id"] as string;
+      const productId=product.result["product_id"] as string;
+      const targetId=randomUUID(),now=NOW.toISOString();
+      database.native.prepare(`INSERT INTO catalog_presentation(
+        id,tenant_id,product_id,name,unit_code,unit_precision,barcode,status,created_at,updated_at
+      ) VALUES(?,?,?,'Paquete x2','UND',0,NULL,'ACTIVE',?,?)`)
+        .run(targetId,TENANT,productId,now,now);
+      const received=await send(mutating("inventory.stock.receive",{
+        presentation_id:sourceId,movement_type:"PURCHASE_RECEIPT",
+        quantity:"5.000000",reason_code:"SUPPLIER_DELIVERY",business_date:"2026-09-03",
+        batch:{code:"LOT-CONV",manufacture_date:"2026-09-01",expiry_date:"2026-09-30",
+          supplier_reference:"SUP-001",receipt_document:"DOC-001"},
+      },"convert:receive"));
+      expect(received.result["outcome"]).toBe("POSTED");
+      const lot=database.native.prepare(`SELECT id FROM inventory_lot
+        WHERE tenant_id=? AND branch_id=? AND presentation_id=?`).get(
+        TENANT,BRANCH,sourceId) as {id:string};
+      const approval=await send(mutating("inventory.conversion.rule.approve",{
+        source_presentation_id:sourceId,target_presentation_id:targetId,
+        numerator:"2",denominator:"1",version:1,
+      },"convert:rule"));
+      expect(approval.result["outcome"]).toBe("APPROVED");
+      const rule=approval.result["rule_id"] as string;
+      const payload={rule_id:rule,source_lot_id:lot.id,quantity:"2.000000",
+        reason_code:"PRESENTATION_CONVERSION",business_date:"2026-09-03"};
+      const first=await send(mutating("inventory.conversion.execute",payload,"convert:run"));
+      expect(first.result["outcome"]).toBe("CONVERTED");
+      expect(first.result["target_quantity"]).toBe("4.000000");
+      const retry=await send(mutating("inventory.conversion.execute",payload,"convert:run"));
+      expect(retry.result["outcome"]).toBe("IDEMPOTENT");
+      expect(stockOf(database,sourceId)).toBe("3.000000");
+      expect(stockOf(database,targetId)).toBe("4.000000");
+      expect(countOf(database,"SELECT COUNT(*) AS n FROM inventory_conversion_event")).toBe(1);
+      expect(countOf(database,"SELECT COUNT(*) AS n FROM inventory_lot_movement WHERE event_type='CONVERSION'")).toBe(2);
+    });
+  },30_000);
+});
 
 describe("la vertical resiste el uso real: ventas seguidas, reintentos y saldos", () => {
   it("dos ventas consecutivas no se contaminan y el inventario baja una vez por venta", async () => {
