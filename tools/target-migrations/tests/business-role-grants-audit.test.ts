@@ -91,6 +91,10 @@ describe.skipIf(!enabled)("BUSINESS role-grant SQL audit against PostgreSQL", ()
   }, 120_000);
 
   beforeEach(async () => {
+    // The previous test may have inserted a deliberately forbidden BUSINESS
+    // assignment. Remove dependents before role grants so every assertion starts
+    // from its own effective authorization state.
+    await db.query('DELETE FROM "authorization".user_role_assignments');
     await db.query('DELETE FROM "authorization".role_permission_grants');
   });
 
