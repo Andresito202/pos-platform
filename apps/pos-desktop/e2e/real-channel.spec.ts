@@ -487,7 +487,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   const expectedCash = await page.getByTestId("shift-expected-cash").textContent();
   const countedAmount = await page.getByTestId("shift-counted-amount").textContent();
   const difference = await page.getByTestId("shift-difference").textContent();
-  expect(countedAmount).toBe("0.000000");
+  expect(countedAmount).toBe(formatScale6Display("0.000000"));
   expect(expectedCash).not.toBeNull();
   expect(difference).not.toBeNull();
 
