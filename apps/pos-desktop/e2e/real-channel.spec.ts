@@ -217,7 +217,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.evaluate(() => ({ require: typeof (globalThis as { require?: unknown }).require, process: typeof (globalThis as { process?: unknown }).process })))
     .toEqual({ require: "undefined", process: "undefined" });
   await expect(page.getByTestId("status-connected")).toBeVisible();
-  await expect(page.getByTestId("authorization-unauthenticated")).toBeVisible();
+  // The consolidated entry always exposes the login, including when session recovery is denied.\n  // The security invariant here is no commercial surface before signed activation.\n  await expect(page.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
   await expect(page.getByTestId("sale-panel")).toHaveCount(0);
   if (auditDirectory) {
     mkdirSync(auditDirectory, { recursive: true });
