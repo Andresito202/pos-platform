@@ -17,6 +17,9 @@ import {IsolatedBusinessAuthCoordinator} from "./isolated-business-auth-coordina
 import {IsolatedBusinessAuditSessionGuard} from "./isolated-business-audit-session-guard.js";
 import {IsolatedNativeBusinessRequests} from "./isolated-native-business-requests.js";
 import {IsolatedAuthorizationSnapshotIssuer} from "./isolated-authorization-snapshot-issuer.js";
+import {CentralMerchantDestinationPublisher} from "./merchant-destination-snapshot-publisher.js";
+import {MerchantDestinationDeviceRoutes} from "./merchant-destination-device-routes.js";
+import {MerchantBusinessDestinationOperations} from "./merchant-destination-business-operations.js";
 import {prepareCommercialHttpHandler} from "./isolated-commercial-https.js";
 
 function managed(path:string,max=1048576){
@@ -34,7 +37,7 @@ const publicMaterial=(key:KeyObject)=>key.export({type:"spki",format:"der"}).toS
 /** One composition on the existing Central listener. No constructor accepts
  * client-supplied approval flags, identities or a synthetic authenticated user. */
 export async function prepareCentralCommercialRuntime(input:{pool:Pool;provisionFile:string;origin:string;environment:"PREPRODUCTION"|"PRODUCTION";
-  tls:{key:Buffer;cert:Buffer};publishedSsaFile:string;publishedSasFile:string}){
+  tls:{key:Buffer;cert:Buffer};publishedSsaFile:string;publishedSasFile:string;merchantQrProvisionFile?:string}){
   const p=CentralCommercialProvisionSchema.parse(json(input.provisionFile)),l=p.limits,d=p.recipient;
   validateCommercialHttpsOrigin(input.origin);validateWindowsCommercialRegistration(p.registration,p.rp_id,input.origin);
   if(p.environment!==input.environment||p.registration.authorizationOrigin!==input.origin||resolve(p.sas.trust_bundle_file)!==resolve(input.publishedSasFile))throw Error("COMMERCIAL_DEPLOYMENT_SCOPE_REJECTED");
@@ -84,11 +87,39 @@ export async function prepareCentralCommercialRuntime(input:{pool:Pool;provision
     clientId:p.registration.clientId,keyId:p.access.key_id,accessLifetimeMs:l.access_ms,maximumProofSkewMs:l.proof_skew_ms,signingValidFrom:p.access.valid_from,signingValidUntil:p.access.valid_until},families);
   const requests=new IsolatedNativeBusinessRequests(input.pool,{mode:"DEPLOYMENT",challengeLifetimeMs:l.native_challenge_ms,requestLifetimeMs:l.native_request_ms,
     codeLifetimeMs:l.native_code_ms,maximumChallengesPerMinute:l.maximum_challenges_per_minute,maximumReauthenticationAgeMs:l.reauthentication_ms},deployment);
+  // QR-001 is installer opt-in only. The QR key has a separate purpose,
+  // key pair and provision file. No default bank/merchant account exists.
+  let merchantQr:CentralMerchantDestinationPublisher|undefined;
+  if(input.merchantQrProvisionFile){
+    const q=json(input.merchantQrProvisionFile) as Record<string,unknown>;
+    const expectedKeys=["profile","key_id","private_key_file","valid_from","valid_until","snapshot_lifetime_ms"];
+    if(Object.keys(q).length!==expectedKeys.length||!expectedKeys.every(k=>Object.hasOwn(q,k))||
+      q.profile!=="CAMACHO_MERCHANT_QR001_V1"||typeof q.private_key_file!=="string"||
+      typeof q.key_id!=="string"||typeof q.valid_from!=="string"||typeof q.valid_until!=="string"||
+      typeof q.snapshot_lifetime_ms!=="number")throw Error("QR001_SIGNING_PROVISION_REJECTED");
+    const installed=await input.pool.query<{ready:boolean}>(`SELECT EXISTS(
+      SELECT 1 FROM platform.target_migration_executions
+      WHERE migration_id='024_merchant_payment_destinations' AND status='APPLIED') AS ready`);
+    if(installed.rows[0]?.ready!==true)throw Error("QR001_CENTRAL_MIGRATION_024_REQUIRED");
+    const qrKey=createPrivateKey(managed(q.private_key_file,8192));
+    const qrPublic=publicMaterial(createPublicKey(qrKey));
+    if([publicMaterial(ssaPublic),publicMaterial(sasPublic),publicMaterial(createPublicKey(accessPublic))].includes(qrPublic))
+      throw Error("QR001_SIGNING_KEY_PURPOSE_NOT_SEPARATED");
+    merchantQr=new CentralMerchantDestinationPublisher(input.pool,{
+      purpose:"MERCHANT_DESTINATION_SNAPSHOT",
+      environment:p.environment==="PRODUCTION"?"PRODUCTION":"STAGING",
+      keyId:q.key_id,privateKey:qrKey,validFrom:q.valid_from,
+      validUntil:q.valid_until,snapshotLifetimeMs:q.snapshot_lifetime_ms,
+    });
+  }
   return prepareCommercialHttpHandler({pool:input.pool,tls:input.tls,origin:input.origin,mfa,authority,
     handoffs:new PostgresBrowserSessionHandoffWriter(input.origin,l.handoff_ms),browser:new DurableBrowserSessionStore(input.pool,input.origin,
       {mode:"CANONICAL",lifetimeMs:l.browser_ms,idleTimeoutMs:l.browser_idle_ms,maximumReauthenticationAgeMs:l.reauthentication_ms}),
     clients:new CommercialNativeClientCatalog([p.registration]),coordinator,pair:new IsolatedBusinessCredentialPairIssuer(input.pool,access,families,deployment),
-    deploymentContext:deployment,nativeValidation:{requests,codec:access,signing:{mode:"DEPLOYMENT",environment:p.environment,operationalPrivateKey:ssaPrivate,rootTrustAnchor:ssaRoot,
+    deploymentContext:deployment,
+    ...(merchantQr?{merchantDestinations:new MerchantBusinessDestinationOperations(input.pool),
+      merchantDeviceRoutes:new MerchantDestinationDeviceRoutes(input.pool,merchantQr)}:{}),
+    nativeValidation:{requests,codec:access,signing:{mode:"DEPLOYMENT",environment:p.environment,operationalPrivateKey:ssaPrivate,rootTrustAnchor:ssaRoot,
       signedOperationalKey:ssa,policy:{maximumReauthenticationAgeMs:l.reauthentication_ms,maximumClaimAgeMs:l.ssa_claim_age_ms,maximumOfflineLifetimeMs:l.ssa_offline_ms}}},
     authorizationIssuer:new IsolatedAuthorizationSnapshotIssuer(input.pool,access,{tenantId:d.tenant_id,companyId:d.company_id,branchId:d.branch_id,installationId:d.installation_id,deviceId:d.device_id},
       {mode:"DEPLOYMENT",lifetimeMs:l.sas_ms,maximumReauthenticationAgeMs:l.reauthentication_ms},
