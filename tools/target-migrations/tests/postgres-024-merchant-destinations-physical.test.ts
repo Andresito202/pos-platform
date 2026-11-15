@@ -118,6 +118,23 @@ describe("QR-001 PostgreSQL 16.14 physical DDL, tenant isolation and DB protecti
    await client.query("RESET ROLE");
   } finally {await client.query("RESET ROLE").catch(()=>undefined);client.release();}
  });
+ test("schema owner can see every company's merchant evidence and refuses destructive downgrade",async()=>{
+  // FORCE RLS also applies to table owners. An absent owner SELECT policy
+  // would turn an empty-only DOWN guard into a data-loss mechanism.
+  const client=await pool.connect();
+  try{
+   await client.query("SET ROLE pos_schema_owner");
+   const evidence=await client.query("SELECT count(*)::int AS n FROM payments.merchant_qr_assets");
+   expect(evidence.rows[0]?.n).toBeGreaterThan(0);
+   await expect(client.query(
+     await readArtifact("postgres/024_merchant_payment_destinations.down.sql")
+   )).rejects.toThrow("cannot downgrade");
+   expect((await client.query("SELECT to_regclass('payments.merchant_qr_assets') IS NOT NULL AS preserved")).rows[0]?.preserved).toBe(true);
+  }finally{
+   await client.query("RESET ROLE").catch(()=>undefined);
+   client.release();
+  }
+ });
  test("denies DELETE to app and all table access to POS local role",async()=>{
   const local=await pool.query(`SELECT has_table_privilege('pos_app','payments.merchant_qr_assets','SELECT') r,
      has_table_privilege('pos_app','payments.merchant_destinations','INSERT') i,
