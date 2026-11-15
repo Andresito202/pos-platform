@@ -210,7 +210,7 @@ export class SqliteInventoryStore {
   /** Batch ledger update is called only inside the SAME active SQLite transaction
    * as the pre-existing inventory_movement, operation/audit/outbox. */
   private writeLotLedger(input:AppendMovementInput,lotId:string,units:bigint,
-    direction:"IN"|"OUT",eventType:"RECEIPT"|"SALE"|"SHRINKAGE"|"CONVERSION"|"MATERIAL_CONSUMPTION",
+    direction:"IN"|"OUT",eventType:"RECEIPT"|"SALE"|"SHRINKAGE"|"ADJUSTMENT"|"TRANSFER"|"CONVERSION"|"MATERIAL_CONSUMPTION",
     receipt?:{supplierReference:string;receiptDocument:string}):void {
     const row=this.database.native.prepare(`SELECT quantity_on_hand,version FROM inventory_lot
       WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=? AND presentation_id=?`)
@@ -588,7 +588,10 @@ export class SqliteInventoryStore {
         return {kind:"INSUFFICIENT_STOCK",available:record.quantity_on_hand} as AppendMovementOutcome;
       const result=this.appendMovement(input,true);
       if(result.kind!=="POSTED")return result;
-      this.writeLotLedger(input,lotId,scale6ToBigInt(input.quantity),"OUT","SHRINKAGE");
+      const entryType=input.movementType==="SHRINKAGE"?"SHRINKAGE":
+        input.movementType==="TRANSFER_OUT"?"TRANSFER":
+        input.reasonCode==="MATERIAL_CONSUMPTION"?"MATERIAL_CONSUMPTION":"ADJUSTMENT";
+      this.writeLotLedger(input,lotId,scale6ToBigInt(input.quantity),"OUT",entryType);
       return result;
     })();
   }
