@@ -577,11 +577,18 @@ export class SqliteInventoryStore {
     return this.database.native.transaction(()=>{
       if(!this.isLotTracked(input.scope,input.presentationId))
         return {kind:"LOT_TRACKING_REQUIRED"} as AppendMovementOutcome;
-      const record=this.database.native.prepare(`SELECT quantity_on_hand FROM inventory_lot
+      const record=this.database.native.prepare(`SELECT quantity_on_hand,status,expiry_date FROM inventory_lot
         WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=? AND id=?`)
         .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,
-          input.presentationId,lotId) as {quantity_on_hand:string}|undefined;
+          input.presentationId,lotId) as {quantity_on_hand:string;status:string;expiry_date:string|null}|undefined;
       if(!record)return {kind:"LOT_NOT_FOUND"} as AppendMovementOutcome;
+      // Recipe/raw-material consumption is a productive use, not disposal.
+      // Quarantine, recall and expiry must never enter a finished product.
+      // Physical loss/withdrawal from those lots remains possible with SHRINKAGE.
+      if(input.reasonCode==="MATERIAL_CONSUMPTION" &&
+        (record.status!=="AVAILABLE" ||
+         (record.expiry_date!==null && record.expiry_date<this.now().toISOString().slice(0,10))))
+        return {kind:"LOT_NOT_SELLABLE"} as AppendMovementOutcome;
       if(!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
         return {kind:"INVALID_QUANTITY"} as AppendMovementOutcome;
       if(scale6ToBigInt(record.quantity_on_hand)<scale6ToBigInt(input.quantity))
