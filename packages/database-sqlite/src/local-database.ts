@@ -1570,6 +1570,76 @@ CREATE TRIGGER inventory_lot_status_event_no_delete BEFORE DELETE ON inventory_l
 BEGIN SELECT RAISE(ABORT,'batch status history is append-only'); END;
 `.trim();
 
+/**
+ * MIGRATION_023: versioned, immutable presentation equivalences and atomic
+ * lot conversion genealogy. No historic inventory/sale/payment rows change.
+ * Conversion requires both presentations to belong to the SAME product.
+ */
+const MIGRATION_023 = `
+CREATE TABLE inventory_conversion_rule (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  product_id TEXT NOT NULL CHECK(length(product_id)=36),
+  source_presentation_id TEXT NOT NULL CHECK(length(source_presentation_id)=36),
+  target_presentation_id TEXT NOT NULL CHECK(length(target_presentation_id)=36),
+  numerator TEXT NOT NULL CHECK(numerator GLOB '[1-9]*' AND numerator NOT GLOB '*[^0-9]*' AND length(numerator)<=12),
+  denominator TEXT NOT NULL CHECK(denominator GLOB '[1-9]*' AND denominator NOT GLOB '*[^0-9]*' AND length(denominator)<=12),
+  version INTEGER NOT NULL CHECK(version>=1),
+  approved_by TEXT NOT NULL CHECK(length(approved_by)=36),
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,id),
+  UNIQUE(tenant_id,idempotency_key),
+  UNIQUE(tenant_id,company_id,source_presentation_id,target_presentation_id,version),
+  CHECK(source_presentation_id<>target_presentation_id),
+  FOREIGN KEY(tenant_id,source_presentation_id) REFERENCES catalog_presentation(tenant_id,id),
+  FOREIGN KEY(tenant_id,target_presentation_id) REFERENCES catalog_presentation(tenant_id,id),
+  FOREIGN KEY(tenant_id,company_id,product_id) REFERENCES catalog_product(tenant_id,company_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER inventory_conversion_rule_same_product BEFORE INSERT ON inventory_conversion_rule
+WHEN (SELECT product_id FROM catalog_presentation WHERE tenant_id=NEW.tenant_id AND id=NEW.source_presentation_id)<>NEW.product_id
+ OR (SELECT product_id FROM catalog_presentation WHERE tenant_id=NEW.tenant_id AND id=NEW.target_presentation_id)<>NEW.product_id
+BEGIN SELECT RAISE(ABORT,'conversion presentations must share a product'); END;
+CREATE TRIGGER inventory_conversion_rule_no_update BEFORE UPDATE ON inventory_conversion_rule
+BEGIN SELECT RAISE(ABORT,'conversion rule is immutable'); END;
+CREATE TRIGGER inventory_conversion_rule_no_delete BEFORE DELETE ON inventory_conversion_rule
+BEGIN SELECT RAISE(ABORT,'conversion rule history is permanent'); END;
+
+CREATE TABLE inventory_conversion_event (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  rule_id TEXT NOT NULL CHECK(length(rule_id)=36),
+  source_lot_id TEXT NOT NULL CHECK(length(source_lot_id)=36),
+  target_lot_id TEXT NOT NULL CHECK(length(target_lot_id)=36),
+  source_movement_id TEXT NOT NULL CHECK(length(source_movement_id)=36),
+  target_movement_id TEXT NOT NULL CHECK(length(target_movement_id)=36),
+  source_quantity TEXT NOT NULL,
+  target_quantity TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
+  occurred_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,idempotency_key),
+  FOREIGN KEY(tenant_id,rule_id) REFERENCES inventory_conversion_rule(tenant_id,id),
+  FOREIGN KEY(tenant_id,branch_id,source_lot_id) REFERENCES inventory_lot(tenant_id,branch_id,id),
+  FOREIGN KEY(tenant_id,branch_id,target_lot_id) REFERENCES inventory_lot(tenant_id,branch_id,id),
+  FOREIGN KEY(tenant_id,source_movement_id) REFERENCES inventory_movement(tenant_id,id),
+  FOREIGN KEY(tenant_id,target_movement_id) REFERENCES inventory_movement(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX inventory_conversion_by_lot
+ ON inventory_conversion_event(tenant_id,branch_id,source_lot_id,occurred_at);
+CREATE TRIGGER inventory_conversion_event_no_update BEFORE UPDATE ON inventory_conversion_event
+BEGIN SELECT RAISE(ABORT,'conversion genealogy is append-only'); END;
+CREATE TRIGGER inventory_conversion_event_no_delete BEFORE DELETE ON inventory_conversion_event
+BEGIN SELECT RAISE(ABORT,'conversion genealogy is append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1593,6 +1663,7 @@ const MIGRATIONS = [
   { version: 20, sql: MIGRATION_020, checksum: createHash("sha256").update(MIGRATION_020).digest("hex") },
   { version: 21, sql: MIGRATION_021, checksum: createHash("sha256").update(MIGRATION_021).digest("hex") },
   { version: 22, sql: MIGRATION_022, checksum: createHash("sha256").update(MIGRATION_022).digest("hex") },
+  { version: 23, sql: MIGRATION_023, checksum: createHash("sha256").update(MIGRATION_023).digest("hex") },
 ] as const;
 
 /**
