@@ -1467,6 +1467,106 @@ BEFORE DELETE ON local_merchant_payment_destination_snapshot
 BEGIN SELECT RAISE(ABORT,'destination snapshot cannot be deleted; publish revocation'); END;
 `.trim();
 
+/**
+ * MIGRATION_022: additive batch tracking on the ORIGINAL inventory ledger.
+ * Existing catalog, sale items, payments, inventory_stock and movement records
+ * remain untouched. Tracking is opt-in per branch/presentation ONLY while
+ * consolidated stock is zero; legacy balances may not be silently assigned.
+ */
+const MIGRATION_022 = `
+CREATE TABLE inventory_lot_tracking (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id)=36),
+  enabled_at TEXT NOT NULL,
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  PRIMARY KEY(tenant_id,branch_id,presentation_id),
+  FOREIGN KEY(tenant_id,presentation_id) REFERENCES catalog_presentation(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE inventory_lot (
+  id TEXT NOT NULL CHECK(length(id)=36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id)=36),
+  batch_code TEXT NOT NULL CHECK(length(batch_code) BETWEEN 1 AND 96),
+  manufacture_date TEXT CHECK(manufacture_date IS NULL OR length(manufacture_date)=10),
+  expiry_date TEXT CHECK(expiry_date IS NULL OR length(expiry_date)=10),
+  supplier_reference TEXT NOT NULL CHECK(length(supplier_reference) BETWEEN 1 AND 160),
+  receipt_document TEXT NOT NULL CHECK(length(receipt_document) BETWEEN 1 AND 160),
+  status TEXT NOT NULL CHECK(status IN ('AVAILABLE','QUARANTINE','BLOCKED','RECALLED')),
+  quantity_on_hand TEXT NOT NULL CHECK(quantity_on_hand GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity_on_hand NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity_on_hand)-length(replace(quantity_on_hand,'.',''))=1)
+    CHECK(quantity_on_hand NOT GLOB '0[0-9]*'),
+  version INTEGER NOT NULL CHECK(version>=1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK(expiry_date IS NULL OR manufacture_date IS NULL OR manufacture_date<=expiry_date),
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,branch_id,presentation_id,batch_code),
+  FOREIGN KEY(tenant_id,branch_id,presentation_id)
+    REFERENCES inventory_lot_tracking(tenant_id,branch_id,presentation_id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX inventory_lot_fefo_idx
+  ON inventory_lot(tenant_id,company_id,branch_id,presentation_id,status,expiry_date,created_at);
+
+CREATE TABLE inventory_lot_movement (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  lot_id TEXT NOT NULL CHECK(length(lot_id)=36),
+  inventory_movement_id TEXT NOT NULL CHECK(length(inventory_movement_id)=36),
+  direction TEXT NOT NULL CHECK(direction IN ('IN','OUT')),
+  quantity TEXT NOT NULL CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity)-length(replace(quantity,'.',''))=1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity<>'0.000000'),
+  quantity_after TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK(event_type IN ('RECEIPT','SALE','SHRINKAGE','CONVERSION','MATERIAL_CONSUMPTION')),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
+  occurred_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,branch_id,id),
+  FOREIGN KEY(tenant_id,branch_id,lot_id) REFERENCES inventory_lot(tenant_id,branch_id,id),
+  FOREIGN KEY(tenant_id,inventory_movement_id) REFERENCES inventory_movement(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX inventory_lot_movement_lot_idx
+  ON inventory_lot_movement(tenant_id,branch_id,lot_id,occurred_at);
+CREATE TRIGGER inventory_lot_movement_no_update BEFORE UPDATE ON inventory_lot_movement
+BEGIN SELECT RAISE(ABORT,'batch ledger is append-only'); END;
+CREATE TRIGGER inventory_lot_movement_no_delete BEFORE DELETE ON inventory_lot_movement
+BEGIN SELECT RAISE(ABORT,'batch ledger is append-only'); END;
+CREATE TRIGGER inventory_lot_no_delete BEFORE DELETE ON inventory_lot
+BEGIN SELECT RAISE(ABORT,'batch records are permanent'); END;
+
+CREATE TABLE inventory_lot_status_event (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  lot_id TEXT NOT NULL CHECK(length(lot_id)=36),
+  previous_status TEXT NOT NULL,
+  next_status TEXT NOT NULL,
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  occurred_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,idempotency_key),
+  FOREIGN KEY(tenant_id,branch_id,lot_id) REFERENCES inventory_lot(tenant_id,branch_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER inventory_lot_status_event_no_update BEFORE UPDATE ON inventory_lot_status_event
+BEGIN SELECT RAISE(ABORT,'batch status history is append-only'); END;
+CREATE TRIGGER inventory_lot_status_event_no_delete BEFORE DELETE ON inventory_lot_status_event
+BEGIN SELECT RAISE(ABORT,'batch status history is append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1489,6 +1589,7 @@ const MIGRATIONS = [
   { version: 19, sql: MIGRATION_019, checksum: createHash("sha256").update(MIGRATION_019).digest("hex") },
   { version: 20, sql: MIGRATION_020, checksum: createHash("sha256").update(MIGRATION_020).digest("hex") },
   { version: 21, sql: MIGRATION_021, checksum: createHash("sha256").update(MIGRATION_021).digest("hex") },
+  { version: 22, sql: MIGRATION_022, checksum: createHash("sha256").update(MIGRATION_022).digest("hex") },
 ] as const;
 
 /**
