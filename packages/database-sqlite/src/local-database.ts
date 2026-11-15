@@ -1527,7 +1527,7 @@ CREATE TABLE inventory_lot_movement (
     CHECK(quantity NOT GLOB '0[0-9]*')
     CHECK(quantity<>'0.000000'),
   quantity_after TEXT NOT NULL,
-  event_type TEXT NOT NULL CHECK(event_type IN ('RECEIPT','SALE','SHRINKAGE','CONVERSION','MATERIAL_CONSUMPTION')),
+  event_type TEXT NOT NULL CHECK(event_type IN ('RECEIPT','SALE','SHRINKAGE','ADJUSTMENT','TRANSFER','CONVERSION','MATERIAL_CONSUMPTION')),
   actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
   reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
   supplier_reference TEXT CHECK(supplier_reference IS NULL OR length(supplier_reference) BETWEEN 1 AND 160),
