@@ -278,6 +278,26 @@ describe("shared v22 batch ledger and FEFO on original inventory",()=>{
   expect(adjust.execute(SCOPE,SESSION,auth(),loss).kind).toBe("POSTED");
   expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("5.000000");
  });
+ it("returns the committed lot debit on replay after a subsequent quarantine",async()=>{
+  const {receive,adjust,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"INGREDIENT","2026-09-30")).kind).toBe("POSTED");
+  const lot=store.listBatches(SCOPE,presentationId)[0]!;
+  const operation={
+    ...receipt(presentationId,{quantity:"1.000000",reasonCode:"MATERIAL_CONSUMPTION"}),
+    movementType:"ADJUSTMENT_NEGATIVE" as const,lotId:lot.id,
+  };
+  expect(adjust.execute(SCOPE,SESSION,auth(),operation).kind).toBe("POSTED");
+  const lotState=new ChangeBatchStatusUseCase(store);
+  expect(lotState.execute(SCOPE,SESSION,auth(),{
+    lotId:lot.id,status:"QUARANTINE",reasonCode:"QUALITY_REVIEW",
+    idempotencyKey:key(),correlationId:CORRELATION,causationId:null,
+  }).kind).toBe("UPDATED");
+  expect(adjust.execute(SCOPE,SESSION,auth(),operation).kind).toBe("IDEMPOTENT");
+  expect(adjust.execute(SCOPE,SESSION,auth(),{...operation,idempotencyKey:operation.idempotencyKey,
+    quantity:"2.000000"}).kind).toBe("IDEMPOTENCY_CONFLICT");
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("2.000000");
+  expect(database.native.prepare("SELECT count(*) AS n FROM inventory_lot_movement WHERE event_type='MATERIAL_CONSUMPTION'").get()).toEqual({n:1});
+ });
  it("requires signed backend stock-adjust grant before lot recall or quarantine",async()=>{
   const {receive,store,presentationId}=await buildEnv();
   expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"RECALL","2026-10-10")).kind).toBe("POSTED");
