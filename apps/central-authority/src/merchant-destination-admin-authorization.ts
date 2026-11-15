@@ -48,7 +48,7 @@ export async function assertMerchantAdminDuringWrite(
       AND a.status='ACTIVE' AND a.revoked_at IS NULL
       AND a.valid_from<=clock_timestamp()
       AND (a.valid_until IS NULL OR a.valid_until>clock_timestamp())
-    LIMIT 1 FOR SHARE OF a,m,s,c`,
+    LIMIT 1 FOR SHARE OF a,m,s`,
     [session.sessionId,session.userId,session.tenantId,session.tenantMembershipId,companyId]);
   if(result.rowCount!==1) throw new Error("QR001_ADMIN_WRITE_REVOKED");
 }
