@@ -42,7 +42,7 @@ test("el proceso principal compilado arranca y abre una ventana", async () => {
 
 test("el renderer compilado monta la aplicación", async () => {
   const window = await app.firstWindow();
-  await expect(window.getByRole("heading", { name: "Camacho POS Colombia" })).toBeVisible();
+  await expect(window.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
 });
 
 test("sin autorización válida no monta la superficie comercial", async () => {
