@@ -50,6 +50,24 @@ describe("QR-002 external business SMS is ALWAYS unverified",()=>{
   expect(both).toHaveLength(2);
   expect(both[1]?.company_id).toBe(companyB.companyId);
  });
+ it("never assigns one observation to either of two sales with the same requested amount",()=>{
+  const saleA={id:"sale-A",requested_cop:4500};
+  const saleB={id:"sale-B",requested_cop:4500};
+  const notice=projectUnverifiedMerchantNotice(companyA,{
+    ...signal,reported_amount_cop:4500,
+  });
+  const stored=appendUnverifiedMerchantNotice([],notice);
+  expect(stored).toHaveLength(1);
+  for(const sale of [saleA,saleB]){
+    const comparison=compareUnverifiedNoticeToRequestedAmount(sale.requested_cop,notice);
+    expect(comparison.comparison).toBe("EQUAL");
+    expect(comparison.bank_confirmed).toBe(false);
+  }
+  expect(Object.keys(stored[0]??{})).not.toContain("sale_id");
+  expect(Object.keys(stored[0]??{})).not.toContain("payment_id");
+  expect(saleA.id).not.toBe(saleB.id);
+ });
+
  it("rejects same-hash conflicting content, forged source and future timestamps",()=>{
   const first=projectUnverifiedMerchantNotice(companyA,signal);
   expect(()=>appendUnverifiedMerchantNotice([first],{
