@@ -517,6 +517,13 @@ it("upgrades v19 sales without assigning or changing historical customer identit
     DROP TRIGGER local_schema_migrations_no_delete;
     -- Reconstruct an actual v19 fixture: remove the disposable v21 projection
     -- as well as both later ledger entries, preserving immutable real history.
+      DROP TRIGGER inventory_conversion_event_no_update;
+      DROP TRIGGER inventory_conversion_event_no_delete;
+      DROP TABLE inventory_conversion_event;
+      DROP TRIGGER inventory_conversion_rule_same_product;
+      DROP TRIGGER inventory_conversion_rule_no_update;
+      DROP TRIGGER inventory_conversion_rule_no_delete;
+      DROP TABLE inventory_conversion_rule;
     DROP TRIGGER inventory_lot_status_event_no_update;
     DROP TRIGGER inventory_lot_status_event_no_delete;
     DROP TABLE inventory_lot_status_event;
