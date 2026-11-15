@@ -1,3 +1,5 @@
+import {MerchantBusinessDestinationOperations} from "./merchant-destination-business-operations.js";
+import {MerchantDestinationDeviceRoutes} from "./merchant-destination-device-routes.js";
 import {createServer, type ServerOptions} from "node:https";
 import type {IncomingMessage, ServerResponse} from "node:http";
 import {TLSSocket} from "node:tls";
@@ -93,6 +95,8 @@ export async function prepareCommercialHttpHandler(input:{
     signing:Parameters<IsolatedBusinessAuthCoordinator["issueSessionAssertion"]>[3]};
   authorizationIssuer?:IsolatedAuthorizationSnapshotIssuer;
   authorizationTrustCandidate?:SignedAuthorizationTrustCandidate;
+  merchantDestinations?:MerchantBusinessDestinationOperations;
+  merchantDeviceRoutes?:MerchantDestinationDeviceRoutes;
 }){
   const {pool,mfa,authority,handoffs,browser,clients,coordinator,pair,policy}=input;
   if(input.deploymentContext){
@@ -101,6 +105,10 @@ export async function prepareCommercialHttpHandler(input:{
       input.authorizationTrustCandidate||!Number.isSafeInteger(policy.maximumLoginAttempts)||policy.maximumLoginAttempts!<=0||
       !Number.isSafeInteger(policy.maximumBuckets)||policy.maximumBuckets!<=0)throw Error("COMMERCIAL_DEPLOYMENT_COMPOSITION_REQUIRED");
   }
+  if((input.merchantDestinations||input.merchantDeviceRoutes)&&
+    (!input.deploymentContext||!(input.merchantDestinations instanceof MerchantBusinessDestinationOperations)||
+      !(input.merchantDeviceRoutes instanceof MerchantDestinationDeviceRoutes)))
+    throw Error("QR001_PRODUCTION_ONLY_COMPOSITION_REQUIRED");
   const url=new URL(pool.options.connectionString??"invalid:");
   if(!policy||policy.mode!==(input.deploymentContext?"DEPLOYMENT":"ISOLATED_VALIDATION")||![policy.maximumBodyBytes,policy.requestsPerMinute].every(n=>Number.isSafeInteger(n)&&n>0)||
     (!input.deploymentContext&&(!["localhost","127.0.0.1"].includes(url.hostname)||url.port!=="55433"))||
@@ -178,23 +186,51 @@ export async function prepareCommercialHttpHandler(input:{
             (req.headers.origin && req.headers.origin!==input.origin) || Number(req.headers["content-length"]??0)!==0)throw new Rejection(400);
           sendCommercialBrowserEntry(res,input.browserEntry);return;
         }
+        const merchantDeviceAction=req.url?.match(/^\\/v1\\/commercial\\/merchant-destinations\\/(snapshot|floor|ack)$/)?.[1] as
+          "snapshot"|"floor"|"ack"|undefined;
+        const merchantAction=req.url?.match(/^\\/v1\\/commercial\\/merchant-destinations\\/(list|upload|asset|create|publish|revoke)$/)?.[1] as
+          "list"|"upload"|"asset"|"create"|"publish"|"revoke"|undefined;
         if(req.headers.host!==origin.host||req.method!=="POST"||!req.url||
-          (!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
+          (!merchantDeviceAction&&!merchantAction&&!/^\/v1\/commercial\/(login|authorize|token|browser\/(session|rotate|logout))$/.test(req.url)&&
             !(native&&["/v1/commercial/native-request-challenges","/v1/commercial/native-requests","/v1/business-session/assertions",
               ...(native.codec instanceof CommercialBusinessAccessAuthority?["/v1/commercial/refresh","/v1/commercial/revoke"]:[]),
               ...(input.authorizationIssuer?["/v1/business-session/authorization"]:[])].includes(req.url))))throw new Rejection(400);
         const tokenRoute=req.url==="/v1/commercial/token";
-        const nativeRoute=tokenRoute||req.url==="/v1/commercial/refresh"||req.url==="/v1/commercial/revoke"||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
+        const nativeRoute=Boolean(merchantDeviceAction)||tokenRoute||req.url==="/v1/commercial/refresh"||req.url==="/v1/commercial/revoke"||req.url.includes("/native-request")||req.url.startsWith("/v1/business-session/");
         if(nativeRoute){
           // Native back-channel: browser origins and ambient cookies are forbidden.
           if(req.headers.origin||req.headers.cookie||req.headers["sec-fetch-site"])throw new Rejection(403);
         }else if(req.headers.origin!==input.origin||req.headers["sec-fetch-site"]!=="same-origin")throw new Rejection(403);
-        const {object:o,raw}=await body(req,policy.maximumBodyBytes);
+        const {object:o,raw}=await body(req,merchantAction==="upload"?Math.max(policy.maximumBodyBytes,1_420_000):policy.maximumBodyBytes);
         const proof=()=>{
           if(!text(req.headers.authorization,8192)||!uuid(req.headers["x-request-id"])||!UuidV7Schema.safeParse(req.headers["x-correlation-id"]).success)throw new Rejection(400);
           const correlationId=req.headers["x-correlation-id"] as string;
           return {authorization:req.headers.authorization,requestId:req.headers["x-request-id"],correlationId,body:raw};
         };
+        if(merchantDeviceAction){
+          if(!input.merchantDeviceRoutes)throw new Rejection(404);
+          const result=await input.merchantDeviceRoutes.handle(merchantDeviceAction,proof());
+          if(result===null)throw new Rejection(401);
+          send(res,200,result);return;
+        }
+        if(merchantAction){
+          if(!input.merchantDestinations)throw new Rejection(404);
+          const session=await browser.inspect({method:"POST",origin:req.headers.origin??null,
+            fetchSite:typeof req.headers["sec-fetch-site"]==="string"?req.headers["sec-fetch-site"]:null,
+            cookie:req.headers.cookie??null,
+            csrfToken:typeof req.headers["x-csrf-token"]==="string"?req.headers["x-csrf-token"]:null});
+          if(!session)throw new Rejection(401);
+          try{
+            const result=await input.merchantDestinations.dispatch({session,action:merchantAction,payload:o});
+            send(res,200,{result});return;
+          }catch(error){
+            if(error instanceof Error&&(/QR001_ADMIN_DENIED|QR001_ADMIN_WRITE_REVOKED/.test(error.message)))
+              throw new Rejection(403);
+            if(error instanceof Error&&(/QR001_INVALID_REQUEST|QR001_INVALID_QR_BASE64|INVALID_OFFICIAL_QR_PNG/.test(error.message)))
+              throw new Rejection(400);
+            throw error;
+          }
+        }
         if(native&&req.url==="/v1/commercial/native-request-challenges"){
           const registration=clients.requireExact(o.client_id,o.redirect_uri);
           if(!registration||registration.authorizationOrigin!==input.origin)throw new Rejection(403);
