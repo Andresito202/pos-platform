@@ -32,6 +32,7 @@ type CommercialRequest = Extract<
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.batch.list" | "inventory.batch.status" | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
+      | "inventory.reservation.create" | "inventory.reservation.release"
       | "sales.receipt.get"
       | "hardware.command"
       | "audit.event.list"
@@ -268,6 +269,8 @@ export class CommercialRequestHandler {
       case "inventory.batch.status": return this.changeBatchStatus(request,connectionId);
       case "inventory.conversion.rule.approve": return this.approvePresentationConversion(request,connectionId);
       case "inventory.conversion.execute": return this.convertPresentation(request,connectionId);
+      case "inventory.reservation.create": return this.createInventoryReservation(request,connectionId);
+      case "inventory.reservation.release": return this.releaseInventoryReservation(request,connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
       case "hardware.command": return this.hardwareCommand(request,connectionId);
       case "audit.event.list": return this.listAuditEvents(request, connectionId);
@@ -1277,6 +1280,51 @@ export class CommercialRequestHandler {
     const response={outcome:result.kind,conversion_id:result.conversionId??null,
       target_lot_id:result.targetLotId??null,target_quantity:result.targetQuantity??null};
     return result.kind==="CONVERTED"||result.kind==="IDEMPOTENT"
+      ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
+  }
+
+  private createInventoryReservation(
+    request:Extract<CommercialRequest,{message_type:"inventory.reservation.create"}>,
+    connectionId:string,
+  ):unknown{
+    const empty={outcome:"UNAUTHORIZED",reservation_id:null,available:null};
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,empty);
+    const result=this.commercial.createInventoryReservation.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        presentationId:request.payload.presentation_id,
+        quantity:request.payload.quantity,
+        referenceId:request.payload.reference_id,
+        expiresAt:request.payload.expires_at,
+        idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,
+        causationId:request.causation_id??null,
+      });
+    const response={
+      outcome:result.kind,
+      reservation_id:"reservationId" in result?(result.reservationId??null):null,
+      available:"available" in result?(result.available??null):null,
+    };
+    return result.kind==="RESERVED"||result.kind==="IDEMPOTENT"
+      ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
+  }
+
+  private releaseInventoryReservation(
+    request:Extract<CommercialRequest,{message_type:"inventory.reservation.release"}>,
+    connectionId:string,
+  ):unknown{
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,{outcome:"UNAUTHORIZED"});
+    const result=this.commercial.releaseInventoryReservation.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        reservationId:request.payload.reservation_id,
+        reasonCode:request.payload.reason_code,
+        idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,
+        causationId:request.causation_id??null,
+      });
+    const response={outcome:result.kind};
+    return result.kind==="RELEASED"||result.kind==="IDEMPOTENT"
       ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
   }
 

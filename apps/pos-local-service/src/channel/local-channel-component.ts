@@ -248,6 +248,8 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "inventory.batch.status":
       case "inventory.conversion.rule.approve":
       case "inventory.conversion.execute":
+      case "inventory.reservation.create":
+      case "inventory.reservation.release":
       case "sales.receipt.get":
       case "hardware.command":
       case "audit.event.list":

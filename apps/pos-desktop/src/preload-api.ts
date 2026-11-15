@@ -42,6 +42,8 @@ export const RENDERER_API_METHODS = [
   "inventory.batch.status",
   "inventory.conversion.rule.approve",
   "inventory.conversion.execute",
+  "inventory.reservation.create",
+  "inventory.reservation.release",
   "sales.receipt.get",
   "audit.event.list",
   "admin.metrics.get",

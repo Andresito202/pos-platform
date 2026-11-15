@@ -1234,6 +1234,40 @@ export const InventoryConversionExecuteResultSchema=z.strictObject({
 export const InventoryConversionExecuteResponseSchema=
  createResponseEnvelopeSchema(InventoryConversionExecuteResultSchema);
 
+// ── inventory.reservation.* — additive 024, same local SQLite service ─────
+export const InventoryReservationCreateRequestSchema=createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id:UuidSchema,
+    quantity:PositiveScale6Schema,
+    reference_id:z.string().min(1).max(64),
+    expires_at:UtcDateTimeSchema.nullable(),
+  }),
+).safeExtend({message_type:z.literal("inventory.reservation.create")})
+ .superRefine((request,ctx)=>{forbidCallerAssertedIdentity(request,ctx);requireIdempotentOperation(request,ctx);});
+export const InventoryReservationCreateResultSchema=z.strictObject({
+  outcome:z.enum([
+    "RESERVED","IDEMPOTENT","INSUFFICIENT_STOCK","INVALID_QUANTITY",
+    "IDEMPOTENCY_CONFLICT","PRESENTATION_NOT_FOUND","UNAUTHORIZED",
+  ]),
+  reservation_id:UuidSchema.nullable(),
+  available:NonNegativeScale6Schema.nullable(),
+});
+export const InventoryReservationCreateResponseSchema=
+  createResponseEnvelopeSchema(InventoryReservationCreateResultSchema);
+
+export const InventoryReservationReleaseRequestSchema=createRequestEnvelopeSchema(
+  z.strictObject({
+    reservation_id:UuidSchema,
+    reason_code:z.string().min(2).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
+  }),
+).safeExtend({message_type:z.literal("inventory.reservation.release")})
+ .superRefine((request,ctx)=>{forbidCallerAssertedIdentity(request,ctx);requireIdempotentOperation(request,ctx);});
+export const InventoryReservationReleaseResultSchema=z.strictObject({
+  outcome:z.enum(["RELEASED","IDEMPOTENT","CONFLICT","NOT_FOUND","UNAUTHORIZED"]),
+});
+export const InventoryReservationReleaseResponseSchema=
+  createResponseEnvelopeSchema(InventoryReservationReleaseResultSchema);
+
 // ── sales.receipt.get ────────────────────────────────────────────────────────
 
 /**
@@ -1453,6 +1487,8 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "inventory.batch.status",
   "inventory.conversion.rule.approve",
   "inventory.conversion.execute",
+  "inventory.reservation.create",
+  "inventory.reservation.release",
   "audit.event.list",
   "admin.metrics.get",
   "license.offers.list",
@@ -1497,6 +1533,8 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:inventory.batch.status",
   "pos:inventory.conversion.rule.approve",
   "pos:inventory.conversion.execute",
+  "pos:inventory.reservation.create",
+  "pos:inventory.reservation.release",
   "pos:audit.event.list",
   "pos:admin.metrics.get",
   "pos:license.offers.list",

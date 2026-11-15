@@ -46,6 +46,8 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:inventory.batch.status",
   "pos:inventory.conversion.rule.approve",
   "pos:inventory.conversion.execute",
+  "pos:inventory.reservation.create",
+  "pos:inventory.reservation.release",
   // Recibo — `DEC-019`. Sólo lectura: proyecta la venta ya cobrada.
   "pos:sales.receipt.get",
   "pos:audit.event.list",
