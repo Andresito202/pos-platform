@@ -43,11 +43,6 @@ beforeAll(async()=>{
    END $roles$;
  `);
  await pool.query(`
-   CREATE ROLE pos_schema_owner NOLOGIN;
-   CREATE ROLE pos_platform_app NOLOGIN;
-   CREATE ROLE pos_app NOLOGIN;
-   CREATE ROLE pos_worker NOLOGIN;
-   CREATE ROLE pos_reporting NOLOGIN;
    CREATE SCHEMA platform AUTHORIZATION pos_schema_owner;
    CREATE SCHEMA organization AUTHORIZATION pos_schema_owner;
    CREATE SCHEMA identity AUTHORIZATION pos_schema_owner;
