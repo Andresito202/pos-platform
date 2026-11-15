@@ -210,3 +210,17 @@ export class PostgresNativeBusinessDeviceProofVerifier extends PostgresDevicePro
     return this.verifyTargetAndConsume(input,"/v1/business-session/authorization");
   }
 }
+
+/** QR-001 binds device proof to the exact read-only or ACK path; never a
+ * banking success signal and never an authorization for merchant QR edits. */
+export type MerchantDestinationDeviceOperation = "SNAPSHOT" | "FLOOR" | "ACK";
+const MERCHANT_DEVICE_PATHS:Readonly<Record<MerchantDestinationDeviceOperation,string>> = {
+  SNAPSHOT:"/v1/commercial/merchant-destinations/snapshot",
+  FLOOR:"/v1/commercial/merchant-destinations/floor",
+  ACK:"/v1/commercial/merchant-destinations/ack",
+};
+export class PostgresMerchantDestinationDeviceProofVerifier extends PostgresDeviceProofReplayVerifier {
+  verifyOperationAndConsume(input:DeviceProofRequest,operation:MerchantDestinationDeviceOperation){
+    return this.verifyTargetAndConsume(input,MERCHANT_DEVICE_PATHS[operation]);
+  }
+}
