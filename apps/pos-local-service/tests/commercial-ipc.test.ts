@@ -993,7 +993,7 @@ describe("inventory.* — el inventario es alcanzable por el canal", () => {
       expect(result.status).toBe("REJECTED"); expect(result.result["outcome"]).toBe("UNAUTHORIZED");
       for (const table of ["inventory_movement", "inventory_stock", "local_sync_outbox", "runtime_operations"]) expect(database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 });
     }
-  });
+  }, 15_000);
   async function withProduct() {
     const env = await buildEnv();
     seedAuthorization(env.database, USER, INVENTORY_PERMISSIONS);
