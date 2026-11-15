@@ -277,6 +277,9 @@ jobs:
       - name: Validate SQLite migration
         run: pnpm test:migrations:sqlite
 
+      - name: Validate authorized lot inventory panel and idempotent retry
+        run: pnpm --filter @pos-platform/pos-desktop exec vitest run tests/renderer/InventoryBatchPanel.test.tsx
+
       - name: Build the POS desktop shell
         run: pnpm --filter @pos-platform/pos-desktop build
 
