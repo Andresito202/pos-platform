@@ -13,7 +13,10 @@ import { ReceiveStockUseCase } from "../src/inventory/receive-stock-use-case.js"
 import { AdjustStockUseCase,ChangeBatchStatusUseCase } from "../src/inventory/adjust-stock-use-case.js";
 import { GetStockUseCase } from "../src/inventory/get-stock-use-case.js";
 import { randomUUID } from "node:crypto";
+import { uuidV7 } from "@pos-platform/contracts";
 import { ApprovePresentationConversionUseCase,ConvertPresentationUseCase } from "../src/inventory/presentation-conversion-use-cases.js";
+import { ReleaseInventoryReservationUseCase } from "../src/inventory/reservation-use-cases.js";
+import { SqliteSaleStore } from "../src/sales/sqlite-sale-store.js";
 import { scale6ToBigInt } from "../src/money.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../src/sync/durable-sync-store.js";
@@ -475,8 +478,280 @@ describe("shared v22 batch ledger and FEFO on original inventory",()=>{
     expiresAt:"2026-09-07T09:00:00.000Z",
   }).kind).toBe("RESERVED");
   expect(store.availableUnits(SCOPE,presentationId)).toBe(0n);
-  expect(store.expireDueReservations(SCOPE,NOW)).toBe(1);
+  expect(store.expireDueReservations(SCOPE,NOW,{
+    sessionId:SESSION,actorId:USER,correlationId:CORRELATION,causationId:null,
+  })).toBe(1);
   expect(store.availableUnits(SCOPE,presentationId)).toBe(2_000_000n);
   expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("2.000000");
+ });
+});
+
+function seedReadySale(database:LocalDatabase,saleId:string):void {
+  const operationId=uuidV7(NOW.getTime());
+  const at=NOW.toISOString();
+  const saleNumber=((database.native.prepare(
+    "SELECT COALESCE(MAX(sale_number), 0) + 1 AS next FROM sales_sales WHERE tenant_id=? AND branch_id=?",
+  ).get(TENANT,BRANCH) as {next:number}).next);
+  database.native.prepare(
+    `INSERT INTO runtime_operations(operation_id,idempotency_key,payload_checksum,status,result_code,created_at,updated_at)
+     VALUES(?,?,?,'SUCCEEDED','SALE_CREATED',?,?)`,
+  ).run(operationId,`sale:${saleId}`,"b".repeat(64),at,at);
+  database.native.prepare(
+    `INSERT INTO sales_sales(
+      id,tenant_id,company_id,branch_id,cash_register_id,cash_shift_id,
+      origin_device_id,installation_id,operator_actor_type,operator_actor_id,
+      channel,status,business_date,timezone_id,utc_offset_minutes,
+      document_series,sale_number,currency_code,
+      subtotal_amount,discount_amount,tax_amount,fiscal_total_amount,
+      commercial_rounding_adjustment,payable_amount,
+      pricing_pipeline_version,pricing_policy_version,promotion_policy_version,
+      tax_policy_version,rounding_policy_version,pricing_snapshot,tax_snapshot,
+      calculation_checksum,operation_id,idempotency_key,request_checksum,
+      correlation_id,causation_id,version,created_at,
+      completed_at,cancelled_at,expired_at,server_recorded_at
+    ) VALUES (
+      ?,?,?,?,NULL,NULL,?,?,'USER',?,'POS','READY_FOR_PAYMENT','2026-09-07','America/Bogota',-300,
+      'INV',?,'COP','1000.000000','0.000000','0.000000','1000.000000','0.000000','1000.000000',
+      'PRICING_PIPELINE_V1','SANDBOX_PRICE_V1',NULL,'TAX_POLICY_EXCLUDED_V1','NEAREST_50_HALF_AWAY_FROM_ZERO_V1',
+      '{}','{}',?,?,?,?,?,NULL,1,?,NULL,NULL,NULL,NULL
+    )`,
+  ).run(
+    saleId,TENANT,COMPANY,BRANCH,DEVICE,INSTALL,USER,saleNumber,
+    "c".repeat(64),operationId,`sale:${saleId}`,"b".repeat(64),CORRELATION,at,
+  );
+}
+
+describe("prompt-4 reservation closure P0/P1",()=>{
+ it("blocks manual IPC release of an active SALE reservation",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"SALE-HOLD","2026-09-20","2.000000")).kind).toBe("POSTED");
+  const saleId="018f0000-0000-7000-8000-0000000000c1";
+  seedReadySale(database,saleId);
+  const reserved=store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"2.000000",
+    referenceType:"SALE",referenceId:saleId,idempotencyKey:`inventory_reserve:sale:${saleId}:${presentationId}`,
+    requestChecksum:"a".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  });
+  expect(reserved.kind).toBe("RESERVED");
+  if(reserved.kind!=="RESERVED")throw new Error("expected reservation");
+  expect(store.releaseReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,reservationId:reserved.reservationId,
+    reasonCode:"MANUAL_OVERRIDE",idempotencyKey:"release-sale-manual",
+    requestChecksum:"b".repeat(64),correlationId:CORRELATION,causationId:null,
+  })).toBe("CONFLICT");
+  expect(new ReleaseInventoryReservationUseCase(store).execute(SCOPE,SESSION,auth(),{
+    reservationId:reserved.reservationId,reasonCode:"MANUAL_OVERRIDE",
+    idempotencyKey:"release-sale-uc",correlationId:CORRELATION,causationId:null,
+  })).toEqual({kind:"CONFLICT"});
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(0n);
+ });
+
+ it("rejects payment deduction when reserved lot is blocked after hold",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"BLOCK-AFTER","2026-09-25","2.000000")).kind).toBe("POSTED");
+  const saleId="018f0000-0000-7000-8000-0000000000c2";
+  seedReadySale(database,saleId);
+  const reserved=store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"2.000000",
+    referenceType:"SALE",referenceId:saleId,idempotencyKey:`inventory_reserve:sale:${saleId}:${presentationId}`,
+    requestChecksum:"a".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  });
+  expect(reserved.kind).toBe("RESERVED");
+  const lot=store.listBatches(SCOPE,presentationId)[0]!;
+  expect(new ChangeBatchStatusUseCase(store).execute(SCOPE,SESSION,auth(),{
+    lotId:lot.id,status:"BLOCKED",reasonCode:"QUALITY_HOLD",
+    idempotencyKey:key(),correlationId:CORRELATION,causationId:null,
+  },NOW).kind).toBe("UPDATED");
+  expect(store.appendSaleDeduction({
+    scope:SCOPE,sessionId:SESSION,operatorUserId:USER,saleId,presentationId,
+    quantity:"2.000000",businessDate:"2026-09-07",correlationId:CORRELATION,causationId:null,
+  })).toEqual({kind:"INSUFFICIENT_STOCK",available:"0.000000"});
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("2.000000");
+  expect(database.native.prepare(
+    "SELECT status FROM inventory_reservation WHERE reference_id=?"
+  ).get(saleId)).toEqual({status:"ACTIVE"});
+ });
+
+ it("rejects payment deduction when reserved lot expires after hold",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"pos-reservation-expiry-"));
+  directories.push(dir);
+  const database=LocalDatabase.open({dataDirectory:dir});
+  databases.push(database);
+  let clock=NOW;
+  const sync=new DurableSyncStore(database);
+  const catalogStore=new SqliteCatalogStore(database,sync,()=>clock);
+  const store=new SqliteInventoryStore(database,sync,()=>clock);
+  const registered=new RegisterProductUseCase(catalogStore).execute(SCOPE,SESSION,auth(),{
+    code:"EXP-AFTER-001",name:"Expira despues",stockControlled:true,presentationName:"Und",
+    unitCode:"UND",unitPrecision:0,barcode:null,priceAmount:"1000.000000",currencyCode:"COP",
+    idempotencyKey:key(),correlationId:CORRELATION,causationId:null,
+  });
+  if(registered.kind!=="REGISTERED")throw new Error(registered.kind);
+  const presentationId=registered.presentationId;
+  expect(new ReceiveStockUseCase(store).execute(
+    SCOPE,SESSION,auth(),batchReceive(presentationId,"EXPIRE-AFTER","2026-09-20","1.000000"),
+  ).kind).toBe("POSTED");
+  const saleId="018f0000-0000-7000-8000-0000000000c3";
+  seedReadySale(database,saleId);
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"1.000000",
+    referenceType:"SALE",referenceId:saleId,idempotencyKey:`inventory_reserve:sale:${saleId}:${presentationId}`,
+    requestChecksum:"a".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  }).kind).toBe("RESERVED");
+  clock=new Date("2026-09-21T10:00:00.000Z");
+  expect(store.appendSaleDeduction({
+    scope:SCOPE,sessionId:SESSION,operatorUserId:USER,saleId,presentationId,
+    quantity:"1.000000",businessDate:"2026-09-07",correlationId:CORRELATION,causationId:null,
+  }).kind).toBe("INSUFFICIENT_STOCK");
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("1.000000");
+ });
+
+ it("cancels READY_FOR_PAYMENT sale and releases SALE holds atomically",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"CANCEL-HOLD","2026-09-18","3.000000")).kind).toBe("POSTED");
+  const saleId="018f0000-0000-7000-8000-0000000000c4";
+  seedReadySale(database,saleId);
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"3.000000",
+    referenceType:"SALE",referenceId:saleId,idempotencyKey:`inventory_reserve:sale:${saleId}:${presentationId}`,
+    requestChecksum:"a".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  }).kind).toBe("RESERVED");
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(0n);
+  const saleStore=new SqliteSaleStore(database,new DurableSyncStore(database),()=>NOW);
+  const cancelled=saleStore.cancelReadyForPayment({
+    scope:SCOPE,saleId,operatorUserId:USER,sessionId:SESSION,
+    correlationId:CORRELATION,causationId:null,reasonCode:"CUSTOMER_ABANDONED",
+    idempotencyKey:`sale_cancel:${saleId}`,requestChecksum:"d".repeat(64),
+    releaseHolds:(id)=>{
+      const freed=store.releaseReservationsBoundToSale({
+        scope:SCOPE,sessionId:SESSION,actorId:USER,saleId:id,
+        reasonCode:"SALE_CANCELLED",correlationId:CORRELATION,causationId:null,
+      });
+      if(freed.kind!=="RELEASED")throw new Error(`release failed: ${freed.kind}`);
+    },
+  });
+  expect(cancelled).toEqual({kind:"CANCELLED",saleId});
+  expect(store.availableUnits(SCOPE,presentationId)).toBe(3_000_000n);
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("3.000000");
+  expect(database.native.prepare(
+    "SELECT status FROM inventory_reservation WHERE reference_id=?"
+  ).get(saleId)).toEqual({status:"RELEASED"});
+  expect(database.native.prepare(
+    "SELECT count(*) AS n FROM local_sync_outbox WHERE operation_type='INVENTORY_RESERVATION_RELEASE'"
+  ).get()).toEqual({n:1});
+  expect(store.releaseReservationsBoundToSale({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,saleId,
+    reasonCode:"SALE_CANCELLED",correlationId:CORRELATION,causationId:null,
+  })).toEqual({kind:"RELEASED",released:0});
+ });
+
+ it("refuses SALE hold release while sale remains READY_FOR_PAYMENT",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"ACTIVE-SALE","2026-09-22","1.000000")).kind).toBe("POSTED");
+  const saleId="018f0000-0000-7000-8000-0000000000c5";
+  seedReadySale(database,saleId);
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"1.000000",
+    referenceType:"SALE",referenceId:saleId,idempotencyKey:`inventory_reserve:sale:${saleId}:${presentationId}`,
+    requestChecksum:"a".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  }).kind).toBe("RESERVED");
+  expect(store.releaseReservationsBoundToSale({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,saleId,
+    reasonCode:"PREMATURE",correlationId:CORRELATION,causationId:null,
+  })).toEqual({kind:"CONFLICT",reason:"SALE_NOT_TERMINAL"});
+ });
+
+ it("does not clock-expire SALE reservations; MANUAL expiry writes audit/outbox",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"NO-CLOCK","2026-09-30","2.000000")).kind).toBe("POSTED");
+  const saleId="018f0000-0000-7000-8000-0000000000c6";
+  seedReadySale(database,saleId);
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"1.000000",
+    referenceType:"SALE",referenceId:saleId,idempotencyKey:`inventory_reserve:sale:${saleId}:${presentationId}`,
+    requestChecksum:"a".repeat(64),correlationId:CORRELATION,causationId:null,
+    expiresAt:"2026-09-07T09:00:00.000Z",
+  }).kind).toBe("RESERVED");
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"1.000000",
+    referenceType:"MANUAL",referenceId:"manual-temp",idempotencyKey:"reserve-manual-exp",
+    requestChecksum:"1".repeat(64),correlationId:CORRELATION,causationId:null,
+    expiresAt:"2026-09-07T09:00:00.000Z",
+  }).kind).toBe("RESERVED");
+  expect(store.expireDueReservations(SCOPE,NOW,{
+    sessionId:SESSION,actorId:USER,correlationId:CORRELATION,causationId:null,
+  })).toBe(1);
+  expect(database.native.prepare(
+    "SELECT status FROM inventory_reservation WHERE reference_type='SALE' AND reference_id=?"
+  ).get(saleId)).toEqual({status:"ACTIVE"});
+  expect(database.native.prepare(
+    "SELECT status FROM inventory_reservation WHERE reference_type='MANUAL'"
+  ).get()).toEqual({status:"EXPIRED"});
+  expect(database.native.prepare(
+    "SELECT count(*) AS n FROM local_sync_outbox WHERE operation_type='INVENTORY_RESERVATION_EXPIRE'"
+  ).get()).toEqual({n:1});
+ });
+
+ it("persists SALE reservations across LocalDatabase reopen",async()=>{
+  const dir=await mkdtemp(join(tmpdir(),"pos-reservation-restart-"));
+  directories.push(dir);
+  const first=LocalDatabase.open({dataDirectory:dir});
+  databases.push(first);
+  const sync=new DurableSyncStore(first);
+  const catalogStore=new SqliteCatalogStore(first,sync,()=>NOW);
+  const store=new SqliteInventoryStore(first,sync,()=>NOW);
+  const registered=new RegisterProductUseCase(catalogStore).execute(SCOPE,SESSION,auth(),{
+    code:"RESTART-001",name:"Reinicio",stockControlled:true,presentationName:"Und",
+    unitCode:"UND",unitPrecision:0,barcode:null,priceAmount:"1000.000000",currencyCode:"COP",
+    idempotencyKey:key(),correlationId:CORRELATION,causationId:null,
+  });
+  if(registered.kind!=="REGISTERED")throw new Error(registered.kind);
+  expect(new ReceiveStockUseCase(store).execute(
+    SCOPE,SESSION,auth(),batchReceive(registered.presentationId,"RESTART","2026-10-01","2.000000"),
+  ).kind).toBe("POSTED");
+  const saleId="018f0000-0000-7000-8000-0000000000c7";
+  seedReadySale(first,saleId);
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId:registered.presentationId,
+    quantity:"2.000000",referenceType:"SALE",referenceId:saleId,
+    idempotencyKey:`inventory_reserve:sale:${saleId}:${registered.presentationId}`,
+    requestChecksum:"a".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  }).kind).toBe("RESERVED");
+  first.close();
+  const second=LocalDatabase.open({dataDirectory:dir});
+  databases.push(second);
+  const restarted=new SqliteInventoryStore(second,new DurableSyncStore(second),()=>NOW);
+  expect(restarted.availableUnits(SCOPE,registered.presentationId)).toBe(0n);
+  expect(restarted.getStock(SCOPE,registered.presentationId)?.quantityOnHand).toBe("2.000000");
+  expect(second.native.prepare(
+    "SELECT status,reference_type FROM inventory_reservation WHERE reference_id=?"
+  ).get(saleId)).toEqual({status:"ACTIVE",reference_type:"SALE"});
+ });
+
+ it("consumes reservation once and writes consume outbox on payment deduction",async()=>{
+  const {receive,store,database,presentationId}=await buildEnv();
+  expect(receive.execute(SCOPE,SESSION,auth(),batchReceive(presentationId,"PAY","2026-09-15","2.000000")).kind).toBe("POSTED");
+  const saleId="018f0000-0000-7000-8000-0000000000c8";
+  seedReadySale(database,saleId);
+  expect(store.createReservationInTransaction({
+    scope:SCOPE,sessionId:SESSION,actorId:USER,presentationId,quantity:"2.000000",
+    referenceType:"SALE",referenceId:saleId,idempotencyKey:`inventory_reserve:sale:${saleId}:${presentationId}`,
+    requestChecksum:"a".repeat(64),correlationId:CORRELATION,causationId:null,expiresAt:null,
+  }).kind).toBe("RESERVED");
+  expect(store.appendSaleDeduction({
+    scope:SCOPE,sessionId:SESSION,operatorUserId:USER,saleId,presentationId,
+    quantity:"2.000000",businessDate:"2026-09-07",correlationId:CORRELATION,causationId:null,
+  }).kind).toBe("POSTED");
+  expect(store.appendSaleDeduction({
+    scope:SCOPE,sessionId:SESSION,operatorUserId:USER,saleId,presentationId,
+    quantity:"2.000000",businessDate:"2026-09-07",correlationId:CORRELATION,causationId:null,
+  }).kind).toBe("IDEMPOTENT");
+  expect(database.native.prepare(
+    "SELECT status FROM inventory_reservation WHERE reference_id=?"
+  ).get(saleId)).toEqual({status:"CONSUMED"});
+  expect(database.native.prepare(
+    "SELECT count(*) AS n FROM local_sync_outbox WHERE operation_type='INVENTORY_RESERVATION_CONSUME'"
+  ).get()).toEqual({n:1});
+  expect(store.getStock(SCOPE,presentationId)?.quantityOnHand).toBe("0.000000");
  });
 });

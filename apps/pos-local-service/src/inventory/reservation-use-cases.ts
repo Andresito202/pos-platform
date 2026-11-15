@@ -9,7 +9,9 @@ import type { SqliteInventoryStore } from "./sqlite-inventory-store.js";
 /**
  * Manual reservation / release on the ORIGINAL inventory store.
  * Sale create already reserves stock-controlled lines; these use cases cover
- * authorized holds and frees outside the payment path (INV-015).
+ * authorized MANUAL holds and frees outside the payment path (INV-015).
+ * P0: releasing a SALE-bound reservation via this IPC path is rejected at the
+ * store (`CONFLICT`); Sales CANCELLED/EXPIRED transitions own that release.
  */
 export class CreateInventoryReservationUseCase {
   constructor(private readonly inventoryStore: SqliteInventoryStore) {}

@@ -50,6 +50,22 @@
 - IPC `inventory.reservation.create` / `inventory.reservation.release` con permiso `INVENTORY_STOCK_ADJUST`. Outbox local incluye `lot_allocations` en movimientos de venta y eventos de reserva.
 - Pruebas: INV-015 create/concurrencia/idempotencia/release/expire/consume en `inventory-batches.test.ts`; migración 23→24 en `inventory-v24-reservation-migration.test.ts`.
 
+### Cierre Prompt 4 — riesgos de reserva (P0/P1)
+
+**HEAD de partida certificado:** `dc4fff6566050bee840f276a928798f0c7d87d25`. El cierre se acredita sólo contra el HEAD final de este incremento.
+
+| Riesgo | Severidad | Corrección local |
+|---|---|---|
+| Liberación IPC manual de reserva `SALE` activa | P0 | `releaseReservation` / use case IPC rechazan `reference_type='SALE'` con `CONFLICT` |
+| Cobro sin revalidar lotes preasignados | P0 | `validateReservationForSaleDeduction` antes del débito: scope, cantidad restante, `AVAILABLE`, no vencido, on-hand físico; fallo → `INSUFFICIENT_STOCK` y rollback de pago |
+| Expiración por reloj de holds de venta | P1 | `expireDueReservations` sólo aplica a `MANUAL`; SALE exige transición Sales |
+| Cancelación sin liberar hold | P1 | `SqliteSaleStore.cancelReadyForPayment` (sólo `READY_FOR_PAYMENT`) + `releaseReservationsBoundToSale` tras `CANCELLED`/`EXPIRED` en la misma transacción |
+| Trazabilidad consume/release/expire | P1 | Auditoría + outbox local `INVENTORY_RESERVATION_CONSUME` / `_RELEASE` / `_EXPIRE` (sin ACK Central simulado) |
+
+**Contrato Central pendiente (no simulado):** receptor tipado para `INVENTORY_RESERVATION_*` y ACK idempotente. Outbox local es evidencia de emisión, no de sync certificado.
+
+**IPC `sales.sale.cancel`:** no materializado en `CanonicalPermission` / canal comercial en este cierre. La política y el writer atómico quedan listos; el grant/IPC se abre en un prompt autorizado aparte.
+
 ### Sync Central y concurrencia distribuida
 
 1. Publicar y consumir eventos tipados de lote (fecha, proveedor, documento, estado, movimiento, checksum, fuente, versión) en Central; el outbox local ya puede llevar `lot_allocations`, pero **no** hay receptor Central certificado.
@@ -77,8 +93,11 @@ SQLite no dispone de un `DROP MIGRATION 022` operativo seguro: retirar tablas de
 
 ## Condiciones de salida
 
-- Suite SQLite/IPC/renderer, recibos, merma, FEFO, doble envío, aislamiento, stock insuficiente, vencimiento, restart, pagos y migrations: **pendiente de verificar resultado del HEAD**.
-- Sync Central de lote y stock entre cajas: **PENDIENTE**.
-- Conversiones con ratios canónicos: **PENDIENTE**.
-- Recetas automáticas: **PENDIENTE**.
-- Certificación hardware: **PENDIENTE**.
+- P0 reservas (release SALE bloqueado + revalidación al cobro): **implementado y probado en suite local**; CI del HEAD final debe quedar SUCCESS.
+- Suite SQLite/IPC, FEFO, reservas, cancelación READY_FOR_PAYMENT, restart, pagos y migrations: acreditable sólo con CI del HEAD final.
+- Sync Central de lote/reserva y stock entre cajas: **PENDIENTE** (severidad alta, dependencia Central).
+- Alta comercial de presentaciones secundarias: **PENDIENTE**.
+- Recetas/BOM y órdenes de producción: **PENDIENTE**.
+- Políticas regulatorias de Farmacia: **PENDIENTE**.
+- Integraciones físicas Windows/Android y hardware: **PENDIENTE**.
+- IPC autorizado `sales.sale.cancel`: **PENDIENTE** (writer local listo; permiso canónico no materializado).

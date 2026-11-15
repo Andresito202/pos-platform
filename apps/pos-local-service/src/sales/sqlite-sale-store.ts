@@ -1,5 +1,6 @@
 import type { CashRegisterLicenseGate } from "../security/license-capacity-gate.js";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { DurableSyncStore } from "../sync/durable-sync-store.js";
@@ -406,6 +407,111 @@ export class SqliteSaleStore {
       };
     });
 
+    return transaction();
+  }
+
+  /**
+   * P1: cancel a local READY_FOR_PAYMENT sale and free its inventory holds.
+   * Does not cancel PAYMENT_IN_PROGRESS / COMPLETED — those require payment
+   * reconciliation first. `releaseHolds` runs in the same SQLite transaction
+   * after the sale is CANCELLED so inventory refuses to release unbound.
+   * IPC/permission surface for sale.cancel is not materialized in this closure.
+   */
+  cancelReadyForPayment(input: {
+    readonly scope: SyncScope;
+    readonly saleId: string;
+    readonly operatorUserId: string;
+    readonly sessionId: string;
+    readonly correlationId: string;
+    readonly causationId: string | null;
+    readonly reasonCode: string;
+    readonly idempotencyKey: string;
+    readonly requestChecksum: string;
+    readonly releaseHolds: (saleId: string) => void;
+  }):
+    | { readonly kind: "CANCELLED"; readonly saleId: string }
+    | { readonly kind: "IDEMPOTENT"; readonly saleId: string }
+    | { readonly kind: "NOT_FOUND" }
+    | { readonly kind: "CONFLICT"; readonly status: string } {
+    const transaction = this.database.native.transaction(() => {
+      const sale = this.database.native.prepare(
+        `SELECT id, status FROM sales_sales
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`,
+      ).get(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.saleId,
+      ) as { id: string; status: string } | undefined;
+      if (!sale) return { kind: "NOT_FOUND" as const };
+      if (sale.status === "CANCELLED") {
+        return { kind: "IDEMPOTENT" as const, saleId: sale.id };
+      }
+      if (sale.status !== "READY_FOR_PAYMENT") {
+        return { kind: "CONFLICT" as const, status: sale.status };
+      }
+      const nowIso = new Date().toISOString();
+      const updated = this.database.native.prepare(
+        `UPDATE sales_sales
+         SET status='CANCELLED', cancelled_at=?, version=version+1
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?
+           AND status='READY_FOR_PAYMENT'`,
+      ).run(
+        nowIso, input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.saleId,
+      );
+      if (updated.changes !== 1) {
+        return { kind: "CONFLICT" as const, status: "READY_FOR_PAYMENT" };
+      }
+      this.database.native.prepare(
+        `INSERT INTO local_operation_audit(
+          tenant_id, company_id, branch_id, device_id,
+          actor_type, actor_id, session_id,
+          action_code, resource_type, resource_id,
+          correlation_id, causation_id, reason_code,
+          details_json, created_at
+        ) VALUES (?,?,?,?,'USER',?,?, 'SALE_CANCELLED','SALE',?,?,?,?,?,?)`,
+      ).run(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
+        input.operatorUserId, input.sessionId, input.saleId,
+        input.correlationId, input.causationId, input.reasonCode,
+        canonicalJson({ sale_id: input.saleId, previous_status: "READY_FOR_PAYMENT" }),
+        nowIso,
+      );
+      const nextSequence = (this.database.native.prepare(
+        `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
+      ).get(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId,
+        input.scope.deviceId, input.scope.installationId,
+      ) as { next_sequence: number }).next_sequence;
+      this.durableSync.enqueue({
+        operation_id: uuidV7(),
+        tenant_id: input.scope.tenantId,
+        company_id: input.scope.companyId,
+        branch_id: input.scope.branchId,
+        device_id: input.scope.deviceId,
+        installation_id: input.scope.installationId,
+        session_id: input.sessionId,
+        actor_id: input.operatorUserId,
+        aggregate_type: "SALE",
+        aggregate_id: input.saleId,
+        operation_type: "SALE_CANCELLED",
+        authority_policy: "LOCAL_AUTHORITATIVE_UNTIL_SYNC",
+        local_sequence: nextSequence,
+        idempotency_key: input.idempotencyKey,
+        expected_version: null,
+        payload_schema_version: SALE_PAYLOAD_SCHEMA_VERSION,
+        payload: {
+          sale_id: input.saleId,
+          previous_status: "READY_FOR_PAYMENT",
+          reason_code: input.reasonCode,
+        },
+        payload_checksum: input.requestChecksum,
+        causation_id: input.causationId,
+        correlation_id: input.correlationId,
+        occurred_at_local: nowIso,
+        recorded_at_local: nowIso,
+      });
+      input.releaseHolds(input.saleId);
+      return { kind: "CANCELLED" as const, saleId: input.saleId };
+    });
     return transaction();
   }
 }

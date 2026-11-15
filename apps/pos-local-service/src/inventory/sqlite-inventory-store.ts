@@ -524,8 +524,18 @@ export class SqliteInventoryStore {
 
     const reservation=this.findActiveSaleReservation(
       input.scope,input.saleId,input.presentationId);
-    const preAllocated=reservation===null?null:this.reservationLotAllocations(
-      input.scope,reservation.id);
+    // P0: revalidate bound FEFO lots before confirming payment stock exit.
+    // A hold created earlier must still match scope, quantity, eligibility and
+    // physical on-hand; otherwise the payment transaction must roll back.
+    let preAllocated: Array<{id:string;units:bigint}>|null=null;
+    if(reservation!==null){
+      const validated=this.validateReservationForSaleDeduction(
+        input.scope,reservation,input.presentationId,input.quantity);
+      if(validated.kind==="REJECTED"){
+        return {kind:"INSUFFICIENT_STOCK",available:validated.available};
+      }
+      preAllocated=validated.lots;
+    }
 
     const outcome = this.appendMovement({
       scope: input.scope,
@@ -546,7 +556,12 @@ export class SqliteInventoryStore {
     }, false, preAllocated);
 
     if(outcome.kind==="POSTED" && reservation!==null){
-      this.markReservationConsumed(input.scope,reservation.id,input.quantity,this.now().toISOString());
+      this.markReservationConsumed({
+        scope:input.scope,sessionId:input.sessionId,actorId:input.operatorUserId,
+        reservationId:reservation.id,quantity:input.quantity,
+        correlationId:input.correlationId,causationId:input.causationId,
+        saleId:input.saleId,presentationId:input.presentationId,
+      });
     }
 
     switch (outcome.kind) {
@@ -947,13 +962,14 @@ export class SqliteInventoryStore {
 
   private findActiveSaleReservation(
     scope:InventoryScope,saleId:string,presentationId:string,
-  ):{id:string;quantity:string}|null {
-    const row=this.database.native.prepare(`SELECT id,quantity FROM inventory_reservation
+  ):{id:string;quantity:string;consumed_quantity:string;released_quantity:string}|null {
+    const row=this.database.native.prepare(`SELECT id,quantity,consumed_quantity,released_quantity
+      FROM inventory_reservation
       WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?
         AND reference_type='SALE' AND reference_id=? AND status IN ('ACTIVE','PARTIALLY_CONSUMED')
       ORDER BY created_at ASC,id ASC LIMIT 1`)
       .get(scope.tenantId,scope.companyId,scope.branchId,presentationId,saleId) as
-        {id:string;quantity:string}|undefined;
+        {id:string;quantity:string;consumed_quantity:string;released_quantity:string}|undefined;
     return row??null;
   }
 
@@ -969,16 +985,87 @@ export class SqliteInventoryStore {
     return rows.map((row)=>({id:row.lot_id,units:scale6ToBigInt(row.quantity)}));
   }
 
-  private markReservationConsumed(
-    scope:InventoryScope,reservationId:string,quantity:string,nowIso:string,
-  ):void {
+  /**
+   * P0 payment gate: a SALE hold may only debit its pre-allocated lots when
+   * quantity, scope, lot eligibility and physical on-hand still match.
+   */
+  private validateReservationForSaleDeduction(
+    scope:InventoryScope,
+    reservation:{id:string;quantity:string;consumed_quantity:string;released_quantity:string},
+    presentationId:string,
+    quantity:string,
+  ):{kind:"OK";lots:Array<{id:string;units:bigint}>}|{kind:"REJECTED";available:string} {
+    const remaining=scale6ToBigInt(reservation.quantity)
+      -scale6ToBigInt(reservation.consumed_quantity)
+      -scale6ToBigInt(reservation.released_quantity);
+    if(remaining!==scale6ToBigInt(quantity) || remaining<=0n){
+      return {kind:"REJECTED",available:bigIntToScale6(this.availableUnits(scope,presentationId))};
+    }
+    const lots=this.reservationLotAllocations(scope,reservation.id);
+    if(!this.isLotTracked(scope,presentationId)){
+      if(lots.length!==0){
+        return {kind:"REJECTED",available:bigIntToScale6(this.availableUnits(scope,presentationId))};
+      }
+      return {kind:"OK",lots:[]};
+    }
+    if(lots.length===0){
+      return {kind:"REJECTED",available:bigIntToScale6(this.availableUnits(scope,presentationId))};
+    }
+    let allocated=0n;
+    const today=this.now().toISOString().slice(0,10);
+    for(const lot of lots){
+      allocated+=lot.units;
+      const row=this.database.native.prepare(`SELECT presentation_id,status,expiry_date,quantity_on_hand
+        FROM inventory_lot
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`)
+        .get(scope.tenantId,scope.companyId,scope.branchId,lot.id) as
+          {presentation_id:string;status:string;expiry_date:string|null;quantity_on_hand:string}|undefined;
+      if(!row
+        ||row.presentation_id!==presentationId
+        ||row.status!=="AVAILABLE"
+        ||(row.expiry_date!==null && row.expiry_date<today)
+        ||scale6ToBigInt(row.quantity_on_hand)<lot.units){
+        return {kind:"REJECTED",available:bigIntToScale6(this.availableUnits(scope,presentationId))};
+      }
+    }
+    if(allocated!==scale6ToBigInt(quantity)){
+      return {kind:"REJECTED",available:bigIntToScale6(this.availableUnits(scope,presentationId))};
+    }
+    return {kind:"OK",lots};
+  }
+
+  private markReservationConsumed(input:{
+    scope:SyncScope;sessionId:string;actorId:string;reservationId:string;quantity:string;
+    correlationId:string;causationId:string|null;saleId:string;presentationId:string;
+  }):void {
+    const nowIso=this.now().toISOString();
     const updated=this.database.native.prepare(`UPDATE inventory_reservation
       SET status='CONSUMED',consumed_quantity=?,released_quantity='0.000000',
           version=version+1,updated_at=?
       WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?
         AND status IN ('ACTIVE','PARTIALLY_CONSUMED')`).run(
-      quantity,nowIso,scope.tenantId,scope.companyId,scope.branchId,reservationId);
+      input.quantity,nowIso,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+      input.reservationId);
     if(updated.changes!==1)throw new Error("RESERVATION_CONSUME_CONFLICT");
+    this.writeReservationAudit({
+      scope:input.scope,sessionId:input.sessionId,actorId:input.actorId,
+      reservationId:input.reservationId,actionCode:"INVENTORY_RESERVATION_CONSUMED",
+      reasonCode:"SALE_COMPLETED",correlationId:input.correlationId,causationId:input.causationId,
+      details:{sale_id:input.saleId,presentation_id:input.presentationId,quantity:input.quantity,
+        next_status:"CONSUMED"},
+      nowIso,
+    });
+    this.enqueueReservationOutbox({
+      scope:input.scope,sessionId:input.sessionId,actorId:input.actorId,
+      reservationId:input.reservationId,operationType:"INVENTORY_RESERVATION_CONSUME",
+      idempotencyKey:`inventory_reservation_consume:${input.reservationId}:${input.quantity}`,
+      correlationId:input.correlationId,causationId:input.causationId,
+      payload:{
+        reservation_id:input.reservationId,sale_id:input.saleId,
+        presentation_id:input.presentationId,quantity:input.quantity,status:"CONSUMED",
+      },
+      nowIso,
+    });
   }
 
   /**
@@ -1098,7 +1185,10 @@ export class SqliteInventoryStore {
   }
 
   /**
-   * Releases an ACTIVE reservation without creating physical inbound stock.
+   * Releases an ACTIVE MANUAL reservation without creating physical inbound stock.
+   * P0: SALE-bound holds cannot be freed through the inventory IPC path while
+   * (or because) a sale still owns them — only `releaseReservationsBoundToSale`
+   * after an authorized Sales CANCELLED/EXPIRED transition.
    * Does not open a transaction.
    */
   releaseReservation(input:{
@@ -1106,43 +1196,116 @@ export class SqliteInventoryStore {
     reasonCode:string;idempotencyKey:string;requestChecksum:string;
     correlationId:string;causationId:string|null;
   }):"RELEASED"|"IDEMPOTENT"|"CONFLICT"|"NOT_FOUND" {
-    const prior=this.database.native.prepare(`SELECT id,status,request_checksum,quantity
-      FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`)
+    const prior=this.database.native.prepare(
+      `SELECT id,status,request_checksum,quantity,reference_type,reference_id
+       FROM inventory_reservation WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`)
       .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.reservationId) as
-        {id:string;status:string;request_checksum:string;quantity:string}|undefined;
+        {id:string;status:string;request_checksum:string;quantity:string;
+          reference_type:string;reference_id:string}|undefined;
     if(!prior)return "NOT_FOUND";
+    if(prior.reference_type==="SALE")return "CONFLICT";
     if(prior.status==="RELEASED"||prior.status==="EXPIRED"||prior.status==="CANCELLED"){
-      // Idempotent release of an already-freed hold uses the reservation checksum.
       return "IDEMPOTENT";
     }
     if(prior.status!=="ACTIVE"&&prior.status!=="PARTIALLY_CONSUMED")return "CONFLICT";
+    return this.releaseReservationRow({
+      scope:input.scope,sessionId:input.sessionId,actorId:input.actorId,
+      reservationId:prior.id,quantity:prior.quantity,previousStatus:prior.status,
+      reasonCode:input.reasonCode,idempotencyKey:input.idempotencyKey,
+      correlationId:input.correlationId,causationId:input.causationId,
+      details:{previous_status:prior.status,next_status:"RELEASED",
+        reference_type:prior.reference_type,reference_id:prior.reference_id},
+    });
+  }
+
+  /**
+   * P1 Sales-bound release: free SALE holds only after the sale aggregate is
+   * already CANCELLED or EXPIRED in the same local DB. Does not invent stock.
+   * Does not open a transaction — Sales owns the atomic cancel/expire commit.
+   */
+  releaseReservationsBoundToSale(input:{
+    scope:SyncScope;sessionId:string;actorId:string;saleId:string;
+    reasonCode:string;correlationId:string;causationId:string|null;
+  }):{kind:"RELEASED";released:number}|{kind:"CONFLICT";reason:string}|{kind:"NOT_FOUND"} {
+    const sale=this.database.native.prepare(
+      `SELECT id,status FROM sales_sales
+       WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`)
+      .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.saleId) as
+        {id:string;status:string}|undefined;
+    if(!sale)return {kind:"NOT_FOUND"};
+    if(sale.status!=="CANCELLED"&&sale.status!=="EXPIRED"){
+      return {kind:"CONFLICT",reason:"SALE_NOT_TERMINAL"};
+    }
+    const rows=this.database.native.prepare(
+      `SELECT id,status,quantity FROM inventory_reservation
+       WHERE tenant_id=? AND company_id=? AND branch_id=?
+         AND reference_type='SALE' AND reference_id=?
+         AND status IN ('ACTIVE','PARTIALLY_CONSUMED')
+       ORDER BY created_at ASC,id ASC`)
+      .all(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.saleId) as
+        Array<{id:string;status:string;quantity:string}>;
+    let released=0;
+    for(const row of rows){
+      const result=this.releaseReservationRow({
+        scope:input.scope,sessionId:input.sessionId,actorId:input.actorId,
+        reservationId:row.id,quantity:row.quantity,previousStatus:row.status,
+        reasonCode:input.reasonCode,
+        idempotencyKey:`inventory_reservation_release:sale:${input.saleId}:${row.id}`,
+        correlationId:input.correlationId,causationId:input.causationId,
+        details:{previous_status:row.status,next_status:"RELEASED",
+          reference_type:"SALE",reference_id:input.saleId,sale_status:sale.status},
+      });
+      if(result==="RELEASED")released+=1;
+      else if(result==="CONFLICT")return {kind:"CONFLICT",reason:"RESERVATION_RELEASE_CONFLICT"};
+    }
+    return {kind:"RELEASED",released};
+  }
+
+  private releaseReservationRow(input:{
+    scope:SyncScope;sessionId:string;actorId:string;reservationId:string;quantity:string;
+    previousStatus:string;reasonCode:string;idempotencyKey:string;
+    correlationId:string;causationId:string|null;details:Record<string,unknown>;
+  }):"RELEASED"|"IDEMPOTENT"|"CONFLICT" {
     const nowIso=this.now().toISOString();
     const updated=this.database.native.prepare(`UPDATE inventory_reservation
       SET status='RELEASED',released_quantity=?,version=version+1,updated_at=?
       WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=? AND version>=1
         AND status IN ('ACTIVE','PARTIALLY_CONSUMED')`).run(
-      prior.quantity,nowIso,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+      input.quantity,nowIso,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
       input.reservationId);
     if(updated.changes!==1)return "CONFLICT";
-    this.database.native.prepare(`INSERT INTO local_operation_audit(
-      tenant_id,company_id,branch_id,device_id,actor_type,actor_id,session_id,
-      action_code,resource_type,resource_id,correlation_id,causation_id,reason_code,
-      details_json,created_at
-    ) VALUES(?,?,?,?,'USER',?,?,'INVENTORY_RESERVATION_RELEASED','INVENTORY_RESERVATION',?,?,?,?,?,?)`)
-      .run(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.scope.deviceId,
-        input.actorId,input.sessionId,input.reservationId,input.correlationId,input.causationId,
-        input.reasonCode,canonicalJson({previous_status:prior.status,next_status:"RELEASED"}),nowIso);
+    this.writeReservationAudit({
+      scope:input.scope,sessionId:input.sessionId,actorId:input.actorId,
+      reservationId:input.reservationId,actionCode:"INVENTORY_RESERVATION_RELEASED",
+      reasonCode:input.reasonCode,correlationId:input.correlationId,causationId:input.causationId,
+      details:input.details,nowIso,
+    });
+    this.enqueueReservationOutbox({
+      scope:input.scope,sessionId:input.sessionId,actorId:input.actorId,
+      reservationId:input.reservationId,operationType:"INVENTORY_RESERVATION_RELEASE",
+      idempotencyKey:input.idempotencyKey,correlationId:input.correlationId,
+      causationId:input.causationId,
+      payload:{
+        reservation_id:input.reservationId,status:"RELEASED",
+        previous_status:input.previousStatus,reason_code:input.reasonCode,
+      },
+      nowIso,
+    });
     return "RELEASED";
   }
 
   /**
-   * Expires ACTIVE reservations whose expires_at has passed. Explicit transition
-   * — clocks alone do not delete holds. Does not invent stock.
+   * Expires ACTIVE MANUAL reservations whose expires_at has passed.
+   * P1: SALE holds are never clock-expired — they require a reconciled Sales
+   * CANCELLED/EXPIRED transition. Does not invent stock.
    */
-  expireDueReservations(scope:InventoryScope,at:Date=this.now()):number {
+  expireDueReservations(scope:SyncScope,at:Date=this.now(),meta:{
+    sessionId:string;actorId:string;correlationId:string;causationId:string|null;
+  }|null=null):number {
     const nowIso=at.toISOString();
     const rows=this.database.native.prepare(`SELECT id,quantity FROM inventory_reservation
       WHERE tenant_id=? AND company_id=? AND branch_id=?
+        AND reference_type='MANUAL'
         AND status IN ('ACTIVE','PARTIALLY_CONSUMED')
         AND expires_at IS NOT NULL AND expires_at<=?`)
       .all(scope.tenantId,scope.companyId,scope.branchId,nowIso) as Array<{id:string;quantity:string}>;
@@ -1151,11 +1314,72 @@ export class SqliteInventoryStore {
       const updated=this.database.native.prepare(`UPDATE inventory_reservation
         SET status='EXPIRED',released_quantity=?,version=version+1,updated_at=?
         WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?
-          AND status IN ('ACTIVE','PARTIALLY_CONSUMED')`).run(
+          AND status IN ('ACTIVE','PARTIALLY_CONSUMED') AND reference_type='MANUAL'`).run(
         row.quantity,nowIso,scope.tenantId,scope.companyId,scope.branchId,row.id);
-      if(updated.changes===1)expired+=1;
+      if(updated.changes!==1)continue;
+      expired+=1;
+      if(meta!==null){
+        this.writeReservationAudit({
+          scope,sessionId:meta.sessionId,actorId:meta.actorId,reservationId:row.id,
+          actionCode:"INVENTORY_RESERVATION_EXPIRED",reasonCode:"RESERVATION_EXPIRED",
+          correlationId:meta.correlationId,causationId:meta.causationId,
+          details:{previous_status:"ACTIVE",next_status:"EXPIRED",reference_type:"MANUAL"},
+          nowIso,
+        });
+        this.enqueueReservationOutbox({
+          scope,sessionId:meta.sessionId,actorId:meta.actorId,reservationId:row.id,
+          operationType:"INVENTORY_RESERVATION_EXPIRE",
+          idempotencyKey:`inventory_reservation_expire:${row.id}`,
+          correlationId:meta.correlationId,causationId:meta.causationId,
+          payload:{reservation_id:row.id,status:"EXPIRED",quantity:row.quantity},
+          nowIso,
+        });
+      }
     }
     return expired;
+  }
+
+  private writeReservationAudit(input:{
+    scope:SyncScope;sessionId:string;actorId:string;reservationId:string;
+    actionCode:string;reasonCode:string;correlationId:string;causationId:string|null;
+    details:Record<string,unknown>;nowIso:string;
+  }):void {
+    this.database.native.prepare(`INSERT INTO local_operation_audit(
+      tenant_id,company_id,branch_id,device_id,actor_type,actor_id,session_id,
+      action_code,resource_type,resource_id,correlation_id,causation_id,reason_code,
+      details_json,created_at
+    ) VALUES(?,?,?,?,'USER',?,?,?,'INVENTORY_RESERVATION',?,?,?,?,?,?)`)
+      .run(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.scope.deviceId,
+        input.actorId,input.sessionId,input.actionCode,input.reservationId,
+        input.correlationId,input.causationId,input.reasonCode,
+        canonicalJson(input.details),input.nowIso);
+  }
+
+  private enqueueReservationOutbox(input:{
+    scope:SyncScope;sessionId:string;actorId:string;reservationId:string;
+    operationType:string;idempotencyKey:string;correlationId:string;causationId:string|null;
+    payload:Record<string,unknown>;nowIso:string;
+  }):void {
+    const nextSequence=(this.database.native.prepare(
+      `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
+       WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
+    ).get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+      input.scope.deviceId,input.scope.installationId) as NextSequenceRow).next_sequence;
+    const payloadChecksum=createHash("sha256").update(canonicalJson(input.payload)).digest("hex");
+    this.durableSync.enqueue({
+      operation_id:uuidV7(),
+      tenant_id:input.scope.tenantId,company_id:input.scope.companyId,
+      branch_id:input.scope.branchId,device_id:input.scope.deviceId,
+      installation_id:input.scope.installationId,session_id:input.sessionId,
+      actor_id:input.actorId,aggregate_type:"INVENTORY_RESERVATION",
+      aggregate_id:input.reservationId,operation_type:input.operationType,
+      authority_policy:"LOCAL_AUTHORITATIVE_UNTIL_SYNC",local_sequence:nextSequence,
+      idempotency_key:input.idempotencyKey,expected_version:null,
+      payload_schema_version:INVENTORY_PAYLOAD_SCHEMA_VERSION,
+      payload:input.payload,payload_checksum:payloadChecksum,
+      causation_id:input.causationId,correlation_id:input.correlationId,
+      occurred_at_local:input.nowIso,recorded_at_local:input.nowIso,
+    });
   }
 
   createReservationInTransaction(
