@@ -416,6 +416,20 @@ async function main(): Promise<void> {
           result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
         };
       }
+      // The consolidated renderer always probes the local operator session.
+      // This POSIX harness has no password-backed local operator registry:
+      // report NO_SESSION without inventing identity or commercial permissions.
+      // Windows delegates this operation to the production LocalChannelComponent.
+      if (envelope.message_type === "local.operator.session") {
+        return {
+          protocol_version: "1.0.0", request_id: envelope.request_id,
+          correlation_id: envelope.correlation_id, operation_id: null,
+          status: "SUCCEEDED", result_code: "NO_SESSION",
+          result_schema_version: "1.0.0", error: null,
+          server_time: new Date().toISOString(),
+          result: { outcome: "NO_SESSION", username: null, role: null, expires_at: null },
+        };
+      }
       // POSIX harness metadata only; Windows uses the production component.
       if (envelope.message_type === "runtime.status.get") {
         return {
