@@ -27,7 +27,7 @@ export class ApprovePresentationConversionUseCase{
   },at:Date=new Date()){
     if(!authorized(scope,snapshot,CanonicalPermission.CATALOG_PRODUCT_REGISTER,at)||
        !authorized(scope,snapshot,CanonicalPermission.INVENTORY_STOCK_ADJUST,at))
-      return {kind:"UNAUTHORIZED" as const};
+      return {kind:"UNAUTHORIZED" as const,ruleId:undefined};
     const actorId=snapshot.claims.user_id;
     const requestChecksum=checksum({
       tenant_id:scope.tenantId,company_id:scope.companyId,
