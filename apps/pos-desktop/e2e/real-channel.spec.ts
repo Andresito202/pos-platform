@@ -32,6 +32,10 @@ import { loadOrCreateWindowsLocalChannelSecret } from "@pos-platform/local-chann
  * comercial legítimo: la sesión se firma dentro del arnés aislado.
  */
 
+// These E2E cases share one real Electron process, signed channel binding and cash shift.
+// A failure must not run dependent cases against a fresh unauthenticated worker.
+test.describe.configure({ mode: "serial" });
+
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const executablePath = require("electron") as string;
@@ -523,6 +527,9 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
   await page.getByTestId("create-sale-button").click();
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
+  // Select the actual transfer checkout method; the cashier defaults to cash.
+  await page.getByTestId("select-payment-transfer").click();
+  await expect(page.getByTestId("register-transfer-button")).toBeVisible();
   // 1 · Reportar la transferencia.
   await page.getByTestId("register-transfer-button").click();
   await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
