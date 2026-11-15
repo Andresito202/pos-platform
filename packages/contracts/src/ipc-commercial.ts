@@ -1062,10 +1062,22 @@ export const CatalogItemListResponseSchema =
  * el número. Un contrato que admitiera cantidades negativas dejaría que una
  * recepción restara existencia.
  */
+export const InventoryBatchReceiptSchema = z.strictObject({
+  code:z.string().trim().min(1).max(96),
+  manufacture_date:BusinessDateSchema.nullable(),
+  expiry_date:BusinessDateSchema.nullable(),
+  supplier_reference:z.string().trim().min(1).max(160),
+  receipt_document:z.string().trim().min(1).max(160),
+}).superRefine((batch,ctx)=>{
+  if(batch.manufacture_date&&batch.expiry_date&&batch.manufacture_date>batch.expiry_date)
+    ctx.addIssue({code:"custom",message:"manufacturing date exceeds expiry"});
+});
+
 export const InventoryStockReceiveRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     presentation_id: UuidSchema,
     movement_type: z.enum(["OPENING_COUNT", "PURCHASE_RECEIPT", "TRANSFER_IN"]),
+    batch:InventoryBatchReceiptSchema.optional(),
     quantity: PositiveScale6Schema,
     reason_code: z.string().min(1).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
     business_date: BusinessDateSchema,
@@ -1074,6 +1086,8 @@ export const InventoryStockReceiveRequestSchema = createRequestEnvelopeSchema(
   .superRefine((request, context) => {
     forbidCallerAssertedIdentity(request, context);
     requireIdempotentOperation(request, context);
+    if(request.payload.batch && request.payload.movement_type!=="PURCHASE_RECEIPT")
+      context.addIssue({code:"custom",path:["payload","batch"],message:"batch receipt must be purchase"});
   });
 
 export const InventoryStockAdjustRequestSchema = createRequestEnvelopeSchema(
@@ -1105,6 +1119,10 @@ export const InventoryMovementOutcomeSchema = z.enum([
   "IDEMPOTENCY_CONFLICT",
   "PRESENTATION_NOT_FOUND",
   "INSUFFICIENT_STOCK",
+  "LOT_TRACKING_REQUIRED",
+  "LEGACY_STOCK_RECONCILIATION_REQUIRED",
+  "LOT_NOT_FOUND",
+  "LOT_NOT_SELLABLE",
 ]);
 
 /**
