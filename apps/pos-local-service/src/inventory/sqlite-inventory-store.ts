@@ -568,6 +568,54 @@ export class SqliteInventoryStore {
     return this.database.native.transaction(check)();
   }
 
+  /** Lot-specific shrinkage / inventory adjustment (no hidden conversion).
+   * Only the existing authorized adjustment use case may call this method.
+   * Both books, audit and outbox commit or roll back as one transaction. */
+  debitBatch(input:AppendMovementInput,lotId:string):AppendMovementOutcome {
+    if(!["SHRINKAGE","ADJUSTMENT_NEGATIVE","TRANSFER_OUT"].includes(input.movementType))
+      throw Error("LOT_DEBIT_MOVEMENT_NOT_ALLOWED");
+    return this.database.native.transaction(()=>{
+      if(!this.isLotTracked(input.scope,input.presentationId))
+        return {kind:"LOT_TRACKING_REQUIRED"} as AppendMovementOutcome;
+      const record=this.database.native.prepare(`SELECT quantity_on_hand FROM inventory_lot
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=? AND id=?`)
+        .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+          input.presentationId,lotId) as {quantity_on_hand:string}|undefined;
+      if(!record)return {kind:"LOT_NOT_FOUND"} as AppendMovementOutcome;
+      if(!/^(0|[1-9]\\d{0,12})\\.\\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
+        return {kind:"INVALID_QUANTITY"} as AppendMovementOutcome;
+      if(scale6ToBigInt(record.quantity_on_hand)<scale6ToBigInt(input.quantity))
+        return {kind:"INSUFFICIENT_STOCK",available:record.quantity_on_hand} as AppendMovementOutcome;
+      const result=this.appendMovement(input,true);
+      if(result.kind!=="POSTED")return result;
+      this.writeLotLedger(input,lotId,scale6ToBigInt(input.quantity),"OUT","SHRINKAGE");
+      return result;
+    })();
+  }
+
+  /** Read batch-specific physical balances without merging branch inventory. */
+  listBatches(scope:InventoryScope,presentationId:string):Array<{
+    id:string;batchCode:string;quantityOnHand:string;status:string;
+    manufactureDate:string|null;expiryDate:string|null;
+    supplierReference:string;receiptDocument:string;
+  }>{
+    const rows=this.database.native.prepare(`SELECT id,batch_code,quantity_on_hand,status,
+      manufacture_date,expiry_date,supplier_reference,receipt_document
+      FROM inventory_lot WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?
+      ORDER BY CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END,
+      expiry_date ASC,created_at ASC,id ASC`)
+      .all(scope.tenantId,scope.companyId,scope.branchId,presentationId) as Array<{
+        id:string;batch_code:string;quantity_on_hand:string;status:string;
+        manufacture_date:string|null;expiry_date:string|null;
+        supplier_reference:string;receipt_document:string;
+      }>;
+    return rows.map(row=>({
+      id:row.id,batchCode:row.batch_code,quantityOnHand:row.quantity_on_hand,
+      status:row.status,manufactureDate:row.manufacture_date,expiryDate:row.expiry_date,
+      supplierReference:row.supplier_reference,receiptDocument:row.receipt_document,
+    }));
+  }
+
   /** A mutable lot status always has an immutable audit event and a checksum. */
   changeBatchStatus(input:{
     scope:SyncScope;lotId:string;status:"AVAILABLE"|"QUARANTINE"|"BLOCKED"|"RECALLED";
