@@ -227,7 +227,7 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
       </>}
 
       {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)&&target!==""&&
-        <InventoryConversionPanel key={target} sourcePresentationId={target}
+        <InventoryConversionPanel key={target} sourcePresentationId={target} businessDate={businessDate.trim()}
           canApprove={permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)} />}
 
       <h3>Consulta</h3>
