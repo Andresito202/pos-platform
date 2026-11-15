@@ -582,7 +582,7 @@ export class SqliteInventoryStore {
         .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,
           input.presentationId,lotId) as {quantity_on_hand:string}|undefined;
       if(!record)return {kind:"LOT_NOT_FOUND"} as AppendMovementOutcome;
-      if(!/^(0|[1-9]\\d{0,12})\\.\\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
+      if(!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
         return {kind:"INVALID_QUANTITY"} as AppendMovementOutcome;
       if(scale6ToBigInt(record.quantity_on_hand)<scale6ToBigInt(input.quantity))
         return {kind:"INSUFFICIENT_STOCK",available:record.quantity_on_hand} as AppendMovementOutcome;
