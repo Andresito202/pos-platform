@@ -31,6 +31,7 @@ export type AdjustMovementType = Extract<
 
 export interface AdjustStockRequest {
   readonly presentationId: string;
+  readonly lotId?:string;
   readonly movementType: AdjustMovementType;
   /** TEXT a escala 6, mayor que cero. El signo lo da el tipo, no la cantidad. */
   readonly quantity: string;
@@ -58,6 +59,7 @@ function requestChecksum(
       movement_type: request.movementType,
       operator_user_id: operatorUserId,
       presentation_id: request.presentationId,
+      ...(request.lotId?{lot_id:request.lotId}:{}),
       quantity: request.quantity,
       reason_code: request.reasonCode,
     }))
@@ -85,7 +87,7 @@ export class AdjustStockUseCase {
     });
     if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
 
-    return this.inventoryStore.appendMovementInTransaction({
+    const movement={
       scope,
       sessionId,
       operatorUserId,
@@ -101,6 +103,9 @@ export class AdjustStockUseCase {
       requestChecksum: requestChecksum(request, operatorUserId, scope.branchId),
       correlationId: request.correlationId,
       causationId: request.causationId,
-    });
+    };
+    return request.lotId===undefined
+      ?this.inventoryStore.appendMovementInTransaction(movement)
+      :this.inventoryStore.debitBatch(movement,request.lotId);
   }
 }
