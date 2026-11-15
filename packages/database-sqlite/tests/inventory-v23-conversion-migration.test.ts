@@ -25,6 +25,13 @@ describe("additive local v23 conversion migration",()=>{
     const raw=new Database(join(dir,"pos-local.db"));
     raw.pragma("foreign_keys = OFF");
     raw.exec(`
+      DROP TRIGGER IF EXISTS inventory_reservation_lot_no_update;
+      DROP TRIGGER IF EXISTS inventory_reservation_lot_no_delete;
+      DROP TABLE IF EXISTS inventory_reservation_lot;
+      DROP TRIGGER IF EXISTS inventory_reservation_no_delete;
+      DROP INDEX IF EXISTS inventory_reservation_availability_idx;
+      DROP INDEX IF EXISTS inventory_reservation_reference_idx;
+      DROP TABLE IF EXISTS inventory_reservation;
       DROP TRIGGER inventory_conversion_event_no_update;
       DROP TRIGGER inventory_conversion_event_no_delete;
       DROP INDEX inventory_conversion_by_lot;
@@ -34,7 +41,7 @@ describe("additive local v23 conversion migration",()=>{
       DROP TRIGGER inventory_conversion_rule_no_delete;
       DROP TABLE inventory_conversion_rule;
       DROP TRIGGER local_schema_migrations_no_delete;
-      DELETE FROM local_schema_migrations WHERE version=23;
+      DELETE FROM local_schema_migrations WHERE version IN (23,24);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;

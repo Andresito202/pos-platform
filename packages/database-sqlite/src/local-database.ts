@@ -1641,6 +1641,80 @@ CREATE TRIGGER inventory_conversion_event_no_delete BEFORE DELETE ON inventory_c
 BEGIN SELECT RAISE(ABORT,'conversion genealogy is append-only'); END;
 `.trim();
 
+/**
+ * MIGRATION_024: durable inventory reservations on the ORIGINAL local ledger.
+ * A reservation reduces availability, never physical on-hand. Consume creates
+ * the SALE movement; release/expire free availability without inventing stock.
+ * Additive only — no rewrite of 001–023, sales, payments or historical stock.
+ */
+const MIGRATION_024 = `
+CREATE TABLE inventory_reservation (
+  id TEXT NOT NULL CHECK(length(id)=36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id)=36),
+  reference_type TEXT NOT NULL CHECK(reference_type IN ('SALE','MANUAL')),
+  reference_id TEXT NOT NULL CHECK(length(reference_id) BETWEEN 1 AND 64),
+  quantity TEXT NOT NULL CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity)-length(replace(quantity,'.',''))=1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity<>'0.000000'),
+  consumed_quantity TEXT NOT NULL CHECK(consumed_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(consumed_quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(consumed_quantity)-length(replace(consumed_quantity,'.',''))=1)
+    CHECK(consumed_quantity NOT GLOB '0[0-9]*'),
+  released_quantity TEXT NOT NULL CHECK(released_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(released_quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(released_quantity)-length(replace(released_quantity,'.',''))=1)
+    CHECK(released_quantity NOT GLOB '0[0-9]*'),
+  status TEXT NOT NULL CHECK(status IN (
+    'ACTIVE','PARTIALLY_CONSUMED','CONSUMED','RELEASED','EXPIRED','CANCELLED')),
+  expires_at TEXT,
+  origin_device_id TEXT NOT NULL CHECK(length(origin_device_id)=36),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  session_id TEXT CHECK(session_id IS NULL OR length(session_id)=36),
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id)=36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id)=36),
+  version INTEGER NOT NULL CHECK(version>=1),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,idempotency_key),
+  FOREIGN KEY(tenant_id,presentation_id) REFERENCES catalog_presentation(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX inventory_reservation_availability_idx
+  ON inventory_reservation(tenant_id,company_id,branch_id,presentation_id,status);
+CREATE INDEX inventory_reservation_reference_idx
+  ON inventory_reservation(tenant_id,branch_id,reference_type,reference_id);
+CREATE TRIGGER inventory_reservation_no_delete BEFORE DELETE ON inventory_reservation
+BEGIN SELECT RAISE(ABORT,'reservations are permanent history'); END;
+
+CREATE TABLE inventory_reservation_lot (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  reservation_id TEXT NOT NULL CHECK(length(reservation_id)=36),
+  lot_id TEXT NOT NULL CHECK(length(lot_id)=36),
+  quantity TEXT NOT NULL CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity)-length(replace(quantity,'.',''))=1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity<>'0.000000'),
+  PRIMARY KEY(tenant_id,branch_id,reservation_id,lot_id),
+  FOREIGN KEY(tenant_id,branch_id,reservation_id)
+    REFERENCES inventory_reservation(tenant_id,branch_id,id),
+  FOREIGN KEY(tenant_id,branch_id,lot_id) REFERENCES inventory_lot(tenant_id,branch_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER inventory_reservation_lot_no_update BEFORE UPDATE ON inventory_reservation_lot
+BEGIN SELECT RAISE(ABORT,'reservation lot allocations are immutable'); END;
+CREATE TRIGGER inventory_reservation_lot_no_delete BEFORE DELETE ON inventory_reservation_lot
+BEGIN SELECT RAISE(ABORT,'reservation lot allocations are permanent'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1665,6 +1739,7 @@ const MIGRATIONS = [
   { version: 21, sql: MIGRATION_021, checksum: createHash("sha256").update(MIGRATION_021).digest("hex") },
   { version: 22, sql: MIGRATION_022, checksum: createHash("sha256").update(MIGRATION_022).digest("hex") },
   { version: 23, sql: MIGRATION_023, checksum: createHash("sha256").update(MIGRATION_023).digest("hex") },
+  { version: 24, sql: MIGRATION_024, checksum: createHash("sha256").update(MIGRATION_024).digest("hex") },
 ] as const;
 
 /**
