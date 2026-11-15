@@ -238,6 +238,8 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "customer.marketing.get":
       case "fiscal.document.issue":
       case "catalog.product.register":
+      case "catalog.presentation.register":
+      case "catalog.food_policy.upsert":
       case "catalog.item.find":
       case "catalog.item.get":
       case "catalog.item.list":
@@ -250,6 +252,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "inventory.conversion.execute":
       case "inventory.reservation.create":
       case "inventory.reservation.release":
+      case "inventory.transform.execute":
       case "sales.receipt.get":
       case "hardware.command":
       case "audit.event.list":

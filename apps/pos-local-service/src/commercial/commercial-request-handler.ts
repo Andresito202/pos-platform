@@ -29,10 +29,11 @@ type CommercialRequest = Extract<
       | "customer.register" | "customer.get" | "customer.find"
       | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
       | "fiscal.document.issue"
-      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
+      | "catalog.product.register" | "catalog.presentation.register" | "catalog.food_policy.upsert"
+      | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.batch.list" | "inventory.batch.status" | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
-      | "inventory.reservation.create" | "inventory.reservation.release"
+      | "inventory.reservation.create" | "inventory.reservation.release" | "inventory.transform.execute"
       | "sales.receipt.get"
       | "hardware.command"
       | "audit.event.list"
@@ -78,7 +79,10 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   PRESENTATION_NOT_FOUND: "NOT_FOUND",
   LOT_NOT_FOUND:"NOT_FOUND",
   LOT_NOT_SELLABLE:"CONFLICT",
+  LOT_RESERVED:"CONFLICT",
   LOT_TRACKING_REQUIRED:"CONFLICT",
+  MASS_RECONCILIATION_FAILED:"VALIDATION",
+  PRODUCT_NOT_FOUND:"NOT_FOUND",
   LEGACY_STOCK_RECONCILIATION_REQUIRED:"CONFLICT",
   CONFLICT:"CONFLICT",
   SALE_NOT_PAYABLE: "CONFLICT",
@@ -259,6 +263,8 @@ export class CommercialRequestHandler {
       case "customer.marketing.get": return this.marketingSubscription(request, connectionId);
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
+      case "catalog.presentation.register": return this.registerPresentation(request, connectionId);
+      case "catalog.food_policy.upsert": return this.upsertFoodPolicy(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
       case "catalog.item.list": return this.listCatalogItems(request, connectionId);
@@ -271,6 +277,7 @@ export class CommercialRequestHandler {
       case "inventory.conversion.execute": return this.convertPresentation(request,connectionId);
       case "inventory.reservation.create": return this.createInventoryReservation(request,connectionId);
       case "inventory.reservation.release": return this.releaseInventoryReservation(request,connectionId);
+      case "inventory.transform.execute": return this.executeTransform(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
       case "hardware.command": return this.hardwareCommand(request,connectionId);
       case "audit.event.list": return this.listAuditEvents(request, connectionId);
@@ -931,6 +938,92 @@ export class CommercialRequestHandler {
     return rejected(request, result.kind, { outcome: result.kind, ...empty });
   }
 
+  private registerPresentation(
+    request: Extract<CommercialRequest, { message_type: "catalog.presentation.register" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { product_id: null, presentation_id: null };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const payload = request.payload;
+    const result = this.commercial.addPresentation.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        productId: payload.product_id,
+        presentationName: payload.presentation_name,
+        unitCode: payload.unit_code,
+        unitPrecision: payload.unit_precision,
+        barcode: payload.barcode,
+        priceAmount: payload.price_amount,
+        currencyCode: payload.currency_code,
+        ...(payload.fiscal_attributes === undefined ? {} : { fiscalAttributes: {
+          codeReference: payload.fiscal_attributes.code_reference,
+          unitMeasureCode: payload.fiscal_attributes.unit_measure_code,
+          standardCode: payload.fiscal_attributes.standard_code,
+          taxCode: payload.fiscal_attributes.tax_code,
+          taxRate: payload.fiscal_attributes.tax_rate,
+        } }),
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    if (result.kind === "REGISTERED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        product_id: result.productId,
+        presentation_id: result.presentationId,
+      });
+    }
+    if (result.kind === "BARCODE_ALREADY_REGISTERED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, product_id: null, presentation_id: result.presentationId,
+      });
+    }
+    return rejected(request, result.kind, {
+      outcome: result.kind,
+      product_id: "productId" in result ? (result.productId ?? null) : null,
+      presentation_id: null,
+    });
+  }
+
+  private upsertFoodPolicy(
+    request: Extract<CommercialRequest, { message_type: "catalog.food_policy.upsert" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", version: null });
+    }
+    const payload = request.payload;
+    const result = this.commercial.upsertFoodPolicy.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        productId: payload.product_id,
+        conservationCode: payload.conservation_code,
+        requiresLotTracking: payload.requires_lot_tracking,
+        requiresExpiry: payload.requires_expiry,
+        notes: payload.notes,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      version: "version" in result ? (result.version ?? null) : null,
+    };
+    return result.kind === "SAVED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
   // ── catalog.item.find · catalog.item.get ───────────────────────────────────
 
   /** Las dos formas de buscar comparten resultado porque devuelven lo mismo. */
@@ -1326,6 +1419,55 @@ export class CommercialRequestHandler {
     const response={outcome:result.kind};
     return result.kind==="RELEASED"||result.kind==="IDEMPOTENT"
       ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
+  }
+
+  private executeTransform(
+    request: Extract<CommercialRequest, { message_type: "inventory.transform.execute" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { outcome: "UNAUTHORIZED" as const, order_id: null, available: null };
+    const session = this.authenticate(connectionId);
+    if ("rejection" in session) return rejected(request, session.rejection, empty);
+    const payload = request.payload;
+    const result = this.commercial.executeTransform.execute(
+      this.scope(),
+      session.identity.ssaSessionId,
+      session.snapshot,
+      {
+        reasonCode: payload.reason_code,
+        businessDate: payload.business_date,
+        canonicalMassUnit: payload.canonical_mass_unit,
+        inputs: payload.inputs.map((line) => ({
+          presentationId: line.presentation_id,
+          lotId: line.lot_id,
+          quantity: line.quantity,
+          massQuantity: line.mass_quantity,
+        })),
+        outputs: payload.outputs.map((line) => ({
+          presentationId: line.presentation_id,
+          quantity: line.quantity,
+          massQuantity: line.mass_quantity,
+          batchCode: line.batch_code,
+        })),
+        shrinkage: payload.shrinkage.map((line) => ({
+          presentationId: line.presentation_id,
+          lotId: line.lot_id,
+          quantity: line.quantity,
+          massQuantity: line.mass_quantity,
+        })),
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      order_id: "orderId" in result ? (result.orderId ?? null) : null,
+      available: "available" in result ? (result.available ?? null) : null,
+    };
+    return result.kind === "POSTED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
   }
 
   // ── sales.receipt.get — `DEC-019` ──────────────────────────────────────────

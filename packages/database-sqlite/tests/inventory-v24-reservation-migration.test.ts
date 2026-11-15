@@ -27,15 +27,23 @@ describe("additive local v24 reservation migration", () => {
     const raw = new Database(join(dir, "pos-local.db"));
     raw.pragma("foreign_keys = OFF");
     raw.exec(`
-      DROP TRIGGER inventory_reservation_lot_no_update;
-      DROP TRIGGER inventory_reservation_lot_no_delete;
-      DROP TABLE inventory_reservation_lot;
-      DROP TRIGGER inventory_reservation_no_delete;
-      DROP INDEX inventory_reservation_availability_idx;
-      DROP INDEX inventory_reservation_reference_idx;
-      DROP TABLE inventory_reservation;
+      DROP TRIGGER IF EXISTS inventory_transform_line_no_update;
+      DROP TRIGGER IF EXISTS inventory_transform_line_no_delete;
+      DROP INDEX IF EXISTS inventory_transform_line_lot_idx;
+      DROP TABLE IF EXISTS inventory_transform_line;
+      DROP TRIGGER IF EXISTS inventory_transform_order_no_update;
+      DROP TRIGGER IF EXISTS inventory_transform_order_no_delete;
+      DROP TABLE IF EXISTS inventory_transform_order;
+      DROP TABLE IF EXISTS catalog_food_policy;
+      DROP TRIGGER IF EXISTS inventory_reservation_lot_no_update;
+      DROP TRIGGER IF EXISTS inventory_reservation_lot_no_delete;
+      DROP TABLE IF EXISTS inventory_reservation_lot;
+      DROP TRIGGER IF EXISTS inventory_reservation_no_delete;
+      DROP INDEX IF EXISTS inventory_reservation_availability_idx;
+      DROP INDEX IF EXISTS inventory_reservation_reference_idx;
+      DROP TABLE IF EXISTS inventory_reservation;
       DROP TRIGGER local_schema_migrations_no_delete;
-      DELETE FROM local_schema_migrations WHERE version=24;
+      DELETE FROM local_schema_migrations WHERE version IN (24,25);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;
@@ -47,7 +55,7 @@ describe("additive local v24 reservation migration", () => {
     const upgraded = LocalDatabase.open({ dataDirectory: dir });
     expect(upgraded.native.prepare("SELECT max(version) AS v FROM local_schema_migrations").get())
       .toEqual({ v: LATEST_LOCAL_SCHEMA_VERSION });
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(24);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBeGreaterThanOrEqual(24);
     expect(upgraded.native.prepare("SELECT count(*) AS n FROM runtime_operations").get())
       .toEqual({ n: 1 });
     expect(upgraded.native.prepare(

@@ -1,4 +1,5 @@
 import { InventoryBatchPanel } from "./InventoryBatchPanel.js";
+import { InventoryTransformPanel } from "./InventoryTransformPanel.js";
 import { InventoryConversionPanel } from "./InventoryConversionPanel.js";
 import { InventoryCsvImport } from "./InventoryCsvImport.js";
 import { CanonicalPermission } from "@pos-platform/contracts";
@@ -229,6 +230,9 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
       {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)&&target!==""&&
         <InventoryConversionPanel key={target} sourcePresentationId={target} businessDate={businessDate.trim()}
           canApprove={permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)} />}
+
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) &&
+        <InventoryTransformPanel businessDate={businessDate.trim() || "2026-09-07"} />}
 
       <h3>Consulta</h3>
       {permissions.has(CanonicalPermission.INVENTORY_STOCK_READ)&&target!==""&&

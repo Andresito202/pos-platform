@@ -1268,6 +1268,110 @@ export const InventoryReservationReleaseResultSchema=z.strictObject({
 export const InventoryReservationReleaseResponseSchema=
   createResponseEnvelopeSchema(InventoryReservationReleaseResultSchema);
 
+// ── catalog.presentation.register · catalog.food_policy.upsert ───────────────
+
+export const CatalogPresentationRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    presentation_name: z.string().min(1).max(200),
+    unit_code: z.string().min(1).max(16),
+    unit_precision: z.number().int().min(0).max(6),
+    barcode: BarcodeSchema.nullable(),
+    price_amount: PositiveScale6Schema,
+    currency_code: CurrencyCodeSchema,
+    fiscal_attributes: CatalogFiscalAttributeSchema.optional(),
+  }),
+).safeExtend({ message_type: z.literal("catalog.presentation.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogPresentationRegisterResultSchema = z.strictObject({
+  outcome: z.enum([
+    "REGISTERED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT",
+    "PRODUCT_NOT_FOUND", "BARCODE_ALREADY_REGISTERED", "INVALID_FISCAL_ATTRIBUTES",
+    "INVALID_QUANTITY",
+  ]),
+  product_id: UuidSchema.nullable(),
+  presentation_id: UuidSchema.nullable(),
+});
+
+export const CatalogPresentationRegisterResponseSchema =
+  createResponseEnvelopeSchema(CatalogPresentationRegisterResultSchema);
+
+export const CatalogFoodPolicyUpsertRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    conservation_code: z.enum(["AMBIENT", "CHILLED", "FROZEN", "CONTROLLED"]),
+    requires_lot_tracking: z.boolean(),
+    requires_expiry: z.boolean(),
+    notes: z.string().min(1).max(500).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("catalog.food_policy.upsert") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogFoodPolicyUpsertResultSchema = z.strictObject({
+  outcome: z.enum([
+    "SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "PRODUCT_NOT_FOUND",
+  ]),
+  version: z.number().int().nonnegative().nullable(),
+});
+
+export const CatalogFoodPolicyUpsertResponseSchema =
+  createResponseEnvelopeSchema(CatalogFoodPolicyUpsertResultSchema);
+
+// ── inventory.transform.execute ──────────────────────────────────────────────
+
+const TransformLineMassSchema = NonNegativeScale6Schema.nullable();
+
+export const InventoryTransformExecuteRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    reason_code: z.string().min(2).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
+    business_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    canonical_mass_unit: z.enum(["G", "KG"]).nullable(),
+    inputs: z.array(z.strictObject({
+      presentation_id: UuidSchema,
+      lot_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      mass_quantity: TransformLineMassSchema,
+    })).min(1).max(32),
+    outputs: z.array(z.strictObject({
+      presentation_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      mass_quantity: TransformLineMassSchema,
+      batch_code: z.string().min(1).max(96),
+    })).min(1).max(32),
+    shrinkage: z.array(z.strictObject({
+      presentation_id: UuidSchema,
+      lot_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      mass_quantity: TransformLineMassSchema,
+    })).max(32),
+  }),
+).safeExtend({ message_type: z.literal("inventory.transform.execute") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const InventoryTransformExecuteResultSchema = z.strictObject({
+  outcome: z.enum([
+    "POSTED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_QUANTITY",
+    "MASS_RECONCILIATION_FAILED", "LOT_NOT_FOUND", "LOT_NOT_SELLABLE", "LOT_RESERVED",
+    "INSUFFICIENT_STOCK", "PRESENTATION_NOT_FOUND", "QUANTITY_PRECISION_EXCEEDED",
+    "LEGACY_STOCK_RECONCILIATION_REQUIRED", "CONFLICT",
+  ]),
+  order_id: UuidSchema.nullable(),
+  available: NonNegativeScale6Schema.nullable(),
+});
+
+export const InventoryTransformExecuteResponseSchema =
+  createResponseEnvelopeSchema(InventoryTransformExecuteResultSchema);
+
 // ── sales.receipt.get ────────────────────────────────────────────────────────
 
 /**
@@ -1559,6 +1663,8 @@ export type CustomerMarketingSubscriptionResult = z.infer<typeof CustomerMarketi
 export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResultSchema>;
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
+export type CatalogPresentationRegisterResult = z.infer<typeof CatalogPresentationRegisterResultSchema>;
+export type CatalogFoodPolicyUpsertResult = z.infer<typeof CatalogFoodPolicyUpsertResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
 export type CatalogItemListItem = z.infer<typeof CatalogItemListItemSchema>;
 export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
@@ -1566,5 +1672,6 @@ export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;
 export type InventoryStockGetResult = z.infer<typeof InventoryStockGetResultSchema>;
+export type InventoryTransformExecuteResult = z.infer<typeof InventoryTransformExecuteResultSchema>;
 export type AuditEventListResult = z.infer<typeof AuditEventListResultSchema>;
 export type AdminMetricsGetResult = z.infer<typeof AdminMetricsGetResultSchema>;

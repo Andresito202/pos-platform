@@ -1715,6 +1715,106 @@ CREATE TRIGGER inventory_reservation_lot_no_delete BEFORE DELETE ON inventory_re
 BEGIN SELECT RAISE(ABORT,'reservation lot allocations are permanent'); END;
 `.trim();
 
+/**
+ * MIGRATION_025: Salsamentaria/avícola additive surfaces on the ORIGINAL ledger.
+ * - catalog_food_policy: conservation / lot / expiry intent (not sanitary certification).
+ * - inventory_transform_*: multi-output butcher/transform orders with genealogy.
+ * Does not rewrite 001–024, sales, payments or historical stock. Does not create
+ * stock when registering presentations (that remains a catalog-only write).
+ */
+const MIGRATION_025 = `
+CREATE TABLE catalog_food_policy (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  product_id TEXT NOT NULL CHECK(length(product_id)=36),
+  conservation_code TEXT NOT NULL CHECK(conservation_code IN ('AMBIENT','CHILLED','FROZEN','CONTROLLED')),
+  requires_lot_tracking INTEGER NOT NULL CHECK(requires_lot_tracking IN (0,1)),
+  requires_expiry INTEGER NOT NULL CHECK(requires_expiry IN (0,1)),
+  notes TEXT CHECK(notes IS NULL OR length(notes) BETWEEN 1 AND 500),
+  version INTEGER NOT NULL CHECK(version>=1),
+  updated_by TEXT NOT NULL CHECK(length(updated_by)=36),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,product_id),
+  FOREIGN KEY(tenant_id,product_id) REFERENCES catalog_product(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE inventory_transform_order (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  status TEXT NOT NULL CHECK(status='POSTED'),
+  canonical_mass_unit TEXT CHECK(canonical_mass_unit IS NULL OR canonical_mass_unit IN ('G','KG')),
+  input_mass TEXT CHECK(input_mass IS NULL OR (
+    input_mass GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND input_mass NOT GLOB '*[^0-9.]*'
+    AND length(input_mass)-length(replace(input_mass,'.',''))=1
+    AND input_mass NOT GLOB '0[0-9]*')),
+  output_mass TEXT CHECK(output_mass IS NULL OR (
+    output_mass GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND output_mass NOT GLOB '*[^0-9.]*'
+    AND length(output_mass)-length(replace(output_mass,'.',''))=1
+    AND output_mass NOT GLOB '0[0-9]*')),
+  shrinkage_mass TEXT CHECK(shrinkage_mass IS NULL OR (
+    shrinkage_mass GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND shrinkage_mass NOT GLOB '*[^0-9.]*'
+    AND length(shrinkage_mass)-length(replace(shrinkage_mass,'.',''))=1
+    AND shrinkage_mass NOT GLOB '0[0-9]*')),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  session_id TEXT NOT NULL CHECK(length(session_id)=36),
+  reason_code TEXT NOT NULL CHECK(length(reason_code) BETWEEN 1 AND 64),
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id)=36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id)=36),
+  occurred_at TEXT NOT NULL,
+  CHECK(
+    (canonical_mass_unit IS NULL AND input_mass IS NULL AND output_mass IS NULL AND shrinkage_mass IS NULL)
+    OR (canonical_mass_unit IS NOT NULL AND input_mass IS NOT NULL AND output_mass IS NOT NULL AND shrinkage_mass IS NOT NULL)
+  ),
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,idempotency_key)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER inventory_transform_order_no_update BEFORE UPDATE ON inventory_transform_order
+BEGIN SELECT RAISE(ABORT,'transform order is append-only'); END;
+CREATE TRIGGER inventory_transform_order_no_delete BEFORE DELETE ON inventory_transform_order
+BEGIN SELECT RAISE(ABORT,'transform order history is permanent'); END;
+
+CREATE TABLE inventory_transform_line (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  order_id TEXT NOT NULL CHECK(length(order_id)=36),
+  line_number INTEGER NOT NULL CHECK(line_number>=1),
+  direction TEXT NOT NULL CHECK(direction IN ('INPUT','OUTPUT','SHRINKAGE')),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id)=36),
+  lot_id TEXT NOT NULL CHECK(length(lot_id)=36),
+  quantity TEXT NOT NULL CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity)-length(replace(quantity,'.',''))=1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity<>'0.000000'),
+  mass_quantity TEXT CHECK(mass_quantity IS NULL OR (
+    mass_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND mass_quantity NOT GLOB '*[^0-9.]*'
+    AND length(mass_quantity)-length(replace(mass_quantity,'.',''))=1
+    AND mass_quantity NOT GLOB '0[0-9]*')),
+  inventory_movement_id TEXT NOT NULL CHECK(length(inventory_movement_id)=36),
+  PRIMARY KEY(tenant_id,branch_id,order_id,line_number),
+  FOREIGN KEY(tenant_id,branch_id,order_id)
+    REFERENCES inventory_transform_order(tenant_id,branch_id,id),
+  FOREIGN KEY(tenant_id,presentation_id) REFERENCES catalog_presentation(tenant_id,id),
+  FOREIGN KEY(tenant_id,branch_id,lot_id) REFERENCES inventory_lot(tenant_id,branch_id,id),
+  FOREIGN KEY(tenant_id,inventory_movement_id) REFERENCES inventory_movement(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX inventory_transform_line_lot_idx
+  ON inventory_transform_line(tenant_id,branch_id,lot_id,order_id);
+CREATE TRIGGER inventory_transform_line_no_update BEFORE UPDATE ON inventory_transform_line
+BEGIN SELECT RAISE(ABORT,'transform genealogy is append-only'); END;
+CREATE TRIGGER inventory_transform_line_no_delete BEFORE DELETE ON inventory_transform_line
+BEGIN SELECT RAISE(ABORT,'transform genealogy is append-only'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1740,6 +1840,7 @@ const MIGRATIONS = [
   { version: 22, sql: MIGRATION_022, checksum: createHash("sha256").update(MIGRATION_022).digest("hex") },
   { version: 23, sql: MIGRATION_023, checksum: createHash("sha256").update(MIGRATION_023).digest("hex") },
   { version: 24, sql: MIGRATION_024, checksum: createHash("sha256").update(MIGRATION_024).digest("hex") },
+  { version: 25, sql: MIGRATION_025, checksum: createHash("sha256").update(MIGRATION_025).digest("hex") },
 ] as const;
 
 /**

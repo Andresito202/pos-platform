@@ -27,8 +27,10 @@ import { CloseCashShiftUseCase } from "../cash/close-cash-shift-use-case.js";
 import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
 import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
+import { AddPresentationUseCase, UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
 import { ListCatalogItemsUseCase } from "../catalog/list-catalog-items-use-case.js";
+import { ExecuteTransformUseCase } from "../inventory/execute-transform-use-case.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
@@ -102,6 +104,8 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getCustomer: GetCustomerUseCase;
         readonly customerMarketing: CustomerMarketingSubscriptionStore;
         readonly registerProduct: RegisterProductUseCase;
+        readonly addPresentation: AddPresentationUseCase;
+        readonly upsertFoodPolicy: UpsertFoodPolicyUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
         readonly listCatalogItems: ListCatalogItemsUseCase;
         readonly listAuditEvents: ListAuditEventsUseCase;
@@ -115,6 +119,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly convertPresentation:ConvertPresentationUseCase;
         readonly createInventoryReservation:CreateInventoryReservationUseCase;
         readonly releaseInventoryReservation:ReleaseInventoryReservationUseCase;
+        readonly executeTransform:ExecuteTransformUseCase;
         readonly getReceipt: GetReceiptUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
@@ -230,6 +235,8 @@ export class CommercialComponent implements RuntimeComponent {
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get customerMarketing(): CustomerMarketingSubscriptionStore { return this.ready.customerMarketing; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
+  get addPresentation(): AddPresentationUseCase { return this.ready.addPresentation; }
+  get upsertFoodPolicy(): UpsertFoodPolicyUseCase { return this.ready.upsertFoodPolicy; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get listAuditEvents(): ListAuditEventsUseCase { return this.ready.listAuditEvents; }
@@ -245,6 +252,7 @@ export class CommercialComponent implements RuntimeComponent {
   get convertPresentation():ConvertPresentationUseCase{return this.ready.convertPresentation;}
   get createInventoryReservation():CreateInventoryReservationUseCase{return this.ready.createInventoryReservation;}
   get releaseInventoryReservation():ReleaseInventoryReservationUseCase{return this.ready.releaseInventoryReservation;}
+  get executeTransform():ExecuteTransformUseCase{return this.ready.executeTransform;}
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
 
@@ -325,9 +333,12 @@ export class CommercialComponent implements RuntimeComponent {
        convertPresentation:new ConvertPresentationUseCase(inventoryStore),
        createInventoryReservation:new CreateInventoryReservationUseCase(inventoryStore),
        releaseInventoryReservation:new ReleaseInventoryReservationUseCase(inventoryStore),
+       executeTransform:new ExecuteTransformUseCase(inventoryStore),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct: new RegisterProductUseCase(catalogStore),
+      addPresentation: new AddPresentationUseCase(catalogStore),
+      upsertFoodPolicy: new UpsertFoodPolicyUseCase(catalogStore),
       findCatalogItem: new FindCatalogItemUseCase(catalogStore),
       listCatalogItems: new ListCatalogItemsUseCase(catalogStore),
       listAuditEvents: new ListAuditEventsUseCase(auditStore),

@@ -35,6 +35,8 @@ export const IPC_ALLOWED_CHANNELS = [
   // Emisión fiscal — `DEC-021` F5.
   "pos:fiscal.document.issue",
   "pos:catalog.product.register",
+  "pos:catalog.presentation.register",
+  "pos:catalog.food_policy.upsert",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   "pos:catalog.item.list",
@@ -48,6 +50,7 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:inventory.conversion.execute",
   "pos:inventory.reservation.create",
   "pos:inventory.reservation.release",
+  "pos:inventory.transform.execute",
   // Recibo — `DEC-019`. Sólo lectura: proyecta la venta ya cobrada.
   "pos:sales.receipt.get",
   "pos:audit.event.list",

@@ -104,6 +104,14 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TABLE fiscal_electronic_document;
       DROP TABLE fiscal_numbering_range;
       DROP TABLE customer_marketing_subscriptions;
+      DROP TRIGGER IF EXISTS inventory_transform_line_no_update;
+      DROP TRIGGER IF EXISTS inventory_transform_line_no_delete;
+      DROP INDEX IF EXISTS inventory_transform_line_lot_idx;
+      DROP TABLE IF EXISTS inventory_transform_line;
+      DROP TRIGGER IF EXISTS inventory_transform_order_no_update;
+      DROP TRIGGER IF EXISTS inventory_transform_order_no_delete;
+      DROP TABLE IF EXISTS inventory_transform_order;
+      DROP TABLE IF EXISTS catalog_food_policy;
       DROP TRIGGER IF EXISTS inventory_reservation_lot_no_update;
       DROP TRIGGER IF EXISTS inventory_reservation_lot_no_delete;
       DROP TABLE IF EXISTS inventory_reservation_lot;

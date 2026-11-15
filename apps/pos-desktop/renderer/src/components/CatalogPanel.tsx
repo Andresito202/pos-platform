@@ -37,6 +37,17 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
   const [csvResults, setCsvResults] = useState<readonly CatalogCsvOutcome[]>([]);
   const [delimiter, setDelimiter] = useState<"," | ";">(",");
   const csvRunning = useRef(false);
+  const [secondaryProductId, setSecondaryProductId] = useState("");
+  const [secondaryName, setSecondaryName] = useState("");
+  const [secondaryUnit, setSecondaryUnit] = useState("KGM");
+  const [secondaryPrecision, setSecondaryPrecision] = useState("3");
+  const [secondaryBarcode, setSecondaryBarcode] = useState("");
+  const [secondaryPrice, setSecondaryPrice] = useState("");
+  const [foodProductId, setFoodProductId] = useState("");
+  const [conservation, setConservation] = useState<"AMBIENT" | "CHILLED" | "FROZEN" | "CONTROLLED">("CHILLED");
+  const [requiresLot, setRequiresLot] = useState(true);
+  const [requiresExpiry, setRequiresExpiry] = useState(true);
+  const [foodNotes, setFoodNotes] = useState("");
 
   async function loadCsv(file: File): Promise<void> {
     if (csvRunning.current) return;
@@ -246,6 +257,104 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
       {catalog.product === null && catalog.outcome !== null && (
         <div data-testid="product-rejected">{catalog.outcome}</div>
       )}
+
+      {permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) && <>
+        <h3>Presentación adicional</h3>
+        <p>Misma mercancía, otra unidad de venta. No crea existencia.</p>
+        <div className="pos-form-grid">
+          <label className="pos-field">ID de producto
+            <input data-testid="secondary-product-id" aria-label="ID de producto para presentación"
+              value={secondaryProductId} disabled={catalog.busy}
+              onChange={(event) => setSecondaryProductId(event.target.value)} />
+          </label>
+          <label className="pos-field">Nombre de presentación
+            <input data-testid="secondary-presentation-name" aria-label="Nombre de presentación adicional"
+              value={secondaryName} disabled={catalog.busy}
+              onChange={(event) => setSecondaryName(event.target.value)} />
+          </label>
+          <label className="pos-field">Unidad
+            <input data-testid="secondary-unit-code" aria-label="Unidad de presentación adicional"
+              value={secondaryUnit} disabled={catalog.busy}
+              onChange={(event) => setSecondaryUnit(event.target.value)} />
+          </label>
+          <label className="pos-field">Decimales
+            <input data-testid="secondary-unit-precision" aria-label="Decimales de presentación adicional"
+              value={secondaryPrecision} disabled={catalog.busy}
+              onChange={(event) => setSecondaryPrecision(event.target.value)} />
+          </label>
+          <label className="pos-field">Código de barras
+            <input data-testid="secondary-barcode" aria-label="Código de barras de presentación adicional"
+              value={secondaryBarcode} disabled={catalog.busy}
+              onChange={(event) => setSecondaryBarcode(event.target.value)} />
+          </label>
+          <label className="pos-field">Precio
+            <input data-testid="secondary-price" aria-label="Precio de presentación adicional"
+              value={secondaryPrice} disabled={catalog.busy}
+              onChange={(event) => setSecondaryPrice(event.target.value)} />
+          </label>
+          <button data-testid="register-presentation-button" className="pos-form-primary"
+            disabled={catalog.busy || secondaryProductId.trim() === "" || secondaryName.trim() === "" || secondaryPrice.trim() === ""}
+            onClick={() => {
+              void catalog.registerPresentation({
+                productId: secondaryProductId.trim(),
+                presentationName: secondaryName.trim(),
+                unitCode: secondaryUnit.trim(),
+                unitPrecision: Number.parseInt(secondaryPrecision.trim(), 10),
+                barcode: secondaryBarcode,
+                price: secondaryPrice,
+                currencyCode: "COP",
+              });
+            }}>Agregar presentación</button>
+        </div>
+        {catalog.presentationOutcome !== null && (
+          <div data-testid="presentation-outcome">{catalog.presentationOutcome}</div>
+        )}
+
+        <h3>Política alimentaria</h3>
+        <p>Registro operativo de conservación y control. No es certificación sanitaria.</p>
+        <div className="pos-form-grid">
+          <label className="pos-field">ID de producto
+            <input data-testid="food-policy-product-id" aria-label="ID de producto para política alimentaria"
+              value={foodProductId} disabled={catalog.busy}
+              onChange={(event) => setFoodProductId(event.target.value)} />
+          </label>
+          <label className="pos-field">Conservación
+            <select data-testid="food-policy-conservation" aria-label="Conservación"
+              value={conservation} disabled={catalog.busy}
+              onChange={(event) => setConservation(event.target.value as typeof conservation)}>
+              <option value="AMBIENT">Ambiente</option>
+              <option value="CHILLED">Refrigerado</option>
+              <option value="FROZEN">Congelado</option>
+              <option value="CONTROLLED">Controlado</option>
+            </select>
+          </label>
+          <label><input type="checkbox" data-testid="food-policy-lot" checked={requiresLot} disabled={catalog.busy}
+            onChange={(event) => setRequiresLot(event.target.checked)} />Exige lote</label>
+          <label><input type="checkbox" data-testid="food-policy-expiry" checked={requiresExpiry} disabled={catalog.busy}
+            onChange={(event) => setRequiresExpiry(event.target.checked)} />Exige vencimiento</label>
+          <label className="pos-field">Notas
+            <input data-testid="food-policy-notes" aria-label="Notas de política alimentaria"
+              value={foodNotes} disabled={catalog.busy}
+              onChange={(event) => setFoodNotes(event.target.value)} />
+          </label>
+          <button data-testid="upsert-food-policy-button"
+            disabled={catalog.busy || foodProductId.trim() === ""}
+            onClick={() => {
+              void catalog.upsertFoodPolicy({
+                productId: foodProductId.trim(),
+                conservationCode: conservation,
+                requiresLotTracking: requiresLot,
+                requiresExpiry,
+                notes: foodNotes,
+              });
+            }}>Guardar política</button>
+        </div>
+        {catalog.foodPolicyOutcome !== null && (
+          <div data-testid="food-policy-outcome">{catalog.foodPolicyOutcome}
+            {catalog.foodPolicyVersion !== null ? ` v${catalog.foodPolicyVersion}` : ""}</div>
+        )}
+      </>}
+
       {catalog.error !== null && <div data-testid="catalog-error">{catalog.error}</div>}
     </section>
   );

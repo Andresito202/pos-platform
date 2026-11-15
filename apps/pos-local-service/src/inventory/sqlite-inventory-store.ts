@@ -115,6 +115,53 @@ export type SaleDeductionOutcome =
   | { readonly kind: "IDEMPOTENT" }
   | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string };
 
+/** Multi-output transform (despiece) on the shared lot ledger. */
+export interface TransformOrderInput {
+  readonly scope: SyncScope;
+  readonly sessionId: string;
+  readonly actorId: string;
+  readonly reasonCode: string;
+  readonly businessDate: string;
+  readonly canonicalMassUnit: "G" | "KG" | null;
+  readonly inputs: ReadonlyArray<{
+    readonly presentationId: string;
+    readonly lotId: string;
+    readonly quantity: string;
+    readonly massQuantity: string | null;
+  }>;
+  readonly outputs: ReadonlyArray<{
+    readonly presentationId: string;
+    readonly quantity: string;
+    readonly massQuantity: string | null;
+    readonly batchCode: string;
+  }>;
+  readonly shrinkage: ReadonlyArray<{
+    readonly presentationId: string;
+    readonly lotId: string;
+    readonly quantity: string;
+    readonly massQuantity: string | null;
+  }>;
+  readonly idempotencyKey: string;
+  readonly requestChecksum: string;
+  readonly correlationId: string;
+  readonly causationId: string | null;
+}
+
+export type TransformOrderOutcome =
+  | { readonly kind: "POSTED"; readonly orderId: string }
+  | { readonly kind: "IDEMPOTENT"; readonly orderId: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "INVALID_QUANTITY" }
+  | { readonly kind: "MASS_RECONCILIATION_FAILED" }
+  | { readonly kind: "LOT_NOT_FOUND" }
+  | { readonly kind: "LOT_NOT_SELLABLE" }
+  | { readonly kind: "LOT_RESERVED" }
+  | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string }
+  | { readonly kind: "PRESENTATION_NOT_FOUND" }
+  | { readonly kind: "QUANTITY_PRECISION_EXCEEDED" }
+  | { readonly kind: "LEGACY_STOCK_RECONCILIATION_REQUIRED" }
+  | { readonly kind: "CONFLICT" };
+
 export type AppendMovementOutcome =
   | { readonly kind: "POSTED"; readonly stockSequence: number; readonly quantityAfter: string }
   | { readonly kind: "IDEMPOTENT"; readonly stockSequence: number; readonly quantityAfter: string }
@@ -669,8 +716,9 @@ export class SqliteInventoryStore {
         return {kind:"LOT_NOT_SELLABLE"} as AppendMovementOutcome;
       if(!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
         return {kind:"INVALID_QUANTITY"} as AppendMovementOutcome;
-      if(scale6ToBigInt(record.quantity_on_hand)<scale6ToBigInt(input.quantity))
-        return {kind:"INSUFFICIENT_STOCK",available:record.quantity_on_hand} as AppendMovementOutcome;
+      const free=scale6ToBigInt(record.quantity_on_hand)-this.reservedUnitsForLot(input.scope,lotId);
+      if(free<scale6ToBigInt(input.quantity))
+        return {kind:"INSUFFICIENT_STOCK",available:bigIntToScale6(free>0n?free:0n)} as AppendMovementOutcome;
       const result=this.appendMovement(input,true);
       if(result.kind!=="POSTED")return result;
       const entryType=input.movementType==="SHRINKAGE"?"SHRINKAGE":
@@ -894,7 +942,8 @@ export class SqliteInventoryStore {
       if(source.status!=="AVAILABLE"||
          (source.expiry_date!==null&&source.expiry_date<this.now().toISOString().slice(0,10)))
         return {kind:"LOT_NOT_SELLABLE"};
-      if(scale6ToBigInt(source.quantity_on_hand)<sourceUnits)return {kind:"INSUFFICIENT_STOCK"};
+      const freeSource=scale6ToBigInt(source.quantity_on_hand)-this.reservedUnitsForLot(input.scope,input.sourceLotId);
+      if(freeSource<sourceUnits)return {kind:"INSUFFICIENT_STOCK"};
       const destinationStock=this.getStock(input.scope,rule.target_presentation_id);
       if(!this.isLotTracked(input.scope,rule.target_presentation_id)&&
          destinationStock&&scale6ToBigInt(destinationStock.quantityOnHand)>0n)
@@ -1342,23 +1391,23 @@ export class SqliteInventoryStore {
   private writeReservationAudit(input:{
     scope:SyncScope;sessionId:string;actorId:string;reservationId:string;
     actionCode:string;reasonCode:string;correlationId:string;causationId:string|null;
-    details:Record<string,unknown>;nowIso:string;
+    details:Record<string,unknown>;nowIso:string;resourceType?:string;
   }):void {
     this.database.native.prepare(`INSERT INTO local_operation_audit(
       tenant_id,company_id,branch_id,device_id,actor_type,actor_id,session_id,
       action_code,resource_type,resource_id,correlation_id,causation_id,reason_code,
       details_json,created_at
-    ) VALUES(?,?,?,?,'USER',?,?,?,'INVENTORY_RESERVATION',?,?,?,?,?,?)`)
+    ) VALUES(?,?,?,?,'USER',?,?,?,?,?,?,?,?,?,?)`)
       .run(input.scope.tenantId,input.scope.companyId,input.scope.branchId,input.scope.deviceId,
-        input.actorId,input.sessionId,input.actionCode,input.reservationId,
-        input.correlationId,input.causationId,input.reasonCode,
+        input.actorId,input.sessionId,input.actionCode,input.resourceType??"INVENTORY_RESERVATION",
+        input.reservationId,input.correlationId,input.causationId,input.reasonCode,
         canonicalJson(input.details),input.nowIso);
   }
 
   private enqueueReservationOutbox(input:{
     scope:SyncScope;sessionId:string;actorId:string;reservationId:string;
     operationType:string;idempotencyKey:string;correlationId:string;causationId:string|null;
-    payload:Record<string,unknown>;nowIso:string;
+    payload:Record<string,unknown>;nowIso:string;aggregateType?:string;
   }):void {
     const nextSequence=(this.database.native.prepare(
       `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
@@ -1371,7 +1420,7 @@ export class SqliteInventoryStore {
       tenant_id:input.scope.tenantId,company_id:input.scope.companyId,
       branch_id:input.scope.branchId,device_id:input.scope.deviceId,
       installation_id:input.scope.installationId,session_id:input.sessionId,
-      actor_id:input.actorId,aggregate_type:"INVENTORY_RESERVATION",
+      actor_id:input.actorId,aggregate_type:input.aggregateType??"INVENTORY_RESERVATION",
       aggregate_id:input.reservationId,operation_type:input.operationType,
       authority_policy:"LOCAL_AUTHORITATIVE_UNTIL_SYNC",local_sequence:nextSequence,
       idempotency_key:input.idempotencyKey,expected_version:null,
@@ -1380,6 +1429,286 @@ export class SqliteInventoryStore {
       causation_id:input.causationId,correlation_id:input.correlationId,
       occurred_at_local:input.nowIso,recorded_at_local:input.nowIso,
     });
+  }
+
+  /**
+   * Atomic multi-output transform (despiece): consume input lots, credit output
+   * lots, document shrinkage. One SQLite writer transaction — any failure rolls
+   * back every movement. Mass reconciliation is required only when masses are
+   * supplied; piece quantities never invent kilograms.
+   */
+  executeTransform(input:TransformOrderInput):TransformOrderOutcome {
+    type Result=TransformOrderOutcome;
+    class AbortTransform extends Error{constructor(readonly result:Result){super("TRANSFORM_ABORTED");}}
+    const abort=(result:Result):never=>{throw new AbortTransform(result);};
+    try{return this.database.native.transaction(():Result=>{
+      const prior=this.database.native.prepare(
+        `SELECT id,request_checksum FROM inventory_transform_order
+         WHERE tenant_id=? AND idempotency_key=?`)
+        .get(input.scope.tenantId,input.idempotencyKey) as
+          {id:string;request_checksum:string}|undefined;
+      if(prior){
+        return prior.request_checksum===input.requestChecksum
+          ?{kind:"IDEMPOTENT",orderId:prior.id}:{kind:"IDEMPOTENCY_CONFLICT"};
+      }
+      if(input.inputs.length===0||input.outputs.length===0)return {kind:"INVALID_QUANTITY"};
+      if(!/^[A-Z][A-Z0-9_]{1,63}$/.test(input.reasonCode))return {kind:"INVALID_QUANTITY"};
+
+      let inputMass=0n,outputMass=0n,shrinkMass=0n;
+      const massMode=input.canonicalMassUnit!==null;
+      if(massMode){
+        for(const line of input.inputs){
+          if(line.massQuantity===null||!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(line.massQuantity))
+            return {kind:"MASS_RECONCILIATION_FAILED"};
+          inputMass+=scale6ToBigInt(line.massQuantity);
+        }
+        for(const line of input.outputs){
+          if(line.massQuantity===null||!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(line.massQuantity))
+            return {kind:"MASS_RECONCILIATION_FAILED"};
+          outputMass+=scale6ToBigInt(line.massQuantity);
+        }
+        for(const line of input.shrinkage){
+          if(line.massQuantity===null||!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(line.massQuantity))
+            return {kind:"MASS_RECONCILIATION_FAILED"};
+          shrinkMass+=scale6ToBigInt(line.massQuantity);
+        }
+        if(inputMass!==outputMass+shrinkMass)return {kind:"MASS_RECONCILIATION_FAILED"};
+      }else if(
+        input.inputs.some((line)=>line.massQuantity!==null)
+        ||input.outputs.some((line)=>line.massQuantity!==null)
+        ||input.shrinkage.some((line)=>line.massQuantity!==null)
+      ){
+        return {kind:"MASS_RECONCILIATION_FAILED"};
+      }
+
+      const today=this.now().toISOString().slice(0,10);
+      const when=this.now().toISOString();
+      const orderId=uuidV7();
+      const lines:Array<{
+        direction:"INPUT"|"OUTPUT"|"SHRINKAGE";presentationId:string;lotId:string;
+        quantity:string;massQuantity:string|null;movementId:string;
+      }>=[];
+
+      const ensureQty=(quantity:string,presentationId:string):void=>{
+        if(!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(quantity)||scale6ToBigInt(quantity)<=0n)
+          abort({kind:"INVALID_QUANTITY"});
+        const presentation=this.database.native.prepare(
+          `SELECT unit_precision FROM catalog_presentation
+           WHERE tenant_id=? AND id=? AND status='ACTIVE'`,
+        ).get(input.scope.tenantId,presentationId) as {unit_precision:number}|undefined;
+        if(presentation===undefined){
+          abort({kind:"PRESENTATION_NOT_FOUND"});
+          return;
+        }
+        if(!quantityFitsUnitPrecision(quantity,presentation.unit_precision))
+          abort({kind:"QUANTITY_PRECISION_EXCEEDED"});
+      };
+
+      type SellableLot={
+        quantity_on_hand:string;status:string;expiry_date:string|null;batch_code:string;
+        manufacture_date:string|null;supplier_reference:string;receipt_document:string;
+      };
+      const loadSellableLot=(presentationId:string,lotId:string):SellableLot=>{
+        const record=this.database.native.prepare(`SELECT quantity_on_hand,status,expiry_date,
+          batch_code,manufacture_date,supplier_reference,receipt_document
+          FROM inventory_lot WHERE tenant_id=? AND company_id=? AND branch_id=?
+            AND presentation_id=? AND id=?`)
+          .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,presentationId,lotId) as
+            SellableLot|undefined;
+        if(record===undefined)abort({kind:"LOT_NOT_FOUND"});
+        else if(record.status!=="AVAILABLE"||(record.expiry_date!==null&&record.expiry_date<today))
+          abort({kind:"LOT_NOT_SELLABLE"});
+        else return record;
+        throw new Error("TRANSFORM_LOT_GUARD");
+      };
+
+      let provenance:SellableLot|null=null;
+
+      for(const [index,line] of input.inputs.entries()){
+        ensureQty(line.quantity,line.presentationId);
+        const record=loadSellableLot(line.presentationId,line.lotId);
+        if(provenance===null){
+          provenance={
+            quantity_on_hand:record.quantity_on_hand,status:record.status,
+            expiry_date:record.expiry_date,batch_code:record.batch_code,
+            manufacture_date:record.manufacture_date,
+            supplier_reference:record.supplier_reference,receipt_document:record.receipt_document,
+          };
+        }
+        const needed=scale6ToBigInt(line.quantity);
+        const free=scale6ToBigInt(record.quantity_on_hand)-this.reservedUnitsForLot(input.scope,line.lotId);
+        if(free<needed){
+          if(this.reservedUnitsForLot(input.scope,line.lotId)>0n)abort({kind:"LOT_RESERVED"});
+          abort({kind:"INSUFFICIENT_STOCK",available:bigIntToScale6(free>0n?free:0n)});
+        }
+        const movementId=uuidV7();
+        const movement:AppendMovementInput={
+          scope:input.scope,sessionId:input.sessionId,operatorUserId:input.actorId,
+          movementId,operationId:uuidV7(),presentationId:line.presentationId,
+          movementType:"TRANSFER_OUT",quantity:line.quantity,reasonCode:input.reasonCode,
+          saleId:null,businessDate:input.businessDate,
+          idempotencyKey:`transform:${input.idempotencyKey}:in:${index}`,
+          requestChecksum:createHash("sha256").update(canonicalJson({
+            transform:input.requestChecksum,leg:"INPUT",line:index,
+          })).digest("hex"),
+          correlationId:input.correlationId,causationId:input.causationId,
+        };
+        const posted=this.appendMovement(movement,true);
+        if(posted.kind!=="POSTED")abort({kind:"CONFLICT"});
+        this.writeLotLedger(movement,line.lotId,needed,"OUT","MATERIAL_CONSUMPTION");
+        lines.push({
+          direction:"INPUT",presentationId:line.presentationId,lotId:line.lotId,
+          quantity:line.quantity,massQuantity:line.massQuantity,movementId,
+        });
+      }
+
+      if(provenance===null){
+        abort({kind:"INVALID_QUANTITY"});
+        throw new Error("TRANSFORM_PROVENANCE_GUARD");
+      }
+      const sourceProvenance=provenance;
+
+      for(const [index,line] of input.outputs.entries()){
+        ensureQty(line.quantity,line.presentationId);
+        if(line.batchCode.trim().length<1||line.batchCode.length>96)abort({kind:"INVALID_QUANTITY"});
+        const destinationStock=this.getStock(input.scope,line.presentationId);
+        if(!this.isLotTracked(input.scope,line.presentationId)&&
+           destinationStock&&scale6ToBigInt(destinationStock.quantityOnHand)>0n){
+          abort({kind:"LEGACY_STOCK_RECONCILIATION_REQUIRED"});
+        }
+        if(!this.isLotTracked(input.scope,line.presentationId)){
+          this.database.native.prepare(`INSERT INTO inventory_lot_tracking(
+            tenant_id,company_id,branch_id,presentation_id,enabled_at,actor_id)
+            VALUES(?,?,?,?,?,?)`).run(input.scope.tenantId,input.scope.companyId,
+            input.scope.branchId,line.presentationId,when,input.actorId);
+        }
+        let lot=this.database.native.prepare(`SELECT id,status,manufacture_date,expiry_date
+          FROM inventory_lot WHERE tenant_id=? AND company_id=? AND branch_id=?
+            AND presentation_id=? AND batch_code=?`).get(
+          input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+          line.presentationId,line.batchCode) as {
+            id:string;status:string;manufacture_date:string|null;expiry_date:string|null;
+          }|undefined;
+        if(lot&&(lot.status!=="AVAILABLE"||lot.manufacture_date!==sourceProvenance.manufacture_date
+          ||lot.expiry_date!==sourceProvenance.expiry_date))abort({kind:"LOT_NOT_SELLABLE"});
+        const lotId=lot?.id??uuidV7();
+        if(!lot){
+          this.database.native.prepare(`INSERT INTO inventory_lot(
+            id,tenant_id,company_id,branch_id,presentation_id,batch_code,manufacture_date,
+            expiry_date,supplier_reference,receipt_document,status,quantity_on_hand,version,
+            created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'AVAILABLE','0.000000',1,?,?)`).run(
+            lotId,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
+            line.presentationId,line.batchCode,sourceProvenance.manufacture_date,sourceProvenance.expiry_date,
+            sourceProvenance.supplier_reference,sourceProvenance.receipt_document,when,when);
+        }
+        const movementId=uuidV7();
+        const units=scale6ToBigInt(line.quantity);
+        const movement:AppendMovementInput={
+          scope:input.scope,sessionId:input.sessionId,operatorUserId:input.actorId,
+          movementId,operationId:uuidV7(),presentationId:line.presentationId,
+          movementType:"TRANSFER_IN",quantity:line.quantity,reasonCode:input.reasonCode,
+          saleId:null,businessDate:input.businessDate,
+          idempotencyKey:`transform:${input.idempotencyKey}:out:${index}`,
+          requestChecksum:createHash("sha256").update(canonicalJson({
+            transform:input.requestChecksum,leg:"OUTPUT",line:index,
+          })).digest("hex"),
+          correlationId:input.correlationId,causationId:input.causationId,
+        };
+        const posted=this.appendMovement(movement,true);
+        if(posted.kind!=="POSTED")abort({kind:"CONFLICT"});
+        this.writeLotLedger(movement,lotId,units,"IN","CONVERSION");
+        lines.push({
+          direction:"OUTPUT",presentationId:line.presentationId,lotId,
+          quantity:line.quantity,massQuantity:line.massQuantity,movementId,
+        });
+      }
+
+      for(const [index,line] of input.shrinkage.entries()){
+        ensureQty(line.quantity,line.presentationId);
+        const record=loadSellableLot(line.presentationId,line.lotId);
+        const needed=scale6ToBigInt(line.quantity);
+        const free=scale6ToBigInt(record.quantity_on_hand)-this.reservedUnitsForLot(input.scope,line.lotId);
+        if(free<needed){
+          if(this.reservedUnitsForLot(input.scope,line.lotId)>0n)abort({kind:"LOT_RESERVED"});
+          abort({kind:"INSUFFICIENT_STOCK",available:bigIntToScale6(free>0n?free:0n)});
+        }
+        const movementId=uuidV7();
+        const movement:AppendMovementInput={
+          scope:input.scope,sessionId:input.sessionId,operatorUserId:input.actorId,
+          movementId,operationId:uuidV7(),presentationId:line.presentationId,
+          movementType:"SHRINKAGE",quantity:line.quantity,reasonCode:input.reasonCode,
+          saleId:null,businessDate:input.businessDate,
+          idempotencyKey:`transform:${input.idempotencyKey}:shrink:${index}`,
+          requestChecksum:createHash("sha256").update(canonicalJson({
+            transform:input.requestChecksum,leg:"SHRINKAGE",line:index,
+          })).digest("hex"),
+          correlationId:input.correlationId,causationId:input.causationId,
+        };
+        const posted=this.appendMovement(movement,true);
+        if(posted.kind!=="POSTED")abort({kind:"CONFLICT"});
+        this.writeLotLedger(movement,line.lotId,needed,"OUT","SHRINKAGE");
+        lines.push({
+          direction:"SHRINKAGE",presentationId:line.presentationId,lotId:line.lotId,
+          quantity:line.quantity,massQuantity:line.massQuantity,movementId,
+        });
+      }
+
+      this.database.native.prepare(`INSERT INTO inventory_transform_order(
+        tenant_id,company_id,branch_id,id,status,canonical_mass_unit,input_mass,output_mass,
+        shrinkage_mass,actor_id,session_id,reason_code,idempotency_key,request_checksum,
+        correlation_id,causation_id,occurred_at
+      ) VALUES(?,?,?,?,'POSTED',?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        input.scope.tenantId,input.scope.companyId,input.scope.branchId,orderId,
+        input.canonicalMassUnit,
+        massMode?bigIntToScale6(inputMass):null,
+        massMode?bigIntToScale6(outputMass):null,
+        massMode?bigIntToScale6(shrinkMass):null,
+        input.actorId,input.sessionId,input.reasonCode,input.idempotencyKey,input.requestChecksum,
+        input.correlationId,input.causationId,when,
+      );
+      let lineNumber=1;
+      for(const line of lines){
+        this.database.native.prepare(`INSERT INTO inventory_transform_line(
+          tenant_id,company_id,branch_id,order_id,line_number,direction,presentation_id,lot_id,
+          quantity,mass_quantity,inventory_movement_id
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run(
+          input.scope.tenantId,input.scope.companyId,input.scope.branchId,orderId,lineNumber,
+          line.direction,line.presentationId,line.lotId,line.quantity,line.massQuantity,
+          line.movementId,
+        );
+        lineNumber+=1;
+      }
+      this.writeReservationAudit({
+        scope:input.scope,sessionId:input.sessionId,actorId:input.actorId,
+        reservationId:orderId,actionCode:"INVENTORY_TRANSFORM_POSTED",
+        reasonCode:input.reasonCode,correlationId:input.correlationId,causationId:input.causationId,
+        resourceType:"INVENTORY_TRANSFORM",
+        details:{
+          order_id:orderId,input_count:input.inputs.length,output_count:input.outputs.length,
+          shrinkage_count:input.shrinkage.length,canonical_mass_unit:input.canonicalMassUnit,
+        },
+        nowIso:when,
+      });
+      this.enqueueReservationOutbox({
+        scope:input.scope,sessionId:input.sessionId,actorId:input.actorId,
+        reservationId:orderId,operationType:"INVENTORY_TRANSFORM_POST",
+        idempotencyKey:input.idempotencyKey,correlationId:input.correlationId,
+        causationId:input.causationId,aggregateType:"INVENTORY_TRANSFORM",
+        payload:{
+          order_id:orderId,reason_code:input.reasonCode,
+          canonical_mass_unit:input.canonicalMassUnit,
+          lines:lines.map((line)=>({
+            direction:line.direction,presentation_id:line.presentationId,lot_id:line.lotId,
+            quantity:line.quantity,mass_quantity:line.massQuantity,
+          })),
+        },
+        nowIso:when,
+      });
+      return {kind:"POSTED",orderId};
+    })();}catch(error){
+      if(error instanceof AbortTransform)return error.result;
+      throw error;
+    }
   }
 
   createReservationInTransaction(
