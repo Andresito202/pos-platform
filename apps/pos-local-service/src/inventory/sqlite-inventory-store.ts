@@ -778,13 +778,21 @@ export class SqliteInventoryStore {
       const sourceUnits=scale6ToBigInt(input.quantity);
       if(sourceUnits<=0n)return {kind:"INVALID_QUANTITY"};
       const rule=this.database.native.prepare(`SELECT source_presentation_id,target_presentation_id,
-        numerator,denominator FROM inventory_conversion_rule
+        numerator,denominator,version FROM inventory_conversion_rule
         WHERE tenant_id=? AND company_id=? AND id=?`).get(
           input.scope.tenantId,input.scope.companyId,input.ruleId) as {
           source_presentation_id:string;target_presentation_id:string;
-          numerator:string;denominator:string;
+          numerator:string;denominator:string;version:number;
         }|undefined;
       if(!rule)return {kind:"RULE_NOT_FOUND"};
+      // A newer approved equivalence supersedes an older immutable version.
+      // Historic conversions remain linked to their original approved rule.
+      const latest=this.database.native.prepare(`SELECT max(version) AS version
+        FROM inventory_conversion_rule WHERE tenant_id=? AND company_id=?
+        AND source_presentation_id=? AND target_presentation_id=?`).get(
+          input.scope.tenantId,input.scope.companyId,
+          rule.source_presentation_id,rule.target_presentation_id) as {version:number};
+      if(latest.version!==rule.version)return {kind:"CONFLICT"};
       const precisionRows=this.database.native.prepare(`SELECT id,unit_precision FROM catalog_presentation
         WHERE tenant_id=? AND id IN (?,?) AND status='ACTIVE'`).all(
           input.scope.tenantId,rule.source_presentation_id,rule.target_presentation_id) as
