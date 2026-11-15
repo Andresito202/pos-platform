@@ -26,7 +26,7 @@ export function InventoryTransformPanel({ businessDate }: {
   return (
     <section data-testid="inventory-transform-panel">
       <h3>Despiece / transformación</h3>
-      <p>Una sola transacción. Si falla una salida, se revierte el consumo. La masa solo se concilia con mediciones reales.</p>
+      <p>Una sola transacción. Si falla una salida, se revierte el consumo. La merma documenta masa ya consumida; no descuenta de nuevo. Sin masa medida solo se admite conservación exacta de la misma unidad.</p>
       <div className="pos-form-grid">
         <label className="pos-field">Motivo
           <input data-testid="transform-reason" aria-label="Motivo de transformación"

@@ -153,6 +153,7 @@ export type TransformOrderOutcome =
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "INVALID_QUANTITY" }
   | { readonly kind: "MASS_RECONCILIATION_FAILED" }
+  | { readonly kind: "UNIT_EQUIVALENCE_FAILED" }
   | { readonly kind: "LOT_NOT_FOUND" }
   | { readonly kind: "LOT_NOT_SELLABLE" }
   | { readonly kind: "LOT_RESERVED" }
@@ -161,6 +162,35 @@ export type TransformOrderOutcome =
   | { readonly kind: "QUANTITY_PRECISION_EXCEEDED" }
   | { readonly kind: "LEGACY_STOCK_RECONCILIATION_REQUIRED" }
   | { readonly kind: "CONFLICT" };
+
+/** Presentation unit codes that are physical mass (not pieces). */
+function isMassUnitCode(unitCode: string): boolean {
+  const code = unitCode.toUpperCase();
+  return code === "KG" || code === "KGM" || code === "G" || code === "GRM";
+}
+
+/**
+ * Convert a presentation quantity into the transform canonical mass unit.
+ * Returns null when the unit is not mass (pieces need an independent measurement).
+ */
+function quantityToCanonicalMass(
+  unitCode: string,
+  quantity: bigint,
+  canonical: "G" | "KG",
+): bigint | null {
+  const code = unitCode.toUpperCase();
+  if (canonical === "KG") {
+    if (code === "KG" || code === "KGM") return quantity;
+    if (code === "G" || code === "GRM") {
+      if (quantity % 1000n !== 0n) return null;
+      return quantity / 1000n;
+    }
+    return null;
+  }
+  if (code === "G" || code === "GRM") return quantity;
+  if (code === "KG" || code === "KGM") return quantity * 1000n;
+  return null;
+}
 
 export type AppendMovementOutcome =
   | { readonly kind: "POSTED"; readonly stockSequence: number; readonly quantityAfter: string }
@@ -1432,10 +1462,10 @@ export class SqliteInventoryStore {
   }
 
   /**
-   * Atomic multi-output transform (despiece): consume input lots, credit output
-   * lots, document shrinkage. One SQLite writer transaction — any failure rolls
-   * back every movement. Mass reconciliation is required only when masses are
-   * supplied; piece quantities never invent kilograms.
+   * Atomic multi-output transform (despiece): consume input lots once, credit
+   * outputs, document merma without a second physical debit. One SQLite writer
+   * transaction. Cross-unit production requires measured mass reconciliation;
+   * piece quantities never invent kilograms.
    */
   executeTransform(input:TransformOrderInput):TransformOrderOutcome {
     type Result=TransformOrderOutcome;
@@ -1454,31 +1484,77 @@ export class SqliteInventoryStore {
       if(input.inputs.length===0||input.outputs.length===0)return {kind:"INVALID_QUANTITY"};
       if(!/^[A-Z][A-Z0-9_]{1,63}$/.test(input.reasonCode))return {kind:"INVALID_QUANTITY"};
 
+      type PresentationMeta={unit_code:string;unit_precision:number};
+      const loadPresentation=(presentationId:string):PresentationMeta=>{
+        const row=this.database.native.prepare(
+          `SELECT unit_code,unit_precision FROM catalog_presentation
+           WHERE tenant_id=? AND id=? AND status='ACTIVE'`,
+        ).get(input.scope.tenantId,presentationId) as PresentationMeta|undefined;
+        if(row===undefined)abort({kind:"PRESENTATION_NOT_FOUND"});
+        else return row;
+        throw new Error("TRANSFORM_PRESENTATION_GUARD");
+      };
+
+      const presentationMeta=new Map<string,PresentationMeta>();
+      const metaFor=(presentationId:string):PresentationMeta=>{
+        const cached=presentationMeta.get(presentationId);
+        if(cached)return cached;
+        const loaded=loadPresentation(presentationId);
+        presentationMeta.set(presentationId,loaded);
+        return loaded;
+      };
+
+      for(const line of input.inputs)metaFor(line.presentationId);
+      for(const line of input.outputs)metaFor(line.presentationId);
+      for(const line of input.shrinkage)metaFor(line.presentationId);
+
       let inputMass=0n,outputMass=0n,shrinkMass=0n;
       const massMode=input.canonicalMassUnit!==null;
-      if(massMode){
-        for(const line of input.inputs){
-          if(line.massQuantity===null||!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(line.massQuantity))
-            return {kind:"MASS_RECONCILIATION_FAILED"};
-          inputMass+=scale6ToBigInt(line.massQuantity);
-        }
-        for(const line of input.outputs){
-          if(line.massQuantity===null||!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(line.massQuantity))
-            return {kind:"MASS_RECONCILIATION_FAILED"};
-          outputMass+=scale6ToBigInt(line.massQuantity);
-        }
-        for(const line of input.shrinkage){
-          if(line.massQuantity===null||!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(line.massQuantity))
-            return {kind:"MASS_RECONCILIATION_FAILED"};
-          shrinkMass+=scale6ToBigInt(line.massQuantity);
-        }
+      const allUnitCodes=new Set<string>();
+      for(const line of [...input.inputs,...input.outputs,...input.shrinkage]){
+        allUnitCodes.add(metaFor(line.presentationId).unit_code.toUpperCase());
+      }
+      const hasMassPresentation=[...allUnitCodes].some((code)=>isMassUnitCode(code));
+      const hasPiecePresentation=[...allUnitCodes].some((code)=>!isMassUnitCode(code));
+
+      if(!massMode){
+        // Without measured mass: only same-unit piece/piece conservation is allowed.
+        // Merma and cross-unit production require backed mass measurements.
+        if(input.shrinkage.length>0)return {kind:"MASS_RECONCILIATION_FAILED"};
+        if(
+          input.inputs.some((line)=>line.massQuantity!==null)
+          ||input.outputs.some((line)=>line.massQuantity!==null)
+        )return {kind:"MASS_RECONCILIATION_FAILED"};
+        if(allUnitCodes.size!==1)return {kind:"UNIT_EQUIVALENCE_FAILED"};
+        if(hasMassPresentation&&hasPiecePresentation)return {kind:"UNIT_EQUIVALENCE_FAILED"};
+        let inputQty=0n,outputQty=0n;
+        for(const line of input.inputs)inputQty+=scale6ToBigInt(line.quantity);
+        for(const line of input.outputs)outputQty+=scale6ToBigInt(line.quantity);
+        if(inputQty!==outputQty)return {kind:"UNIT_EQUIVALENCE_FAILED"};
+      }else{
+        const canonical=input.canonicalMassUnit;
+        const validateMassLine=(
+          presentationId:string,quantity:string,massQuantity:string|null,
+        ):bigint=>{
+          if(massQuantity===null||!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(massQuantity))
+            abort({kind:"MASS_RECONCILIATION_FAILED"});
+          const mass=scale6ToBigInt(massQuantity!);
+          if(mass<=0n)abort({kind:"MASS_RECONCILIATION_FAILED"});
+          const unit=metaFor(presentationId).unit_code;
+          if(isMassUnitCode(unit)){
+            const fromQty=quantityToCanonicalMass(unit,scale6ToBigInt(quantity),canonical);
+            if(fromQty===null||fromQty!==mass)abort({kind:"UNIT_EQUIVALENCE_FAILED"});
+          }
+          // Piece presentations: massQuantity is an independent measured mass.
+          return mass;
+        };
+        for(const line of input.inputs)
+          inputMass+=validateMassLine(line.presentationId,line.quantity,line.massQuantity);
+        for(const line of input.outputs)
+          outputMass+=validateMassLine(line.presentationId,line.quantity,line.massQuantity);
+        for(const line of input.shrinkage)
+          shrinkMass+=validateMassLine(line.presentationId,line.quantity,line.massQuantity);
         if(inputMass!==outputMass+shrinkMass)return {kind:"MASS_RECONCILIATION_FAILED"};
-      }else if(
-        input.inputs.some((line)=>line.massQuantity!==null)
-        ||input.outputs.some((line)=>line.massQuantity!==null)
-        ||input.shrinkage.some((line)=>line.massQuantity!==null)
-      ){
-        return {kind:"MASS_RECONCILIATION_FAILED"};
       }
 
       const today=this.now().toISOString().slice(0,10);
@@ -1492,14 +1568,7 @@ export class SqliteInventoryStore {
       const ensureQty=(quantity:string,presentationId:string):void=>{
         if(!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(quantity)||scale6ToBigInt(quantity)<=0n)
           abort({kind:"INVALID_QUANTITY"});
-        const presentation=this.database.native.prepare(
-          `SELECT unit_precision FROM catalog_presentation
-           WHERE tenant_id=? AND id=? AND status='ACTIVE'`,
-        ).get(input.scope.tenantId,presentationId) as {unit_precision:number}|undefined;
-        if(presentation===undefined){
-          abort({kind:"PRESENTATION_NOT_FOUND"});
-          return;
-        }
+        const presentation=metaFor(presentationId);
         if(!quantityFitsUnitPrecision(quantity,presentation.unit_precision))
           abort({kind:"QUANTITY_PRECISION_EXCEEDED"});
       };
@@ -1522,19 +1591,17 @@ export class SqliteInventoryStore {
         throw new Error("TRANSFORM_LOT_GUARD");
       };
 
-      let provenance:SellableLot|null=null;
+      type SourceLotMeta={
+        lotId:string;presentationId:string;manufacture_date:string|null;expiry_date:string|null;
+        supplier_reference:string;receipt_document:string;movementId:string;quantity:bigint;
+      };
+      const sourceLots:SourceLotMeta[]=[];
+      const inputQtyByLot=new Map<string,bigint>();
+      const inputMovementByLot=new Map<string,string>();
 
       for(const [index,line] of input.inputs.entries()){
         ensureQty(line.quantity,line.presentationId);
         const record=loadSellableLot(line.presentationId,line.lotId);
-        if(provenance===null){
-          provenance={
-            quantity_on_hand:record.quantity_on_hand,status:record.status,
-            expiry_date:record.expiry_date,batch_code:record.batch_code,
-            manufacture_date:record.manufacture_date,
-            supplier_reference:record.supplier_reference,receipt_document:record.receipt_document,
-          };
-        }
         const needed=scale6ToBigInt(line.quantity);
         const free=scale6ToBigInt(record.quantity_on_hand)-this.reservedUnitsForLot(input.scope,line.lotId);
         if(free<needed){
@@ -1560,13 +1627,29 @@ export class SqliteInventoryStore {
           direction:"INPUT",presentationId:line.presentationId,lotId:line.lotId,
           quantity:line.quantity,massQuantity:line.massQuantity,movementId,
         });
+        sourceLots.push({
+          lotId:line.lotId,presentationId:line.presentationId,
+          manufacture_date:record.manufacture_date,expiry_date:record.expiry_date,
+          supplier_reference:record.supplier_reference,receipt_document:record.receipt_document,
+          movementId,quantity:needed,
+        });
+        inputQtyByLot.set(line.lotId,(inputQtyByLot.get(line.lotId)??0n)+needed);
+        if(!inputMovementByLot.has(line.lotId))inputMovementByLot.set(line.lotId,movementId);
       }
 
-      if(provenance===null){
-        abort({kind:"INVALID_QUANTITY"});
-        throw new Error("TRANSFORM_PROVENANCE_GUARD");
-      }
-      const sourceProvenance=provenance;
+      if(sourceLots.length===0)abort({kind:"INVALID_QUANTITY"});
+
+      // Multi-input genealogy: preserve every source lot; never invent a single
+      // supplier/expiry from the first row when sources disagree.
+      const expiries=sourceLots.map((lot)=>lot.expiry_date).filter((value):value is string=>value!==null);
+      const manufactures=sourceLots.map((lot)=>lot.manufacture_date);
+      const suppliers=new Set(sourceLots.map((lot)=>lot.supplier_reference));
+      const receipts=new Set(sourceLots.map((lot)=>lot.receipt_document));
+      const outputExpiry=expiries.length===0?null:[...expiries].sort()[0]!;
+      const outputManufacture=manufactures.every((value)=>value===manufactures[0]!)
+        ?manufactures[0]!:null;
+      const outputSupplier=suppliers.size===1?[...suppliers][0]!:"MIXED";
+      const outputReceipt=receipts.size===1?[...receipts][0]!:"MIXED";
 
       for(const [index,line] of input.outputs.entries()){
         ensureQty(line.quantity,line.presentationId);
@@ -1582,15 +1665,20 @@ export class SqliteInventoryStore {
             VALUES(?,?,?,?,?,?)`).run(input.scope.tenantId,input.scope.companyId,
             input.scope.branchId,line.presentationId,when,input.actorId);
         }
-        let lot=this.database.native.prepare(`SELECT id,status,manufacture_date,expiry_date
+        let lot=this.database.native.prepare(`SELECT id,status,manufacture_date,expiry_date,
+          supplier_reference,receipt_document
           FROM inventory_lot WHERE tenant_id=? AND company_id=? AND branch_id=?
             AND presentation_id=? AND batch_code=?`).get(
           input.scope.tenantId,input.scope.companyId,input.scope.branchId,
           line.presentationId,line.batchCode) as {
             id:string;status:string;manufacture_date:string|null;expiry_date:string|null;
+            supplier_reference:string;receipt_document:string;
           }|undefined;
-        if(lot&&(lot.status!=="AVAILABLE"||lot.manufacture_date!==sourceProvenance.manufacture_date
-          ||lot.expiry_date!==sourceProvenance.expiry_date))abort({kind:"LOT_NOT_SELLABLE"});
+        if(lot&&(lot.status!=="AVAILABLE"
+          ||lot.manufacture_date!==outputManufacture
+          ||lot.expiry_date!==outputExpiry
+          ||lot.supplier_reference!==outputSupplier
+          ||lot.receipt_document!==outputReceipt))abort({kind:"LOT_NOT_SELLABLE"});
         const lotId=lot?.id??uuidV7();
         if(!lot){
           this.database.native.prepare(`INSERT INTO inventory_lot(
@@ -1598,8 +1686,8 @@ export class SqliteInventoryStore {
             expiry_date,supplier_reference,receipt_document,status,quantity_on_hand,version,
             created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'AVAILABLE','0.000000',1,?,?)`).run(
             lotId,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
-            line.presentationId,line.batchCode,sourceProvenance.manufacture_date,sourceProvenance.expiry_date,
-            sourceProvenance.supplier_reference,sourceProvenance.receipt_document,when,when);
+            line.presentationId,line.batchCode,outputManufacture,outputExpiry,
+            outputSupplier,outputReceipt,when,when);
         }
         const movementId=uuidV7();
         const units=scale6ToBigInt(line.quantity);
@@ -1623,33 +1711,28 @@ export class SqliteInventoryStore {
         });
       }
 
-      for(const [index,line] of input.shrinkage.entries()){
+      // Merma is documentary attribution of already-consumed INPUT quantity/mass.
+      // It must not post a second physical debit against the same material.
+      const shrinkAttributed=new Map<string,bigint>();
+      for(const line of input.shrinkage){
         ensureQty(line.quantity,line.presentationId);
-        const record=loadSellableLot(line.presentationId,line.lotId);
-        const needed=scale6ToBigInt(line.quantity);
-        const free=scale6ToBigInt(record.quantity_on_hand)-this.reservedUnitsForLot(input.scope,line.lotId);
-        if(free<needed){
-          if(this.reservedUnitsForLot(input.scope,line.lotId)>0n)abort({kind:"LOT_RESERVED"});
-          abort({kind:"INSUFFICIENT_STOCK",available:bigIntToScale6(free>0n?free:0n)});
+        const matchedInput=sourceLots.find((source)=>
+          source.lotId===line.lotId&&source.presentationId===line.presentationId);
+        const consumed=inputQtyByLot.get(line.lotId);
+        const inputMovementId=inputMovementByLot.get(line.lotId);
+        if(matchedInput===undefined||consumed===undefined||inputMovementId===undefined){
+          abort({kind:"INVALID_QUANTITY"});
+          throw new Error("TRANSFORM_SHRINKAGE_GUARD");
         }
-        const movementId=uuidV7();
-        const movement:AppendMovementInput={
-          scope:input.scope,sessionId:input.sessionId,operatorUserId:input.actorId,
-          movementId,operationId:uuidV7(),presentationId:line.presentationId,
-          movementType:"SHRINKAGE",quantity:line.quantity,reasonCode:input.reasonCode,
-          saleId:null,businessDate:input.businessDate,
-          idempotencyKey:`transform:${input.idempotencyKey}:shrink:${index}`,
-          requestChecksum:createHash("sha256").update(canonicalJson({
-            transform:input.requestChecksum,leg:"SHRINKAGE",line:index,
-          })).digest("hex"),
-          correlationId:input.correlationId,causationId:input.causationId,
-        };
-        const posted=this.appendMovement(movement,true);
-        if(posted.kind!=="POSTED")abort({kind:"CONFLICT"});
-        this.writeLotLedger(movement,line.lotId,needed,"OUT","SHRINKAGE");
+        const consumedUnits:bigint=consumed;
+        const sourceMovementId:string=inputMovementId;
+        const attributed=scale6ToBigInt(line.quantity);
+        const next=(shrinkAttributed.get(line.lotId)??0n)+attributed;
+        if(next>consumedUnits)abort({kind:"INVALID_QUANTITY"});
+        shrinkAttributed.set(line.lotId,next);
         lines.push({
           direction:"SHRINKAGE",presentationId:line.presentationId,lotId:line.lotId,
-          quantity:line.quantity,massQuantity:line.massQuantity,movementId,
+          quantity:line.quantity,massQuantity:line.massQuantity,movementId:sourceMovementId,
         });
       }
 
@@ -1686,6 +1769,16 @@ export class SqliteInventoryStore {
         details:{
           order_id:orderId,input_count:input.inputs.length,output_count:input.outputs.length,
           shrinkage_count:input.shrinkage.length,canonical_mass_unit:input.canonicalMassUnit,
+          source_lots:sourceLots.map((lot)=>({
+            lot_id:lot.lotId,presentation_id:lot.presentationId,
+            manufacture_date:lot.manufacture_date,expiry_date:lot.expiry_date,
+            supplier_reference:lot.supplier_reference,receipt_document:lot.receipt_document,
+          })),
+          output_provenance:{
+            manufacture_date:outputManufacture,expiry_date:outputExpiry,
+            supplier_reference:outputSupplier,receipt_document:outputReceipt,
+          },
+          shrinkage_documentary:true,
         },
         nowIso:when,
       });
@@ -1697,6 +1790,12 @@ export class SqliteInventoryStore {
         payload:{
           order_id:orderId,reason_code:input.reasonCode,
           canonical_mass_unit:input.canonicalMassUnit,
+          shrinkage_documentary:true,
+          source_lots:sourceLots.map((lot)=>({
+            lot_id:lot.lotId,presentation_id:lot.presentationId,
+            manufacture_date:lot.manufacture_date,expiry_date:lot.expiry_date,
+            supplier_reference:lot.supplier_reference,receipt_document:lot.receipt_document,
+          })),
           lines:lines.map((line)=>({
             direction:line.direction,presentation_id:line.presentationId,lot_id:line.lotId,
             quantity:line.quantity,mass_quantity:line.massQuantity,

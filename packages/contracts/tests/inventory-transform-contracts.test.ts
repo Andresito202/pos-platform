@@ -4,6 +4,7 @@ import {
   CatalogFoodPolicyUpsertRequestSchema,
   CatalogPresentationRegisterRequestSchema,
   InventoryTransformExecuteRequestSchema,
+  InventoryTransformExecuteResultSchema,
   IpcMessageTypeSchema,
 } from "../src/index.js";
 
@@ -48,7 +49,7 @@ describe("prompt-5 commercial contracts", () => {
       },
     }).payload.conservation_code).toBe("CHILLED");
 
-    expect(InventoryTransformExecuteRequestSchema.parse({
+    const parsed = InventoryTransformExecuteRequestSchema.parse({
       ...base,
       message_type: "inventory.transform.execute",
       payload: {
@@ -74,7 +75,10 @@ describe("prompt-5 commercial contracts", () => {
           mass_quantity: "0.200000",
         }],
       },
-    }).payload.outputs).toHaveLength(1);
+    });
+    expect(parsed.payload.outputs).toHaveLength(1);
+    expect(InventoryTransformExecuteResultSchema.shape.outcome.options)
+      .toContain("UNIT_EQUIVALENCE_FAILED");
   });
 
   it("rejects caller-asserted identity on transform execute", () => {

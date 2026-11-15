@@ -20,6 +20,7 @@ const TENANT = "018f0000-0000-7000-8000-000000000001";
 const COMPANY = "018f0000-0000-7000-8000-000000000002";
 const BRANCH = "018f0000-0000-7000-8000-000000000003";
 const OTHER_BRANCH = "018f0000-0000-7000-8000-000000000033";
+const OTHER_COMPANY = "018f0000-0000-7000-8000-000000000099";
 const DEVICE = "018f0000-0000-7000-8000-000000000004";
 const INSTALL = "018f0000-0000-7000-8000-000000000005";
 const USER = "018f0000-0000-7000-8000-000000000006";
@@ -47,14 +48,14 @@ afterEach(() => {
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
-function auth(permissions: string[] = ALL): StoredAuthorizationSnapshot {
+function auth(permissions: string[] = ALL, companyId = COMPANY, branchId = BRANCH): StoredAuthorizationSnapshot {
   const claims: AuthorizationSnapshotClaims = {
     snapshot_id: "018f0000-0000-7000-8000-0000000000ff",
     user_id: USER, installation_id: INSTALL, device_id: DEVICE,
     sequence: 1, issued_at: "2026-09-07T00:00:00.000Z",
     expires_at: "2026-09-08T00:00:00.000Z", key_id: "AUTHZ_KEY_1",
     assignments: [{
-      tenant_id: TENANT, company_id: COMPANY, branch_id: BRANCH,
+      tenant_id: TENANT, company_id: companyId, branch_id: branchId,
       status: "ACTIVE", valid_from: "2026-09-01T00:00:00.000Z", valid_until: null,
       role_status: "ACTIVE",
       permissions: permissions.map((code) => ({ code, status: "ACTIVE" as const })),
@@ -205,7 +206,7 @@ describe("prompt-5 multi-presentation catalog", () => {
   });
 });
 
-describe("prompt-5 atomic butcher transform", () => {
+describe("prompt-5 transform integrity", () => {
   async function poultryFixture() {
     const env = await buildEnv();
     const whole = env.register.execute(SCOPE, SESSION, auth(), {
@@ -292,9 +293,9 @@ describe("prompt-5 atomic butcher transform", () => {
     return { ...env, whole, breast, wings, legs, lot };
   }
 
-  it("posts multi-output transform with mass reconcile, genealogy, audit and outbox", async () => {
+  it("documents merma without a second physical debit and keeps exact stock balance", async () => {
     const env = await poultryFixture();
-    const request = {
+    const executable = {
       reasonCode: "BUTCHER_BREAKDOWN",
       businessDate: "2026-09-07",
       canonicalMassUnit: "KG" as const,
@@ -327,17 +328,238 @@ describe("prompt-5 atomic butcher transform", () => {
       shrinkage: [{
         presentationId: env.whole.presentationId,
         lotId: env.lot.id,
-        quantity: "0.000000",
+        quantity: "1.000000",
         massQuantity: "0.200000",
       }],
       idempotencyKey: key(),
       correlationId: CORRELATION,
       causationId: null,
     };
-    // Shrinkage quantity must be positive — document merma as remaining mass against leftover units.
-    // Use a partial quantity debit for merma on the same lot instead of zero quantity.
-    const executable = {
-      ...request,
+
+    // Negative expectation of the old defect: double debit would leave 0.
+    // Correct behavior consumes the input once → 1 unit remains of 2.
+    const posted = env.transform.execute(SCOPE, SESSION, auth(), executable, NOW);
+    expect(posted.kind).toBe("POSTED");
+    if (posted.kind !== "POSTED") throw new Error("transform missing");
+
+    expect(env.inventoryStore.getStock(SCOPE, env.whole.presentationId)?.quantityOnHand).toBe("1.000000");
+    expect(env.inventoryStore.listBatches(SCOPE, env.whole.presentationId)[0]?.quantityOnHand).toBe("1.000000");
+    expect(env.inventoryStore.getStock(SCOPE, env.breast.presentationId)?.quantityOnHand).toBe("0.800000");
+    expect(env.inventoryStore.getStock(SCOPE, env.wings.presentationId)?.quantityOnHand).toBe("0.400000");
+    expect(env.inventoryStore.getStock(SCOPE, env.legs.presentationId)?.quantityOnHand).toBe("0.600000");
+
+    // Merma line exists for audit; no SHRINKAGE movement was posted.
+    expect(env.database.native.prepare(
+      "SELECT count(*) AS n FROM inventory_transform_line WHERE order_id=? AND direction='SHRINKAGE'",
+    ).get(posted.orderId)).toEqual({ n: 1 });
+    expect(env.database.native.prepare(
+      "SELECT count(*) AS n FROM inventory_movement WHERE movement_type='SHRINKAGE'",
+    ).get()).toEqual({ n: 0 });
+    expect(env.database.native.prepare(
+      "SELECT count(*) AS n FROM inventory_lot_movement WHERE event_type='SHRINKAGE'",
+    ).get()).toEqual({ n: 0 });
+    expect(env.database.native.prepare(
+      "SELECT count(*) AS n FROM inventory_lot_movement WHERE event_type='MATERIAL_CONSUMPTION'",
+    ).get()).toEqual({ n: 1 });
+
+    expect(env.database.native.prepare(
+      "SELECT count(*) AS n FROM local_operation_audit WHERE action_code='INVENTORY_TRANSFORM_POSTED'",
+    ).get()).toEqual({ n: 1 });
+    const outbox = env.database.native.prepare(
+      "SELECT operation_type, operation_json AS payload FROM local_sync_outbox WHERE operation_type='INVENTORY_TRANSFORM_POST'",
+    ).get() as { operation_type: string; payload: string };
+    expect(outbox.operation_type).toBe("INVENTORY_TRANSFORM_POST");
+    const outboxEnvelope = JSON.parse(outbox.payload) as {
+      aggregate_type: string;
+      payload: {
+        shrinkage_documentary: boolean;
+        source_lots: unknown[];
+        lines: Array<{ direction: string }>;
+      };
+    };
+    expect(outboxEnvelope.aggregate_type).toBe("INVENTORY_TRANSFORM");
+    expect(outboxEnvelope.payload.shrinkage_documentary).toBe(true);
+    expect(outboxEnvelope.payload.source_lots).toHaveLength(1);
+    expect(outboxEnvelope.payload.lines.filter((line) => line.direction === "SHRINKAGE")).toHaveLength(1);
+
+    expect(env.transform.execute(SCOPE, SESSION, auth(), executable, NOW).kind).toBe("IDEMPOTENT");
+  });
+
+  it("rejects cross-unit production without measured mass and rejects null-mass inventing stock", async () => {
+    const env = await poultryFixture();
+    // Defect: UND → KGM with canonicalMassUnit=null invents kg without measurement.
+    expect(env.transform.execute(SCOPE, SESSION, auth(), {
+      reasonCode: "BUTCHER_BREAKDOWN",
+      businessDate: "2026-09-07",
+      canonicalMassUnit: null,
+      inputs: [{
+        presentationId: env.whole.presentationId,
+        lotId: env.lot.id,
+        quantity: "1.000000",
+        massQuantity: null,
+      }],
+      outputs: [{
+        presentationId: env.breast.presentationId,
+        quantity: "1.000000",
+        massQuantity: null,
+        batchCode: "LOT-INVENTED",
+      }],
+      shrinkage: [],
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    }, NOW).kind).toBe("UNIT_EQUIVALENCE_FAILED");
+
+    // Merma without mass mode is also forbidden.
+    expect(env.transform.execute(SCOPE, SESSION, auth(), {
+      reasonCode: "BUTCHER_BREAKDOWN",
+      businessDate: "2026-09-07",
+      canonicalMassUnit: null,
+      inputs: [{
+        presentationId: env.whole.presentationId,
+        lotId: env.lot.id,
+        quantity: "1.000000",
+        massQuantity: null,
+      }],
+      outputs: [{
+        presentationId: env.whole.presentationId,
+        quantity: "1.000000",
+        massQuantity: null,
+        batchCode: "LOT-SAME-UNIT",
+      }],
+      shrinkage: [{
+        presentationId: env.whole.presentationId,
+        lotId: env.lot.id,
+        quantity: "1.000000",
+        massQuantity: null,
+      }],
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    }, NOW).kind).toBe("MASS_RECONCILIATION_FAILED");
+
+    expect(env.inventoryStore.getStock(SCOPE, env.whole.presentationId)?.quantityOnHand).toBe("2.000000");
+    expect(env.database.native.prepare(
+      "SELECT count(*) AS n FROM inventory_transform_order",
+    ).get()).toEqual({ n: 0 });
+  });
+
+  it("rejects mass quantity that disagrees with a mass presentation unit", async () => {
+    const env = await poultryFixture();
+    // Breast is KGM: quantity 0.800000 must equal massQuantity under canonical KG.
+    expect(env.transform.execute(SCOPE, SESSION, auth(), {
+      reasonCode: "BUTCHER_BREAKDOWN",
+      businessDate: "2026-09-07",
+      canonicalMassUnit: "KG",
+      inputs: [{
+        presentationId: env.whole.presentationId,
+        lotId: env.lot.id,
+        quantity: "1.000000",
+        massQuantity: "2.000000",
+      }],
+      outputs: [{
+        presentationId: env.breast.presentationId,
+        quantity: "0.800000",
+        massQuantity: "1.500000",
+        batchCode: "LOT-ARBITRARY-MASS",
+      }],
+      shrinkage: [{
+        presentationId: env.whole.presentationId,
+        lotId: env.lot.id,
+        quantity: "1.000000",
+        massQuantity: "0.500000",
+      }],
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    }, NOW).kind).toBe("UNIT_EQUIVALENCE_FAILED");
+    expect(env.inventoryStore.getStock(SCOPE, env.whole.presentationId)?.quantityOnHand).toBe("2.000000");
+  });
+
+  it("preserves multi-input genealogy with earliest expiry and MIXED supplier", async () => {
+    const env = await poultryFixture();
+    expect(env.receive.execute(SCOPE, SESSION, auth(), {
+      presentationId: env.whole.presentationId,
+      movementType: "PURCHASE_RECEIPT",
+      quantity: "1.000000",
+      reasonCode: "SUPPLIER_DELIVERY",
+      businessDate: "2026-09-07",
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+      batch: {
+        code: "LOT-WHOLE-2",
+        manufactureDate: "2026-09-02",
+        expiryDate: "2026-09-15",
+        supplierReference: "AVICOLA-2",
+        receiptDocument: "FAC-W-2",
+      },
+    }).kind).toBe("POSTED");
+    const lots = env.inventoryStore.listBatches(SCOPE, env.whole.presentationId);
+    const first = lots.find((lot) => lot.batchCode === "LOT-WHOLE-1")!;
+    const second = lots.find((lot) => lot.batchCode === "LOT-WHOLE-2")!;
+
+    const posted = env.transform.execute(SCOPE, SESSION, auth(), {
+      reasonCode: "BUTCHER_BREAKDOWN",
+      businessDate: "2026-09-07",
+      canonicalMassUnit: "KG",
+      inputs: [
+        {
+          presentationId: env.whole.presentationId,
+          lotId: first.id,
+          quantity: "1.000000",
+          massQuantity: "2.000000",
+        },
+        {
+          presentationId: env.whole.presentationId,
+          lotId: second.id,
+          quantity: "1.000000",
+          massQuantity: "1.500000",
+        },
+      ],
+      outputs: [{
+        presentationId: env.breast.presentationId,
+        quantity: "3.200000",
+        massQuantity: "3.200000",
+        batchCode: "LOT-MIXED-OUT",
+      }],
+      shrinkage: [{
+        presentationId: env.whole.presentationId,
+        lotId: first.id,
+        quantity: "1.000000",
+        massQuantity: "0.300000",
+      }],
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    }, NOW);
+    expect(posted.kind).toBe("POSTED");
+    if (posted.kind !== "POSTED") throw new Error("mixed transform missing");
+
+    const outLot = env.inventoryStore.listBatches(SCOPE, env.breast.presentationId)[0]!;
+    expect(outLot.expiryDate).toBe("2026-09-15");
+    expect(outLot.supplierReference).toBe("MIXED");
+    expect(outLot.receiptDocument).toBe("MIXED");
+
+    const audit = env.database.native.prepare(
+      "SELECT details_json AS details FROM local_operation_audit WHERE action_code='INVENTORY_TRANSFORM_POSTED'",
+    ).get() as { details: string };
+    const details = JSON.parse(audit.details) as {
+      source_lots: Array<{ lot_id: string; expiry_date: string | null; supplier_reference: string }>;
+    };
+    expect(details.source_lots).toHaveLength(2);
+    expect(details.source_lots.map((lot) => lot.lot_id).sort()).toEqual([first.id, second.id].sort());
+    expect(env.database.native.prepare(
+      "SELECT count(*) AS n FROM inventory_transform_line WHERE order_id=? AND direction='INPUT'",
+    ).get(posted.orderId)).toEqual({ n: 2 });
+  });
+
+  it("rolls back completely, blocks reserved lots, and isolates company scope", async () => {
+    const env = await poultryFixture();
+    expect(env.transform.execute(SCOPE, SESSION, auth(), {
+      reasonCode: "BUTCHER_BREAKDOWN",
+      businessDate: "2026-09-07",
+      canonicalMassUnit: "KG",
       inputs: [{
         presentationId: env.whole.presentationId,
         lotId: env.lot.id,
@@ -347,97 +569,24 @@ describe("prompt-5 atomic butcher transform", () => {
       outputs: [
         {
           presentationId: env.breast.presentationId,
-          quantity: "0.800000",
-          massQuantity: "0.800000",
-          batchCode: "LOT-BREAST-1",
-        },
-        {
-          presentationId: env.wings.presentationId,
-          quantity: "0.400000",
-          massQuantity: "0.400000",
-          batchCode: "LOT-WINGS-1",
-        },
-        {
-          presentationId: env.legs.presentationId,
-          quantity: "0.600000",
-          massQuantity: "0.600000",
-          batchCode: "LOT-LEGS-1",
-        },
-      ],
-      shrinkage: [{
-        presentationId: env.whole.presentationId,
-        lotId: env.lot.id,
-        quantity: "1.000000",
-        massQuantity: "0.200000",
-      }],
-    };
-    const posted = env.transform.execute(SCOPE, SESSION, auth(), executable, NOW);
-    expect(posted.kind).toBe("POSTED");
-    if (posted.kind !== "POSTED") throw new Error("transform missing");
-
-    expect(env.inventoryStore.getStock(SCOPE, env.whole.presentationId)?.quantityOnHand).toBe("0.000000");
-    expect(env.inventoryStore.getStock(SCOPE, env.breast.presentationId)?.quantityOnHand).toBe("0.800000");
-    expect(env.inventoryStore.getStock(SCOPE, env.wings.presentationId)?.quantityOnHand).toBe("0.400000");
-    expect(env.inventoryStore.getStock(SCOPE, env.legs.presentationId)?.quantityOnHand).toBe("0.600000");
-
-    expect(env.database.native.prepare(
-      "SELECT count(*) AS n FROM inventory_transform_order WHERE id=?",
-    ).get(posted.orderId)).toEqual({ n: 1 });
-    expect(env.database.native.prepare(
-      "SELECT count(*) AS n FROM inventory_transform_line WHERE order_id=?",
-    ).get(posted.orderId)).toEqual({ n: 5 });
-    expect(env.database.native.prepare(
-      "SELECT count(*) AS n FROM local_operation_audit WHERE action_code='INVENTORY_TRANSFORM_POSTED'",
-    ).get()).toEqual({ n: 1 });
-    expect(env.database.native.prepare(
-      "SELECT count(*) AS n FROM local_sync_outbox WHERE operation_type='INVENTORY_TRANSFORM_POST'",
-    ).get()).toEqual({ n: 1 });
-
-    expect(env.transform.execute(SCOPE, SESSION, auth(), {
-      ...executable,
-      idempotencyKey: executable.idempotencyKey,
-    }, NOW).kind).toBe("IDEMPOTENT");
-  });
-
-  it("rolls back completely when an output fails and blocks reserved/expired/blocked lots", async () => {
-    const env = await poultryFixture();
-    const base = {
-      reasonCode: "BUTCHER_BREAKDOWN",
-      businessDate: "2026-09-07",
-      canonicalMassUnit: null as "KG" | null,
-      inputs: [{
-        presentationId: env.whole.presentationId,
-        lotId: env.lot.id,
-        quantity: "1.000000",
-        massQuantity: null,
-      }],
-      outputs: [
-        {
-          presentationId: env.breast.presentationId,
-          quantity: "0.500000",
-          massQuantity: null,
-          batchCode: "LOT-B-FAIL",
+          quantity: "1.000000",
+          massQuantity: "1.000000",
+          batchCode: "LOT-OK",
         },
         {
           presentationId: "018f0000-0000-7000-8000-0000000000aa",
-          quantity: "0.500000",
-          massQuantity: null,
+          quantity: "1.000000",
+          massQuantity: "1.000000",
           batchCode: "LOT-BAD",
         },
       ],
-      shrinkage: [] as Array<{
-        presentationId: string; lotId: string; quantity: string; massQuantity: string | null;
-      }>,
+      shrinkage: [],
       idempotencyKey: key(),
       correlationId: CORRELATION,
       causationId: null,
-    };
-    expect(env.transform.execute(SCOPE, SESSION, auth(), base, NOW).kind).toBe("PRESENTATION_NOT_FOUND");
+    }, NOW).kind).toBe("PRESENTATION_NOT_FOUND");
     expect(env.inventoryStore.getStock(SCOPE, env.whole.presentationId)?.quantityOnHand).toBe("2.000000");
     expect(env.inventoryStore.getStock(SCOPE, env.breast.presentationId)).toBeNull();
-    expect(env.database.native.prepare(
-      "SELECT count(*) AS n FROM inventory_transform_order",
-    ).get()).toEqual({ n: 0 });
 
     const hold = env.inventoryStore.createReservationInTransaction({
       scope: SCOPE, sessionId: SESSION, actorId: USER,
@@ -448,51 +597,9 @@ describe("prompt-5 atomic butcher transform", () => {
     });
     expect(hold.kind).toBe("RESERVED");
     expect(env.transform.execute(SCOPE, SESSION, auth(), {
-      ...base,
-      outputs: [{
-        presentationId: env.breast.presentationId,
-        quantity: "0.500000",
-        massQuantity: null,
-        batchCode: "LOT-RESERVED-BLOCK",
-      }],
-      idempotencyKey: key(),
-    }, NOW).kind).toBe("LOT_RESERVED");
-    expect(env.inventoryStore.getStock(SCOPE, env.whole.presentationId)?.quantityOnHand).toBe("2.000000");
-
-    // Free reservation then block the lot.
-    if (hold.kind !== "RESERVED") throw new Error("hold missing");
-    expect(env.inventoryStore.releaseReservationInTransaction({
-      scope: SCOPE, sessionId: SESSION, actorId: USER, reservationId: hold.reservationId,
-      reasonCode: "HOLD_CANCELLED", idempotencyKey: "release-transform-1",
-      requestChecksum: "b".repeat(64), correlationId: CORRELATION, causationId: null,
-    })).toBe("RELEASED");
-
-    expect(env.changeStatus.execute(SCOPE, SESSION, auth(), {
-      lotId: env.lot.id,
-      status: "BLOCKED",
-      reasonCode: "QUALITY_HOLD",
-      idempotencyKey: key(),
-      correlationId: CORRELATION,
-      causationId: null,
-    }, NOW).kind).toBe("UPDATED");
-    expect(env.transform.execute(SCOPE, SESSION, auth(), {
-      ...base,
-      outputs: [{
-        presentationId: env.breast.presentationId,
-        quantity: "0.500000",
-        massQuantity: null,
-        batchCode: "LOT-BLOCKED",
-      }],
-      idempotencyKey: key(),
-    }, NOW).kind).toBe("LOT_NOT_SELLABLE");
-  });
-
-  it("rejects mass imbalance and unauthorized actors without writing", async () => {
-    const env = await poultryFixture();
-    const request = {
       reasonCode: "BUTCHER_BREAKDOWN",
       businessDate: "2026-09-07",
-      canonicalMassUnit: "KG" as const,
+      canonicalMassUnit: "KG",
       inputs: [{
         presentationId: env.whole.presentationId,
         lotId: env.lot.id,
@@ -501,36 +608,166 @@ describe("prompt-5 atomic butcher transform", () => {
       }],
       outputs: [{
         presentationId: env.breast.presentationId,
-        quantity: "1.000000",
-        massQuantity: "1.000000",
-        batchCode: "LOT-IMBALANCE",
+        quantity: "2.000000",
+        massQuantity: "2.000000",
+        batchCode: "LOT-RESERVED",
       }],
-      shrinkage: [] as Array<{
-        presentationId: string; lotId: string; quantity: string; massQuantity: string | null;
-      }>,
+      shrinkage: [],
       idempotencyKey: key(),
       correlationId: CORRELATION,
       causationId: null,
-    };
-    expect(env.transform.execute(SCOPE, SESSION, auth(), request, NOW).kind)
-      .toBe("MASS_RECONCILIATION_FAILED");
-    expect(env.transform.execute(SCOPE, SESSION, auth([]), {
-      ...request,
-      canonicalMassUnit: null,
-      inputs: [{ ...request.inputs[0]!, massQuantity: null }],
-      outputs: [{ ...request.outputs[0]!, massQuantity: null }],
-      idempotencyKey: key(),
-    }, NOW).kind).toBe("UNAUTHORIZED");
-    // Auth assignments stay on BRANCH: other-branch scope fails closed before lot IO.
+    }, NOW).kind).toBe("LOT_RESERVED");
+
+    expect(env.transform.execute(
+      { ...SCOPE, companyId: OTHER_COMPANY },
+      SESSION,
+      auth(ALL, OTHER_COMPANY, BRANCH),
+      {
+        reasonCode: "BUTCHER_BREAKDOWN",
+        businessDate: "2026-09-07",
+        canonicalMassUnit: "KG",
+        inputs: [{
+          presentationId: env.whole.presentationId,
+          lotId: env.lot.id,
+          quantity: "1.000000",
+          massQuantity: "2.000000",
+        }],
+        outputs: [{
+          presentationId: env.breast.presentationId,
+          quantity: "2.000000",
+          massQuantity: "2.000000",
+          batchCode: "LOT-OTHER-CO",
+        }],
+        shrinkage: [],
+        idempotencyKey: key(),
+        correlationId: CORRELATION,
+        causationId: null,
+      },
+      NOW,
+    ).kind).toBe("LOT_NOT_FOUND");
+
     expect(env.transform.execute({ ...SCOPE, branchId: OTHER_BRANCH }, SESSION, auth(), {
-      ...request,
-      canonicalMassUnit: null,
-      inputs: [{ ...request.inputs[0]!, massQuantity: null }],
-      outputs: [{ ...request.outputs[0]!, massQuantity: null }],
+      reasonCode: "BUTCHER_BREAKDOWN",
+      businessDate: "2026-09-07",
+      canonicalMassUnit: "KG",
+      inputs: [{
+        presentationId: env.whole.presentationId,
+        lotId: env.lot.id,
+        quantity: "1.000000",
+        massQuantity: "2.000000",
+      }],
+      outputs: [{
+        presentationId: env.breast.presentationId,
+        quantity: "2.000000",
+        massQuantity: "2.000000",
+        batchCode: "LOT-OTHER-BR",
+      }],
+      shrinkage: [],
       idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
     }, NOW).kind).toBe("UNAUTHORIZED");
+
     expect(env.database.native.prepare(
       "SELECT count(*) AS n FROM inventory_transform_order",
     ).get()).toEqual({ n: 0 });
+  });
+
+  it("allows same-unit conservation without mass and rejects quantity imbalance", async () => {
+    const env = await buildEnv();
+    const pack = env.register.execute(SCOPE, SESSION, auth(), {
+      code: "EMB-01",
+      name: "Embutido",
+      stockControlled: true,
+      presentationName: "Unidad",
+      unitCode: "UND",
+      unitPrecision: 0,
+      barcode: "7704000000001",
+      priceAmount: "5000.000000",
+      currencyCode: "COP",
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    }, NOW);
+    const piece = env.register.execute(SCOPE, SESSION, auth(), {
+      code: "EMB-02",
+      name: "Embutido porción",
+      stockControlled: true,
+      presentationName: "Unidad",
+      unitCode: "UND",
+      unitPrecision: 0,
+      barcode: "7704000000002",
+      priceAmount: "2500.000000",
+      currencyCode: "COP",
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    }, NOW);
+    if (pack.kind !== "REGISTERED" || piece.kind !== "REGISTERED") throw new Error("pack fixture");
+    expect(env.receive.execute(SCOPE, SESSION, auth(), {
+      presentationId: pack.presentationId,
+      movementType: "PURCHASE_RECEIPT",
+      quantity: "4.000000",
+      reasonCode: "SUPPLIER_DELIVERY",
+      businessDate: "2026-09-07",
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+      batch: {
+        code: "LOT-PACK-1",
+        manufactureDate: "2026-09-01",
+        expiryDate: "2026-10-01",
+        supplierReference: "SUP-1",
+        receiptDocument: "FAC-P-1",
+      },
+    }).kind).toBe("POSTED");
+    const lot = env.inventoryStore.listBatches(SCOPE, pack.presentationId)[0]!;
+
+    expect(env.transform.execute(SCOPE, SESSION, auth(), {
+      reasonCode: "REPACK",
+      businessDate: "2026-09-07",
+      canonicalMassUnit: null,
+      inputs: [{
+        presentationId: pack.presentationId,
+        lotId: lot.id,
+        quantity: "2.000000",
+        massQuantity: null,
+      }],
+      outputs: [{
+        presentationId: piece.presentationId,
+        quantity: "3.000000",
+        massQuantity: null,
+        batchCode: "LOT-PIECE-BAD",
+      }],
+      shrinkage: [],
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    }, NOW).kind).toBe("UNIT_EQUIVALENCE_FAILED");
+
+    const posted = env.transform.execute(SCOPE, SESSION, auth(), {
+      reasonCode: "REPACK",
+      businessDate: "2026-09-07",
+      canonicalMassUnit: null,
+      inputs: [{
+        presentationId: pack.presentationId,
+        lotId: lot.id,
+        quantity: "2.000000",
+        massQuantity: null,
+      }],
+      outputs: [{
+        presentationId: piece.presentationId,
+        quantity: "2.000000",
+        massQuantity: null,
+        batchCode: "LOT-PIECE-1",
+      }],
+      shrinkage: [],
+      idempotencyKey: key(),
+      correlationId: CORRELATION,
+      causationId: null,
+    }, NOW);
+    expect(posted.kind).toBe("POSTED");
+    expect(env.inventoryStore.getStock(SCOPE, pack.presentationId)?.quantityOnHand).toBe("2.000000");
+    expect(env.inventoryStore.getStock(SCOPE, piece.presentationId)?.quantityOnHand).toBe("2.000000");
   });
 });
