@@ -262,6 +262,9 @@ jobs:
       - name: Validate signed Nequi/Bre-B projections on real SQLite
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-activation.test.ts tests/merchant-destination-projection.test.ts tests/merchant-destination-snapshot-verifier.test.ts
 
+      - name: Validate shared Inventory batch 022, FEFO and immutable audit with SQLite
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/inventory-batches.test.ts tests/inventory.test.ts tests/payment.test.ts
+
       - name: Verify existing manual Payments against SQLite after QR changes
         run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/payment.test.ts
 
