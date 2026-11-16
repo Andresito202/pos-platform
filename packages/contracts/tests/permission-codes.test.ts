@@ -28,6 +28,9 @@ describe("canonical permission catalog", () => {
       "CASH_SHIFT_CLOSE",
       "FISCAL_DOCUMENT_ISSUE",
       "AUDIT_EVENT_READ",
+      "BAKERY_RECIPE_MANAGE",
+      "BAKERY_PRODUCTION_EXECUTE",
+      "BAKERY_PRODUCTION_READ",
     ]);
   });
 
