@@ -599,6 +599,14 @@ export class SqlitePharmacyStore {
     causationId: string | null;
   }): void {
     const nowIso = this.now().toISOString();
+    const existingHold = this.database.native.prepare(
+      `SELECT 1 AS ok FROM pharmacy_dispensation
+       WHERE tenant_id=? AND branch_id=? AND sale_id=? AND status='BLOCKED_RECORD'
+         AND json_extract(eligibility_snapshot_json, '$.reconciliation_pending') = 1
+       LIMIT 1`,
+    ).get(input.scope.tenantId, input.scope.branchId, input.saleId) as { ok: number } | undefined;
+    if (existingHold) return;
+
     const authorized = this.database.native.prepare(
       `SELECT product_id, presentation_id, prescription_id, dispensation_category
        FROM pharmacy_dispensation
