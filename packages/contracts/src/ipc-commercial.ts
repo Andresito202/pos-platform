@@ -1527,6 +1527,139 @@ export const PharmacySanitaryAlertRegisterResultSchema = z.strictObject({
 export const PharmacySanitaryAlertRegisterResponseSchema =
   createResponseEnvelopeSchema(PharmacySanitaryAlertRegisterResultSchema);
 
+// ── bakery (Pastelería) — recipes / production on shared inventory ───────────
+
+export const BakeryRecipeDraftCreateRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    recipe_family_id: UuidSchema.nullable(),
+    name: z.string().min(1).max(200),
+    finished_product_id: UuidSchema,
+    finished_presentation_id: UuidSchema,
+    base_batch_quantity: PositiveScale6Schema,
+    expected_yield_quantity: PositiveScale6Schema,
+    expected_shrinkage_quantity: NonNegativeScale6Schema,
+    canonical_mass_unit: z.enum(["G", "KG"]).nullable(),
+    instructions: z.string().min(1).max(4000).nullable(),
+    lines: z.array(z.strictObject({
+      ingredient_product_id: UuidSchema,
+      ingredient_presentation_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      unit_code: z.string().min(1).max(16),
+      mass_quantity: NonNegativeScale6Schema.nullable(),
+    })).min(1).max(64),
+  }),
+).safeExtend({ message_type: z.literal("bakery.recipe.draft.create") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryRecipeDraftCreateResultSchema = z.strictObject({
+  outcome: z.enum([
+    "CREATED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_RECIPE",
+    "PRODUCT_NOT_FOUND", "INGREDIENT_NOT_FOUND", "COMPANY_MISMATCH",
+  ]),
+  recipe_id: UuidSchema.nullable(),
+  version: z.number().int().positive().nullable(),
+  recipe_family_id: UuidSchema.nullable(),
+});
+export const BakeryRecipeDraftCreateResponseSchema =
+  createResponseEnvelopeSchema(BakeryRecipeDraftCreateResultSchema);
+
+export const BakeryRecipeApproveRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    recipe_id: UuidSchema,
+    expected_version: z.number().int().positive(),
+  }),
+).safeExtend({ message_type: z.literal("bakery.recipe.approve") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryRecipeApproveResultSchema = z.strictObject({
+  outcome: z.enum([
+    "APPROVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "NOT_FOUND",
+    "NOT_DRAFT", "VERSION_CONFLICT", "COMPANY_MISMATCH",
+  ]),
+  recipe_id: UuidSchema.nullable(),
+  version: z.number().int().positive().nullable(),
+});
+export const BakeryRecipeApproveResponseSchema =
+  createResponseEnvelopeSchema(BakeryRecipeApproveResultSchema);
+
+export const BakeryProductionConfirmRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    order_id: UuidSchema,
+    actual_quantity: PositiveScale6Schema,
+    shrinkage_quantity: NonNegativeScale6Schema,
+    shrinkage_reason: z.string().min(1).max(200).nullable(),
+    production_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    finished_batch_code: z.string().min(1).max(96),
+    consumptions: z.array(z.strictObject({
+      ingredient_presentation_id: UuidSchema,
+      lot_id: UuidSchema,
+      planned_quantity: PositiveScale6Schema,
+      actual_quantity: PositiveScale6Schema,
+      mass_quantity: NonNegativeScale6Schema.nullable(),
+    })).min(1).max(64),
+    direct_costs: z.array(z.strictObject({
+      cost_kind: z.enum(["LABOR", "ENERGY", "PACKAGING", "OTHER"]),
+      amount: PositiveScale6Schema,
+      source_note: z.string().min(1).max(300),
+    })).max(32),
+    shrinkage_attributions: z.array(z.strictObject({
+      presentation_id: UuidSchema,
+      lot_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      mass_quantity: NonNegativeScale6Schema.nullable(),
+    })).max(32),
+  }),
+).safeExtend({ message_type: z.literal("bakery.production.confirm") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryProductionConfirmResultSchema = z.strictObject({
+  outcome: z.enum([
+    "CONFIRMED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "NOT_FOUND",
+    "INVALID_STATUS", "INVALID_QUANTITY", "MASS_RECONCILIATION_FAILED",
+    "UNIT_EQUIVALENCE_FAILED", "LOT_NOT_FOUND", "LOT_NOT_SELLABLE", "LOT_RESERVED",
+    "INSUFFICIENT_STOCK", "PRESENTATION_NOT_FOUND", "QUANTITY_PRECISION_EXCEEDED",
+    "LEGACY_STOCK_RECONCILIATION_REQUIRED", "CONFLICT",
+  ]),
+  order_id: UuidSchema.nullable(),
+  transform_order_id: UuidSchema.nullable(),
+  finished_lot_id: UuidSchema.nullable(),
+  cost_status: z.enum(["NOT_APPLICABLE", "PENDING", "COSTED", "NOT_COSTABLE"]).nullable(),
+  total_production_cost: NonNegativeScale6Schema.nullable(),
+  unit_cost: NonNegativeScale6Schema.nullable(),
+  sellable: z.boolean().nullable(),
+});
+export const BakeryProductionConfirmResponseSchema =
+  createResponseEnvelopeSchema(BakeryProductionConfirmResultSchema);
+
+export const BakeryProductionTraceGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ order_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("bakery.production.trace.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const BakeryProductionTraceGetResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  order_id: UuidSchema.nullable(),
+  recipe_id: UuidSchema.nullable(),
+  recipe_version: z.number().int().positive().nullable(),
+  transform_order_id: UuidSchema.nullable(),
+  finished_lot_id: UuidSchema.nullable(),
+  cost_status: z.string().nullable(),
+  total_production_cost: NonNegativeScale6Schema.nullable(),
+  unit_cost: NonNegativeScale6Schema.nullable(),
+  sources: z.array(z.record(z.string(), z.unknown())).nullable(),
+});
+export const BakeryProductionTraceGetResponseSchema =
+  createResponseEnvelopeSchema(BakeryProductionTraceGetResultSchema);
+
 // ── sales.receipt.get ────────────────────────────────────────────────────────
 
 /**

@@ -134,6 +134,12 @@ export interface TransformOrderInput {
     readonly quantity: string;
     readonly massQuantity: string | null;
     readonly batchCode: string;
+    /** When set, overrides earliest-input expiry (bakery shelf-life policy). */
+    readonly expiryDate?: string | null;
+    /** When set, overrides inferred manufacture date. */
+    readonly manufactureDate?: string | null;
+    /** Finished goods may start QUARANTINE until operational release. */
+    readonly initialStatus?: "AVAILABLE" | "QUARANTINE";
   }>;
   readonly shrinkage: ReadonlyArray<{
     readonly presentationId: string;
@@ -1654,6 +1660,11 @@ export class SqliteInventoryStore {
       for(const [index,line] of input.outputs.entries()){
         ensureQty(line.quantity,line.presentationId);
         if(line.batchCode.trim().length<1||line.batchCode.length>96)abort({kind:"INVALID_QUANTITY"});
+        const resolvedExpiry=line.expiryDate!==undefined?line.expiryDate:outputExpiry;
+        const resolvedManufacture=line.manufactureDate!==undefined?line.manufactureDate:outputManufacture;
+        const resolvedStatus=line.initialStatus??"AVAILABLE";
+        if(resolvedExpiry!==null&&!/^\d{4}-\d{2}-\d{2}$/.test(resolvedExpiry))abort({kind:"INVALID_QUANTITY"});
+        if(resolvedManufacture!==null&&!/^\d{4}-\d{2}-\d{2}$/.test(resolvedManufacture))abort({kind:"INVALID_QUANTITY"});
         const destinationStock=this.getStock(input.scope,line.presentationId);
         if(!this.isLotTracked(input.scope,line.presentationId)&&
            destinationStock&&scale6ToBigInt(destinationStock.quantityOnHand)>0n){
@@ -1674,9 +1685,9 @@ export class SqliteInventoryStore {
             id:string;status:string;manufacture_date:string|null;expiry_date:string|null;
             supplier_reference:string;receipt_document:string;
           }|undefined;
-        if(lot&&(lot.status!=="AVAILABLE"
-          ||lot.manufacture_date!==outputManufacture
-          ||lot.expiry_date!==outputExpiry
+        if(lot&&(lot.status!==resolvedStatus
+          ||lot.manufacture_date!==resolvedManufacture
+          ||lot.expiry_date!==resolvedExpiry
           ||lot.supplier_reference!==outputSupplier
           ||lot.receipt_document!==outputReceipt))abort({kind:"LOT_NOT_SELLABLE"});
         const lotId=lot?.id??uuidV7();
@@ -1684,10 +1695,10 @@ export class SqliteInventoryStore {
           this.database.native.prepare(`INSERT INTO inventory_lot(
             id,tenant_id,company_id,branch_id,presentation_id,batch_code,manufacture_date,
             expiry_date,supplier_reference,receipt_document,status,quantity_on_hand,version,
-            created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,'AVAILABLE','0.000000',1,?,?)`).run(
+            created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,'0.000000',1,?,?)`).run(
             lotId,input.scope.tenantId,input.scope.companyId,input.scope.branchId,
-            line.presentationId,line.batchCode,outputManufacture,outputExpiry,
-            outputSupplier,outputReceipt,when,when);
+            line.presentationId,line.batchCode,resolvedManufacture,resolvedExpiry,
+            outputSupplier,outputReceipt,resolvedStatus,when,when);
         }
         const movementId=uuidV7();
         const units=scale6ToBigInt(line.quantity);

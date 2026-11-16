@@ -39,6 +39,20 @@ import {
   RegisterPharmacyTechnicalReceiptUseCase,
   RegisterPharmacySanitaryAlertUseCase,
 } from "../pharmacy/pharmacy-use-cases.js";
+import { SqliteBakeryStore } from "../bakery/sqlite-bakery-store.js";
+import {
+  UpsertBakeryIngredientProfileUseCase,
+  UpsertBakeryFinishedPolicyUseCase,
+  CreateBakeryRecipeDraftUseCase,
+  ApproveBakeryRecipeUseCase,
+  RecordBakeryLotAcquisitionCostUseCase,
+  CreateBakeryProductionOrderUseCase,
+  PlanBakeryProductionOrderUseCase,
+  CancelBakeryProductionOrderUseCase,
+  ConfirmBakeryProductionUseCase,
+  ReleaseBakeryFinishedLotUseCase,
+  GetBakeryProductionTraceUseCase,
+} from "../bakery/bakery-use-cases.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
@@ -134,6 +148,18 @@ export class CommercialComponent implements RuntimeComponent {
         readonly registerPharmacyPrescription: RegisterPharmacyPrescriptionUseCase;
         readonly registerPharmacyTechnicalReceipt: RegisterPharmacyTechnicalReceiptUseCase;
         readonly registerPharmacySanitaryAlert: RegisterPharmacySanitaryAlertUseCase;
+        readonly bakeryStore: SqliteBakeryStore;
+        readonly upsertBakeryIngredientProfile: UpsertBakeryIngredientProfileUseCase;
+        readonly upsertBakeryFinishedPolicy: UpsertBakeryFinishedPolicyUseCase;
+        readonly createBakeryRecipeDraft: CreateBakeryRecipeDraftUseCase;
+        readonly approveBakeryRecipe: ApproveBakeryRecipeUseCase;
+        readonly recordBakeryLotAcquisitionCost: RecordBakeryLotAcquisitionCostUseCase;
+        readonly createBakeryProductionOrder: CreateBakeryProductionOrderUseCase;
+        readonly planBakeryProductionOrder: PlanBakeryProductionOrderUseCase;
+        readonly cancelBakeryProductionOrder: CancelBakeryProductionOrderUseCase;
+        readonly confirmBakeryProduction: ConfirmBakeryProductionUseCase;
+        readonly releaseBakeryFinishedLot: ReleaseBakeryFinishedLotUseCase;
+        readonly getBakeryProductionTrace: GetBakeryProductionTraceUseCase;
         readonly getReceipt: GetReceiptUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
@@ -257,6 +283,18 @@ export class CommercialComponent implements RuntimeComponent {
   get registerPharmacyPrescription(): RegisterPharmacyPrescriptionUseCase { return this.ready.registerPharmacyPrescription; }
   get registerPharmacyTechnicalReceipt(): RegisterPharmacyTechnicalReceiptUseCase { return this.ready.registerPharmacyTechnicalReceipt; }
   get registerPharmacySanitaryAlert(): RegisterPharmacySanitaryAlertUseCase { return this.ready.registerPharmacySanitaryAlert; }
+  get bakeryStore(): SqliteBakeryStore { return this.ready.bakeryStore; }
+  get upsertBakeryIngredientProfile(): UpsertBakeryIngredientProfileUseCase { return this.ready.upsertBakeryIngredientProfile; }
+  get upsertBakeryFinishedPolicy(): UpsertBakeryFinishedPolicyUseCase { return this.ready.upsertBakeryFinishedPolicy; }
+  get createBakeryRecipeDraft(): CreateBakeryRecipeDraftUseCase { return this.ready.createBakeryRecipeDraft; }
+  get approveBakeryRecipe(): ApproveBakeryRecipeUseCase { return this.ready.approveBakeryRecipe; }
+  get recordBakeryLotAcquisitionCost(): RecordBakeryLotAcquisitionCostUseCase { return this.ready.recordBakeryLotAcquisitionCost; }
+  get createBakeryProductionOrder(): CreateBakeryProductionOrderUseCase { return this.ready.createBakeryProductionOrder; }
+  get planBakeryProductionOrder(): PlanBakeryProductionOrderUseCase { return this.ready.planBakeryProductionOrder; }
+  get cancelBakeryProductionOrder(): CancelBakeryProductionOrderUseCase { return this.ready.cancelBakeryProductionOrder; }
+  get confirmBakeryProduction(): ConfirmBakeryProductionUseCase { return this.ready.confirmBakeryProduction; }
+  get releaseBakeryFinishedLot(): ReleaseBakeryFinishedLotUseCase { return this.ready.releaseBakeryFinishedLot; }
+  get getBakeryProductionTrace(): GetBakeryProductionTraceUseCase { return this.ready.getBakeryProductionTrace; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get listAuditEvents(): ListAuditEventsUseCase { return this.ready.listAuditEvents; }
@@ -300,6 +338,7 @@ export class CommercialComponent implements RuntimeComponent {
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
     const pharmacyStore = new SqlitePharmacyStore(database, sync, this.now);
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
+    const bakeryStore = new SqliteBakeryStore(database, sync, inventoryStore, this.now);
     const paymentStore = new SqlitePaymentStore(
       database, sync, cashShiftStore, inventoryStore, this.now, pharmacyStore,
     );
@@ -353,6 +392,18 @@ export class CommercialComponent implements RuntimeComponent {
       registerPharmacyTechnicalReceipt: new RegisterPharmacyTechnicalReceiptUseCase(pharmacyStore, inventoryStore),
       registerPharmacySanitaryAlert: new RegisterPharmacySanitaryAlertUseCase(pharmacyStore, inventoryStore),
       pharmacyStore,
+      bakeryStore,
+      upsertBakeryIngredientProfile: new UpsertBakeryIngredientProfileUseCase(bakeryStore),
+      upsertBakeryFinishedPolicy: new UpsertBakeryFinishedPolicyUseCase(bakeryStore),
+      createBakeryRecipeDraft: new CreateBakeryRecipeDraftUseCase(bakeryStore),
+      approveBakeryRecipe: new ApproveBakeryRecipeUseCase(bakeryStore),
+      recordBakeryLotAcquisitionCost: new RecordBakeryLotAcquisitionCostUseCase(bakeryStore),
+      createBakeryProductionOrder: new CreateBakeryProductionOrderUseCase(bakeryStore),
+      planBakeryProductionOrder: new PlanBakeryProductionOrderUseCase(bakeryStore),
+      cancelBakeryProductionOrder: new CancelBakeryProductionOrderUseCase(bakeryStore),
+      confirmBakeryProduction: new ConfirmBakeryProductionUseCase(bakeryStore),
+      releaseBakeryFinishedLot: new ReleaseBakeryFinishedLotUseCase(bakeryStore),
+      getBakeryProductionTrace: new GetBakeryProductionTraceUseCase(bakeryStore),
       receiveStock: new ReceiveStockUseCase(inventoryStore),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),

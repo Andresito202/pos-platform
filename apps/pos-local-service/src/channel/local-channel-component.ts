@@ -245,6 +245,10 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "pharmacy.prescription.register":
       case "pharmacy.technical_receipt.register":
       case "pharmacy.sanitary_alert.register":
+      case "bakery.recipe.draft.create":
+      case "bakery.recipe.approve":
+      case "bakery.production.confirm":
+      case "bakery.production.trace.get":
       case "catalog.item.find":
       case "catalog.item.get":
       case "catalog.item.list":

@@ -43,6 +43,9 @@ const EXECUTABLE_PERMISSION_CODES = [
   PERMISSION_CASH_SHIFT_CLOSE,
   PERMISSION_FISCAL_DOCUMENT_ISSUE,
   PERMISSION_AUDIT_EVENT_READ,
+  CanonicalPermission.BAKERY_RECIPE_MANAGE,
+  CanonicalPermission.BAKERY_PRODUCTION_EXECUTE,
+  CanonicalPermission.BAKERY_PRODUCTION_READ,
 ] as const;
 
 describe("runtime permission catalog alignment", () => {

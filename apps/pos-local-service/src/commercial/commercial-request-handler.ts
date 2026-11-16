@@ -30,6 +30,7 @@ type CommercialRequest = Extract<
       | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
       | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.presentation.register" | "catalog.food_policy.upsert" | "pharmacy.establishment.upsert" | "pharmacy.profile.upsert" | "pharmacy.prescription.register" | "pharmacy.technical_receipt.register" | "pharmacy.sanitary_alert.register"
+      | "bakery.recipe.draft.create" | "bakery.recipe.approve" | "bakery.production.confirm" | "bakery.production.trace.get"
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.batch.list" | "inventory.batch.status" | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
@@ -281,6 +282,10 @@ export class CommercialRequestHandler {
       case "pharmacy.prescription.register": return this.registerPharmacyPrescription(request, connectionId);
       case "pharmacy.technical_receipt.register": return this.registerPharmacyTechnicalReceipt(request, connectionId);
       case "pharmacy.sanitary_alert.register": return this.registerPharmacySanitaryAlert(request, connectionId);
+      case "bakery.recipe.draft.create": return this.createBakeryRecipeDraft(request, connectionId);
+      case "bakery.recipe.approve": return this.approveBakeryRecipe(request, connectionId);
+      case "bakery.production.confirm": return this.confirmBakeryProduction(request, connectionId);
+      case "bakery.production.trace.get": return this.getBakeryProductionTrace(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
       case "catalog.item.list": return this.listCatalogItems(request, connectionId);
@@ -2020,6 +2025,170 @@ export class CommercialRequestHandler {
       alert_id: "alertId" in result ? result.alertId : null,
     };
     return result.kind === "RECORDED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private createBakeryRecipeDraft(
+    request: Extract<CommercialRequest, { message_type: "bakery.recipe.draft.create" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", recipe_id: null, version: null, recipe_family_id: null,
+      });
+    }
+    const payload = request.payload;
+    const result = this.commercial.createBakeryRecipeDraft.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        recipeFamilyId: payload.recipe_family_id,
+        name: payload.name,
+        finishedProductId: payload.finished_product_id,
+        finishedPresentationId: payload.finished_presentation_id,
+        baseBatchQuantity: payload.base_batch_quantity,
+        expectedYieldQuantity: payload.expected_yield_quantity,
+        expectedShrinkageQuantity: payload.expected_shrinkage_quantity,
+        canonicalMassUnit: payload.canonical_mass_unit,
+        instructions: payload.instructions,
+        lines: payload.lines.map((line) => ({
+          ingredientProductId: line.ingredient_product_id,
+          ingredientPresentationId: line.ingredient_presentation_id,
+          quantity: line.quantity,
+          unitCode: line.unit_code,
+          massQuantity: line.mass_quantity,
+        })),
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      recipe_id: "recipeId" in result ? result.recipeId : null,
+      version: "version" in result ? result.version : null,
+      recipe_family_id: "recipeFamilyId" in result ? result.recipeFamilyId : null,
+    };
+    return result.kind === "CREATED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private approveBakeryRecipe(
+    request: Extract<CommercialRequest, { message_type: "bakery.recipe.approve" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", recipe_id: null, version: null,
+      });
+    }
+    const result = this.commercial.approveBakeryRecipe.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        recipeId: request.payload.recipe_id,
+        expectedVersion: request.payload.expected_version,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      recipe_id: "recipeId" in result ? result.recipeId : null,
+      version: "version" in result ? result.version : null,
+    };
+    return result.kind === "APPROVED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private confirmBakeryProduction(
+    request: Extract<CommercialRequest, { message_type: "bakery.production.confirm" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", order_id: null, transform_order_id: null, finished_lot_id: null,
+        cost_status: null, total_production_cost: null, unit_cost: null, sellable: null,
+      });
+    }
+    const payload = request.payload;
+    const result = this.commercial.confirmBakeryProduction.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        orderId: payload.order_id,
+        actualQuantity: payload.actual_quantity,
+        shrinkageQuantity: payload.shrinkage_quantity,
+        shrinkageReason: payload.shrinkage_reason,
+        productionDate: payload.production_date,
+        finishedBatchCode: payload.finished_batch_code,
+        consumptions: payload.consumptions.map((line) => ({
+          ingredientPresentationId: line.ingredient_presentation_id,
+          lotId: line.lot_id,
+          plannedQuantity: line.planned_quantity,
+          actualQuantity: line.actual_quantity,
+          massQuantity: line.mass_quantity,
+        })),
+        directCosts: payload.direct_costs.map((line) => ({
+          costKind: line.cost_kind,
+          amount: line.amount,
+          sourceNote: line.source_note,
+        })),
+        shrinkageAttributions: payload.shrinkage_attributions.map((line) => ({
+          presentationId: line.presentation_id,
+          lotId: line.lot_id,
+          quantity: line.quantity,
+          massQuantity: line.mass_quantity,
+        })),
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      order_id: "orderId" in result ? result.orderId : null,
+      transform_order_id: "transformOrderId" in result ? result.transformOrderId : null,
+      finished_lot_id: "finishedLotId" in result ? result.finishedLotId : null,
+      cost_status: "costStatus" in result ? result.costStatus : null,
+      total_production_cost: "totalProductionCost" in result ? result.totalProductionCost : null,
+      unit_cost: "unitCost" in result ? result.unitCost : null,
+      sellable: "sellable" in result ? result.sellable : null,
+    };
+    return result.kind === "CONFIRMED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, String(result.kind), response);
+  }
+
+  private getBakeryProductionTrace(
+    request: Extract<CommercialRequest, { message_type: "bakery.production.trace.get" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", order_id: null, recipe_id: null, recipe_version: null,
+        transform_order_id: null, finished_lot_id: null, cost_status: null,
+        total_production_cost: null, unit_cost: null, sources: null,
+      });
+    }
+    const result = this.commercial.getBakeryProductionTrace.execute(
+      this.scope(), authenticated.snapshot, request.payload.order_id,
+    );
+    const response = {
+      outcome: result.kind,
+      order_id: "orderId" in result ? result.orderId : null,
+      recipe_id: "recipeId" in result ? result.recipeId : null,
+      recipe_version: "recipeVersion" in result ? result.recipeVersion : null,
+      transform_order_id: "transformOrderId" in result ? result.transformOrderId : null,
+      finished_lot_id: "finishedLotId" in result ? result.finishedLotId : null,
+      cost_status: "costStatus" in result ? result.costStatus : null,
+      total_production_cost: "totalProductionCost" in result ? result.totalProductionCost : null,
+      unit_cost: "unitCost" in result ? result.unitCost : null,
+      sources: "sources" in result ? result.sources : null,
+    };
+    return result.kind === "FOUND"
       ? succeeded(request, result.kind, response)
       : rejected(request, result.kind, response);
   }

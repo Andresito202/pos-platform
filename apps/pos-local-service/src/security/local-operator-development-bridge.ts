@@ -34,6 +34,7 @@ const SUPERVISOR = [
   CanonicalPermission.INVENTORY_STOCK_READ,
   CanonicalPermission.PAYMENTS_PAYMENT_CANCEL,
   CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM,
+  CanonicalPermission.BAKERY_PRODUCTION_READ,
 ] as const;
 
 const ADMINISTRATOR = [
@@ -44,6 +45,8 @@ const ADMINISTRATOR = [
   CanonicalPermission.CATALOG_PRODUCT_REGISTER,
   CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER,
   CanonicalPermission.AUDIT_EVENT_READ,
+  CanonicalPermission.BAKERY_RECIPE_MANAGE,
+  CanonicalPermission.BAKERY_PRODUCTION_EXECUTE,
 ] as const;
 
 // No local permission to provision commercial BUSINESS licences, issue fiscal

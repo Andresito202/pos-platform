@@ -2030,6 +2030,299 @@ CREATE TRIGGER pharmacy_controlled_ledger_no_delete BEFORE DELETE ON pharmacy_co
 BEGIN SELECT RAISE(ABORT,'controlled ledger history is permanent'); END;
 `.trim();
 
+/**
+ * MIGRATION_027: Pastelería — versioned recipes, production orders, lot acquisition
+ * cost facts and finished-good shelf-life policy on the ORIGINAL inventory ledger.
+ * Additive only. Does not rewrite 001–026, sales, payments or stock math.
+ * Does not certify INVIMA BPM, registro sanitario or production readiness.
+ */
+const MIGRATION_027 = `
+CREATE TABLE catalog_bakery_ingredient_profile (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  product_id TEXT NOT NULL CHECK(length(product_id)=36),
+  purchase_presentation_id TEXT NOT NULL CHECK(length(purchase_presentation_id)=36),
+  consumption_unit_code TEXT NOT NULL CHECK(length(consumption_unit_code) BETWEEN 1 AND 16),
+  consumption_unit_precision INTEGER NOT NULL CHECK(consumption_unit_precision BETWEEN 0 AND 6),
+  approved_conversion_factor TEXT CHECK(approved_conversion_factor IS NULL OR (
+    approved_conversion_factor GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND approved_conversion_factor NOT GLOB '*[^0-9.]*'
+    AND length(approved_conversion_factor)-length(replace(approved_conversion_factor,'.',''))=1
+    AND approved_conversion_factor NOT GLOB '0[0-9]*'
+    AND approved_conversion_factor<>'0.000000'
+  )),
+  approved_conversion_from_unit TEXT CHECK(approved_conversion_from_unit IS NULL OR length(approved_conversion_from_unit) BETWEEN 1 AND 16),
+  approved_conversion_to_unit TEXT CHECK(approved_conversion_to_unit IS NULL OR length(approved_conversion_to_unit) BETWEEN 1 AND 16),
+  conservation_code TEXT NOT NULL CHECK(conservation_code IN ('AMBIENT','CHILLED','FROZEN','CONTROLLED')),
+  requires_lot_tracking INTEGER NOT NULL CHECK(requires_lot_tracking IN (0,1)),
+  requires_expiry INTEGER NOT NULL CHECK(requires_expiry IN (0,1)),
+  version INTEGER NOT NULL CHECK(version>=1),
+  updated_by TEXT NOT NULL CHECK(length(updated_by)=36),
+  updated_at TEXT NOT NULL,
+  CHECK(
+    (approved_conversion_factor IS NULL AND approved_conversion_from_unit IS NULL AND approved_conversion_to_unit IS NULL)
+    OR (approved_conversion_factor IS NOT NULL AND approved_conversion_from_unit IS NOT NULL AND approved_conversion_to_unit IS NOT NULL)
+  ),
+  PRIMARY KEY(tenant_id,product_id),
+  FOREIGN KEY(tenant_id,product_id) REFERENCES catalog_product(tenant_id,id),
+  FOREIGN KEY(tenant_id,purchase_presentation_id) REFERENCES catalog_presentation(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE catalog_bakery_finished_policy (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  product_id TEXT NOT NULL CHECK(length(product_id)=36),
+  shelf_life_days INTEGER NOT NULL CHECK(shelf_life_days BETWEEN 1 AND 3650),
+  conservation_code TEXT NOT NULL CHECK(conservation_code IN ('AMBIENT','CHILLED','FROZEN','CONTROLLED')),
+  release_required INTEGER NOT NULL CHECK(release_required IN (0,1)),
+  policy_basis TEXT NOT NULL CHECK(length(policy_basis) BETWEEN 1 AND 500),
+  version INTEGER NOT NULL CHECK(version>=1),
+  updated_by TEXT NOT NULL CHECK(length(updated_by)=36),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,product_id),
+  FOREIGN KEY(tenant_id,product_id) REFERENCES catalog_product(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE bakery_recipe (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT CHECK(branch_id IS NULL OR length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  recipe_family_id TEXT NOT NULL CHECK(length(recipe_family_id)=36),
+  finished_product_id TEXT NOT NULL CHECK(length(finished_product_id)=36),
+  finished_presentation_id TEXT NOT NULL CHECK(length(finished_presentation_id)=36),
+  version INTEGER NOT NULL CHECK(version>=1),
+  status TEXT NOT NULL CHECK(status IN ('DRAFT','APPROVED','RETIRED')),
+  name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 200),
+  base_batch_quantity TEXT NOT NULL
+    CHECK(base_batch_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(base_batch_quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(base_batch_quantity)-length(replace(base_batch_quantity,'.',''))=1)
+    CHECK(base_batch_quantity NOT GLOB '0[0-9]*')
+    CHECK(base_batch_quantity<>'0.000000'),
+  expected_yield_quantity TEXT NOT NULL
+    CHECK(expected_yield_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(expected_yield_quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(expected_yield_quantity)-length(replace(expected_yield_quantity,'.',''))=1)
+    CHECK(expected_yield_quantity NOT GLOB '0[0-9]*')
+    CHECK(expected_yield_quantity<>'0.000000'),
+  expected_shrinkage_quantity TEXT NOT NULL
+    CHECK(expected_shrinkage_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(expected_shrinkage_quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(expected_shrinkage_quantity)-length(replace(expected_shrinkage_quantity,'.',''))=1)
+    CHECK(expected_shrinkage_quantity NOT GLOB '0[0-9]*'),
+  canonical_mass_unit TEXT CHECK(canonical_mass_unit IS NULL OR canonical_mass_unit IN ('G','KG')),
+  instructions TEXT CHECK(instructions IS NULL OR length(instructions) BETWEEN 1 AND 4000),
+  approved_by TEXT CHECK(approved_by IS NULL OR length(approved_by)=36),
+  approved_at TEXT,
+  retired_at TEXT,
+  created_by TEXT NOT NULL CHECK(length(created_by)=36),
+  created_at TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  PRIMARY KEY(tenant_id,id),
+  UNIQUE(tenant_id,idempotency_key),
+  UNIQUE(tenant_id,recipe_family_id,version),
+  FOREIGN KEY(tenant_id,finished_product_id) REFERENCES catalog_product(tenant_id,id),
+  FOREIGN KEY(tenant_id,finished_presentation_id) REFERENCES catalog_presentation(tenant_id,id),
+  CHECK(NOT (status='APPROVED' AND (approved_by IS NULL OR approved_at IS NULL))),
+  CHECK(NOT (status='RETIRED' AND retired_at IS NULL)),
+  CHECK(NOT (status='DRAFT' AND approved_at IS NOT NULL))
+) WITHOUT ROWID, STRICT;
+CREATE INDEX bakery_recipe_finished_idx
+  ON bakery_recipe(tenant_id,company_id,finished_product_id,status);
+CREATE TRIGGER bakery_recipe_no_delete BEFORE DELETE ON bakery_recipe
+BEGIN SELECT RAISE(ABORT,'bakery recipe history is permanent'); END;
+
+CREATE TABLE bakery_recipe_line (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  recipe_id TEXT NOT NULL CHECK(length(recipe_id)=36),
+  line_number INTEGER NOT NULL CHECK(line_number>0),
+  ingredient_product_id TEXT NOT NULL CHECK(length(ingredient_product_id)=36),
+  ingredient_presentation_id TEXT NOT NULL CHECK(length(ingredient_presentation_id)=36),
+  quantity TEXT NOT NULL
+    CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity)-length(replace(quantity,'.',''))=1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity<>'0.000000'),
+  unit_code TEXT NOT NULL CHECK(length(unit_code) BETWEEN 1 AND 16),
+  mass_quantity TEXT CHECK(mass_quantity IS NULL OR (
+    mass_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND mass_quantity NOT GLOB '*[^0-9.]*'
+    AND length(mass_quantity)-length(replace(mass_quantity,'.',''))=1
+    AND mass_quantity NOT GLOB '0[0-9]*'
+    AND mass_quantity<>'0.000000'
+  )),
+  PRIMARY KEY(tenant_id,recipe_id,line_number),
+  FOREIGN KEY(tenant_id,recipe_id) REFERENCES bakery_recipe(tenant_id,id),
+  FOREIGN KEY(tenant_id,ingredient_product_id) REFERENCES catalog_product(tenant_id,id),
+  FOREIGN KEY(tenant_id,ingredient_presentation_id) REFERENCES catalog_presentation(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER bakery_recipe_line_no_update BEFORE UPDATE ON bakery_recipe_line
+BEGIN SELECT RAISE(ABORT,'bakery recipe lines are immutable'); END;
+CREATE TRIGGER bakery_recipe_line_no_delete BEFORE DELETE ON bakery_recipe_line
+BEGIN SELECT RAISE(ABORT,'bakery recipe lines are permanent'); END;
+
+CREATE TABLE bakery_production_order (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  status TEXT NOT NULL CHECK(status IN (
+    'DRAFT','PLANNED','IN_PROGRESS','COMPLETED','PARTIALLY_COMPLETED','CANCELLED'
+  )),
+  recipe_id TEXT NOT NULL CHECK(length(recipe_id)=36),
+  recipe_version INTEGER NOT NULL CHECK(recipe_version>=1),
+  recipe_snapshot_json TEXT NOT NULL CHECK(json_valid(recipe_snapshot_json)),
+  planned_quantity TEXT NOT NULL
+    CHECK(planned_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(planned_quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(planned_quantity)-length(replace(planned_quantity,'.',''))=1)
+    CHECK(planned_quantity NOT GLOB '0[0-9]*')
+    CHECK(planned_quantity<>'0.000000'),
+  actual_quantity TEXT CHECK(actual_quantity IS NULL OR (
+    actual_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND actual_quantity NOT GLOB '*[^0-9.]*'
+    AND length(actual_quantity)-length(replace(actual_quantity,'.',''))=1
+    AND actual_quantity NOT GLOB '0[0-9]*'
+  )),
+  shrinkage_quantity TEXT CHECK(shrinkage_quantity IS NULL OR (
+    shrinkage_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND shrinkage_quantity NOT GLOB '*[^0-9.]*'
+    AND length(shrinkage_quantity)-length(replace(shrinkage_quantity,'.',''))=1
+    AND shrinkage_quantity NOT GLOB '0[0-9]*'
+  )),
+  shrinkage_reason TEXT CHECK(shrinkage_reason IS NULL OR length(shrinkage_reason) BETWEEN 1 AND 200),
+  production_date TEXT CHECK(production_date IS NULL OR length(production_date)=10),
+  finished_lot_id TEXT CHECK(finished_lot_id IS NULL OR length(finished_lot_id)=36),
+  finished_batch_code TEXT CHECK(finished_batch_code IS NULL OR length(finished_batch_code) BETWEEN 1 AND 96),
+  finished_expiry_date TEXT CHECK(finished_expiry_date IS NULL OR length(finished_expiry_date)=10),
+  transform_order_id TEXT CHECK(transform_order_id IS NULL OR length(transform_order_id)=36),
+  cost_status TEXT NOT NULL CHECK(cost_status IN ('NOT_APPLICABLE','PENDING','COSTED','NOT_COSTABLE')),
+  total_ingredient_cost TEXT CHECK(total_ingredient_cost IS NULL OR (
+    total_ingredient_cost GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND total_ingredient_cost NOT GLOB '*[^0-9.]*'
+    AND length(total_ingredient_cost)-length(replace(total_ingredient_cost,'.',''))=1
+    AND total_ingredient_cost NOT GLOB '0[0-9]*'
+  )),
+  total_direct_cost TEXT CHECK(total_direct_cost IS NULL OR (
+    total_direct_cost GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND total_direct_cost NOT GLOB '*[^0-9.]*'
+    AND length(total_direct_cost)-length(replace(total_direct_cost,'.',''))=1
+    AND total_direct_cost NOT GLOB '0[0-9]*'
+  )),
+  total_production_cost TEXT CHECK(total_production_cost IS NULL OR (
+    total_production_cost GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND total_production_cost NOT GLOB '*[^0-9.]*'
+    AND length(total_production_cost)-length(replace(total_production_cost,'.',''))=1
+    AND total_production_cost NOT GLOB '0[0-9]*'
+  )),
+  unit_cost TEXT CHECK(unit_cost IS NULL OR (
+    unit_cost GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+    AND unit_cost NOT GLOB '*[^0-9.]*'
+    AND length(unit_cost)-length(replace(unit_cost,'.',''))=1
+    AND unit_cost NOT GLOB '0[0-9]*'
+  )),
+  costing_policy_version TEXT CHECK(costing_policy_version IS NULL OR length(costing_policy_version) BETWEEN 1 AND 64),
+  cost_snapshot_json TEXT CHECK(cost_snapshot_json IS NULL OR json_valid(cost_snapshot_json)),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  session_id TEXT NOT NULL CHECK(length(session_id)=36),
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id)=36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id)=36),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  cancelled_at TEXT,
+  completed_at TEXT,
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,idempotency_key),
+  FOREIGN KEY(tenant_id,recipe_id) REFERENCES bakery_recipe(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX bakery_production_order_status_idx
+  ON bakery_production_order(tenant_id,company_id,branch_id,status);
+CREATE TRIGGER bakery_production_order_no_delete BEFORE DELETE ON bakery_production_order
+BEGIN SELECT RAISE(ABORT,'bakery production history is permanent'); END;
+
+CREATE TABLE bakery_production_consumption (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  order_id TEXT NOT NULL CHECK(length(order_id)=36),
+  line_number INTEGER NOT NULL CHECK(line_number>0),
+  ingredient_presentation_id TEXT NOT NULL CHECK(length(ingredient_presentation_id)=36),
+  lot_id TEXT NOT NULL CHECK(length(lot_id)=36),
+  planned_quantity TEXT NOT NULL
+    CHECK(planned_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'),
+  actual_quantity TEXT NOT NULL
+    CHECK(actual_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(actual_quantity<>'0.000000'),
+  mass_quantity TEXT CHECK(mass_quantity IS NULL OR (
+    mass_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+  )),
+  unit_cost_amount TEXT CHECK(unit_cost_amount IS NULL OR (
+    unit_cost_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+  )),
+  line_cost_amount TEXT CHECK(line_cost_amount IS NULL OR (
+    line_cost_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+  )),
+  PRIMARY KEY(tenant_id,branch_id,order_id,line_number),
+  FOREIGN KEY(tenant_id,branch_id,order_id) REFERENCES bakery_production_order(tenant_id,branch_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER bakery_production_consumption_no_update BEFORE UPDATE ON bakery_production_consumption
+BEGIN SELECT RAISE(ABORT,'bakery consumption lines are immutable'); END;
+CREATE TRIGGER bakery_production_consumption_no_delete BEFORE DELETE ON bakery_production_consumption
+BEGIN SELECT RAISE(ABORT,'bakery consumption history is permanent'); END;
+
+CREATE TABLE bakery_production_direct_cost (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  order_id TEXT NOT NULL CHECK(length(order_id)=36),
+  line_number INTEGER NOT NULL CHECK(line_number>0),
+  cost_kind TEXT NOT NULL CHECK(cost_kind IN ('LABOR','ENERGY','PACKAGING','OTHER')),
+  amount TEXT NOT NULL
+    CHECK(amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(amount)-length(replace(amount,'.',''))=1)
+    CHECK(amount NOT GLOB '0[0-9]*')
+    CHECK(amount<>'0.000000'),
+  source_note TEXT NOT NULL CHECK(length(source_note) BETWEEN 1 AND 300),
+  PRIMARY KEY(tenant_id,branch_id,order_id,line_number),
+  FOREIGN KEY(tenant_id,branch_id,order_id) REFERENCES bakery_production_order(tenant_id,branch_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER bakery_production_direct_cost_no_update BEFORE UPDATE ON bakery_production_direct_cost
+BEGIN SELECT RAISE(ABORT,'bakery direct costs are immutable'); END;
+CREATE TRIGGER bakery_production_direct_cost_no_delete BEFORE DELETE ON bakery_production_direct_cost
+BEGIN SELECT RAISE(ABORT,'bakery direct cost history is permanent'); END;
+
+CREATE TABLE inventory_lot_acquisition_cost (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  lot_id TEXT NOT NULL CHECK(length(lot_id)=36),
+  unit_cost_amount TEXT NOT NULL
+    CHECK(unit_cost_amount GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(unit_cost_amount NOT GLOB '*[^0-9.]*')
+    CHECK(length(unit_cost_amount)-length(replace(unit_cost_amount,'.',''))=1)
+    CHECK(unit_cost_amount NOT GLOB '0[0-9]*'),
+  currency_code TEXT NOT NULL CHECK(length(currency_code)=3),
+  source_kind TEXT NOT NULL CHECK(source_kind IN ('GOODS_RECEIPT','MANUAL_AUTHORIZED','PRODUCTION_TRANSFER')),
+  source_document TEXT NOT NULL CHECK(length(source_document) BETWEEN 1 AND 160),
+  costing_policy_version TEXT NOT NULL CHECK(length(costing_policy_version) BETWEEN 1 AND 64),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  recorded_at TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  PRIMARY KEY(tenant_id,branch_id,lot_id),
+  UNIQUE(tenant_id,idempotency_key),
+  FOREIGN KEY(tenant_id,branch_id,lot_id) REFERENCES inventory_lot(tenant_id,branch_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER inventory_lot_acquisition_cost_no_update BEFORE UPDATE ON inventory_lot_acquisition_cost
+BEGIN SELECT RAISE(ABORT,'lot acquisition cost is immutable'); END;
+CREATE TRIGGER inventory_lot_acquisition_cost_no_delete BEFORE DELETE ON inventory_lot_acquisition_cost
+BEGIN SELECT RAISE(ABORT,'lot acquisition cost history is permanent'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2057,6 +2350,7 @@ const MIGRATIONS = [
   { version: 24, sql: MIGRATION_024, checksum: createHash("sha256").update(MIGRATION_024).digest("hex") },
   { version: 25, sql: MIGRATION_025, checksum: createHash("sha256").update(MIGRATION_025).digest("hex") },
   { version: 26, sql: MIGRATION_026, checksum: createHash("sha256").update(MIGRATION_026).digest("hex") },
+  { version: 27, sql: MIGRATION_027, checksum: createHash("sha256").update(MIGRATION_027).digest("hex") },
 ] as const;
 
 /**

@@ -26,6 +26,26 @@ describe("additive local v26 pharmacy migration", () => {
     const raw = new Database(join(dir, "pos-local.db"));
     raw.pragma("foreign_keys = OFF");
     raw.exec(`
+      DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_update;
+      DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_delete;
+      DROP TABLE IF EXISTS inventory_lot_acquisition_cost;
+      DROP TRIGGER IF EXISTS bakery_production_direct_cost_no_update;
+      DROP TRIGGER IF EXISTS bakery_production_direct_cost_no_delete;
+      DROP TABLE IF EXISTS bakery_production_direct_cost;
+      DROP TRIGGER IF EXISTS bakery_production_consumption_no_update;
+      DROP TRIGGER IF EXISTS bakery_production_consumption_no_delete;
+      DROP TABLE IF EXISTS bakery_production_consumption;
+      DROP TRIGGER IF EXISTS bakery_production_order_no_delete;
+      DROP INDEX IF EXISTS bakery_production_order_status_idx;
+      DROP TABLE IF EXISTS bakery_production_order;
+      DROP TRIGGER IF EXISTS bakery_recipe_line_no_update;
+      DROP TRIGGER IF EXISTS bakery_recipe_line_no_delete;
+      DROP TABLE IF EXISTS bakery_recipe_line;
+      DROP TRIGGER IF EXISTS bakery_recipe_no_delete;
+      DROP INDEX IF EXISTS bakery_recipe_finished_idx;
+      DROP TABLE IF EXISTS bakery_recipe;
+      DROP TABLE IF EXISTS catalog_bakery_finished_policy;
+      DROP TABLE IF EXISTS catalog_bakery_ingredient_profile;
       DROP TRIGGER IF EXISTS pharmacy_controlled_ledger_no_update;
       DROP TRIGGER IF EXISTS pharmacy_controlled_ledger_no_delete;
       DROP TABLE IF EXISTS pharmacy_controlled_ledger;
@@ -45,7 +65,7 @@ describe("additive local v26 pharmacy migration", () => {
       DROP TABLE IF EXISTS catalog_pharmacy_profile;
       DROP TABLE IF EXISTS company_pharmacy_establishment;
       DROP TRIGGER local_schema_migrations_no_delete;
-      DELETE FROM local_schema_migrations WHERE version=26;
+      DELETE FROM local_schema_migrations WHERE version IN (26, 27);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;
@@ -57,7 +77,7 @@ describe("additive local v26 pharmacy migration", () => {
     const upgraded = LocalDatabase.open({ dataDirectory: dir });
     expect(upgraded.native.prepare("SELECT max(version) AS v FROM local_schema_migrations").get())
       .toEqual({ v: LATEST_LOCAL_SCHEMA_VERSION });
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(26);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBeGreaterThanOrEqual(26);
     expect(upgraded.native.prepare("SELECT count(*) AS n FROM runtime_operations").get())
       .toEqual({ n: 1 });
     expect(upgraded.native.prepare(

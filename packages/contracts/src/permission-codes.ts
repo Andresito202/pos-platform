@@ -33,6 +33,12 @@ export const PermissionCode = {
   CASH_SHIFT_CLOSE: "CASH_SHIFT_CLOSE",
   FISCAL_DOCUMENT_ISSUE: "FISCAL_DOCUMENT_ISSUE",
   AUDIT_EVENT_READ: "AUDIT_EVENT_READ",
+  /** Pastelería: create/approve/retire versioned recipes and sector policies. */
+  BAKERY_RECIPE_MANAGE: "BAKERY_RECIPE_MANAGE",
+  /** Pastelería: plan/confirm production (posts via shared inventory transform). */
+  BAKERY_PRODUCTION_EXECUTE: "BAKERY_PRODUCTION_EXECUTE",
+  /** Pastelería: consult production orders, costs and genealogy. */
+  BAKERY_PRODUCTION_READ: "BAKERY_PRODUCTION_READ",
 } as const;
 
 export type CanonicalPermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode];
