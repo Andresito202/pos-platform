@@ -7,7 +7,6 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
-import type { PharmacyEligibilityDenial, SqlitePharmacyStore } from "../pharmacy/sqlite-pharmacy-store.js";
 
 export const PERMISSION_PAYMENTS_PAYMENT_REGISTER = CanonicalPermission.PAYMENTS_PAYMENT_REGISTER;
 
@@ -42,7 +41,7 @@ export type RegisterCashPaymentResult =
   | { readonly kind: "CASH_SHIFT_MISSING" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
   | { readonly kind: "INSUFFICIENT_TENDER" }
-  | { readonly kind: "PHARMACY_ELIGIBILITY_LOST"; readonly reason: PharmacyEligibilityDenial };
+  | { readonly kind: "PHARMACY_ELIGIBILITY_LOST"; readonly reason: string };
 
 function requestChecksum(request: RegisterCashPaymentRequest, operatorUserId: string): string {
   return createHash("sha256")
@@ -62,12 +61,14 @@ function requestChecksum(request: RegisterCashPaymentRequest, operatorUserId: st
  * El efectivo es autoridad local: registrar es confirmar. La operación imputa,
  * asienta en caja y, si con ello la cobertura queda completa, completa la venta
  * — todo en una sola transacción.
+ *
+ * Pharmacy eligibility is revalidated inside `SqlitePaymentStore` after this
+ * authorization check and before irreversible confirmation / stock exit.
  */
 export class RegisterCashPaymentUseCase {
   constructor(
     private readonly paymentStore: SqlitePaymentStore,
     private readonly now: () => Date = () => new Date(),
-    private readonly pharmacyStore: SqlitePharmacyStore | null = null,
   ) {}
 
   execute(
@@ -90,15 +91,6 @@ export class RegisterCashPaymentUseCase {
       assignments: toRoleAssignments(authSnapshot.claims),
     });
     if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
-
-    // Pharmacy revalidation only after payment authority — unauthorized roles
-    // must never reach dispensation eligibility (Prompt 6 fail-closed order).
-    if (this.pharmacyStore !== null) {
-      const pharmacyCheck = this.pharmacyStore.revalidateSaleEligibility(scope, request.saleId);
-      if (pharmacyCheck.kind === "DENIED") {
-        return { kind: "PHARMACY_ELIGIBILITY_LOST", reason: pharmacyCheck.reason };
-      }
-    }
 
     // 2. Vuelto: lo calcula la capa confiable, no el llamador.
     let changeAmount: string | null = null;

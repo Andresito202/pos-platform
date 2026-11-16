@@ -300,7 +300,9 @@ export class CommercialComponent implements RuntimeComponent {
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
     const pharmacyStore = new SqlitePharmacyStore(database, sync, this.now);
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
-    const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, inventoryStore, this.now);
+    const paymentStore = new SqlitePaymentStore(
+      database, sync, cashShiftStore, inventoryStore, this.now, pharmacyStore,
+    );
     const hardwareStore=new HardwareStore(database);
     hardwareStore.recoverInterrupted();
     this.hardwareInstance=new HardwareService(hardwareStore,new GetReceiptUseCase(new SqliteReceiptStore(database)),loadHardwareRegistry(this.config.hardware_profiles_file),undefined,loadAutomaticDrawerPolicy(this.config.hardware_automatic_drawer_policy_file));
@@ -370,7 +372,7 @@ export class CommercialComponent implements RuntimeComponent {
       listCatalogItems: new ListCatalogItemsUseCase(catalogStore),
       listAuditEvents: new ListAuditEventsUseCase(auditStore),
       getAdminMetrics: new GetAdminMetricsUseCase(adminMetricsStore),
-      registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now, pharmacyStore),
+      registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
       cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),

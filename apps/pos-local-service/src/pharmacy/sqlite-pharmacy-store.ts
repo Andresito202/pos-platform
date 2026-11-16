@@ -77,7 +77,9 @@ export type PharmacyEligibilityDenial =
   | "PHARMACY_PRESCRIPTION_INVALID"
   | "PHARMACY_CONTROLLED_BLOCKED"
   | "PHARMACY_COMPETENCE_REQUIRED"
-  | "PHARMACY_QUANTITY_EXCEEDS_PRESCRIPTION";
+  | "PHARMACY_QUANTITY_EXCEEDS_PRESCRIPTION"
+  | "PHARMACY_LOT_INELIGIBLE"
+  | "PHARMACY_RECONCILIATION_HOLD";
 
 /**
  * Farmacia/Droguería specialization over shared Catalog + Inventory.
@@ -516,6 +518,14 @@ export class SqlitePharmacyStore {
   revalidateSaleEligibility(scope: SyncScope, saleId: string):
     | { kind: "OK" }
     | { kind: "DENIED"; reason: PharmacyEligibilityDenial } {
+    const hold = this.database.native.prepare(
+      `SELECT 1 AS ok FROM pharmacy_dispensation
+       WHERE tenant_id=? AND branch_id=? AND sale_id=? AND status='BLOCKED_RECORD'
+         AND json_extract(eligibility_snapshot_json, '$.reconciliation_pending') = 1
+       LIMIT 1`,
+    ).get(scope.tenantId, scope.branchId, saleId) as { ok: number } | undefined;
+    if (hold) return { kind: "DENIED", reason: "PHARMACY_RECONCILIATION_HOLD" };
+
     const rows = this.database.native.prepare(
       `SELECT product_id, presentation_id, prescription_id, dispensation_category, eligibility_snapshot_json
        FROM pharmacy_dispensation
@@ -550,7 +560,85 @@ export class SqlitePharmacyStore {
       });
       if (evaluated.kind === "DENIED") return { kind: "DENIED", reason: evaluated.reason };
     }
+
+    const today = this.now().toISOString().slice(0, 10);
+    const reservedLots = this.database.native.prepare(
+      `SELECT l.id, l.status, l.expiry_date
+       FROM inventory_reservation r
+       JOIN inventory_reservation_lot rl
+         ON rl.tenant_id=r.tenant_id AND rl.company_id=r.company_id
+        AND rl.branch_id=r.branch_id AND rl.reservation_id=r.id
+       JOIN inventory_lot l
+         ON l.tenant_id=rl.tenant_id AND l.company_id=rl.company_id
+        AND l.branch_id=rl.branch_id AND l.id=rl.lot_id
+       WHERE r.tenant_id=? AND r.company_id=? AND r.branch_id=?
+         AND r.reference_type='SALE' AND r.reference_id=?
+         AND r.status IN ('ACTIVE','PARTIALLY_CONSUMED')`,
+    ).all(scope.tenantId, scope.companyId, scope.branchId, saleId) as Array<{
+      id: string; status: string; expiry_date: string | null;
+    }>;
+    for (const lot of reservedLots) {
+      if (lot.status !== "AVAILABLE") {
+        return { kind: "DENIED", reason: "PHARMACY_LOT_INELIGIBLE" };
+      }
+      if (lot.expiry_date !== null && lot.expiry_date < today) {
+        return { kind: "DENIED", reason: "PHARMACY_LOT_INELIGIBLE" };
+      }
+    }
     return { kind: "OK" };
+  }
+
+  recordPaymentReconciliationPending(input: {
+    scope: SyncScope;
+    sessionId: string;
+    operatorUserId: string;
+    saleId: string;
+    reason: string;
+    evidenceNote: string;
+    correlationId: string;
+    causationId: string | null;
+  }): void {
+    const nowIso = this.now().toISOString();
+    const authorized = this.database.native.prepare(
+      `SELECT product_id, presentation_id, prescription_id, dispensation_category
+       FROM pharmacy_dispensation
+       WHERE tenant_id=? AND branch_id=? AND sale_id=? AND status='AUTHORIZED'`,
+    ).all(input.scope.tenantId, input.scope.branchId, input.saleId) as Array<{
+      product_id: string;
+      presentation_id: string;
+      prescription_id: string | null;
+      dispensation_category: string;
+    }>;
+    for (const row of authorized) {
+      this.recordDispensationAuthorization({
+        scope: input.scope,
+        sessionId: input.sessionId,
+        operatorUserId: input.operatorUserId,
+        saleId: input.saleId,
+        productId: row.product_id,
+        presentationId: row.presentation_id,
+        prescriptionId: row.prescription_id,
+        dispensationCategory: row.dispensation_category,
+        snapshot: {
+          reconciliation_pending: 1,
+          reason: input.reason,
+          evidence_note: input.evidenceNote,
+          bank_reversal_claimed: false,
+        },
+        status: "BLOCKED_RECORD",
+      });
+    }
+    this.writeAudit(
+      input.scope, input.sessionId, input.operatorUserId,
+      "PHARMACY_PAYMENT_RECONCILIATION_PENDING", "SALE", input.saleId,
+      input.correlationId, input.causationId,
+      {
+        reason: input.reason,
+        evidence_note: input.evidenceNote,
+        bank_reversal_claimed: false,
+      },
+      nowIso,
+    );
   }
 
   registerTechnicalReceipt(input: {

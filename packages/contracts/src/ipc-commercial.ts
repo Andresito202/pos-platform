@@ -586,6 +586,7 @@ export const PaymentTransferConfirmOutcomeSchema = z.enum([
   "OVERPAYMENT_NOT_ALLOWED",
   "SALE_ALREADY_COMPLETED",
   "INSUFFICIENT_STOCK",
+  "PHARMACY_ELIGIBILITY_LOST",
 ]);
 
 export const PaymentTransferConfirmResultSchema = z.strictObject({

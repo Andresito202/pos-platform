@@ -3,6 +3,7 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
 import type { CashPort } from "./cash-port.js";
 import type { InventoryPort } from "./inventory-port.js";
+import type { PharmacySaleEligibilityPort } from "./pharmacy-sale-eligibility-port.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 
 /**
@@ -150,6 +151,11 @@ export interface InsufficientStockOutcome {
   readonly available: string;
 }
 
+export type PharmacyEligibilityLostOutcome = {
+  readonly kind: "PHARMACY_ELIGIBILITY_LOST";
+  readonly reason: string;
+};
+
 export type RegisterPaymentOutcome =
   | {
       readonly kind: "CONFIRMED";
@@ -168,7 +174,8 @@ export type RegisterPaymentOutcome =
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "CASH_SHIFT_MISSING" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
-  | InsufficientStockOutcome;
+  | InsufficientStockOutcome
+  | PharmacyEligibilityLostOutcome;
 
 export type ConfirmTransferOutcome =
   | {
@@ -185,7 +192,8 @@ export type ConfirmTransferOutcome =
   | { readonly kind: "VERSION_CONFLICT" }
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
-  | InsufficientStockOutcome;
+  | InsufficientStockOutcome
+  | PharmacyEligibilityLostOutcome;
 
 export type CancelPaymentOutcome =
   | { readonly kind: "CANCELLED"; readonly paymentId: string }
@@ -208,7 +216,40 @@ export class SqlitePaymentStore {
     private readonly cashPort: CashPort,
     private readonly inventoryPort: InventoryPort,
     private readonly now: () => Date = () => new Date(),
+    private readonly pharmacyEligibility: PharmacySaleEligibilityPort | null = null,
   ) {}
+
+  /**
+   * Definitive pharmacy gate for irreversible confirmation / sale completion.
+   * Called after actor authorization in the use-case and before confirmed
+   * payment rows or stock deduction. Failures never invent a bank reversal.
+   */
+  private assertPharmacyEligibleForConfirmation(
+    input: CommonInput,
+    saleId: string,
+  ): PharmacyEligibilityLostOutcome | null {
+    if (this.pharmacyEligibility === null) return null;
+    const check = this.pharmacyEligibility.revalidateSaleEligibility(input.scope, saleId);
+    if (check.kind === "OK") return null;
+
+    const priorCoverage = this.confirmedCoverage(input.scope.tenantId, saleId);
+    if (priorCoverage > 0n) {
+      // Prior confirmed local coverage remains; dispensation stays blocked until
+      // reconciliation. No external bank reversal is claimed or simulated.
+      this.pharmacyEligibility.recordPaymentReconciliationPending({
+        scope: input.scope,
+        sessionId: input.sessionId,
+        operatorUserId: input.operatorUserId,
+        saleId,
+        reason: check.reason,
+        evidenceNote:
+          "Confirmed local coverage exists; dispensation blocked pending reconciliation. No bank reversal claimed.",
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+      });
+    }
+    return { kind: "PHARMACY_ELIGIBILITY_LOST", reason: check.reason };
+  }
 
   // ── Lecturas ────────────────────────────────────────────────────────────────
 
@@ -395,6 +436,12 @@ export class SqlitePaymentStore {
     const coverage = this.confirmedCoverage(input.scope.tenantId, saleId);
     if (coverage < scale6ToBigInt(payableAmount)) return { completed: false, coverage };
 
+    // Revalidate immediately before stock exit — last gate inside the same txn.
+    const pharmacyBlocked = this.assertPharmacyEligibleForConfirmation(input, saleId);
+    if (pharmacyBlocked !== null) {
+      throw new PaymentRollback<PharmacyEligibilityLostOutcome>(pharmacyBlocked);
+    }
+
     // La mercancía sale **antes** de marcar COMPLETED y dentro de esta misma
     // transacción: una venta cobrada cuya existencia sigue en la estantería es
     // el descuadre que el inventario existe para impedir.
@@ -545,6 +592,12 @@ export class SqlitePaymentStore {
       // 4. Efectivo: exige turno abierto ANTES de escribir nada.
       if (confirming) {
         if (sale.cash_shift_id === null) return { kind: "CASH_SHIFT_MISSING" };
+      }
+
+      // 4b. Pharmacy gate before irreversible local confirmation (cash).
+      if (confirming) {
+        const pharmacyBlocked = this.assertPharmacyEligibleForConfirmation(input, input.saleId);
+        if (pharmacyBlocked !== null) return pharmacyBlocked;
       }
 
       const group = this.ensureGroup(input, sale, nowIso);
@@ -741,6 +794,10 @@ export class SqlitePaymentStore {
       if (this.confirmedCoverage(input.scope.tenantId, saleId) + amount > scale6ToBigInt(sale.payable_amount)) {
         return { kind: "OVERPAYMENT_NOT_ALLOWED" };
       }
+
+      // Pharmacy gate before irreversible transfer confirmation (manual attestation).
+      const pharmacyBlocked = this.assertPharmacyEligibleForConfirmation(input, saleId);
+      if (pharmacyBlocked !== null) return pharmacyBlocked;
 
       this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_CONFIRMED", nowIso);
 

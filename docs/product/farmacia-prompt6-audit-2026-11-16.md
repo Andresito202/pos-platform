@@ -15,7 +15,7 @@
 | Ficha farmacéutica | AUSENTE | OPERATIVO (`catalog_pharmacy_profile`) |
 | Establecimiento farmacéutico | AUSENTE | OPERATIVO (config local) |
 | Recepción técnica | PARCIAL (receive+lote) | OPERATIVO parcial + rechazo sin stock + cuarentena automática de lote |
-| Dispensación con fórmula | AUSENTE | OPERATIVO (gates en `sale.create` + revalidación en cash payment) |
+| Dispensación con fórmula | AUSENTE | OPERATIVO (gates en `sale.create` + revalidación central en `SqlitePaymentStore` al confirmar efectivo/transferencia) |
 | Control especial FNE | AUSENTE | BLOQUEADO_EXTERNO (fail-closed siempre) |
 | Alertas INVIMA sync | AUSENTE | PARCIAL (carga administrativa; sin sync oficial) |
 | Reportes oficiales FNE | AUSENTE | BLOQUEADO_EXTERNO |

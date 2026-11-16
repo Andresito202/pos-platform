@@ -109,7 +109,9 @@ export class RegisterTransferPaymentUseCase {
     }
     if (outcome.kind === "OVERPAYMENT_NOT_ALLOWED"
       || outcome.kind === "CASH_SHIFT_MISSING"
-      || outcome.kind === "CASH_SHIFT_NOT_OPEN") {
+      || outcome.kind === "CASH_SHIFT_NOT_OPEN"
+      || outcome.kind === "PHARMACY_ELIGIBILITY_LOST") {
+      // Transfer report is non-confirming; pharmacy gate runs on confirmTransfer.
       throw new Error(`unreachable outcome for transfer registration: ${outcome.kind}`);
     }
     return outcome;

@@ -33,7 +33,8 @@ export type ConfirmTransferPaymentResult =
   | { readonly kind: "VERSION_CONFLICT" }
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | InsufficientStockOutcome
-  | { readonly kind: "SALE_ALREADY_COMPLETED" };
+  | { readonly kind: "SALE_ALREADY_COMPLETED" }
+  | { readonly kind: "PHARMACY_ELIGIBILITY_LOST"; readonly reason: string };
 
 function requestChecksum(request: ConfirmTransferPaymentRequest, operatorUserId: string): string {
   return createHash("sha256")
