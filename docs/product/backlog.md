@@ -1,3 +1,7 @@
+## Certificación integral 2026-11-16 — corte de evidencia, NO-GO comercial
+
+Auditoría de `57721afabf2fef50fd9d374e8dad95c5d2ef215d`: TARGET, Central Sync, D-3, G1.2 y CodeQL ejecutaron sus validaciones con resultado SUCCESS. **Strix finalizó SUCCESS pero SCAN NOT RUN** por configuración faltante, por lo que no acredita pentest. No existe evidencia de una prueba única de cuatro roles/tres empresas/tres licencias/tres verticales/múltiples cajas con reinicio y sync, ni dispositivos comerciales Windows/Android o FACTUS/bancos reales. Estado **PENDING / NOT PROVEN**, decisión **NO-GO comercial general**. [Informe integral](../testing/camacho-pos-integral-certification-2026-11-16.md). Mantener PR #106 Draft, no merge; el CI del nuevo commit documental se certifica por separado.
+
 ## Validación de controversias 1–5 — 2026-11-14
 
 Ejecución sobre base remota `869aa265`, misma rama activa y PR #106. Se preservaron
