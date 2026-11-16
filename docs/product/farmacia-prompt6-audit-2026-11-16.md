@@ -1,6 +1,7 @@
 # Auditoría e informe Prompt 6 — Farmacia/Droguería
 
 **HEAD inicial:** `f6f4194cb560eb4d9e5d1b92b1937935c72a78fa`  
+**HEAD final:** `a995e74420d00baa0071029fd935566f1720c144`  
 **Rama:** `cursor/commercial-design-review-0d11` · PR #106 Draft  
 **Migraciones 001–025:** sin alteración de contenido funcional previo; fixtures actualizados a `user_version >= 26` para drop de tablas v26.
 

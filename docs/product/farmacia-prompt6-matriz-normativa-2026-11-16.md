@@ -1,6 +1,7 @@
 # Matriz normativa — Prompt 6 Farmacia/Droguería
 
 **HEAD de partida:** `f6f4194cb560eb4d9e5d1b92b1937935c72a78fa`  
+**HEAD final:** `a995e74420d00baa0071029fd935566f1720c144`  
 **Rama:** `cursor/commercial-design-review-0d11` · PR #106 Draft  
 
 El POS **no sustituye** concepto sanitario, inscripción FNE, radicación oficial ni vigilancia territorial. Las filas con estado `BLOQUEADO_EXTERNO` permanecen denegadas en backend hasta acreditación real.
