@@ -240,6 +240,11 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "catalog.product.register":
       case "catalog.presentation.register":
       case "catalog.food_policy.upsert":
+      case "pharmacy.establishment.upsert":
+      case "pharmacy.profile.upsert":
+      case "pharmacy.prescription.register":
+      case "pharmacy.technical_receipt.register":
+      case "pharmacy.sanitary_alert.register":
       case "catalog.item.find":
       case "catalog.item.get":
       case "catalog.item.list":

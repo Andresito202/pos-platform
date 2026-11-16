@@ -359,6 +359,8 @@ export const SaleCreateLineSchema = z.strictObject({
   /** D-23: actual scanned/selected identifier; backend resolves it against catalog.
    * Omitted by legacy callers, never synthesized as a barcode. */
   identifier: z.string().min(1).max(128).optional(),
+  /** Pharmacy prescription binding for restricted dispensation lines. */
+  pharmacy_prescription_id: UuidSchema.nullable().optional(),
 });
 
 /**
@@ -407,6 +409,7 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
     document_series: DocumentSeriesSchema,
     currency_code: CurrencyCodeSchema,
     lines: z.array(SaleCreateLineSchema).min(1).max(500),
+    pharmacy_professional_competence_code: z.string().min(3).max(64).nullable().optional(),
   }),
 ).safeExtend({ message_type: z.literal("sale.create") })
   .superRefine((request, context) => {
@@ -436,6 +439,14 @@ export const SaleCreateOutcomeSchema = z.enum([
   // completar la venta.
   "INSUFFICIENT_STOCK",
   "IDEMPOTENCY_CONFLICT",
+  "PHARMACY_CLASSIFICATION_UNKNOWN",
+  "PHARMACY_REGISTRATION_UNVERIFIED",
+  "PHARMACY_ESTABLISHMENT_UNAUTHORIZED",
+  "PHARMACY_PRESCRIPTION_REQUIRED",
+  "PHARMACY_PRESCRIPTION_INVALID",
+  "PHARMACY_CONTROLLED_BLOCKED",
+  "PHARMACY_COMPETENCE_REQUIRED",
+  "PHARMACY_QUANTITY_EXCEEDS_PRESCRIPTION",
 ]);
 
 export const SaleCreateResultSchema = z.strictObject({
@@ -486,6 +497,7 @@ export const PaymentRegisterCashOutcomeSchema = z.enum([
   // La venta quedaba cubierta pero no hay existencia que sacar. Todo el cobro
   // se revierte: el cajero lo ve antes de que el dinero quede tomado.
   "INSUFFICIENT_STOCK",
+  "PHARMACY_ELIGIBILITY_LOST",
 ]);
 
 /**
@@ -1371,6 +1383,148 @@ export const InventoryTransformExecuteResultSchema = z.strictObject({
 
 export const InventoryTransformExecuteResponseSchema =
   createResponseEnvelopeSchema(InventoryTransformExecuteResultSchema);
+
+// ── Pharmacy / Droguería specialization (Prompt 6) ───────────────────────────
+
+export const PharmacyEstablishmentUpsertRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    establishment_type: z.enum([
+      "DROGUERIA", "FARMACIA_DROGUERIA", "SERVICIO_FARMACEUTICO_IPS", "DEPOSITO_MAYORISTA",
+    ]),
+    authorized_otc: z.boolean(),
+    authorized_prescription: z.boolean(),
+    authorized_controlled_special: z.boolean(),
+    controlled_authorization_status: z.enum(["NONE", "PENDING_FNE", "ACCREDITED", "REVOKED"]),
+    controlled_authorization_note: z.string().min(1).max(500).nullable(),
+    technical_director_attribution: z.string().min(1).max(200).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.establishment.upsert") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacyEstablishmentUpsertResultSchema = z.strictObject({
+  outcome: z.enum(["SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_CONFIGURATION"]),
+  version: z.number().int().nonnegative().nullable(),
+});
+export const PharmacyEstablishmentUpsertResponseSchema =
+  createResponseEnvelopeSchema(PharmacyEstablishmentUpsertResultSchema);
+
+export const PharmacyProfileUpsertRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    product_kind: z.enum(["MEDICINE", "MEDICAL_DEVICE", "COSMETIC", "SUPPLEMENT", "OTHER"]),
+    commercial_name: z.string().min(1).max(200),
+    generic_name: z.string().min(1).max(200).nullable(),
+    active_ingredients: z.array(z.string().min(1).max(120)).max(32),
+    concentration_text: z.string().min(1).max(120).nullable(),
+    pharmaceutical_form: z.string().min(1).max(120).nullable(),
+    manufacturer: z.string().min(1).max(200).nullable(),
+    sanitary_holder: z.string().min(1).max(200).nullable(),
+    sanitary_registration: z.string().min(1).max(64).nullable(),
+    registration_verification_status: z.enum(["UNVERIFIED", "VERIFIED_MANUAL", "INVALID", "EXPIRED"]),
+    dispensation_category: z.enum(["OTC", "PRESCRIPTION", "CONTROLLED_SPECIAL", "UNKNOWN"]),
+    requires_prescription: z.boolean(),
+    controlled_special: z.boolean(),
+    storage_condition: z.enum(["AMBIENT", "CHILLED", "CONTROLLED_ROOM", "OTHER"]),
+    requires_lot_tracking: z.boolean(),
+    requires_expiry: z.boolean(),
+    regulatory_review_at: z.string().min(10).max(40).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.profile.upsert") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacyProfileUpsertResultSchema = z.strictObject({
+  outcome: z.enum([
+    "SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT",
+    "PRODUCT_NOT_FOUND", "INVALID_CONFIGURATION",
+  ]),
+  version: z.number().int().nonnegative().nullable(),
+});
+export const PharmacyProfileUpsertResponseSchema =
+  createResponseEnvelopeSchema(PharmacyProfileUpsertResultSchema);
+
+export const PharmacyPrescriptionRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    prescribed_quantity: PositiveScale6Schema,
+    prescribed_at: z.string().min(10).max(40),
+    expires_at: z.string().min(10).max(40),
+    issuer_professional_id: z.string().min(1).max(64),
+    issuer_name: z.string().min(1).max(120),
+    patient_reference: z.string().min(1).max(64),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.prescription.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacyPrescriptionRegisterResultSchema = z.strictObject({
+  outcome: z.enum([
+    "REGISTERED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT",
+    "PRODUCT_NOT_FOUND", "INVALID_QUANTITY",
+  ]),
+  prescription_id: UuidSchema.nullable(),
+});
+export const PharmacyPrescriptionRegisterResponseSchema =
+  createResponseEnvelopeSchema(PharmacyPrescriptionRegisterResultSchema);
+
+export const PharmacyTechnicalReceiptRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    lot_id: UuidSchema.nullable(),
+    sanitary_registration: z.string().min(1).max(64).nullable(),
+    batch_code: z.string().min(1).max(96),
+    expiry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    quantity: PositiveScale6Schema,
+    storage_condition: z.enum(["AMBIENT", "CHILLED", "CONTROLLED_ROOM", "OTHER"]),
+    inspection_result: z.enum(["ACCEPTED", "QUARANTINE", "REJECTED"]),
+    observations: z.string().min(1).max(500).nullable(),
+    inventory_movement_id: UuidSchema.nullable(),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.technical_receipt.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacyTechnicalReceiptRegisterResultSchema = z.strictObject({
+  outcome: z.enum([
+    "RECORDED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_QUANTITY",
+  ]),
+  receipt_id: UuidSchema.nullable(),
+});
+export const PharmacyTechnicalReceiptRegisterResponseSchema =
+  createResponseEnvelopeSchema(PharmacyTechnicalReceiptRegisterResultSchema);
+
+export const PharmacySanitaryAlertRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    source_kind: z.enum(["MANUAL_AUTHORIZED", "EXTERNAL_IMPORT"]),
+    source_reference: z.string().min(1).max(200),
+    product_id: UuidSchema.nullable(),
+    lot_id: UuidSchema.nullable(),
+    action_code: z.enum(["QUARANTINE", "RECALL"]),
+    evidence_note: z.string().min(1).max(500),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.sanitary_alert.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacySanitaryAlertRegisterResultSchema = z.strictObject({
+  outcome: z.enum([
+    "RECORDED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_CONFIGURATION",
+  ]),
+  alert_id: UuidSchema.nullable(),
+});
+export const PharmacySanitaryAlertRegisterResponseSchema =
+  createResponseEnvelopeSchema(PharmacySanitaryAlertRegisterResultSchema);
 
 // ── sales.receipt.get ────────────────────────────────────────────────────────
 

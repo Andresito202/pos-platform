@@ -31,6 +31,14 @@ import { AddPresentationUseCase, UpsertFoodPolicyUseCase } from "../catalog/add-
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
 import { ListCatalogItemsUseCase } from "../catalog/list-catalog-items-use-case.js";
 import { ExecuteTransformUseCase } from "../inventory/execute-transform-use-case.js";
+import { SqlitePharmacyStore } from "../pharmacy/sqlite-pharmacy-store.js";
+import {
+  UpsertPharmacyEstablishmentUseCase,
+  UpsertPharmacyProfileUseCase,
+  RegisterPharmacyPrescriptionUseCase,
+  RegisterPharmacyTechnicalReceiptUseCase,
+  RegisterPharmacySanitaryAlertUseCase,
+} from "../pharmacy/pharmacy-use-cases.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
@@ -120,6 +128,12 @@ export class CommercialComponent implements RuntimeComponent {
         readonly createInventoryReservation:CreateInventoryReservationUseCase;
         readonly releaseInventoryReservation:ReleaseInventoryReservationUseCase;
         readonly executeTransform:ExecuteTransformUseCase;
+        readonly pharmacyStore: SqlitePharmacyStore;
+        readonly upsertPharmacyEstablishment: UpsertPharmacyEstablishmentUseCase;
+        readonly upsertPharmacyProfile: UpsertPharmacyProfileUseCase;
+        readonly registerPharmacyPrescription: RegisterPharmacyPrescriptionUseCase;
+        readonly registerPharmacyTechnicalReceipt: RegisterPharmacyTechnicalReceiptUseCase;
+        readonly registerPharmacySanitaryAlert: RegisterPharmacySanitaryAlertUseCase;
         readonly getReceipt: GetReceiptUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
@@ -237,6 +251,12 @@ export class CommercialComponent implements RuntimeComponent {
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
   get addPresentation(): AddPresentationUseCase { return this.ready.addPresentation; }
   get upsertFoodPolicy(): UpsertFoodPolicyUseCase { return this.ready.upsertFoodPolicy; }
+  get pharmacyStore(): SqlitePharmacyStore { return this.ready.pharmacyStore; }
+  get upsertPharmacyEstablishment(): UpsertPharmacyEstablishmentUseCase { return this.ready.upsertPharmacyEstablishment; }
+  get upsertPharmacyProfile(): UpsertPharmacyProfileUseCase { return this.ready.upsertPharmacyProfile; }
+  get registerPharmacyPrescription(): RegisterPharmacyPrescriptionUseCase { return this.ready.registerPharmacyPrescription; }
+  get registerPharmacyTechnicalReceipt(): RegisterPharmacyTechnicalReceiptUseCase { return this.ready.registerPharmacyTechnicalReceipt; }
+  get registerPharmacySanitaryAlert(): RegisterPharmacySanitaryAlertUseCase { return this.ready.registerPharmacySanitaryAlert; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get listAuditEvents(): ListAuditEventsUseCase { return this.ready.listAuditEvents; }
@@ -278,6 +298,7 @@ export class CommercialComponent implements RuntimeComponent {
     const adminMetricsStore = new SqliteAdminMetricsStore(database);
     // `SqliteInventoryStore` satisface `InventoryPort` por la misma razón: la
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
+    const pharmacyStore = new SqlitePharmacyStore(database, sync, this.now);
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
     const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, inventoryStore, this.now);
     const hardwareStore=new HardwareStore(database);
@@ -323,7 +344,13 @@ export class CommercialComponent implements RuntimeComponent {
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now, this.licenseGate),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
       waitingCarts: new SqliteWaitingCartStore(database, this.now),
-      createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now),
+      createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now, pharmacyStore),
+      upsertPharmacyEstablishment: new UpsertPharmacyEstablishmentUseCase(pharmacyStore),
+      upsertPharmacyProfile: new UpsertPharmacyProfileUseCase(pharmacyStore),
+      registerPharmacyPrescription: new RegisterPharmacyPrescriptionUseCase(pharmacyStore),
+      registerPharmacyTechnicalReceipt: new RegisterPharmacyTechnicalReceiptUseCase(pharmacyStore, inventoryStore),
+      registerPharmacySanitaryAlert: new RegisterPharmacySanitaryAlertUseCase(pharmacyStore, inventoryStore),
+      pharmacyStore,
       receiveStock: new ReceiveStockUseCase(inventoryStore),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),

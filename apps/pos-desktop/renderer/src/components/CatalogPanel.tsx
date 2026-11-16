@@ -3,6 +3,7 @@ import { CanonicalPermission } from "@pos-platform/contracts";
 import { useRef, useState } from "react";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
 import { catalogCsvTemplate, previewCatalogCsv, matchCatalogCsv, confirmCatalogCsv, type CatalogCsvPlan, type CatalogCsvOutcome } from "../catalog-csv.js";
+import { PharmacyPanel } from "./PharmacyPanel.js";
 
 /**
  * Alta de producto. Es la pantalla que faltaba para poder usar el POS el primer
@@ -356,6 +357,8 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
       </>}
 
       {catalog.error !== null && <div data-testid="catalog-error">{catalog.error}</div>}
+
+      <PharmacyPanel permissions={permissions} />
     </section>
   );
 }

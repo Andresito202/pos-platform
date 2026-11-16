@@ -34,6 +34,24 @@ describe("additive local v24 reservation migration", () => {
       DROP TRIGGER IF EXISTS inventory_transform_order_no_update;
       DROP TRIGGER IF EXISTS inventory_transform_order_no_delete;
       DROP TABLE IF EXISTS inventory_transform_order;
+      DROP TRIGGER IF EXISTS pharmacy_controlled_ledger_no_update;
+      DROP TRIGGER IF EXISTS pharmacy_controlled_ledger_no_delete;
+      DROP TABLE IF EXISTS pharmacy_controlled_ledger;
+      DROP TRIGGER IF EXISTS pharmacy_sanitary_alert_no_update;
+      DROP TRIGGER IF EXISTS pharmacy_sanitary_alert_no_delete;
+      DROP TABLE IF EXISTS pharmacy_sanitary_alert;
+      DROP TRIGGER IF EXISTS pharmacy_dispensation_no_update;
+      DROP TRIGGER IF EXISTS pharmacy_dispensation_no_delete;
+      DROP INDEX IF EXISTS pharmacy_dispensation_sale_idx;
+      DROP TABLE IF EXISTS pharmacy_dispensation;
+      DROP TRIGGER IF EXISTS pharmacy_technical_receipt_no_update;
+      DROP TRIGGER IF EXISTS pharmacy_technical_receipt_no_delete;
+      DROP TABLE IF EXISTS pharmacy_technical_receipt;
+      DROP TRIGGER IF EXISTS pharmacy_prescription_no_delete;
+      DROP INDEX IF EXISTS pharmacy_prescription_product_idx;
+      DROP TABLE IF EXISTS pharmacy_prescription;
+      DROP TABLE IF EXISTS catalog_pharmacy_profile;
+      DROP TABLE IF EXISTS company_pharmacy_establishment;
       DROP TABLE IF EXISTS catalog_food_policy;
       DROP TRIGGER IF EXISTS inventory_reservation_lot_no_update;
       DROP TRIGGER IF EXISTS inventory_reservation_lot_no_delete;
@@ -43,7 +61,7 @@ describe("additive local v24 reservation migration", () => {
       DROP INDEX IF EXISTS inventory_reservation_reference_idx;
       DROP TABLE IF EXISTS inventory_reservation;
       DROP TRIGGER local_schema_migrations_no_delete;
-      DELETE FROM local_schema_migrations WHERE version IN (24,25);
+      DELETE FROM local_schema_migrations WHERE version IN (24,25,26);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;

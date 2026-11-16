@@ -29,7 +29,7 @@ type CommercialRequest = Extract<
       | "customer.register" | "customer.get" | "customer.find"
       | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
       | "fiscal.document.issue"
-      | "catalog.product.register" | "catalog.presentation.register" | "catalog.food_policy.upsert"
+      | "catalog.product.register" | "catalog.presentation.register" | "catalog.food_policy.upsert" | "pharmacy.establishment.upsert" | "pharmacy.profile.upsert" | "pharmacy.prescription.register" | "pharmacy.technical_receipt.register" | "pharmacy.sanitary_alert.register"
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.batch.list" | "inventory.batch.status" | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
@@ -83,6 +83,16 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   LOT_TRACKING_REQUIRED:"CONFLICT",
   MASS_RECONCILIATION_FAILED:"VALIDATION",
   UNIT_EQUIVALENCE_FAILED:"VALIDATION",
+  PHARMACY_CLASSIFICATION_UNKNOWN:"VALIDATION",
+  PHARMACY_REGISTRATION_UNVERIFIED:"VALIDATION",
+  PHARMACY_ESTABLISHMENT_UNAUTHORIZED:"AUTHORIZATION",
+  PHARMACY_PRESCRIPTION_REQUIRED:"VALIDATION",
+  PHARMACY_PRESCRIPTION_INVALID:"VALIDATION",
+  PHARMACY_CONTROLLED_BLOCKED:"AUTHORIZATION",
+  PHARMACY_COMPETENCE_REQUIRED:"AUTHORIZATION",
+  PHARMACY_QUANTITY_EXCEEDS_PRESCRIPTION:"VALIDATION",
+  PHARMACY_ELIGIBILITY_LOST:"CONFLICT",
+  INVALID_CONFIGURATION:"VALIDATION",
   PRODUCT_NOT_FOUND:"NOT_FOUND",
   LEGACY_STOCK_RECONCILIATION_REQUIRED:"CONFLICT",
   CONFLICT:"CONFLICT",
@@ -266,6 +276,11 @@ export class CommercialRequestHandler {
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.presentation.register": return this.registerPresentation(request, connectionId);
       case "catalog.food_policy.upsert": return this.upsertFoodPolicy(request, connectionId);
+      case "pharmacy.establishment.upsert": return this.upsertPharmacyEstablishment(request, connectionId);
+      case "pharmacy.profile.upsert": return this.upsertPharmacyProfile(request, connectionId);
+      case "pharmacy.prescription.register": return this.registerPharmacyPrescription(request, connectionId);
+      case "pharmacy.technical_receipt.register": return this.registerPharmacyTechnicalReceipt(request, connectionId);
+      case "pharmacy.sanitary_alert.register": return this.registerPharmacySanitaryAlert(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
       case "catalog.item.list": return this.listCatalogItems(request, connectionId);
@@ -308,6 +323,13 @@ export class CommercialRequestHandler {
       });
     }
 
+    const pharmacyCheck = this.commercial.pharmacyStore.revalidateSaleEligibility(this.scope(), request.payload.sale_id);
+    if (pharmacyCheck.kind === "DENIED") {
+      return rejected(request, "PHARMACY_ELIGIBILITY_LOST", {
+        outcome: "PHARMACY_ELIGIBILITY_LOST",
+        payment_id: null, sale_completed: false, confirmed_coverage: null, payable_amount: null, change_amount: null,
+      });
+    }
     const result = this.commercial.registerCashPayment.execute(
       this.scope(),
       authenticated.identity.ssaSessionId,
@@ -1841,6 +1863,174 @@ export class CommercialRequestHandler {
     return ["FOUND","SAVED","DISCARDED"].includes(result.outcome)?succeeded(request,result.outcome,result):rejected(request,result.outcome,result);
   }
 
+
+  private upsertPharmacyEstablishment(
+    request: Extract<CommercialRequest, { message_type: "pharmacy.establishment.upsert" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", version: null });
+    }
+    const payload = request.payload;
+    const result = this.commercial.upsertPharmacyEstablishment.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        establishmentType: payload.establishment_type,
+        authorizedOtc: payload.authorized_otc,
+        authorizedPrescription: payload.authorized_prescription,
+        authorizedControlledSpecial: payload.authorized_controlled_special,
+        controlledAuthorizationStatus: payload.controlled_authorization_status,
+        controlledAuthorizationNote: payload.controlled_authorization_note,
+        technicalDirectorAttribution: payload.technical_director_attribution,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = { outcome: result.kind, version: "version" in result ? (result.version ?? null) : null };
+    return result.kind === "SAVED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private upsertPharmacyProfile(
+    request: Extract<CommercialRequest, { message_type: "pharmacy.profile.upsert" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", version: null });
+    }
+    const payload = request.payload;
+    const result = this.commercial.upsertPharmacyProfile.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        productId: payload.product_id,
+        productKind: payload.product_kind,
+        commercialName: payload.commercial_name,
+        genericName: payload.generic_name,
+        activeIngredients: payload.active_ingredients,
+        concentrationText: payload.concentration_text,
+        pharmaceuticalForm: payload.pharmaceutical_form,
+        manufacturer: payload.manufacturer,
+        sanitaryHolder: payload.sanitary_holder,
+        sanitaryRegistration: payload.sanitary_registration,
+        registrationVerificationStatus: payload.registration_verification_status,
+        dispensationCategory: payload.dispensation_category,
+        requiresPrescription: payload.requires_prescription,
+        controlledSpecial: payload.controlled_special,
+        storageCondition: payload.storage_condition,
+        requiresLotTracking: payload.requires_lot_tracking,
+        requiresExpiry: payload.requires_expiry,
+        regulatoryReviewAt: payload.regulatory_review_at,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = { outcome: result.kind, version: "version" in result ? (result.version ?? null) : null };
+    return result.kind === "SAVED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private registerPharmacyPrescription(
+    request: Extract<CommercialRequest, { message_type: "pharmacy.prescription.register" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", prescription_id: null });
+    }
+    const payload = request.payload;
+    const result = this.commercial.registerPharmacyPrescription.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        productId: payload.product_id,
+        prescribedQuantity: payload.prescribed_quantity,
+        prescribedAt: payload.prescribed_at,
+        expiresAt: payload.expires_at,
+        issuerProfessionalId: payload.issuer_professional_id,
+        issuerName: payload.issuer_name,
+        patientReference: payload.patient_reference,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      prescription_id: "prescriptionId" in result ? result.prescriptionId : null,
+    };
+    return result.kind === "REGISTERED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private registerPharmacyTechnicalReceipt(
+    request: Extract<CommercialRequest, { message_type: "pharmacy.technical_receipt.register" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", receipt_id: null });
+    }
+    const payload = request.payload;
+    const result = this.commercial.registerPharmacyTechnicalReceipt.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        presentationId: payload.presentation_id,
+        lotId: payload.lot_id,
+        sanitaryRegistration: payload.sanitary_registration,
+        batchCode: payload.batch_code,
+        expiryDate: payload.expiry_date,
+        quantity: payload.quantity,
+        storageCondition: payload.storage_condition,
+        inspectionResult: payload.inspection_result,
+        observations: payload.observations,
+        inventoryMovementId: payload.inventory_movement_id,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      receipt_id: "receiptId" in result ? result.receiptId : null,
+    };
+    return result.kind === "RECORDED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private registerPharmacySanitaryAlert(
+    request: Extract<CommercialRequest, { message_type: "pharmacy.sanitary_alert.register" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", alert_id: null });
+    }
+    const payload = request.payload;
+    const result = this.commercial.registerPharmacySanitaryAlert.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        sourceKind: payload.source_kind,
+        sourceReference: payload.source_reference,
+        productId: payload.product_id,
+        lotId: payload.lot_id,
+        actionCode: payload.action_code,
+        evidenceNote: payload.evidence_note,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      alert_id: "alertId" in result ? result.alertId : null,
+    };
+    return result.kind === "RECORDED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
   // ── sale.create ────────────────────────────────────────────────────────────
 
   private createSale(
@@ -1872,10 +2062,12 @@ export class CommercialRequestHandler {
         currencyCode: request.payload.currency_code,
         correlationId: request.correlation_id,
         causationId: request.causation_id ?? null,
+        pharmacyProfessionalCompetenceCode: request.payload.pharmacy_professional_competence_code ?? null,
         lines: request.payload.lines.map((line) => ({
           productId: line.product_id,
           presentationId: line.presentation_id,
           quantity: line.quantity,
+          pharmacyPrescriptionId: line.pharmacy_prescription_id ?? null,
           ...(line.identifier === undefined ? {} : { identifier: line.identifier }),
         })),
       },

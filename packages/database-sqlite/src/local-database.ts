@@ -1815,6 +1815,221 @@ CREATE TRIGGER inventory_transform_line_no_delete BEFORE DELETE ON inventory_tra
 BEGIN SELECT RAISE(ABORT,'transform genealogy is append-only'); END;
 `.trim();
 
+/**
+ * MIGRATION_026: Farmacia/Droguería specialization on the ORIGINAL ledger.
+ * Additive only. Does not rewrite 001–025, sales, payments or stock math.
+ * Does not certify sanitary authorization, FNE inscription or INVIMA sync.
+ */
+const MIGRATION_026 = `
+CREATE TABLE company_pharmacy_establishment (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  establishment_type TEXT NOT NULL CHECK(establishment_type IN (
+    'DROGUERIA','FARMACIA_DROGUERIA','SERVICIO_FARMACEUTICO_IPS','DEPOSITO_MAYORISTA'
+  )),
+  authorized_otc INTEGER NOT NULL CHECK(authorized_otc IN (0,1)),
+  authorized_prescription INTEGER NOT NULL CHECK(authorized_prescription IN (0,1)),
+  authorized_controlled_special INTEGER NOT NULL CHECK(authorized_controlled_special IN (0,1)),
+  controlled_authorization_status TEXT NOT NULL CHECK(controlled_authorization_status IN (
+    'NONE','PENDING_FNE','ACCREDITED','REVOKED'
+  )),
+  controlled_authorization_note TEXT CHECK(controlled_authorization_note IS NULL OR length(controlled_authorization_note) BETWEEN 1 AND 500),
+  technical_director_attribution TEXT CHECK(technical_director_attribution IS NULL OR length(technical_director_attribution) BETWEEN 1 AND 200),
+  version INTEGER NOT NULL CHECK(version>=1),
+  updated_by TEXT NOT NULL CHECK(length(updated_by)=36),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,company_id,branch_id)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE catalog_pharmacy_profile (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  product_id TEXT NOT NULL CHECK(length(product_id)=36),
+  product_kind TEXT NOT NULL CHECK(product_kind IN (
+    'MEDICINE','MEDICAL_DEVICE','COSMETIC','SUPPLEMENT','OTHER'
+  )),
+  commercial_name TEXT NOT NULL CHECK(length(commercial_name) BETWEEN 1 AND 200),
+  generic_name TEXT CHECK(generic_name IS NULL OR length(generic_name) BETWEEN 1 AND 200),
+  active_ingredients_json TEXT NOT NULL CHECK(json_valid(active_ingredients_json)),
+  concentration_text TEXT CHECK(concentration_text IS NULL OR length(concentration_text) BETWEEN 1 AND 120),
+  pharmaceutical_form TEXT CHECK(pharmaceutical_form IS NULL OR length(pharmaceutical_form) BETWEEN 1 AND 120),
+  manufacturer TEXT CHECK(manufacturer IS NULL OR length(manufacturer) BETWEEN 1 AND 200),
+  sanitary_holder TEXT CHECK(sanitary_holder IS NULL OR length(sanitary_holder) BETWEEN 1 AND 200),
+  sanitary_registration TEXT CHECK(sanitary_registration IS NULL OR length(sanitary_registration) BETWEEN 1 AND 64),
+  registration_verification_status TEXT NOT NULL CHECK(registration_verification_status IN (
+    'UNVERIFIED','VERIFIED_MANUAL','INVALID','EXPIRED'
+  )),
+  dispensation_category TEXT NOT NULL CHECK(dispensation_category IN (
+    'OTC','PRESCRIPTION','CONTROLLED_SPECIAL','UNKNOWN'
+  )),
+  requires_prescription INTEGER NOT NULL CHECK(requires_prescription IN (0,1)),
+  controlled_special INTEGER NOT NULL CHECK(controlled_special IN (0,1)),
+  storage_condition TEXT NOT NULL CHECK(storage_condition IN (
+    'AMBIENT','CHILLED','CONTROLLED_ROOM','OTHER'
+  )),
+  requires_lot_tracking INTEGER NOT NULL CHECK(requires_lot_tracking IN (0,1)),
+  requires_expiry INTEGER NOT NULL CHECK(requires_expiry IN (0,1)),
+  regulatory_review_at TEXT CHECK(regulatory_review_at IS NULL OR length(regulatory_review_at)>=10),
+  version INTEGER NOT NULL CHECK(version>=1),
+  updated_by TEXT NOT NULL CHECK(length(updated_by)=36),
+  updated_at TEXT NOT NULL,
+  CHECK(NOT (controlled_special=1 AND dispensation_category<>'CONTROLLED_SPECIAL')),
+  CHECK(NOT (dispensation_category='CONTROLLED_SPECIAL' AND controlled_special=0)),
+  CHECK(NOT (dispensation_category='PRESCRIPTION' AND requires_prescription=0)),
+  CHECK(NOT (dispensation_category='UNKNOWN' AND (requires_prescription=1 OR controlled_special=1))),
+  PRIMARY KEY(tenant_id,product_id),
+  FOREIGN KEY(tenant_id,product_id) REFERENCES catalog_product(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+
+CREATE TABLE pharmacy_prescription (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  product_id TEXT NOT NULL CHECK(length(product_id)=36),
+  prescribed_quantity TEXT NOT NULL CHECK(prescribed_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(prescribed_quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(prescribed_quantity)-length(replace(prescribed_quantity,'.',''))=1)
+    CHECK(prescribed_quantity NOT GLOB '0[0-9]*')
+    CHECK(prescribed_quantity<>'0.000000'),
+  prescribed_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  issuer_professional_id TEXT NOT NULL CHECK(length(issuer_professional_id) BETWEEN 1 AND 64),
+  issuer_name TEXT NOT NULL CHECK(length(issuer_name) BETWEEN 1 AND 120),
+  patient_reference TEXT NOT NULL CHECK(length(patient_reference) BETWEEN 1 AND 64),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','CONSUMED','CANCELLED','EXPIRED')),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  session_id TEXT NOT NULL CHECK(length(session_id)=36),
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id)=36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id)=36),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,idempotency_key),
+  FOREIGN KEY(tenant_id,product_id) REFERENCES catalog_product(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX pharmacy_prescription_product_idx
+  ON pharmacy_prescription(tenant_id,company_id,branch_id,product_id,status);
+CREATE TRIGGER pharmacy_prescription_no_delete BEFORE DELETE ON pharmacy_prescription
+BEGIN SELECT RAISE(ABORT,'pharmacy prescription history is permanent'); END;
+
+CREATE TABLE pharmacy_technical_receipt (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id)=36),
+  lot_id TEXT CHECK(lot_id IS NULL OR length(lot_id)=36),
+  sanitary_registration TEXT CHECK(sanitary_registration IS NULL OR length(sanitary_registration) BETWEEN 1 AND 64),
+  batch_code TEXT NOT NULL CHECK(length(batch_code) BETWEEN 1 AND 96),
+  expiry_date TEXT CHECK(expiry_date IS NULL OR length(expiry_date)=10),
+  quantity TEXT NOT NULL CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity)-length(replace(quantity,'.',''))=1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity<>'0.000000'),
+  storage_condition TEXT NOT NULL CHECK(storage_condition IN (
+    'AMBIENT','CHILLED','CONTROLLED_ROOM','OTHER'
+  )),
+  inspection_result TEXT NOT NULL CHECK(inspection_result IN ('ACCEPTED','QUARANTINE','REJECTED')),
+  inspector_actor_id TEXT NOT NULL CHECK(length(inspector_actor_id)=36),
+  observations TEXT CHECK(observations IS NULL OR length(observations) BETWEEN 1 AND 500),
+  inventory_movement_id TEXT CHECK(inventory_movement_id IS NULL OR length(inventory_movement_id)=36),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  session_id TEXT NOT NULL CHECK(length(session_id)=36),
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id)=36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id)=36),
+  occurred_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,idempotency_key),
+  FOREIGN KEY(tenant_id,presentation_id) REFERENCES catalog_presentation(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER pharmacy_technical_receipt_no_update BEFORE UPDATE ON pharmacy_technical_receipt
+BEGIN SELECT RAISE(ABORT,'pharmacy technical receipt is append-only'); END;
+CREATE TRIGGER pharmacy_technical_receipt_no_delete BEFORE DELETE ON pharmacy_technical_receipt
+BEGIN SELECT RAISE(ABORT,'pharmacy technical receipt history is permanent'); END;
+
+CREATE TABLE pharmacy_dispensation (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  sale_id TEXT NOT NULL CHECK(length(sale_id)=36),
+  product_id TEXT NOT NULL CHECK(length(product_id)=36),
+  presentation_id TEXT NOT NULL CHECK(length(presentation_id)=36),
+  prescription_id TEXT CHECK(prescription_id IS NULL OR length(prescription_id)=36),
+  dispensation_category TEXT NOT NULL,
+  eligibility_snapshot_json TEXT NOT NULL CHECK(json_valid(eligibility_snapshot_json)),
+  status TEXT NOT NULL CHECK(status IN ('AUTHORIZED','BLOCKED_RECORD')),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  session_id TEXT NOT NULL CHECK(length(session_id)=36),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,branch_id,id),
+  FOREIGN KEY(tenant_id,sale_id) REFERENCES sales_sales(tenant_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX pharmacy_dispensation_sale_idx
+  ON pharmacy_dispensation(tenant_id,branch_id,sale_id);
+CREATE TRIGGER pharmacy_dispensation_no_update BEFORE UPDATE ON pharmacy_dispensation
+BEGIN SELECT RAISE(ABORT,'pharmacy dispensation audit is append-only'); END;
+CREATE TRIGGER pharmacy_dispensation_no_delete BEFORE DELETE ON pharmacy_dispensation
+BEGIN SELECT RAISE(ABORT,'pharmacy dispensation audit is permanent'); END;
+
+CREATE TABLE pharmacy_sanitary_alert (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  source_kind TEXT NOT NULL CHECK(source_kind IN ('MANUAL_AUTHORIZED','EXTERNAL_IMPORT')),
+  source_reference TEXT NOT NULL CHECK(length(source_reference) BETWEEN 1 AND 200),
+  product_id TEXT CHECK(product_id IS NULL OR length(product_id)=36),
+  lot_id TEXT CHECK(lot_id IS NULL OR length(lot_id)=36),
+  action_code TEXT NOT NULL CHECK(action_code IN ('QUARANTINE','RECALL')),
+  evidence_note TEXT NOT NULL CHECK(length(evidence_note) BETWEEN 1 AND 500),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  session_id TEXT NOT NULL CHECK(length(session_id)=36),
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id)=36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id)=36),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,idempotency_key),
+  CHECK(product_id IS NOT NULL OR lot_id IS NOT NULL)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER pharmacy_sanitary_alert_no_update BEFORE UPDATE ON pharmacy_sanitary_alert
+BEGIN SELECT RAISE(ABORT,'pharmacy sanitary alert is append-only'); END;
+CREATE TRIGGER pharmacy_sanitary_alert_no_delete BEFORE DELETE ON pharmacy_sanitary_alert
+BEGIN SELECT RAISE(ABORT,'pharmacy sanitary alert history is permanent'); END;
+
+CREATE TABLE pharmacy_controlled_ledger (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  direction TEXT NOT NULL CHECK(direction IN ('IN','OUT','ADJUST','RETURN')),
+  product_id TEXT NOT NULL CHECK(length(product_id)=36),
+  lot_id TEXT CHECK(lot_id IS NULL OR length(lot_id)=36),
+  quantity TEXT NOT NULL CHECK(quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]')
+    CHECK(quantity NOT GLOB '*[^0-9.]*')
+    CHECK(length(quantity)-length(replace(quantity,'.',''))=1)
+    CHECK(quantity NOT GLOB '0[0-9]*')
+    CHECK(quantity<>'0.000000'),
+  reference_type TEXT NOT NULL CHECK(length(reference_type) BETWEEN 1 AND 64),
+  reference_id TEXT NOT NULL CHECK(length(reference_id)=36),
+  actor_id TEXT NOT NULL CHECK(length(actor_id)=36),
+  occurred_at TEXT NOT NULL,
+  PRIMARY KEY(tenant_id,branch_id,id)
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER pharmacy_controlled_ledger_no_update BEFORE UPDATE ON pharmacy_controlled_ledger
+BEGIN SELECT RAISE(ABORT,'controlled ledger is append-only'); END;
+CREATE TRIGGER pharmacy_controlled_ledger_no_delete BEFORE DELETE ON pharmacy_controlled_ledger
+BEGIN SELECT RAISE(ABORT,'controlled ledger history is permanent'); END;
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -1841,6 +2056,7 @@ const MIGRATIONS = [
   { version: 23, sql: MIGRATION_023, checksum: createHash("sha256").update(MIGRATION_023).digest("hex") },
   { version: 24, sql: MIGRATION_024, checksum: createHash("sha256").update(MIGRATION_024).digest("hex") },
   { version: 25, sql: MIGRATION_025, checksum: createHash("sha256").update(MIGRATION_025).digest("hex") },
+  { version: 26, sql: MIGRATION_026, checksum: createHash("sha256").update(MIGRATION_026).digest("hex") },
 ] as const;
 
 /**
