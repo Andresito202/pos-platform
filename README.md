@@ -8,6 +8,9 @@ POS local-first para operación comercial en Colombia. El servicio local mantien
 
 **Estado: consolidación en desarrollo. No es todavía una distribución comercial certificada para todas las plataformas.**
 
+**Corte integral 2026-11-16:** sobre SHA técnico `57721afabf2fef50fd9d374e8dad95c5d2ef215d` los gates TARGET, Central Sync, D-3, G1.2 y CodeQL aprobaron, pero **Strix declaró SCAN NOT RUN** aunque su workflow quedó verde. No hay E2E certificado de 4 roles + 3 empresas/licencias + 3 verticales + múltiples cajas offline/sync, ni Windows físico, Android comercial, FACTUS/bancos externos. **NO-GO comercial general**. [Informe de certificación y matriz de pendientes](docs/testing/camacho-pos-integral-certification-2026-11-16.md). Esta actualización documental necesita su propio CI exact-head; PR #106 sigue Draft.
+
+
 ## Una sola línea de trabajo
 
 - Rama activa existente: `cursor/commercial-design-review-0d11`.
