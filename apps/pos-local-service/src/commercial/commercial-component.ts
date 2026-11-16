@@ -370,7 +370,7 @@ export class CommercialComponent implements RuntimeComponent {
       listCatalogItems: new ListCatalogItemsUseCase(catalogStore),
       listAuditEvents: new ListAuditEventsUseCase(auditStore),
       getAdminMetrics: new GetAdminMetricsUseCase(adminMetricsStore),
-      registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
+      registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now, pharmacyStore),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
       cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),

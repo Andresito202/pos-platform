@@ -323,13 +323,6 @@ export class CommercialRequestHandler {
       });
     }
 
-    const pharmacyCheck = this.commercial.pharmacyStore.revalidateSaleEligibility(this.scope(), request.payload.sale_id);
-    if (pharmacyCheck.kind === "DENIED") {
-      return rejected(request, "PHARMACY_ELIGIBILITY_LOST", {
-        outcome: "PHARMACY_ELIGIBILITY_LOST",
-        payment_id: null, sale_completed: false, confirmed_coverage: null, payable_amount: null, change_amount: null,
-      });
-    }
     const result = this.commercial.registerCashPayment.execute(
       this.scope(),
       authenticated.identity.ssaSessionId,
