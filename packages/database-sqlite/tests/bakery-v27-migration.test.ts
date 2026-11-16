@@ -26,6 +26,9 @@ describe("additive local v27 bakery migration", () => {
     const raw = new Database(join(dir, "pos-local.db"));
     raw.pragma("foreign_keys = OFF");
     raw.exec(`
+            DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_update;
+      DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_delete;
+      DROP TABLE IF EXISTS bakery_production_recipe_deviation;
       DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_update;
       DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_delete;
       DROP TABLE IF EXISTS inventory_lot_acquisition_cost;
@@ -47,7 +50,7 @@ describe("additive local v27 bakery migration", () => {
       DROP TABLE IF EXISTS catalog_bakery_finished_policy;
       DROP TABLE IF EXISTS catalog_bakery_ingredient_profile;
       DROP TRIGGER local_schema_migrations_no_delete;
-      DELETE FROM local_schema_migrations WHERE version=27;
+      DELETE FROM local_schema_migrations WHERE version IN (27, 28);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;
@@ -59,7 +62,7 @@ describe("additive local v27 bakery migration", () => {
     const upgraded = LocalDatabase.open({ dataDirectory: dir });
     expect(upgraded.native.prepare("SELECT max(version) AS v FROM local_schema_migrations").get())
       .toEqual({ v: LATEST_LOCAL_SCHEMA_VERSION });
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(27);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBeGreaterThanOrEqual(27);
     expect(upgraded.native.prepare("SELECT count(*) AS n FROM runtime_operations").get())
       .toEqual({ n: 1 });
     expect(upgraded.native.prepare(

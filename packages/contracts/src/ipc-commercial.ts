@@ -1591,7 +1591,10 @@ export const BakeryRecipeApproveResponseSchema =
 export const BakeryProductionConfirmRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     order_id: UuidSchema,
+    /** Commercial finished units (inventory quantity). Never treated as measured mass. */
     actual_quantity: PositiveScale6Schema,
+    /** Measured net mass when the recipe requires mass conservation; otherwise null. */
+    actual_net_mass_quantity: NonNegativeScale6Schema.nullable(),
     shrinkage_quantity: NonNegativeScale6Schema,
     shrinkage_reason: z.string().min(1).max(200).nullable(),
     production_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -1602,7 +1605,17 @@ export const BakeryProductionConfirmRequestSchema = createRequestEnvelopeSchema(
       planned_quantity: PositiveScale6Schema,
       actual_quantity: PositiveScale6Schema,
       mass_quantity: NonNegativeScale6Schema.nullable(),
+      deviation_kind: z.enum(["QUANTITY_VARIANCE", "SUBSTITUTION"]).nullable().optional(),
+      deviation_reason: z.string().min(1).max(300).nullable().optional(),
+      deviation_authorized_by: UuidSchema.nullable().optional(),
     })).min(1).max(64),
+    recipe_deviations: z.array(z.strictObject({
+      kind: z.enum(["OMISSION", "SUBSTITUTION", "QUANTITY_VARIANCE"]),
+      recipe_presentation_id: UuidSchema.nullable(),
+      ingredient_presentation_id: UuidSchema.nullable(),
+      reason: z.string().min(1).max(300),
+      authorized_by: UuidSchema,
+    })).max(64).optional(),
     direct_costs: z.array(z.strictObject({
       cost_kind: z.enum(["LABOR", "ENERGY", "PACKAGING", "OTHER"]),
       amount: PositiveScale6Schema,
@@ -1625,6 +1638,9 @@ export const BakeryProductionConfirmResultSchema = z.strictObject({
   outcome: z.enum([
     "CONFIRMED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "NOT_FOUND",
     "INVALID_STATUS", "INVALID_QUANTITY", "MASS_RECONCILIATION_FAILED",
+    "MASS_QUANTITY_REQUIRED", "RECIPE_CONSUMPTION_MISMATCH", "RECIPE_INGREDIENT_UNAUTHORIZED",
+    "RECIPE_INGREDIENT_OMITTED", "RECIPE_QUANTITY_MISMATCH", "DEVIATION_REQUIRED",
+    "INVALID_DEVIATION",
     "UNIT_EQUIVALENCE_FAILED", "LOT_NOT_FOUND", "LOT_NOT_SELLABLE", "LOT_RESERVED",
     "INSUFFICIENT_STOCK", "PRESENTATION_NOT_FOUND", "QUANTITY_PRECISION_EXCEEDED",
     "LEGACY_STOCK_RECONCILIATION_REQUIRED", "CONFLICT",

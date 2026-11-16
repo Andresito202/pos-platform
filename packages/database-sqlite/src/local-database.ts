@@ -2323,6 +2323,45 @@ CREATE TRIGGER inventory_lot_acquisition_cost_no_delete BEFORE DELETE ON invento
 BEGIN SELECT RAISE(ABORT,'lot acquisition cost history is permanent'); END;
 `.trim();
 
+/**
+ * MIGRATION_028: Pastelería integrity — separate commercial finished quantity from
+ * measured net mass; persist documented recipe consumption deviations.
+ * Additive only. Does not rewrite 001–027 or invent mass/cost.
+ */
+const MIGRATION_028 = `
+ALTER TABLE bakery_production_order ADD COLUMN actual_net_mass_quantity TEXT;
+
+CREATE TABLE bakery_production_recipe_deviation (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  order_id TEXT NOT NULL CHECK(length(order_id)=36),
+  line_number INTEGER NOT NULL CHECK(line_number>0),
+  kind TEXT NOT NULL CHECK(kind IN ('OMISSION','SUBSTITUTION','QUANTITY_VARIANCE')),
+  recipe_presentation_id TEXT CHECK(recipe_presentation_id IS NULL OR length(recipe_presentation_id)=36),
+  ingredient_presentation_id TEXT CHECK(ingredient_presentation_id IS NULL OR length(ingredient_presentation_id)=36),
+  reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 300),
+  authorized_by TEXT NOT NULL CHECK(length(authorized_by)=36),
+  PRIMARY KEY(tenant_id,branch_id,order_id,line_number),
+  FOREIGN KEY(tenant_id,branch_id,order_id) REFERENCES bakery_production_order(tenant_id,branch_id,id),
+  CHECK(
+    (kind='OMISSION' AND recipe_presentation_id IS NOT NULL)
+    OR (kind='SUBSTITUTION' AND recipe_presentation_id IS NOT NULL AND ingredient_presentation_id IS NOT NULL)
+    OR (kind='QUANTITY_VARIANCE' AND ingredient_presentation_id IS NOT NULL)
+  )
+) WITHOUT ROWID, STRICT;
+CREATE TRIGGER bakery_production_recipe_deviation_no_update BEFORE UPDATE ON bakery_production_recipe_deviation
+BEGIN SELECT RAISE(ABORT,'bakery recipe deviations are immutable'); END;
+CREATE TRIGGER bakery_production_recipe_deviation_no_delete BEFORE DELETE ON bakery_production_recipe_deviation
+BEGIN SELECT RAISE(ABORT,'bakery recipe deviation history is permanent'); END;
+
+ALTER TABLE bakery_production_consumption ADD COLUMN deviation_kind TEXT
+  CHECK(deviation_kind IS NULL OR deviation_kind IN ('QUANTITY_VARIANCE','SUBSTITUTION'));
+ALTER TABLE bakery_production_consumption ADD COLUMN deviation_reason TEXT
+  CHECK(deviation_reason IS NULL OR length(deviation_reason) BETWEEN 1 AND 300);
+ALTER TABLE bakery_production_consumption ADD COLUMN deviation_authorized_by TEXT
+  CHECK(deviation_authorized_by IS NULL OR length(deviation_authorized_by)=36);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2351,6 +2390,7 @@ const MIGRATIONS = [
   { version: 25, sql: MIGRATION_025, checksum: createHash("sha256").update(MIGRATION_025).digest("hex") },
   { version: 26, sql: MIGRATION_026, checksum: createHash("sha256").update(MIGRATION_026).digest("hex") },
   { version: 27, sql: MIGRATION_027, checksum: createHash("sha256").update(MIGRATION_027).digest("hex") },
+  { version: 28, sql: MIGRATION_028, checksum: createHash("sha256").update(MIGRATION_028).digest("hex") },
 ] as const;
 
 /**

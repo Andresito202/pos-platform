@@ -524,6 +524,9 @@ it("upgrades v19 sales without assigning or changing historical customer identit
       DROP TRIGGER IF EXISTS inventory_transform_order_no_update;
       DROP TRIGGER IF EXISTS inventory_transform_order_no_delete;
       DROP TABLE IF EXISTS inventory_transform_order;
+            DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_update;
+      DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_delete;
+      DROP TABLE IF EXISTS bakery_production_recipe_deviation;
       DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_update;
       DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_delete;
       DROP TABLE IF EXISTS inventory_lot_acquisition_cost;

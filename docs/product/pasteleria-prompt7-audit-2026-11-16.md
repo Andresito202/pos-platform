@@ -41,4 +41,15 @@
 
 - `apps/pos-local-service/tests/pasteleria-production.test.ts`
 - `packages/database-sqlite/tests/bakery-v27-migration.test.ts`
+- `packages/database-sqlite/tests/bakery-v28-migration.test.ts`
 - Regresión: `salsamentaria-transform.test.ts`, `farmacia-*.test.ts`, `payment.test.ts`
+
+## Cierre de integridad (post `dbd7e5ee`)
+
+Defectos reproducidos y corregidos:
+
+1. **Consumo vs receta:** `confirmProduction` aceptaba cualquier lista con stock. Ahora valida presentación/lote, consolida multi-lote, exige cantidades planificadas exactas frente al snapshot, rechaza omisiones/sustituciones no documentadas y exige desviación autorizada si `actual ≠ planned`.
+2. **Cantidad comercial vs masa:** `actual_quantity` ya no se reutiliza como masa del terminado. `actual_net_mass_quantity` (M028) alimenta la conservación de masa; no se inventa peso por unidad.
+3. **Costeo / liberación:** multi-lote suma costos de adquisición reales; `NOT_COSTABLE` mantiene `total/unit = null` (`zero_cost_forbidden`); venta física permitida solo si el lote está liberado/AVAILABLE; `release_required` sigue en cuarentena hasta `BAKERY_RELEASE` explícito.
+
+`MIGRATION_028` aditiva: columna de masa neta, desviaciones de receta, columnas de desviación en consumo.

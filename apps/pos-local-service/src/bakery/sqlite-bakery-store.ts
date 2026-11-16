@@ -625,12 +625,130 @@ export class SqliteBakeryStore {
     return { kind: "CANCELLED" as const, orderId: input.orderId };
   }
 
+  /**
+   * Validate consumptions against the immutable recipe snapshot.
+   * Multi-lot lines for the same ingredient are consolidated.
+   * Unauthorized / omitted ingredients require documented deviations.
+   */
+  private validateRecipeConsumptions(input: {
+    scope: SyncScope;
+    plannedQuantity: string;
+    snapshot: {
+      base_batch_quantity: string;
+      lines: Array<{
+        ingredient_product_id?: string;
+        ingredient_presentation_id: string;
+        quantity: string;
+        mass_quantity: string | null;
+      }>;
+    };
+    consumptions: ReadonlyArray<{
+      ingredientPresentationId: string;
+      lotId: string;
+      plannedQuantity: string;
+      actualQuantity: string;
+      massQuantity: string | null;
+    }>;
+    recipeDeviations: ReadonlyArray<{
+      kind: "OMISSION" | "SUBSTITUTION" | "QUANTITY_VARIANCE";
+      recipePresentationId: string | null;
+      ingredientPresentationId: string | null;
+      reason: string;
+      authorizedBy: string;
+    }>;
+  }): { kind: "OK" } | { kind: string; detail?: string } {
+    const scale = scale6ToBigInt(input.plannedQuantity) * 1_000_000n
+      / scale6ToBigInt(input.snapshot.base_batch_quantity);
+    const expected = new Map<string, bigint>();
+    for (const line of input.snapshot.lines) {
+      const qty = scale6ToBigInt(line.quantity) * scale / 1_000_000n;
+      expected.set(
+        line.ingredient_presentation_id,
+        (expected.get(line.ingredient_presentation_id) ?? 0n) + qty,
+      );
+    }
+
+    const consolidated = new Map<string, { planned: bigint; actual: bigint; lots: string[] }>();
+    for (const line of input.consumptions) {
+      const lot = this.database.native.prepare(
+        `SELECT presentation_id FROM inventory_lot
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`,
+      ).get(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, line.lotId,
+      ) as { presentation_id: string } | undefined;
+      if (lot === undefined) return { kind: "LOT_NOT_FOUND" };
+      if (lot.presentation_id !== line.ingredientPresentationId) {
+        return { kind: "RECIPE_CONSUMPTION_MISMATCH", detail: "LOT_PRESENTATION" };
+      }
+      const cur = consolidated.get(line.ingredientPresentationId) ?? {
+        planned: 0n, actual: 0n, lots: [] as string[],
+      };
+      cur.planned += scale6ToBigInt(line.plannedQuantity);
+      cur.actual += scale6ToBigInt(line.actualQuantity);
+      cur.lots.push(line.lotId);
+      consolidated.set(line.ingredientPresentationId, cur);
+    }
+
+    const omissions = new Set(
+      input.recipeDeviations
+        .filter((d) => d.kind === "OMISSION" && d.recipePresentationId)
+        .map((d) => d.recipePresentationId!),
+    );
+    const substitutions = new Map<string, string>();
+    for (const d of input.recipeDeviations.filter((x) => x.kind === "SUBSTITUTION")) {
+      if (!d.recipePresentationId || !d.ingredientPresentationId || d.reason.trim().length === 0) {
+        return { kind: "INVALID_DEVIATION" };
+      }
+      if (!d.authorizedBy || d.authorizedBy.length !== 36) return { kind: "INVALID_DEVIATION" };
+      substitutions.set(d.ingredientPresentationId, d.recipePresentationId);
+    }
+    const quantityVariances = new Set(
+      input.recipeDeviations
+        .filter((d) => d.kind === "QUANTITY_VARIANCE" && d.ingredientPresentationId)
+        .map((d) => d.ingredientPresentationId!),
+    );
+    for (const d of input.recipeDeviations) {
+      if (d.reason.trim().length === 0 || d.authorizedBy.length !== 36) {
+        return { kind: "INVALID_DEVIATION" };
+      }
+    }
+
+    for (const [presentationId, expectedQty] of expected) {
+      const used = consolidated.get(presentationId);
+      if (used === undefined) {
+        const substitutedBy = [...substitutions.entries()]
+          .find(([, recipePres]) => recipePres === presentationId);
+        if (substitutedBy) continue;
+        if (omissions.has(presentationId)) continue;
+        return { kind: "RECIPE_INGREDIENT_OMITTED", detail: presentationId };
+      }
+      if (used.planned !== expectedQty) {
+        return { kind: "RECIPE_QUANTITY_MISMATCH", detail: presentationId };
+      }
+      if (used.actual !== used.planned && !quantityVariances.has(presentationId)) {
+        return { kind: "DEVIATION_REQUIRED", detail: presentationId };
+      }
+    }
+
+    for (const presentationId of consolidated.keys()) {
+      if (expected.has(presentationId)) continue;
+      if (!substitutions.has(presentationId)) {
+        return { kind: "RECIPE_INGREDIENT_UNAUTHORIZED", detail: presentationId };
+      }
+    }
+
+    return { kind: "OK" };
+  }
+
   confirmProduction(input: {
     scope: SyncScope;
     sessionId: string;
     operatorUserId: string;
     orderId: string;
+    /** Commercial / sellable units of finished product (not inferred mass). */
     actualQuantity: string;
+    /** Measured net mass of finished output when mass conservation applies. */
+    actualNetMassQuantity: string | null;
     shrinkageQuantity: string;
     shrinkageReason: string | null;
     productionDate: string;
@@ -641,6 +759,16 @@ export class SqliteBakeryStore {
       plannedQuantity: string;
       actualQuantity: string;
       massQuantity: string | null;
+      deviationKind?: "QUANTITY_VARIANCE" | "SUBSTITUTION" | null;
+      deviationReason?: string | null;
+      deviationAuthorizedBy?: string | null;
+    }>;
+    recipeDeviations: ReadonlyArray<{
+      kind: "OMISSION" | "SUBSTITUTION" | "QUANTITY_VARIANCE";
+      recipePresentationId: string | null;
+      ingredientPresentationId: string | null;
+      reason: string;
+      authorizedBy: string;
     }>;
     directCosts: ReadonlyArray<{
       costKind: "LABOR" | "ENERGY" | "PACKAGING" | "OTHER";
@@ -697,16 +825,44 @@ export class SqliteBakeryStore {
           finished_product_id: string;
           base_batch_quantity: string;
           expected_yield_quantity: string;
+          expected_shrinkage_quantity: string;
           canonical_mass_unit: "G" | "KG" | null;
           shelf_life_days: number;
           release_required: boolean;
           lines: Array<{
+            ingredient_product_id?: string;
             ingredient_presentation_id: string; quantity: string; mass_quantity: string | null;
           }>;
         };
         if (input.consumptions.length === 0) abort({ kind: "INVALID_QUANTITY" });
         if (!/^\d{4}-\d{2}-\d{2}$/.test(input.productionDate)) abort({ kind: "INVALID_QUANTITY" });
         if (scale6ToBigInt(input.actualQuantity) <= 0n) abort({ kind: "INVALID_QUANTITY" });
+
+        // Commercial quantity is never treated as measured mass.
+        if (snapshot.canonical_mass_unit !== null) {
+          if (input.actualNetMassQuantity === null
+            || scale6ToBigInt(input.actualNetMassQuantity) <= 0n) {
+            abort({ kind: "MASS_QUANTITY_REQUIRED" });
+          }
+        } else if (input.actualNetMassQuantity !== null) {
+          abort({ kind: "MASS_QUANTITY_REQUIRED" });
+        }
+
+        const recipeCheck = this.validateRecipeConsumptions({
+          scope: input.scope,
+          plannedQuantity: order!.planned_quantity,
+          snapshot,
+          consumptions: input.consumptions,
+          recipeDeviations: input.recipeDeviations,
+        });
+        if (recipeCheck.kind !== "OK") {
+          abort({
+            kind: recipeCheck.kind,
+            ...("detail" in recipeCheck && recipeCheck.detail !== undefined
+              ? { detail: recipeCheck.detail }
+              : {}),
+          });
+        }
 
         const expiryDate = (() => {
           const base = new Date(`${input.productionDate}T00:00:00.000Z`);
@@ -718,6 +874,10 @@ export class SqliteBakeryStore {
           `UPDATE bakery_production_order SET status='IN_PROGRESS', updated_at=?
            WHERE tenant_id=? AND branch_id=? AND id=?`,
         ).run(this.now().toISOString(), input.scope.tenantId, input.scope.branchId, input.orderId);
+
+        const finishedMass = snapshot.canonical_mass_unit === null
+          ? null
+          : input.actualNetMassQuantity;
 
         const transform = this.inventoryStore.executeTransform({
           scope: input.scope,
@@ -735,7 +895,7 @@ export class SqliteBakeryStore {
           outputs: [{
             presentationId: snapshot.finished_presentation_id,
             quantity: input.actualQuantity,
-            massQuantity: snapshot.canonical_mass_unit === null ? null : input.actualQuantity,
+            massQuantity: finishedMass,
             batchCode: input.finishedBatchCode,
             expiryDate,
             manufactureDate: input.productionDate,
@@ -751,8 +911,10 @@ export class SqliteBakeryStore {
           requestChecksum: createHash("sha256").update(canonicalJson({
             bakery: input.requestChecksum,
             consumptions: input.consumptions,
-            actual: input.actualQuantity,
+            actual_commercial: input.actualQuantity,
+            actual_net_mass: input.actualNetMassQuantity,
             shrinkage: input.shrinkageQuantity,
+            recipe_deviations: input.recipeDeviations,
           })).digest("hex"),
           correlationId: input.correlationId,
           causationId: input.causationId,
@@ -787,17 +949,37 @@ export class SqliteBakeryStore {
           const lineCost = unitCost === null ? null : mulScale6(line.actualQuantity, unitCost);
           if (unitCost === null) missingCost = true;
           else ingredientCost += scale6ToBigInt(lineCost!);
+          const deviationKind = line.deviationKind ?? null;
+          const deviationReason = line.deviationReason ?? null;
+          const deviationAuthorizedBy = line.deviationAuthorizedBy ?? null;
           this.database.native.prepare(
             `INSERT INTO bakery_production_consumption(
               tenant_id,branch_id,order_id,line_number,ingredient_presentation_id,lot_id,
-              planned_quantity,actual_quantity,mass_quantity,unit_cost_amount,line_cost_amount
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+              planned_quantity,actual_quantity,mass_quantity,unit_cost_amount,line_cost_amount,
+              deviation_kind,deviation_reason,deviation_authorized_by
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           ).run(
             input.scope.tenantId, input.scope.branchId, input.orderId, lineNumber,
             line.ingredientPresentationId, line.lotId, line.plannedQuantity, line.actualQuantity,
             line.massQuantity, unitCost, lineCost,
+            deviationKind, deviationReason, deviationAuthorizedBy,
           );
           lineNumber += 1;
+        }
+
+        let deviationLine = 1;
+        for (const deviation of input.recipeDeviations) {
+          this.database.native.prepare(
+            `INSERT INTO bakery_production_recipe_deviation(
+              tenant_id,branch_id,order_id,line_number,kind,recipe_presentation_id,
+              ingredient_presentation_id,reason,authorized_by
+            ) VALUES(?,?,?,?,?,?,?,?,?)`,
+          ).run(
+            input.scope.tenantId, input.scope.branchId, input.orderId, deviationLine,
+            deviation.kind, deviation.recipePresentationId, deviation.ingredientPresentationId,
+            deviation.reason, deviation.authorizedBy,
+          );
+          deviationLine += 1;
         }
 
         let directCost = 0n;
@@ -820,6 +1002,7 @@ export class SqliteBakeryStore {
         const totalIngredient = missingCost ? null : bigIntToScale6(ingredientCost);
         const totalDirect = bigIntToScale6(directCost);
         const totalProduction = missingCost ? null : bigIntToScale6(total);
+        // Unit cost uses commercial finished quantity, never invented mass-per-unit.
         const unitCost = missingCost ? null : divUnitCost(bigIntToScale6(total), input.actualQuantity);
         const costSnapshot = {
           costing_policy_version: COSTING_POLICY_VERSION,
@@ -830,6 +1013,15 @@ export class SqliteBakeryStore {
           total_production_cost: totalProduction,
           unit_cost: unitCost,
           rounding: "FLOOR_SCALE6_DIVISION",
+          commercial_quantity: input.actualQuantity,
+          actual_net_mass_quantity: input.actualNetMassQuantity,
+          expected_yield_quantity: snapshot.expected_yield_quantity,
+          // NOT_COSTABLE: physical sale may proceed when lot is AVAILABLE/released;
+          // never report 0 as definitive cost; COGS/analytics require COSTED.
+          definitive_cost_reported: !missingCost,
+          zero_cost_forbidden: true,
+          commercial_sale_when_not_costable: "ALLOWED_IF_LOT_SELLABLE",
+          cost_reporting_when_not_costable: "BLOCKED",
         };
 
         const planned = scale6ToBigInt(order!.planned_quantity);
@@ -838,14 +1030,15 @@ export class SqliteBakeryStore {
         const nowIso = this.now().toISOString();
         this.database.native.prepare(
           `UPDATE bakery_production_order SET
-            status=?, actual_quantity=?, shrinkage_quantity=?, shrinkage_reason=?,
+            status=?, actual_quantity=?, actual_net_mass_quantity=?, shrinkage_quantity=?, shrinkage_reason=?,
             production_date=?, finished_lot_id=?, finished_batch_code=?, finished_expiry_date=?,
             transform_order_id=?, cost_status=?, total_ingredient_cost=?, total_direct_cost=?,
             total_production_cost=?, unit_cost=?, costing_policy_version=?, cost_snapshot_json=?,
             idempotency_key=?, request_checksum=?, updated_at=?, completed_at=?
            WHERE tenant_id=? AND branch_id=? AND id=?`,
         ).run(
-          status, input.actualQuantity, input.shrinkageQuantity, input.shrinkageReason,
+          status, input.actualQuantity, input.actualNetMassQuantity,
+          input.shrinkageQuantity, input.shrinkageReason,
           input.productionDate, finishedLot!.id, input.finishedBatchCode, expiryDate,
           transformOrderId, costStatus, totalIngredient, totalDirect, totalProduction, unitCost,
           COSTING_POLICY_VERSION, canonicalJson(costSnapshot),
@@ -860,6 +1053,10 @@ export class SqliteBakeryStore {
           {
             status, transform_order_id: transformOrderId, finished_lot_id: finishedLot!.id,
             cost_status: costStatus, physical_rollback_safe: true,
+            actual_commercial_quantity: input.actualQuantity,
+            actual_net_mass_quantity: input.actualNetMassQuantity,
+            release_required: snapshot.release_required,
+            auto_released: false,
           },
           nowIso,
         );

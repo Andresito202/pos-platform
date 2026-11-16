@@ -2119,6 +2119,7 @@ export class CommercialRequestHandler {
       this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
         orderId: payload.order_id,
         actualQuantity: payload.actual_quantity,
+        actualNetMassQuantity: payload.actual_net_mass_quantity,
         shrinkageQuantity: payload.shrinkage_quantity,
         shrinkageReason: payload.shrinkage_reason,
         productionDate: payload.production_date,
@@ -2129,6 +2130,16 @@ export class CommercialRequestHandler {
           plannedQuantity: line.planned_quantity,
           actualQuantity: line.actual_quantity,
           massQuantity: line.mass_quantity,
+          deviationKind: line.deviation_kind ?? null,
+          deviationReason: line.deviation_reason ?? null,
+          deviationAuthorizedBy: line.deviation_authorized_by ?? null,
+        })),
+        recipeDeviations: (payload.recipe_deviations ?? []).map((line) => ({
+          kind: line.kind,
+          recipePresentationId: line.recipe_presentation_id,
+          ingredientPresentationId: line.ingredient_presentation_id,
+          reason: line.reason,
+          authorizedBy: line.authorized_by,
         })),
         directCosts: payload.direct_costs.map((line) => ({
           costKind: line.cost_kind,

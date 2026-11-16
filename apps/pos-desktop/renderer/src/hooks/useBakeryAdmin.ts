@@ -93,6 +93,7 @@ export function useBakeryAdmin() {
     async confirmProduction(input: {
       orderId: string;
       actualQuantity: string;
+      actualNetMassQuantity: string | null;
       shrinkageQuantity: string;
       shrinkageReason: string | null;
       productionDate: string;
@@ -104,6 +105,13 @@ export function useBakeryAdmin() {
         actualQuantity: string;
         massQuantity: string | null;
       }>;
+      recipeDeviations?: ReadonlyArray<{
+        kind: "OMISSION" | "SUBSTITUTION" | "QUANTITY_VARIANCE";
+        recipePresentationId: string | null;
+        ingredientPresentationId: string | null;
+        reason: string;
+        authorizedBy: string;
+      }>;
       directCosts: ReadonlyArray<{ costKind: string; amount: string; sourceNote: string }>;
       shrinkageAttributions: ReadonlyArray<{
         presentationId: string; lotId: string; quantity: string; massQuantity: string | null;
@@ -114,6 +122,7 @@ export function useBakeryAdmin() {
         const result = await invoke<{ result?: { outcome?: string } }>("bakery.production.confirm", {
           order_id: input.orderId,
           actual_quantity: input.actualQuantity,
+          actual_net_mass_quantity: input.actualNetMassQuantity,
           shrinkage_quantity: input.shrinkageQuantity,
           shrinkage_reason: input.shrinkageReason,
           production_date: input.productionDate,
@@ -124,6 +133,13 @@ export function useBakeryAdmin() {
             planned_quantity: line.plannedQuantity,
             actual_quantity: line.actualQuantity,
             mass_quantity: line.massQuantity,
+          })),
+          recipe_deviations: (input.recipeDeviations ?? []).map((line) => ({
+            kind: line.kind,
+            recipe_presentation_id: line.recipePresentationId,
+            ingredient_presentation_id: line.ingredientPresentationId,
+            reason: line.reason,
+            authorized_by: line.authorizedBy,
           })),
           direct_costs: input.directCosts.map((line) => ({
             cost_kind: line.costKind,

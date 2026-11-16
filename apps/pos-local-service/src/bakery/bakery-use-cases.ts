@@ -259,6 +259,7 @@ export class ConfirmBakeryProductionUseCase {
     request: {
       orderId: string;
       actualQuantity: string;
+      actualNetMassQuantity: string | null;
       shrinkageQuantity: string;
       shrinkageReason: string | null;
       productionDate: string;
@@ -269,6 +270,16 @@ export class ConfirmBakeryProductionUseCase {
         plannedQuantity: string;
         actualQuantity: string;
         massQuantity: string | null;
+        deviationKind?: "QUANTITY_VARIANCE" | "SUBSTITUTION" | null;
+        deviationReason?: string | null;
+        deviationAuthorizedBy?: string | null;
+      }>;
+      recipeDeviations?: ReadonlyArray<{
+        kind: "OMISSION" | "SUBSTITUTION" | "QUANTITY_VARIANCE";
+        recipePresentationId: string | null;
+        ingredientPresentationId: string | null;
+        reason: string;
+        authorizedBy: string;
       }>;
       directCosts: ReadonlyArray<{
         costKind: "LABOR" | "ENERGY" | "PACKAGING" | "OTHER";
@@ -296,7 +307,12 @@ export class ConfirmBakeryProductionUseCase {
       ...request, tenant_id: scope.tenantId, actor_id: authSnapshot.claims.user_id,
     })).digest("hex");
     return this.store.confirmProduction({
-      scope, sessionId, operatorUserId: authSnapshot.claims.user_id, ...request, requestChecksum,
+      scope,
+      sessionId,
+      operatorUserId: authSnapshot.claims.user_id,
+      ...request,
+      recipeDeviations: request.recipeDeviations ?? [],
+      requestChecksum,
     });
   }
 }

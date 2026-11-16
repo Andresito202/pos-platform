@@ -28,6 +28,7 @@ export function BakeryPanel({ permissions }: {
   const [recipeVersion, setRecipeVersion] = useState("1");
   const [orderId, setOrderId] = useState("");
   const [actualQty, setActualQty] = useState("900.000000");
+  const [actualNetMass, setActualNetMass] = useState("900.000000");
   const [batchCode, setBatchCode] = useState("");
   const [lotId, setLotId] = useState("");
 
@@ -94,7 +95,8 @@ export function BakeryPanel({ permissions }: {
         <div>
           <h3>Confirmar producción</h3>
           <label>Orden <input value={orderId} onChange={(e) => setOrderId(e.target.value)} /></label>
-          <label>Cantidad real <input value={actualQty} onChange={(e) => setActualQty(e.target.value)} /></label>
+          <label>Cantidad comercial <input value={actualQty} onChange={(e) => setActualQty(e.target.value)} /></label>
+          <label>Masa neta medida <input value={actualNetMass} onChange={(e) => setActualNetMass(e.target.value)} /></label>
           <label>Lote terminado <input value={batchCode} onChange={(e) => setBatchCode(e.target.value)} /></label>
           <label>Lote ingrediente <input value={lotId} onChange={(e) => setLotId(e.target.value)} /></label>
           <button
@@ -103,6 +105,7 @@ export function BakeryPanel({ permissions }: {
             onClick={() => bakery.confirmProduction({
               orderId,
               actualQuantity: actualQty,
+              actualNetMassQuantity: actualNetMass,
               shrinkageQuantity: "0.000000",
               shrinkageReason: null,
               productionDate: new Date().toISOString().slice(0, 10),
@@ -114,6 +117,7 @@ export function BakeryPanel({ permissions }: {
                 actualQuantity: ingQty,
                 massQuantity: ingQty,
               }],
+              recipeDeviations: [],
               directCosts: [],
               shrinkageAttributions: [],
             })}

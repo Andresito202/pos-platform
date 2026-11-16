@@ -34,7 +34,10 @@ describe("SQLite v22 shared batch schema migration",()=>{
      DROP TRIGGER IF EXISTS inventory_transform_order_no_update;
      DROP TRIGGER IF EXISTS inventory_transform_order_no_delete;
      DROP TABLE IF EXISTS inventory_transform_order;
-           DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_update;
+                 DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_update;
+      DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_delete;
+      DROP TABLE IF EXISTS bakery_production_recipe_deviation;
+      DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_update;
       DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_delete;
       DROP TABLE IF EXISTS inventory_lot_acquisition_cost;
       DROP TRIGGER IF EXISTS bakery_production_direct_cost_no_update;
@@ -98,7 +101,7 @@ describe("SQLite v22 shared batch schema migration",()=>{
      DROP TABLE inventory_lot;
      DROP TABLE inventory_lot_tracking;
      DROP TRIGGER local_schema_migrations_no_delete;
-     DELETE FROM local_schema_migrations WHERE version IN (22,23,24,25,26,27);
+     DELETE FROM local_schema_migrations WHERE version IN (22,23,24,25,26,27,28);
      CREATE TRIGGER local_schema_migrations_no_delete
        BEFORE DELETE ON local_schema_migrations
        BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;
