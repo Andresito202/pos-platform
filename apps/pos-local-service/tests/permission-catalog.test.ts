@@ -46,6 +46,7 @@ const EXECUTABLE_PERMISSION_CODES = [
   CanonicalPermission.BAKERY_RECIPE_MANAGE,
   CanonicalPermission.BAKERY_PRODUCTION_EXECUTE,
   CanonicalPermission.BAKERY_PRODUCTION_READ,
+  CanonicalPermission.BAKERY_PRODUCTION_DEVIATE,
 ] as const;
 
 describe("runtime permission catalog alignment", () => {
