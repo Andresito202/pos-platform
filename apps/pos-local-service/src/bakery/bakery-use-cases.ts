@@ -24,6 +24,7 @@ function authorized(
 export const PERMISSION_BAKERY_RECIPE_MANAGE = CanonicalPermission.BAKERY_RECIPE_MANAGE;
 export const PERMISSION_BAKERY_PRODUCTION_EXECUTE = CanonicalPermission.BAKERY_PRODUCTION_EXECUTE;
 export const PERMISSION_BAKERY_PRODUCTION_READ = CanonicalPermission.BAKERY_PRODUCTION_READ;
+export const PERMISSION_BAKERY_PRODUCTION_DEVIATE = CanonicalPermission.BAKERY_PRODUCTION_DEVIATE;
 
 export class UpsertBakeryIngredientProfileUseCase {
   constructor(private readonly store: SqliteBakeryStore) {}
@@ -250,6 +251,65 @@ export class CancelBakeryProductionOrderUseCase {
   }
 }
 
+/**
+ * Issues order-bound deviation approvals. Authorizer is the authenticated
+ * snapshot user with BAKERY_PRODUCTION_DEVIATE — never a client UUID.
+ */
+export class AuthorizeBakeryProductionDeviationUseCase {
+  constructor(private readonly store: SqliteBakeryStore) {}
+  execute(
+    scope: SyncScope,
+    sessionId: string,
+    authSnapshot: StoredAuthorizationSnapshot,
+    request: {
+      orderId: string;
+      deviations: ReadonlyArray<{
+        kind: "OMISSION" | "SUBSTITUTION" | "QUANTITY_VARIANCE";
+        recipePresentationId: string | null;
+        ingredientPresentationId: string | null;
+        approvedQuantity: string;
+        equivalenceBasis: string | null;
+        reason: string;
+      }>;
+      idempotencyKey: string;
+      correlationId: string;
+      causationId: string | null;
+      /** Optional absolute expiry; default +2h from `at`. */
+      expiresAtIso?: string;
+    },
+    at: Date = new Date(),
+  ) {
+    if (!authorized(scope, authSnapshot, CanonicalPermission.BAKERY_PRODUCTION_DEVIATE, at)) {
+      return { kind: "UNAUTHORIZED" as const };
+    }
+    const expiresAtIso = request.expiresAtIso
+      ?? new Date(at.getTime() + 2 * 60 * 60 * 1000).toISOString();
+    const requestChecksum = createHash("sha256").update(canonicalJson({
+      order_id: request.orderId,
+      deviations: request.deviations,
+      tenant_id: scope.tenantId,
+      company_id: scope.companyId,
+      branch_id: scope.branchId,
+      actor_id: authSnapshot.claims.user_id,
+      snapshot_id: authSnapshot.claims.snapshot_id,
+      idempotency_key: request.idempotencyKey,
+    })).digest("hex");
+    return this.store.authorizeProductionDeviations({
+      scope,
+      sessionId,
+      authorizerUserId: authSnapshot.claims.user_id,
+      authorizerSnapshotId: authSnapshot.claims.snapshot_id,
+      orderId: request.orderId,
+      deviations: request.deviations,
+      idempotencyKey: request.idempotencyKey,
+      requestChecksum,
+      correlationId: request.correlationId,
+      causationId: request.causationId,
+      expiresAtIso,
+    });
+  }
+}
+
 export class ConfirmBakeryProductionUseCase {
   constructor(private readonly store: SqliteBakeryStore) {}
   execute(
@@ -279,7 +339,7 @@ export class ConfirmBakeryProductionUseCase {
         recipePresentationId: string | null;
         ingredientPresentationId: string | null;
         reason: string;
-        authorizedBy: string;
+        approvalId: string;
       }>;
       directCosts: ReadonlyArray<{
         costKind: "LABOR" | "ENERGY" | "PACKAGING" | "OTHER";
@@ -303,6 +363,7 @@ export class ConfirmBakeryProductionUseCase {
     }
     // Bakery production posts via inventory transform internally; does NOT grant
     // INVENTORY_STOCK_ADJUST to the operator for arbitrary adjustments.
+    // Deviation authority is only accepted via backend-issued approvalId.
     const requestChecksum = createHash("sha256").update(canonicalJson({
       ...request, tenant_id: scope.tenantId, actor_id: authSnapshot.claims.user_id,
     })).digest("hex");

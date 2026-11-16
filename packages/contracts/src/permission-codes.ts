@@ -39,6 +39,11 @@ export const PermissionCode = {
   BAKERY_PRODUCTION_EXECUTE: "BAKERY_PRODUCTION_EXECUTE",
   /** Pastelería: consult production orders, costs and genealogy. */
   BAKERY_PRODUCTION_READ: "BAKERY_PRODUCTION_READ",
+  /**
+   * Pastelería: authorize recipe deviations (omit/substitute/quantity variance).
+   * Explicit grant only — not implied by Supervisor role or BAKERY_PRODUCTION_EXECUTE.
+   */
+  BAKERY_PRODUCTION_DEVIATE: "BAKERY_PRODUCTION_DEVIATE",
 } as const;
 
 export type CanonicalPermissionCode = (typeof PermissionCode)[keyof typeof PermissionCode];

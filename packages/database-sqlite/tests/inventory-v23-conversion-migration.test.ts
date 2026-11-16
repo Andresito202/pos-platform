@@ -32,7 +32,10 @@ describe("additive local v23 conversion migration",()=>{
       DROP TRIGGER IF EXISTS inventory_transform_order_no_update;
       DROP TRIGGER IF EXISTS inventory_transform_order_no_delete;
       DROP TABLE IF EXISTS inventory_transform_order;
-                  DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_update;
+                        DROP TRIGGER IF EXISTS bakery_production_deviation_approval_no_delete;
+      DROP INDEX IF EXISTS bakery_deviation_approval_order_idx;
+      DROP TABLE IF EXISTS bakery_production_deviation_approval;
+      DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_update;
       DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_delete;
       DROP TABLE IF EXISTS bakery_production_recipe_deviation;
       DROP TRIGGER IF EXISTS inventory_lot_acquisition_cost_no_update;
@@ -91,7 +94,7 @@ describe("additive local v23 conversion migration",()=>{
       DROP TRIGGER inventory_conversion_rule_no_delete;
       DROP TABLE inventory_conversion_rule;
       DROP TRIGGER local_schema_migrations_no_delete;
-      DELETE FROM local_schema_migrations WHERE version IN (23,24,25,26,27,28);
+      DELETE FROM local_schema_migrations WHERE version IN (23,24,25,26,27,28,29);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;

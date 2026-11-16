@@ -49,6 +49,7 @@ import {
   CreateBakeryProductionOrderUseCase,
   PlanBakeryProductionOrderUseCase,
   CancelBakeryProductionOrderUseCase,
+  AuthorizeBakeryProductionDeviationUseCase,
   ConfirmBakeryProductionUseCase,
   ReleaseBakeryFinishedLotUseCase,
   GetBakeryProductionTraceUseCase,
@@ -157,6 +158,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly createBakeryProductionOrder: CreateBakeryProductionOrderUseCase;
         readonly planBakeryProductionOrder: PlanBakeryProductionOrderUseCase;
         readonly cancelBakeryProductionOrder: CancelBakeryProductionOrderUseCase;
+        readonly authorizeBakeryProductionDeviation: AuthorizeBakeryProductionDeviationUseCase;
         readonly confirmBakeryProduction: ConfirmBakeryProductionUseCase;
         readonly releaseBakeryFinishedLot: ReleaseBakeryFinishedLotUseCase;
         readonly getBakeryProductionTrace: GetBakeryProductionTraceUseCase;
@@ -292,6 +294,9 @@ export class CommercialComponent implements RuntimeComponent {
   get createBakeryProductionOrder(): CreateBakeryProductionOrderUseCase { return this.ready.createBakeryProductionOrder; }
   get planBakeryProductionOrder(): PlanBakeryProductionOrderUseCase { return this.ready.planBakeryProductionOrder; }
   get cancelBakeryProductionOrder(): CancelBakeryProductionOrderUseCase { return this.ready.cancelBakeryProductionOrder; }
+  get authorizeBakeryProductionDeviation(): AuthorizeBakeryProductionDeviationUseCase {
+    return this.ready.authorizeBakeryProductionDeviation;
+  }
   get confirmBakeryProduction(): ConfirmBakeryProductionUseCase { return this.ready.confirmBakeryProduction; }
   get releaseBakeryFinishedLot(): ReleaseBakeryFinishedLotUseCase { return this.ready.releaseBakeryFinishedLot; }
   get getBakeryProductionTrace(): GetBakeryProductionTraceUseCase { return this.ready.getBakeryProductionTrace; }
@@ -401,6 +406,7 @@ export class CommercialComponent implements RuntimeComponent {
       createBakeryProductionOrder: new CreateBakeryProductionOrderUseCase(bakeryStore),
       planBakeryProductionOrder: new PlanBakeryProductionOrderUseCase(bakeryStore),
       cancelBakeryProductionOrder: new CancelBakeryProductionOrderUseCase(bakeryStore),
+      authorizeBakeryProductionDeviation: new AuthorizeBakeryProductionDeviationUseCase(bakeryStore),
       confirmBakeryProduction: new ConfirmBakeryProductionUseCase(bakeryStore),
       releaseBakeryFinishedLot: new ReleaseBakeryFinishedLotUseCase(bakeryStore),
       getBakeryProductionTrace: new GetBakeryProductionTraceUseCase(bakeryStore),

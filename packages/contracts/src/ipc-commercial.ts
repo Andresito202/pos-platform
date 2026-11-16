@@ -1588,6 +1588,36 @@ export const BakeryRecipeApproveResultSchema = z.strictObject({
 export const BakeryRecipeApproveResponseSchema =
   createResponseEnvelopeSchema(BakeryRecipeApproveResultSchema);
 
+export const BakeryProductionDeviationAuthorizeRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    order_id: UuidSchema,
+    deviations: z.array(z.strictObject({
+      kind: z.enum(["OMISSION", "SUBSTITUTION", "QUANTITY_VARIANCE"]),
+      recipe_presentation_id: UuidSchema.nullable(),
+      ingredient_presentation_id: UuidSchema.nullable(),
+      approved_quantity: NonNegativeScale6Schema,
+      equivalence_basis: z.string().min(1).max(300).nullable(),
+      reason: z.string().min(1).max(300),
+    })).min(1).max(64),
+    expires_at: z.string().datetime({ offset: true }).optional(),
+  }),
+).safeExtend({ message_type: z.literal("bakery.production.deviation.authorize") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryProductionDeviationAuthorizeResultSchema = z.strictObject({
+  outcome: z.enum([
+    "AUTHORIZED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "NOT_FOUND",
+    "INVALID_STATUS", "INVALID_DEVIATION", "COMPANY_MISMATCH", "PRESENTATION_NOT_FOUND",
+    "RECIPE_INGREDIENT_UNAUTHORIZED", "SUBSTITUTION_QUANTITY_MISMATCH", "INCOMPATIBLE_DEVIATIONS",
+  ]),
+  approval_ids: z.array(UuidSchema).nullable(),
+});
+export const BakeryProductionDeviationAuthorizeResponseSchema =
+  createResponseEnvelopeSchema(BakeryProductionDeviationAuthorizeResultSchema);
+
 export const BakeryProductionConfirmRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     order_id: UuidSchema,
@@ -1607,14 +1637,14 @@ export const BakeryProductionConfirmRequestSchema = createRequestEnvelopeSchema(
       mass_quantity: NonNegativeScale6Schema.nullable(),
       deviation_kind: z.enum(["QUANTITY_VARIANCE", "SUBSTITUTION"]).nullable().optional(),
       deviation_reason: z.string().min(1).max(300).nullable().optional(),
-      deviation_authorized_by: UuidSchema.nullable().optional(),
     })).min(1).max(64),
     recipe_deviations: z.array(z.strictObject({
       kind: z.enum(["OMISSION", "SUBSTITUTION", "QUANTITY_VARIANCE"]),
       recipe_presentation_id: UuidSchema.nullable(),
       ingredient_presentation_id: UuidSchema.nullable(),
       reason: z.string().min(1).max(300),
-      authorized_by: UuidSchema,
+      /** Backend-issued approval; client authorized_by UUIDs are not accepted. */
+      approval_id: UuidSchema,
     })).max(64).optional(),
     direct_costs: z.array(z.strictObject({
       cost_kind: z.enum(["LABOR", "ENERGY", "PACKAGING", "OTHER"]),
@@ -1640,7 +1670,9 @@ export const BakeryProductionConfirmResultSchema = z.strictObject({
     "INVALID_STATUS", "INVALID_QUANTITY", "MASS_RECONCILIATION_FAILED",
     "MASS_QUANTITY_REQUIRED", "RECIPE_CONSUMPTION_MISMATCH", "RECIPE_INGREDIENT_UNAUTHORIZED",
     "RECIPE_INGREDIENT_OMITTED", "RECIPE_QUANTITY_MISMATCH", "DEVIATION_REQUIRED",
-    "INVALID_DEVIATION",
+    "INVALID_DEVIATION", "SUBSTITUTION_QUANTITY_MISMATCH", "DEVIATION_APPROVAL_NOT_FOUND",
+    "DEVIATION_APPROVAL_ORDER_MISMATCH", "DEVIATION_APPROVAL_NOT_ACTIVE",
+    "DEVIATION_APPROVAL_EXPIRED", "COMPANY_MISMATCH",
     "UNIT_EQUIVALENCE_FAILED", "LOT_NOT_FOUND", "LOT_NOT_SELLABLE", "LOT_RESERVED",
     "INSUFFICIENT_STOCK", "PRESENTATION_NOT_FOUND", "QUANTITY_PRECISION_EXCEEDED",
     "LEGACY_STOCK_RECONCILIATION_REQUIRED", "CONFLICT",

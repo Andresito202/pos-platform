@@ -31,6 +31,7 @@ describe("canonical permission catalog", () => {
       "BAKERY_RECIPE_MANAGE",
       "BAKERY_PRODUCTION_EXECUTE",
       "BAKERY_PRODUCTION_READ",
+      "BAKERY_PRODUCTION_DEVIATE",
     ]);
   });
 

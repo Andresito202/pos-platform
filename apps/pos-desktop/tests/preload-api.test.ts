@@ -48,6 +48,7 @@ describe("preload-api", () => {
       "pharmacy.sanitary_alert.register",
       "bakery.recipe.draft.create",
       "bakery.recipe.approve",
+      "bakery.production.deviation.authorize",
       "bakery.production.confirm",
       "bakery.production.trace.get",
       "catalog.item.find",

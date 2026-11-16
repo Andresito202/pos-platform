@@ -110,7 +110,7 @@ export function useBakeryAdmin() {
         recipePresentationId: string | null;
         ingredientPresentationId: string | null;
         reason: string;
-        authorizedBy: string;
+        approvalId: string;
       }>;
       directCosts: ReadonlyArray<{ costKind: string; amount: string; sourceNote: string }>;
       shrinkageAttributions: ReadonlyArray<{
@@ -139,7 +139,7 @@ export function useBakeryAdmin() {
             recipe_presentation_id: line.recipePresentationId,
             ingredient_presentation_id: line.ingredientPresentationId,
             reason: line.reason,
-            authorized_by: line.authorizedBy,
+            approval_id: line.approvalId,
           })),
           direct_costs: input.directCosts.map((line) => ({
             cost_kind: line.costKind,

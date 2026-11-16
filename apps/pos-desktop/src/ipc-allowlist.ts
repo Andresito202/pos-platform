@@ -44,6 +44,7 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:pharmacy.sanitary_alert.register",
   "pos:bakery.recipe.draft.create",
   "pos:bakery.recipe.approve",
+  "pos:bakery.production.deviation.authorize",
   "pos:bakery.production.confirm",
   "pos:bakery.production.trace.get",
   "pos:catalog.item.find",

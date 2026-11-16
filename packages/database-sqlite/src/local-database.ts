@@ -2362,6 +2362,60 @@ ALTER TABLE bakery_production_consumption ADD COLUMN deviation_authorized_by TEX
   CHECK(deviation_authorized_by IS NULL OR length(deviation_authorized_by)=36);
 `.trim();
 
+/**
+ * MIGRATION_029: Pastelería deviation approvals — backend-issued, order-bound,
+ * single-use authorizations. Does not rewrite 001–028. Client-supplied
+ * authorizedBy UUIDs are not authority.
+ */
+const MIGRATION_029 = `
+CREATE TABLE bakery_production_deviation_approval (
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id)=36),
+  company_id TEXT NOT NULL CHECK(length(company_id)=36),
+  branch_id TEXT NOT NULL CHECK(length(branch_id)=36),
+  id TEXT NOT NULL CHECK(length(id)=36),
+  order_id TEXT NOT NULL CHECK(length(order_id)=36),
+  kind TEXT NOT NULL CHECK(kind IN ('OMISSION','SUBSTITUTION','QUANTITY_VARIANCE')),
+  recipe_presentation_id TEXT CHECK(recipe_presentation_id IS NULL OR length(recipe_presentation_id)=36),
+  ingredient_presentation_id TEXT CHECK(ingredient_presentation_id IS NULL OR length(ingredient_presentation_id)=36),
+  expected_quantity TEXT NOT NULL
+    CHECK(expected_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'),
+  approved_quantity TEXT NOT NULL
+    CHECK(approved_quantity GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'),
+  equivalence_basis TEXT CHECK(equivalence_basis IS NULL OR length(equivalence_basis) BETWEEN 1 AND 300),
+  reason TEXT NOT NULL CHECK(length(reason) BETWEEN 1 AND 300),
+  fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64),
+  authorizer_user_id TEXT NOT NULL CHECK(length(authorizer_user_id)=36),
+  authorizer_session_id TEXT NOT NULL CHECK(length(authorizer_session_id)=36),
+  authorizer_snapshot_id TEXT NOT NULL CHECK(length(authorizer_snapshot_id)=36),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','CONSUMED','REVOKED')),
+  consumed_at TEXT,
+  consumed_by_confirm_key TEXT,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_checksum TEXT NOT NULL CHECK(length(request_checksum)=64),
+  correlation_id TEXT NOT NULL CHECK(length(correlation_id)=36),
+  causation_id TEXT CHECK(causation_id IS NULL OR length(causation_id)=36),
+  PRIMARY KEY(tenant_id,branch_id,id),
+  UNIQUE(tenant_id,branch_id,order_id,fingerprint),
+  FOREIGN KEY(tenant_id,branch_id,order_id) REFERENCES bakery_production_order(tenant_id,branch_id,id),
+  CHECK(
+    (kind='OMISSION' AND recipe_presentation_id IS NOT NULL AND ingredient_presentation_id IS NULL)
+    OR (kind='SUBSTITUTION' AND recipe_presentation_id IS NOT NULL AND ingredient_presentation_id IS NOT NULL
+        AND equivalence_basis IS NOT NULL)
+    OR (kind='QUANTITY_VARIANCE' AND ingredient_presentation_id IS NOT NULL)
+  )
+) WITHOUT ROWID, STRICT;
+CREATE INDEX bakery_deviation_approval_order_idx
+  ON bakery_production_deviation_approval(tenant_id,branch_id,order_id,status);
+CREATE TRIGGER bakery_production_deviation_approval_no_delete
+  BEFORE DELETE ON bakery_production_deviation_approval
+BEGIN SELECT RAISE(ABORT,'bakery deviation approvals are permanent'); END;
+
+ALTER TABLE bakery_production_recipe_deviation ADD COLUMN approval_id TEXT
+  CHECK(approval_id IS NULL OR length(approval_id)=36);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2391,6 +2445,7 @@ const MIGRATIONS = [
   { version: 26, sql: MIGRATION_026, checksum: createHash("sha256").update(MIGRATION_026).digest("hex") },
   { version: 27, sql: MIGRATION_027, checksum: createHash("sha256").update(MIGRATION_027).digest("hex") },
   { version: 28, sql: MIGRATION_028, checksum: createHash("sha256").update(MIGRATION_028).digest("hex") },
+  { version: 29, sql: MIGRATION_029, checksum: createHash("sha256").update(MIGRATION_029).digest("hex") },
 ] as const;
 
 /**

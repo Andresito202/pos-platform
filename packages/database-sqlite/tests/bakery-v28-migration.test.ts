@@ -26,6 +26,9 @@ describe("additive local v28 bakery integrity migration", () => {
     const raw = new Database(join(dir, "pos-local.db"));
     raw.pragma("foreign_keys = OFF");
     raw.exec(`
+            DROP TRIGGER IF EXISTS bakery_production_deviation_approval_no_delete;
+      DROP INDEX IF EXISTS bakery_deviation_approval_order_idx;
+      DROP TABLE IF EXISTS bakery_production_deviation_approval;
       DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_update;
       DROP TRIGGER IF EXISTS bakery_production_recipe_deviation_no_delete;
       DROP TABLE IF EXISTS bakery_production_recipe_deviation;
@@ -50,7 +53,7 @@ describe("additive local v28 bakery integrity migration", () => {
       DROP TABLE IF EXISTS catalog_bakery_finished_policy;
       DROP TABLE IF EXISTS catalog_bakery_ingredient_profile;
       DROP TRIGGER local_schema_migrations_no_delete;
-      DELETE FROM local_schema_migrations WHERE version IN (27, 28);
+      DELETE FROM local_schema_migrations WHERE version IN (27, 28, 29);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;

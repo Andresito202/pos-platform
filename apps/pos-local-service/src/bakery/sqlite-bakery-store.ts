@@ -625,14 +625,261 @@ export class SqliteBakeryStore {
     return { kind: "CANCELLED" as const, orderId: input.orderId };
   }
 
+  private recipeExpectedQuantities(
+    plannedQuantity: string,
+    snapshot: {
+      base_batch_quantity: string;
+      lines: Array<{ ingredient_presentation_id: string; quantity: string }>;
+    },
+  ): Map<string, bigint> {
+    const scale = scale6ToBigInt(plannedQuantity) * 1_000_000n
+      / scale6ToBigInt(snapshot.base_batch_quantity);
+    const expected = new Map<string, bigint>();
+    for (const line of snapshot.lines) {
+      const qty = scale6ToBigInt(line.quantity) * scale / 1_000_000n;
+      expected.set(
+        line.ingredient_presentation_id,
+        (expected.get(line.ingredient_presentation_id) ?? 0n) + qty,
+      );
+    }
+    return expected;
+  }
+
+  private deviationFingerprint(input: {
+    orderId: string;
+    kind: string;
+    recipePresentationId: string | null;
+    ingredientPresentationId: string | null;
+    expectedQuantity: string;
+    approvedQuantity: string;
+    equivalenceBasis: string | null;
+    reason: string;
+  }): string {
+    return createHash("sha256").update(canonicalJson({
+      order_id: input.orderId,
+      kind: input.kind,
+      recipe_presentation_id: input.recipePresentationId,
+      ingredient_presentation_id: input.ingredientPresentationId,
+      expected_quantity: input.expectedQuantity,
+      approved_quantity: input.approvedQuantity,
+      equivalence_basis: input.equivalenceBasis,
+      reason: input.reason,
+    })).digest("hex");
+  }
+
   /**
-   * Validate consumptions against the immutable recipe snapshot.
-   * Multi-lot lines for the same ingredient are consolidated.
-   * Unauthorized / omitted ingredients require documented deviations.
+   * Issue order-bound deviation approvals. Authorizer identity comes from the
+   * authenticated snapshot (never from a client-supplied UUID).
+   */
+  authorizeProductionDeviations(input: {
+    scope: SyncScope;
+    sessionId: string;
+    authorizerUserId: string;
+    authorizerSnapshotId: string;
+    orderId: string;
+    deviations: ReadonlyArray<{
+      kind: "OMISSION" | "SUBSTITUTION" | "QUANTITY_VARIANCE";
+      recipePresentationId: string | null;
+      ingredientPresentationId: string | null;
+      approvedQuantity: string;
+      equivalenceBasis: string | null;
+      reason: string;
+    }>;
+    idempotencyKey: string;
+    requestChecksum: string;
+    correlationId: string;
+    causationId: string | null;
+    expiresAtIso: string;
+  }) {
+    const prior = this.database.native.prepare(
+      `SELECT request_checksum FROM bakery_production_deviation_approval
+       WHERE tenant_id=? AND idempotency_key=? LIMIT 1`,
+    ).get(input.scope.tenantId, input.idempotencyKey) as
+      | { request_checksum: string } | undefined;
+    if (prior) {
+      if (prior.request_checksum !== input.requestChecksum) {
+        return { kind: "IDEMPOTENCY_CONFLICT" as const };
+      }
+      const rows = this.database.native.prepare(
+        `SELECT id FROM bakery_production_deviation_approval
+         WHERE tenant_id=? AND idempotency_key=? ORDER BY id`,
+      ).all(input.scope.tenantId, input.idempotencyKey) as Array<{ id: string }>;
+      return { kind: "IDEMPOTENT" as const, approvalIds: rows.map((r) => r.id) };
+    }
+
+    const order = this.loadOrder(input.scope, input.orderId);
+    if (order === null) return { kind: "NOT_FOUND" as const };
+    if (order.company_id !== input.scope.companyId) return { kind: "COMPANY_MISMATCH" as const };
+    if (order.status === "COMPLETED" || order.status === "PARTIALLY_COMPLETED"
+      || order.status === "CANCELLED") {
+      return { kind: "INVALID_STATUS" as const };
+    }
+    if (input.deviations.length === 0) return { kind: "INVALID_DEVIATION" as const };
+
+    const snapshot = JSON.parse(order.recipe_snapshot_json) as {
+      base_batch_quantity: string;
+      lines: Array<{ ingredient_presentation_id: string; quantity: string }>;
+    };
+    const expected = this.recipeExpectedQuantities(order.planned_quantity, snapshot);
+    const recipePres = new Set(expected.keys());
+    const seenRecipeTargets = new Set<string>();
+    const nowIso = this.now().toISOString();
+    const approvalIds: string[] = [];
+
+    try {
+      this.database.native.transaction(() => {
+        for (const deviation of input.deviations) {
+          if (deviation.reason.trim().length === 0) {
+            throw Object.assign(new Error("INVALID_DEVIATION"), { code: "INVALID_DEVIATION" });
+          }
+          let recipePresentationId = deviation.recipePresentationId;
+          let ingredientPresentationId = deviation.ingredientPresentationId;
+          let expectedQuantity: string;
+          let approvedQuantity = deviation.approvedQuantity;
+
+          if (deviation.kind === "OMISSION") {
+            if (!recipePresentationId || ingredientPresentationId !== null) {
+              throw Object.assign(new Error("INVALID_DEVIATION"), { code: "INVALID_DEVIATION" });
+            }
+            if (!recipePres.has(recipePresentationId)) {
+              throw Object.assign(new Error("RECIPE_INGREDIENT_UNAUTHORIZED"), {
+                code: "RECIPE_INGREDIENT_UNAUTHORIZED",
+              });
+            }
+            if (seenRecipeTargets.has(recipePresentationId)) {
+              throw Object.assign(new Error("INCOMPATIBLE_DEVIATIONS"), {
+                code: "INCOMPATIBLE_DEVIATIONS",
+              });
+            }
+            seenRecipeTargets.add(recipePresentationId);
+            expectedQuantity = bigIntToScale6(expected.get(recipePresentationId)!);
+            approvedQuantity = "0.000000";
+          } else if (deviation.kind === "SUBSTITUTION") {
+            if (!recipePresentationId || !ingredientPresentationId
+              || !deviation.equivalenceBasis || deviation.equivalenceBasis.trim().length === 0) {
+              throw Object.assign(new Error("INVALID_DEVIATION"), { code: "INVALID_DEVIATION" });
+            }
+            if (!recipePres.has(recipePresentationId)) {
+              throw Object.assign(new Error("RECIPE_INGREDIENT_UNAUTHORIZED"), {
+                code: "RECIPE_INGREDIENT_UNAUTHORIZED",
+              });
+            }
+            if (recipePres.has(ingredientPresentationId)) {
+              throw Object.assign(new Error("INVALID_DEVIATION"), { code: "INVALID_DEVIATION" });
+            }
+            if (seenRecipeTargets.has(recipePresentationId)) {
+              throw Object.assign(new Error("INCOMPATIBLE_DEVIATIONS"), {
+                code: "INCOMPATIBLE_DEVIATIONS",
+              });
+            }
+            seenRecipeTargets.add(recipePresentationId);
+            const substitute = this.database.native.prepare(
+              `SELECT p.company_id FROM catalog_presentation pr
+               JOIN catalog_product p ON p.tenant_id=pr.tenant_id AND p.id=pr.product_id
+               WHERE pr.tenant_id=? AND pr.id=? AND pr.status='ACTIVE'`,
+            ).get(input.scope.tenantId, ingredientPresentationId) as
+              | { company_id: string } | undefined;
+            if (substitute === undefined) {
+              throw Object.assign(new Error("PRESENTATION_NOT_FOUND"), {
+                code: "PRESENTATION_NOT_FOUND",
+              });
+            }
+            if (substitute.company_id !== input.scope.companyId) {
+              throw Object.assign(new Error("COMPANY_MISMATCH"), { code: "COMPANY_MISMATCH" });
+            }
+            expectedQuantity = bigIntToScale6(expected.get(recipePresentationId)!);
+            // Same-unit 1:1 substitution: approved quantity must equal recipe expected.
+            if (scale6ToBigInt(approvedQuantity) !== scale6ToBigInt(expectedQuantity)) {
+              throw Object.assign(new Error("SUBSTITUTION_QUANTITY_MISMATCH"), {
+                code: "SUBSTITUTION_QUANTITY_MISMATCH",
+              });
+            }
+          } else {
+            // QUANTITY_VARIANCE — recipe_presentation_id stays null; ingredient is the recipe line.
+            ingredientPresentationId = deviation.ingredientPresentationId;
+            if (!ingredientPresentationId || !recipePres.has(ingredientPresentationId)) {
+              throw Object.assign(new Error("RECIPE_INGREDIENT_UNAUTHORIZED"), {
+                code: "RECIPE_INGREDIENT_UNAUTHORIZED",
+              });
+            }
+            recipePresentationId = null;
+            if (seenRecipeTargets.has(`QV:${ingredientPresentationId}`)) {
+              throw Object.assign(new Error("INCOMPATIBLE_DEVIATIONS"), {
+                code: "INCOMPATIBLE_DEVIATIONS",
+              });
+            }
+            seenRecipeTargets.add(`QV:${ingredientPresentationId}`);
+            expectedQuantity = bigIntToScale6(expected.get(ingredientPresentationId)!);
+            if (scale6ToBigInt(approvedQuantity) === scale6ToBigInt(expectedQuantity)) {
+              throw Object.assign(new Error("INVALID_DEVIATION"), { code: "INVALID_DEVIATION" });
+            }
+            if (scale6ToBigInt(approvedQuantity) <= 0n) {
+              throw Object.assign(new Error("INVALID_DEVIATION"), { code: "INVALID_DEVIATION" });
+            }
+          }
+
+          const fingerprint = this.deviationFingerprint({
+            orderId: input.orderId,
+            kind: deviation.kind,
+            recipePresentationId,
+            ingredientPresentationId: deviation.kind === "OMISSION" ? null : ingredientPresentationId,
+            expectedQuantity,
+            approvedQuantity,
+            equivalenceBasis: deviation.equivalenceBasis,
+            reason: deviation.reason,
+          });
+          const approvalId = uuidV7();
+          this.database.native.prepare(
+            `INSERT INTO bakery_production_deviation_approval(
+              tenant_id,company_id,branch_id,id,order_id,kind,recipe_presentation_id,
+              ingredient_presentation_id,expected_quantity,approved_quantity,equivalence_basis,
+              reason,fingerprint,authorizer_user_id,authorizer_session_id,authorizer_snapshot_id,
+              status,consumed_at,consumed_by_confirm_key,expires_at,created_at,idempotency_key,
+              request_checksum,correlation_id,causation_id
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'ACTIVE',NULL,NULL,?,?,?,?,?,?)`,
+          ).run(
+            input.scope.tenantId, input.scope.companyId, input.scope.branchId, approvalId,
+            input.orderId, deviation.kind, recipePresentationId,
+            deviation.kind === "OMISSION" ? null : ingredientPresentationId,
+            expectedQuantity, approvedQuantity, deviation.equivalenceBasis, deviation.reason,
+            fingerprint, input.authorizerUserId, input.sessionId, input.authorizerSnapshotId,
+            input.expiresAtIso, nowIso, input.idempotencyKey, input.requestChecksum,
+            input.correlationId, input.causationId,
+          );
+          approvalIds.push(approvalId);
+        }
+        this.writeAudit(
+          input.scope, input.sessionId, input.authorizerUserId,
+          "BAKERY_PRODUCTION_DEVIATION_AUTHORIZED", "BAKERY_PRODUCTION_ORDER", input.orderId,
+          input.correlationId, input.causationId,
+          {
+            approval_ids: approvalIds,
+            authorizer_user_id: input.authorizerUserId,
+            authorizer_snapshot_id: input.authorizerSnapshotId,
+            client_authorized_by_accepted: false,
+          },
+          nowIso,
+        );
+      })();
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (typeof code === "string") return { kind: code as "INVALID_DEVIATION" };
+      throw error;
+    }
+
+    return { kind: "AUTHORIZED" as const, approvalIds };
+  }
+
+  /**
+   * Validate consumptions against the immutable recipe snapshot using
+   * backend-issued deviation approvals (not client-supplied authorizer IDs).
    */
   private validateRecipeConsumptions(input: {
     scope: SyncScope;
+    orderId: string;
     plannedQuantity: string;
+    confirmIdempotencyKey: string;
+    nowIso: string;
     snapshot: {
       base_batch_quantity: string;
       lines: Array<{
@@ -654,19 +901,29 @@ export class SqliteBakeryStore {
       recipePresentationId: string | null;
       ingredientPresentationId: string | null;
       reason: string;
-      authorizedBy: string;
+      approvalId: string;
     }>;
-  }): { kind: "OK" } | { kind: string; detail?: string } {
-    const scale = scale6ToBigInt(input.plannedQuantity) * 1_000_000n
-      / scale6ToBigInt(input.snapshot.base_batch_quantity);
-    const expected = new Map<string, bigint>();
-    for (const line of input.snapshot.lines) {
-      const qty = scale6ToBigInt(line.quantity) * scale / 1_000_000n;
-      expected.set(
-        line.ingredient_presentation_id,
-        (expected.get(line.ingredient_presentation_id) ?? 0n) + qty,
-      );
-    }
+  }): { kind: "OK"; consumedApprovals: Array<{
+    approvalId: string; authorizerUserId: string; kind: string;
+    recipePresentationId: string | null; ingredientPresentationId: string | null;
+    reason: string;
+  }> } | { kind:
+    | "LOT_NOT_FOUND"
+    | "RECIPE_CONSUMPTION_MISMATCH"
+    | "INVALID_DEVIATION"
+    | "DEVIATION_APPROVAL_NOT_FOUND"
+    | "COMPANY_MISMATCH"
+    | "DEVIATION_APPROVAL_ORDER_MISMATCH"
+    | "DEVIATION_APPROVAL_NOT_ACTIVE"
+    | "DEVIATION_APPROVAL_EXPIRED"
+    | "RECIPE_INGREDIENT_OMITTED"
+    | "SUBSTITUTION_QUANTITY_MISMATCH"
+    | "RECIPE_QUANTITY_MISMATCH"
+    | "DEVIATION_REQUIRED"
+    | "RECIPE_INGREDIENT_UNAUTHORIZED";
+    detail?: string;
+  } {
+    const expected = this.recipeExpectedQuantities(input.plannedQuantity, input.snapshot);
 
     const consolidated = new Map<string, { planned: bigint; actual: bigint; lots: string[] }>();
     for (const line of input.consumptions) {
@@ -689,44 +946,113 @@ export class SqliteBakeryStore {
       consolidated.set(line.ingredientPresentationId, cur);
     }
 
-    const omissions = new Set(
-      input.recipeDeviations
-        .filter((d) => d.kind === "OMISSION" && d.recipePresentationId)
-        .map((d) => d.recipePresentationId!),
-    );
-    const substitutions = new Map<string, string>();
-    for (const d of input.recipeDeviations.filter((x) => x.kind === "SUBSTITUTION")) {
-      if (!d.recipePresentationId || !d.ingredientPresentationId || d.reason.trim().length === 0) {
-        return { kind: "INVALID_DEVIATION" };
+    const consumedApprovals: Array<{
+      approvalId: string; authorizerUserId: string; kind: string;
+      recipePresentationId: string | null; ingredientPresentationId: string | null;
+      reason: string;
+    }> = [];
+    const omissions = new Set<string>();
+    const substitutions = new Map<string, { recipePresentationId: string; approved: bigint }>();
+    const quantityVariances = new Map<string, bigint>();
+    const usedApprovalIds = new Set<string>();
+
+    for (const deviation of input.recipeDeviations) {
+      if (usedApprovalIds.has(deviation.approvalId)) {
+        return { kind: "INVALID_DEVIATION", detail: "DUPLICATE_APPROVAL" };
       }
-      if (!d.authorizedBy || d.authorizedBy.length !== 36) return { kind: "INVALID_DEVIATION" };
-      substitutions.set(d.ingredientPresentationId, d.recipePresentationId);
-    }
-    const quantityVariances = new Set(
-      input.recipeDeviations
-        .filter((d) => d.kind === "QUANTITY_VARIANCE" && d.ingredientPresentationId)
-        .map((d) => d.ingredientPresentationId!),
-    );
-    for (const d of input.recipeDeviations) {
-      if (d.reason.trim().length === 0 || d.authorizedBy.length !== 36) {
-        return { kind: "INVALID_DEVIATION" };
+      usedApprovalIds.add(deviation.approvalId);
+      const approval = this.database.native.prepare(
+        `SELECT id,order_id,kind,recipe_presentation_id,ingredient_presentation_id,
+                expected_quantity,approved_quantity,equivalence_basis,reason,fingerprint,
+                authorizer_user_id,status,expires_at,company_id
+         FROM bakery_production_deviation_approval
+         WHERE tenant_id=? AND branch_id=? AND id=?`,
+      ).get(input.scope.tenantId, input.scope.branchId, deviation.approvalId) as {
+        id: string; order_id: string; kind: string;
+        recipe_presentation_id: string | null; ingredient_presentation_id: string | null;
+        expected_quantity: string; approved_quantity: string; equivalence_basis: string | null;
+        reason: string; fingerprint: string; authorizer_user_id: string;
+        status: string; expires_at: string; company_id: string;
+      } | undefined;
+      if (approval === undefined) return { kind: "DEVIATION_APPROVAL_NOT_FOUND" };
+      if (approval.company_id !== input.scope.companyId) return { kind: "COMPANY_MISMATCH" };
+      if (approval.order_id !== input.orderId) return { kind: "DEVIATION_APPROVAL_ORDER_MISMATCH" };
+      if (approval.status !== "ACTIVE") return { kind: "DEVIATION_APPROVAL_NOT_ACTIVE" };
+      if (approval.expires_at < input.nowIso) return { kind: "DEVIATION_APPROVAL_EXPIRED" };
+      if (approval.kind !== deviation.kind) return { kind: "INVALID_DEVIATION", detail: "KIND" };
+      if (approval.reason !== deviation.reason) return { kind: "INVALID_DEVIATION", detail: "REASON" };
+      if ((approval.recipe_presentation_id ?? null) !== (deviation.recipePresentationId ?? null)
+        || (approval.ingredient_presentation_id ?? null) !== (deviation.ingredientPresentationId ?? null)) {
+        return { kind: "INVALID_DEVIATION", detail: "PRESENTATION" };
       }
+
+      if (approval.kind === "OMISSION") {
+        omissions.add(approval.recipe_presentation_id!);
+      } else if (approval.kind === "SUBSTITUTION") {
+        substitutions.set(approval.ingredient_presentation_id!, {
+          recipePresentationId: approval.recipe_presentation_id!,
+          approved: scale6ToBigInt(approval.approved_quantity),
+        });
+      } else {
+        quantityVariances.set(
+          approval.ingredient_presentation_id!,
+          scale6ToBigInt(approval.approved_quantity),
+        );
+      }
+
+      const updated = this.database.native.prepare(
+        `UPDATE bakery_production_deviation_approval
+         SET status='CONSUMED', consumed_at=?, consumed_by_confirm_key=?
+         WHERE tenant_id=? AND branch_id=? AND id=? AND status='ACTIVE'`,
+      ).run(
+        input.nowIso, input.confirmIdempotencyKey,
+        input.scope.tenantId, input.scope.branchId, approval.id,
+      );
+      if (updated.changes !== 1) return { kind: "DEVIATION_APPROVAL_NOT_ACTIVE" };
+
+      consumedApprovals.push({
+        approvalId: approval.id,
+        authorizerUserId: approval.authorizer_user_id,
+        kind: approval.kind,
+        recipePresentationId: approval.recipe_presentation_id,
+        ingredientPresentationId: approval.ingredient_presentation_id,
+        reason: approval.reason,
+      });
     }
 
     for (const [presentationId, expectedQty] of expected) {
       const used = consolidated.get(presentationId);
       if (used === undefined) {
         const substitutedBy = [...substitutions.entries()]
-          .find(([, recipePres]) => recipePres === presentationId);
-        if (substitutedBy) continue;
+          .find(([, meta]) => meta.recipePresentationId === presentationId);
+        if (substitutedBy) {
+          const [subPres, meta] = substitutedBy;
+          const subUsed = consolidated.get(subPres);
+          if (subUsed === undefined) {
+            return { kind: "RECIPE_INGREDIENT_OMITTED", detail: subPres };
+          }
+          if (subUsed.planned !== meta.approved || subUsed.actual !== meta.approved) {
+            return { kind: "SUBSTITUTION_QUANTITY_MISMATCH", detail: subPres };
+          }
+          if (meta.approved !== expectedQty) {
+            return { kind: "SUBSTITUTION_QUANTITY_MISMATCH", detail: presentationId };
+          }
+          continue;
+        }
         if (omissions.has(presentationId)) continue;
         return { kind: "RECIPE_INGREDIENT_OMITTED", detail: presentationId };
       }
       if (used.planned !== expectedQty) {
         return { kind: "RECIPE_QUANTITY_MISMATCH", detail: presentationId };
       }
-      if (used.actual !== used.planned && !quantityVariances.has(presentationId)) {
-        return { kind: "DEVIATION_REQUIRED", detail: presentationId };
+      if (used.actual !== used.planned) {
+        const approvedActual = quantityVariances.get(presentationId);
+        if (approvedActual === undefined) {
+          return { kind: "DEVIATION_REQUIRED", detail: presentationId };
+        }
+        if (used.actual !== approvedActual) {
+          return { kind: "SUBSTITUTION_QUANTITY_MISMATCH", detail: presentationId };
+        }
       }
     }
 
@@ -737,7 +1063,7 @@ export class SqliteBakeryStore {
       }
     }
 
-    return { kind: "OK" };
+    return { kind: "OK", consumedApprovals };
   }
 
   confirmProduction(input: {
@@ -768,7 +1094,8 @@ export class SqliteBakeryStore {
       recipePresentationId: string | null;
       ingredientPresentationId: string | null;
       reason: string;
-      authorizedBy: string;
+      /** Backend-issued approval id — client authorizedBy UUIDs are not accepted. */
+      approvalId: string;
     }>;
     directCosts: ReadonlyArray<{
       costKind: "LABOR" | "ENERGY" | "PACKAGING" | "OTHER";
@@ -848,21 +1175,23 @@ export class SqliteBakeryStore {
           abort({ kind: "MASS_QUANTITY_REQUIRED" });
         }
 
+        const nowIsoForAuth = this.now().toISOString();
         const recipeCheck = this.validateRecipeConsumptions({
           scope: input.scope,
+          orderId: input.orderId,
           plannedQuantity: order!.planned_quantity,
+          confirmIdempotencyKey: input.idempotencyKey,
+          nowIso: nowIsoForAuth,
           snapshot,
           consumptions: input.consumptions,
           recipeDeviations: input.recipeDeviations,
         });
-        if (recipeCheck.kind !== "OK") {
-          abort({
+        const consumedApprovals = recipeCheck.kind === "OK"
+          ? recipeCheck.consumedApprovals
+          : abort({
             kind: recipeCheck.kind,
-            ...("detail" in recipeCheck && recipeCheck.detail !== undefined
-              ? { detail: recipeCheck.detail }
-              : {}),
+            ...(recipeCheck.detail !== undefined ? { detail: recipeCheck.detail } : {}),
           });
-        }
 
         const expiryDate = (() => {
           const base = new Date(`${input.productionDate}T00:00:00.000Z`);
@@ -968,16 +1297,16 @@ export class SqliteBakeryStore {
         }
 
         let deviationLine = 1;
-        for (const deviation of input.recipeDeviations) {
+        for (const approval of consumedApprovals) {
           this.database.native.prepare(
             `INSERT INTO bakery_production_recipe_deviation(
               tenant_id,branch_id,order_id,line_number,kind,recipe_presentation_id,
-              ingredient_presentation_id,reason,authorized_by
-            ) VALUES(?,?,?,?,?,?,?,?,?)`,
+              ingredient_presentation_id,reason,authorized_by,approval_id
+            ) VALUES(?,?,?,?,?,?,?,?,?,?)`,
           ).run(
             input.scope.tenantId, input.scope.branchId, input.orderId, deviationLine,
-            deviation.kind, deviation.recipePresentationId, deviation.ingredientPresentationId,
-            deviation.reason, deviation.authorizedBy,
+            approval.kind, approval.recipePresentationId, approval.ingredientPresentationId,
+            approval.reason, approval.authorizerUserId, approval.approvalId,
           );
           deviationLine += 1;
         }

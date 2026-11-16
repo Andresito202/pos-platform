@@ -26,6 +26,7 @@ import {
   CreateBakeryProductionOrderUseCase,
   PlanBakeryProductionOrderUseCase,
   CancelBakeryProductionOrderUseCase,
+  AuthorizeBakeryProductionDeviationUseCase,
   ConfirmBakeryProductionUseCase,
   ReleaseBakeryFinishedLotUseCase,
   GetBakeryProductionTraceUseCase,
@@ -51,11 +52,16 @@ const SCOPE_B: SyncScope = { ...SCOPE, branchId: BRANCH_B };
 const NOW = new Date("2026-09-07T10:00:00.000Z");
 const ADMIN = [
   "BAKERY_RECIPE_MANAGE", "BAKERY_PRODUCTION_EXECUTE", "BAKERY_PRODUCTION_READ",
+  "BAKERY_PRODUCTION_DEVIATE",
   "CATALOG_PRODUCT_REGISTER", "INVENTORY_STOCK_RECEIVE", "INVENTORY_STOCK_ADJUST", "INVENTORY_STOCK_READ",
   "SALES_SALE_CREATE", "PAYMENTS_PAYMENT_REGISTER", "CASH_SHIFT_OPEN", "CASH_SHIFT_CLOSE",
 ];
 const CASHIER = ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ", "PAYMENTS_PAYMENT_REGISTER"];
 const SUPERVISOR = ["BAKERY_PRODUCTION_READ", "INVENTORY_STOCK_READ"];
+const EXECUTOR_ONLY = [
+  "BAKERY_PRODUCTION_EXECUTE", "BAKERY_PRODUCTION_READ",
+  "CATALOG_PRODUCT_REGISTER", "INVENTORY_STOCK_RECEIVE", "INVENTORY_STOCK_READ",
+];
 
 const directories: string[] = [];
 const databases: LocalDatabase[] = [];
@@ -126,6 +132,7 @@ async function buildEnv() {
     createOrder: new CreateBakeryProductionOrderUseCase(bakeryStore),
     plan: new PlanBakeryProductionOrderUseCase(bakeryStore),
     cancel: new CancelBakeryProductionOrderUseCase(bakeryStore),
+    authorizeDeviation: new AuthorizeBakeryProductionDeviationUseCase(bakeryStore),
     confirm: new ConfirmBakeryProductionUseCase(bakeryStore),
     release: new ReleaseBakeryFinishedLotUseCase(bakeryStore),
     trace: new GetBakeryProductionTraceUseCase(bakeryStore),
@@ -655,6 +662,68 @@ describe("prompt-7 pastelería integrity", () => {
       idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
     }).kind).toBe("DEVIATION_REQUIRED");
 
+    // Client-supplied authorizedBy alone is not accepted — needs backend approval.
+    expect(env.authorizeDeviation.execute(SCOPE, SESSION, auth(EXECUTOR_ONLY), {
+      orderId: order.orderId,
+      deviations: [{
+        kind: "QUANTITY_VARIANCE",
+        recipePresentationId: null,
+        ingredientPresentationId: flour.presentationId,
+        approvedQuantity: "650.000000",
+        equivalenceBasis: null,
+        reason: "Ajuste báscula",
+      }],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    }).kind).toBe("UNAUTHORIZED");
+
+    const authKey = key();
+    const authorized = env.authorizeDeviation.execute(SCOPE, SESSION, auth(), {
+      orderId: order.orderId,
+      deviations: [
+        {
+          kind: "QUANTITY_VARIANCE",
+          recipePresentationId: null,
+          ingredientPresentationId: flour.presentationId,
+          approvedQuantity: "650.000000",
+          equivalenceBasis: null,
+          reason: "Ajuste báscula autorizado",
+        },
+        {
+          kind: "QUANTITY_VARIANCE",
+          recipePresentationId: null,
+          ingredientPresentationId: sugar.presentationId,
+          approvedQuantity: "350.000000",
+          equivalenceBasis: null,
+          reason: "Ajuste báscula autorizado",
+        },
+      ],
+      idempotencyKey: authKey, correlationId: CORRELATION, causationId: null,
+    });
+    expect(authorized.kind).toBe("AUTHORIZED");
+    if (authorized.kind !== "AUTHORIZED") return;
+    expect(env.authorizeDeviation.execute(SCOPE, SESSION, auth(), {
+      orderId: order.orderId,
+      deviations: [
+        {
+          kind: "QUANTITY_VARIANCE",
+          recipePresentationId: null,
+          ingredientPresentationId: flour.presentationId,
+          approvedQuantity: "650.000000",
+          equivalenceBasis: null,
+          reason: "Ajuste báscula autorizado",
+        },
+        {
+          kind: "QUANTITY_VARIANCE",
+          recipePresentationId: null,
+          ingredientPresentationId: sugar.presentationId,
+          approvedQuantity: "350.000000",
+          equivalenceBasis: null,
+          reason: "Ajuste báscula autorizado",
+        },
+      ],
+      idempotencyKey: authKey, correlationId: CORRELATION, causationId: null,
+    }).kind).toBe("IDEMPOTENT");
+
     const withDev = env.confirm.execute(SCOPE, SESSION, auth(), {
       orderId: order.orderId,
       actualQuantity: "1000.000000", actualNetMassQuantity: "1000.000000",
@@ -664,16 +733,10 @@ describe("prompt-7 pastelería integrity", () => {
         {
           ingredientPresentationId: flour.presentationId, lotId: flourLot.id,
           plannedQuantity: "600.000000", actualQuantity: "650.000000", massQuantity: "650.000000",
-          deviationKind: "QUANTITY_VARIANCE",
-          deviationReason: "Ajuste báscula autorizado",
-          deviationAuthorizedBy: USER,
         },
         {
           ingredientPresentationId: sugar.presentationId, lotId: sugarLot.id,
           plannedQuantity: "400.000000", actualQuantity: "350.000000", massQuantity: "350.000000",
-          deviationKind: "QUANTITY_VARIANCE",
-          deviationReason: "Ajuste báscula autorizado",
-          deviationAuthorizedBy: USER,
         },
       ],
       recipeDeviations: [
@@ -682,14 +745,14 @@ describe("prompt-7 pastelería integrity", () => {
           recipePresentationId: null,
           ingredientPresentationId: flour.presentationId,
           reason: "Ajuste báscula autorizado",
-          authorizedBy: USER,
+          approvalId: authorized.approvalIds[0]!,
         },
         {
           kind: "QUANTITY_VARIANCE",
           recipePresentationId: null,
           ingredientPresentationId: sugar.presentationId,
           reason: "Ajuste báscula autorizado",
-          authorizedBy: USER,
+          approvalId: authorized.approvalIds[1]!,
         },
       ],
       directCosts: [], shrinkageAttributions: [],
@@ -699,5 +762,222 @@ describe("prompt-7 pastelería integrity", () => {
     expect(env.database.native.prepare(
       `SELECT count(*) AS n FROM bakery_production_recipe_deviation WHERE order_id=?`,
     ).get(order.orderId)).toEqual({ n: 2 });
+    expect(env.database.native.prepare(
+      `SELECT count(*) AS n FROM bakery_production_deviation_approval
+       WHERE order_id=? AND status='CONSUMED'`,
+    ).get(order.orderId)).toEqual({ n: 2 });
+  });
+
+  it("rejects forged authorizers, cross-order approvals and invalid substitutions", async () => {
+    const env = await buildEnv();
+    const { flour, sugar, cake } = await seedMassProducts(env);
+    const draft = approveRecipe(env, flour, sugar, cake, {
+      yieldQty: "1000.000000", shrink: "0.000000",
+    });
+    const flourLot = receiveLot(env, flour.presentationId, "2000.000000", "F-AUTH", "2.000000");
+    receiveLot(env, sugar.presentationId, "2000.000000", "S-AUTH", "3.000000");
+    const rogue = env.register.execute(SCOPE, SESSION, auth(), {
+      code: `MANTEQ-${key()}`, name: "Mantequilla", stockControlled: true,
+      presentationName: "Gramo", unitCode: "G", unitPrecision: 0,
+      barcode: null, priceAmount: "1.000000", currencyCode: "COP",
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    }, NOW);
+    if (rogue.kind !== "REGISTERED") throw new Error("rogue");
+    receiveLot(env, rogue.presentationId, "800.000000", "M-AUTH", "4.000000");
+
+    const orderA = env.createOrder.execute(SCOPE, SESSION, auth(), {
+      recipeId: draft.recipeId, plannedQuantity: "1000.000000",
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    });
+    const orderB = env.createOrder.execute(SCOPE, SESSION, auth(), {
+      recipeId: draft.recipeId, plannedQuantity: "1000.000000",
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    });
+    if (orderA.kind !== "CREATED" || orderB.kind !== "CREATED") throw new Error("orders");
+
+    expect(env.confirm.execute(SCOPE, SESSION, auth(), {
+      orderId: orderA.orderId,
+      actualQuantity: "600.000000", actualNetMassQuantity: "600.000000",
+      shrinkageQuantity: "0.000000", shrinkageReason: null,
+      productionDate: "2026-09-07", finishedBatchCode: "OMIT-NO",
+      consumptions: [{
+        ingredientPresentationId: flour.presentationId, lotId: flourLot.id,
+        plannedQuantity: "600.000000", actualQuantity: "600.000000", massQuantity: "600.000000",
+      }],
+      recipeDeviations: [], directCosts: [], shrinkageAttributions: [],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    }).kind).toBe("RECIPE_INGREDIENT_OMITTED");
+
+    // Valid UUID as approvalId is not authority — no backing approval row.
+    const forgedApprovalId = "018f9999-0000-7000-8000-00000000dead";
+    expect(env.confirm.execute(SCOPE, SESSION, auth(), {
+      orderId: orderA.orderId,
+      actualQuantity: "600.000000", actualNetMassQuantity: "600.000000",
+      shrinkageQuantity: "0.000000", shrinkageReason: null,
+      productionDate: "2026-09-07", finishedBatchCode: "FORGED-APPR",
+      consumptions: [{
+        ingredientPresentationId: flour.presentationId, lotId: flourLot.id,
+        plannedQuantity: "600.000000", actualQuantity: "600.000000", massQuantity: "600.000000",
+      }],
+      recipeDeviations: [{
+        kind: "OMISSION",
+        recipePresentationId: sugar.presentationId,
+        ingredientPresentationId: null,
+        reason: "Omisión con UUID inventado",
+        approvalId: forgedApprovalId,
+      }],
+      directCosts: [], shrinkageAttributions: [],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    }).kind).toBe("DEVIATION_APPROVAL_NOT_FOUND");
+
+    expect(env.authorizeDeviation.execute(SCOPE, SESSION, auth(), {
+      orderId: orderA.orderId,
+      deviations: [{
+        kind: "SUBSTITUTION",
+        recipePresentationId: rogue.presentationId,
+        ingredientPresentationId: sugar.presentationId,
+        approvedQuantity: "400.000000",
+        equivalenceBasis: "misma masa",
+        reason: "Sustitución inválida",
+      }],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    }).kind).toBe("RECIPE_INGREDIENT_UNAUTHORIZED");
+
+    expect(env.authorizeDeviation.execute(SCOPE, SESSION, auth(), {
+      orderId: orderA.orderId,
+      deviations: [{
+        kind: "SUBSTITUTION",
+        recipePresentationId: sugar.presentationId,
+        ingredientPresentationId: rogue.presentationId,
+        approvedQuantity: "250.000000",
+        equivalenceBasis: "misma masa documentada",
+        reason: "Cantidad distinta",
+      }],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    }).kind).toBe("SUBSTITUTION_QUANTITY_MISMATCH");
+
+    expect(env.authorizeDeviation.execute(SCOPE, SESSION, auth(), {
+      orderId: orderA.orderId,
+      deviations: [
+        {
+          kind: "SUBSTITUTION",
+          recipePresentationId: sugar.presentationId,
+          ingredientPresentationId: rogue.presentationId,
+          approvedQuantity: "400.000000",
+          equivalenceBasis: "1:1 masa",
+          reason: "Primera",
+        },
+        {
+          kind: "OMISSION",
+          recipePresentationId: sugar.presentationId,
+          ingredientPresentationId: null,
+          approvedQuantity: "0.000000",
+          equivalenceBasis: null,
+          reason: "Segunda incompatible",
+        },
+      ],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    }).kind).toBe("INCOMPATIBLE_DEVIATIONS");
+
+    const otherCompany = auth(ADMIN);
+    (otherCompany.claims.assignments[0] as { company_id: string }).company_id =
+      "018f0000-0000-7000-8000-00000000cccc";
+    expect(env.authorizeDeviation.execute(SCOPE, SESSION, otherCompany, {
+      orderId: orderA.orderId,
+      deviations: [{
+        kind: "OMISSION",
+        recipePresentationId: sugar.presentationId,
+        ingredientPresentationId: null,
+        approvedQuantity: "0.000000",
+        equivalenceBasis: null,
+        reason: "Omisión otra empresa",
+      }],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    }).kind).toBe("UNAUTHORIZED");
+
+    const forB = env.authorizeDeviation.execute(SCOPE, SESSION, auth(), {
+      orderId: orderB.orderId,
+      deviations: [{
+        kind: "OMISSION",
+        recipePresentationId: sugar.presentationId,
+        ingredientPresentationId: null,
+        approvedQuantity: "0.000000",
+        equivalenceBasis: null,
+        reason: "Omisión orden B",
+      }],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    });
+    expect(forB.kind).toBe("AUTHORIZED");
+    if (forB.kind !== "AUTHORIZED") return;
+
+    expect(env.confirm.execute(SCOPE, SESSION, auth(), {
+      orderId: orderA.orderId,
+      actualQuantity: "600.000000", actualNetMassQuantity: "600.000000",
+      shrinkageQuantity: "0.000000", shrinkageReason: null,
+      productionDate: "2026-09-07", finishedBatchCode: "CROSS-ORD",
+      consumptions: [{
+        ingredientPresentationId: flour.presentationId, lotId: flourLot.id,
+        plannedQuantity: "600.000000", actualQuantity: "600.000000", massQuantity: "600.000000",
+      }],
+      recipeDeviations: [{
+        kind: "OMISSION",
+        recipePresentationId: sugar.presentationId,
+        ingredientPresentationId: null,
+        reason: "Omisión orden B",
+        approvalId: forB.approvalIds[0]!,
+      }],
+      directCosts: [], shrinkageAttributions: [],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    }).kind).toBe("DEVIATION_APPROVAL_ORDER_MISMATCH");
+
+    const forA = env.authorizeDeviation.execute(SCOPE, SESSION, auth(), {
+      orderId: orderA.orderId,
+      deviations: [{
+        kind: "OMISSION",
+        recipePresentationId: sugar.presentationId,
+        ingredientPresentationId: null,
+        approvedQuantity: "0.000000",
+        equivalenceBasis: null,
+        reason: "Omisión autorizada A",
+      }],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    });
+    expect(forA.kind).toBe("AUTHORIZED");
+    if (forA.kind !== "AUTHORIZED") return;
+
+    const confirmed = env.confirm.execute(SCOPE, SESSION, auth(), {
+      orderId: orderA.orderId,
+      actualQuantity: "600.000000", actualNetMassQuantity: "600.000000",
+      shrinkageQuantity: "0.000000", shrinkageReason: null,
+      productionDate: "2026-09-07", finishedBatchCode: "OMIT-OK",
+      consumptions: [{
+        ingredientPresentationId: flour.presentationId, lotId: flourLot.id,
+        plannedQuantity: "600.000000", actualQuantity: "600.000000", massQuantity: "600.000000",
+      }],
+      recipeDeviations: [{
+        kind: "OMISSION",
+        recipePresentationId: sugar.presentationId,
+        ingredientPresentationId: null,
+        reason: "Omisión autorizada A",
+        approvalId: forA.approvalIds[0]!,
+      }],
+      directCosts: [], shrinkageAttributions: [],
+      idempotencyKey: key(), correlationId: CORRELATION, causationId: null,
+    });
+    expect(confirmed.kind).toBe("CONFIRMED");
+
+    env.database.close();
+    databases.pop();
+    const reopened = LocalDatabase.open({ dataDirectory: env.dir });
+    databases.push(reopened);
+    expect(reopened.native.prepare(
+      `SELECT status,authorizer_user_id FROM bakery_production_deviation_approval WHERE id=?`,
+    ).get(forA.approvalIds[0]!)).toEqual({
+      status: "CONSUMED",
+      authorizer_user_id: USER,
+    });
+    expect(reopened.native.prepare(
+      `SELECT approval_id FROM bakery_production_recipe_deviation WHERE order_id=?`,
+    ).get(orderA.orderId)).toEqual({ approval_id: forA.approvalIds[0]! });
   });
 });

@@ -30,7 +30,7 @@ type CommercialRequest = Extract<
       | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
       | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.presentation.register" | "catalog.food_policy.upsert" | "pharmacy.establishment.upsert" | "pharmacy.profile.upsert" | "pharmacy.prescription.register" | "pharmacy.technical_receipt.register" | "pharmacy.sanitary_alert.register"
-      | "bakery.recipe.draft.create" | "bakery.recipe.approve" | "bakery.production.confirm" | "bakery.production.trace.get"
+      | "bakery.recipe.draft.create" | "bakery.recipe.approve" | "bakery.production.deviation.authorize" | "bakery.production.confirm" | "bakery.production.trace.get"
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.batch.list" | "inventory.batch.status" | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
@@ -284,6 +284,8 @@ export class CommercialRequestHandler {
       case "pharmacy.sanitary_alert.register": return this.registerPharmacySanitaryAlert(request, connectionId);
       case "bakery.recipe.draft.create": return this.createBakeryRecipeDraft(request, connectionId);
       case "bakery.recipe.approve": return this.approveBakeryRecipe(request, connectionId);
+      case "bakery.production.deviation.authorize":
+        return this.authorizeBakeryProductionDeviation(request, connectionId);
       case "bakery.production.confirm": return this.confirmBakeryProduction(request, connectionId);
       case "bakery.production.trace.get": return this.getBakeryProductionTrace(request, connectionId);
       case "catalog.item.find":
@@ -2103,6 +2105,43 @@ export class CommercialRequestHandler {
       : rejected(request, result.kind, response);
   }
 
+  private authorizeBakeryProductionDeviation(
+    request: Extract<CommercialRequest, { message_type: "bakery.production.deviation.authorize" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", approval_ids: null,
+      });
+    }
+    const payload = request.payload;
+    const result = this.commercial.authorizeBakeryProductionDeviation.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        orderId: payload.order_id,
+        deviations: payload.deviations.map((line) => ({
+          kind: line.kind,
+          recipePresentationId: line.recipe_presentation_id,
+          ingredientPresentationId: line.ingredient_presentation_id,
+          approvedQuantity: line.approved_quantity,
+          equivalenceBasis: line.equivalence_basis,
+          reason: line.reason,
+        })),
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+        ...(payload.expires_at !== undefined ? { expiresAtIso: payload.expires_at } : {}),
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      approval_ids: "approvalIds" in result ? result.approvalIds : null,
+    };
+    return result.kind === "AUTHORIZED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, String(result.kind), response);
+  }
+
   private confirmBakeryProduction(
     request: Extract<CommercialRequest, { message_type: "bakery.production.confirm" }>,
     connectionId: string,
@@ -2132,14 +2171,13 @@ export class CommercialRequestHandler {
           massQuantity: line.mass_quantity,
           deviationKind: line.deviation_kind ?? null,
           deviationReason: line.deviation_reason ?? null,
-          deviationAuthorizedBy: line.deviation_authorized_by ?? null,
         })),
         recipeDeviations: (payload.recipe_deviations ?? []).map((line) => ({
           kind: line.kind,
           recipePresentationId: line.recipe_presentation_id,
           ingredientPresentationId: line.ingredient_presentation_id,
           reason: line.reason,
-          authorizedBy: line.authorized_by,
+          approvalId: line.approval_id,
         })),
         directCosts: payload.direct_costs.map((line) => ({
           costKind: line.cost_kind,
