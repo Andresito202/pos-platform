@@ -2,19 +2,25 @@
 /**
  * Stages WinSW + POS Local Service payload for electron-builder extraResources.
  *
- * Reuses:
- * - buildServiceDescriptor (commercialLogin=false — gate SCM_COMMERCIAL… preserved)
- * - Official WinSW v2.12.0 WinSW-x64.exe with pinned SHA-256 (05b82d46…)
- * - Existing LOCAL_SERVICE win32-x64 artifact from pos-local-service
- * - Official Node win-x64 zip pinned by SHA-256
+ * Reuses official WinSW 2.12.0 (SHA pinned) + Node 22.19.0 win-x64 (SHA pinned) +
+ * LOCAL_SERVICE win32-x64 artifact. commercialLogin=false; SCM_COMMERCIAL… preserved.
  *
- * Does NOT embed secrets, fake Authenticode, or clear SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN.
- * Authenticode of Camacho product remains RT-009-B BLOCKED; WinSW official PE may be unsigned
- * (see docs/testing/windows-g1g2-physical-certification-plan). Lab install verifies hash, not BinaryReviewReady.
+ * Extract: use `tar` for zip/tar.gz on all hosts (PowerShell 7 Expand-Archive breaks on
+ * GHA windows-2022 with ExtractToDirectory overload errors → NODE_EXE_MISSING_AFTER_EXTRACT).
  */
 import { createHash } from "node:crypto";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, cpSync } from "node:fs";
-import { dirname, join } from "node:path";
+import {
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+  cpSync,
+} from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { execFileSync } from "node:child_process";
@@ -29,20 +35,51 @@ const WINSW = {
   url: "https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe",
   sha256: "05b82d46ad331cc16bdc00de5c6332c1ef818df8ceefcd49c726553209b3a0da",
   version: "2.12.0",
+  minBytes: 1_000_000,
 };
 
-// Node 22.19.0 matches CI setup-node pin in windows-nsis-installer-lab.yml.
+// Pinned from https://nodejs.org/dist/v22.19.0/SHASUMS256.txt (node-v22.19.0-win-x64.zip).
 const NODE = {
   version: "22.19.0",
   url: "https://nodejs.org/dist/v22.19.0/node-v22.19.0-win-x64.zip",
-  // Official SHASUMS256.txt line for node-v22.19.0-win-x64.zip (verified at staging time).
-  sha256: null, // filled after fetching SHASUMS256.txt
+  sha256: "ea3fad0e67a991d8477d8c01344b56e69c676ccb733f065b22436994b1253f86",
+  minBytes: 20_000_000,
 };
 
 const SERVICE_ID = "CamachoPOSLocalService";
 
-function sha256(file) {
+function sha256File(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+
+function assertSha(file, expected, label) {
+  const got = sha256File(file);
+  if (got !== expected.toLowerCase()) {
+    throw new Error(`${label}_SHA256_MISMATCH:expected=${expected};got=${got}`);
+  }
+  return got;
+}
+
+function assertMinSize(file, minBytes, label) {
+  const size = statSync(file).size;
+  if (size < minBytes) throw new Error(`${label}_TOO_SMALL:bytes=${size};min=${minBytes}`);
+  return size;
+}
+
+/** PE Machine = 0x8664 (AMD64) for win-x64. */
+function assertPeAmd64(file, label) {
+  const fd = readFileSync(file);
+  if (fd.length < 0x40 || fd[0] !== 0x4d || fd[1] !== 0x5a) {
+    throw new Error(`${label}_NOT_PE_MZ`);
+  }
+  const peOffset = fd.readUInt32LE(0x3c);
+  if (peOffset + 6 >= fd.length || fd.toString("ascii", peOffset, peOffset + 4) !== "PE\0\0") {
+    throw new Error(`${label}_NOT_PE_HEADER`);
+  }
+  const machine = fd.readUInt16LE(peOffset + 4);
+  if (machine !== 0x8664) {
+    throw new Error(`${label}_NOT_AMD64:machine=0x${machine.toString(16)}`);
+  }
 }
 
 async function download(url, dest) {
@@ -51,38 +88,75 @@ async function download(url, dest) {
   await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
 }
 
-async function resolveNodeSha() {
-  const res = await fetch(`https://nodejs.org/dist/v${NODE.version}/SHASUMS256.txt`);
-  if (!res.ok) throw new Error(`NODE_SHASUMS_FETCH_FAILED:${res.status}`);
-  const text = await res.text();
-  const line = text.split("\n").find((l) => l.includes(`node-v${NODE.version}-win-x64.zip`));
-  if (!line) throw new Error("NODE_SHASUM_LINE_MISSING");
-  const hash = line.trim().split(/\s+/)[0];
-  if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error("NODE_SHASUM_INVALID");
-  NODE.sha256 = hash;
-}
-
+/**
+ * Extract zip. Never use PowerShell Expand-Archive: on GHA windows-2022 / PS7 the
+ * Archive module calls a 3-arg ExtractToDirectory overload that does not exist
+ * ("Cannot find an overload... argument count: 3"), leaving NODE_EXE_MISSING.
+ *
+ * - win32: bsdtar (`tar.exe -xf` supports zip) then .NET ZipFile 2-arg fallback
+ * - posix: unzip
+ */
 function extractZip(zipPath, destDir) {
-  // Use PowerShell on Windows; unzip on Linux/mac for CI staging ahead of Windows pack.
+  mkdirSync(destDir, { recursive: true });
   if (process.platform === "win32") {
-    execFileSync(
-      "powershell.exe",
-      ["-NoProfile", "-Command", `Expand-Archive -LiteralPath '${zipPath.replace(/'/g, "''")}' -DestinationPath '${destDir.replace(/'/g, "''")}' -Force`],
-      { stdio: "inherit" },
-    );
+    try {
+      execFileSync("tar.exe", ["-xf", zipPath, "-C", destDir], { stdio: "inherit" });
+      return;
+    } catch (first) {
+      process.stdout.write(`TAR_ZIP_FALLBACK:${first instanceof Error ? first.message : String(first)}\n`);
+    }
+    const zipLit = zipPath.replace(/'/g, "''");
+    const destLit = destDir.replace(/'/g, "''");
+    const ps = [
+      "Add-Type -AssemblyName System.IO.Compression.FileSystem",
+      `$zip='${zipLit}'`,
+      `$dest='${destLit}'`,
+      // 2-arg ExtractToDirectory only — do not pass overwrite bool (3-arg missing on runner).
+      "[System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)",
+    ].join("; ");
+    execFileSync("powershell.exe", ["-NoProfile", "-Command", ps], { stdio: "inherit" });
     return;
   }
   execFileSync("unzip", ["-qo", zipPath, "-d", destDir], { stdio: "inherit" });
 }
 
-function extractTarGz(tarGz, destDir) {
+/** Extract .tar.gz (LOCAL_SERVICE artifact) with system tar on all hosts. */
+function extractTarGz(archivePath, destDir) {
   mkdirSync(destDir, { recursive: true });
-  if (process.platform === "win32") {
-    // tar is available on Windows 10+ / GHA windows-2022
-    execFileSync("tar", ["-xzf", tarGz, "-C", destDir], { stdio: "inherit" });
-    return;
+  const tarBin = process.platform === "win32" ? "tar.exe" : "tar";
+  execFileSync(tarBin, ["-xzf", archivePath, "-C", destDir], { stdio: "inherit" });
+}
+
+function findFile(root, name) {
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else if (entry.isFile() && entry.name === name) return full;
+    }
   }
-  execFileSync("tar", ["-xzf", tarGz, "-C", destDir], { stdio: "inherit" });
+  return null;
+}
+
+function listRelativeFiles(root) {
+  const out = [];
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else out.push(relative(root, full).split("\\").join("/"));
+    }
+  };
+  walk(root);
+  return out.sort();
 }
 
 async function main() {
@@ -91,33 +165,47 @@ async function main() {
   const cache = join(desktop, "packaging", ".cache");
   mkdirSync(cache, { recursive: true });
 
-  // --- WinSW ---
+  // --- WinSW (single PE, no extract) ---
   const winswCache = join(cache, "WinSW-x64-2.12.0.exe");
-  if (!existsSync(winswCache) || sha256(winswCache) !== WINSW.sha256) {
+  if (!existsSync(winswCache) || sha256File(winswCache) !== WINSW.sha256) {
+    process.stdout.write(`DOWNLOAD_WINSW ${WINSW.url}\n`);
     await download(WINSW.url, winswCache);
   }
-  if (sha256(winswCache) !== WINSW.sha256) throw new Error("WINSW_SHA256_MISMATCH");
+  assertMinSize(winswCache, WINSW.minBytes, "WINSW");
+  assertSha(winswCache, WINSW.sha256, "WINSW");
+  assertPeAmd64(winswCache, "WINSW");
   const winswOut = join(outDir, `${SERVICE_ID}.exe`);
   cpSync(winswCache, winswOut);
+  assertSha(winswOut, WINSW.sha256, "WINSW_STAGED");
 
-  // --- Node runtime ---
-  await resolveNodeSha();
+  // --- Node runtime (zip → tar extract → find node.exe) ---
   const nodeZip = join(cache, `node-v${NODE.version}-win-x64.zip`);
-  if (!existsSync(nodeZip) || sha256(nodeZip) !== NODE.sha256) {
+  if (!existsSync(nodeZip) || sha256File(nodeZip) !== NODE.sha256) {
+    process.stdout.write(`DOWNLOAD_NODE ${NODE.url}\n`);
     await download(NODE.url, nodeZip);
   }
-  if (sha256(nodeZip) !== NODE.sha256) throw new Error("NODE_SHA256_MISMATCH");
-  const nodeExtract = join(cache, `node-v${NODE.version}-win-x64`);
-  rmSync(nodeExtract, { recursive: true, force: true });
-  extractZip(nodeZip, cache);
-  const nodeExe = join(nodeExtract, "node.exe");
-  if (!existsSync(nodeExe)) throw new Error("NODE_EXE_MISSING_AFTER_EXTRACT");
+  assertMinSize(nodeZip, NODE.minBytes, "NODE_ZIP");
+  assertSha(nodeZip, NODE.sha256, "NODE_ZIP");
+
+  const nodeExtractRoot = join(cache, `node-extract-${NODE.version}`);
+  rmSync(nodeExtractRoot, { recursive: true, force: true });
+  mkdirSync(nodeExtractRoot, { recursive: true });
+  process.stdout.write(`EXTRACT_NODE archive=${nodeZip} dest=${nodeExtractRoot}\n`);
+  extractZip(nodeZip, nodeExtractRoot);
+
+  const nodeExe = findFile(nodeExtractRoot, "node.exe");
+  if (!nodeExe) {
+    const listing = listRelativeFiles(nodeExtractRoot).slice(0, 40).join(",");
+    throw new Error(`NODE_EXE_MISSING_AFTER_EXTRACT:listing=${listing}`);
+  }
+  assertPeAmd64(nodeExe, "NODE");
   mkdirSync(join(outDir, "runtime"), { recursive: true });
-  cpSync(nodeExe, join(outDir, "runtime", "node.exe"));
+  const nodeStaged = join(outDir, "runtime", "node.exe");
+  cpSync(nodeExe, nodeStaged);
+  assertPeAmd64(nodeStaged, "NODE_STAGED");
+  process.stdout.write(`NODE_STAGED path=${nodeStaged} bytes=${statSync(nodeStaged).size} from=${nodeExe}\n`);
 
   // --- Local Service artifact ---
-  // Prefer INTERACTIVE: SCM_CANDIDATE ships a structural native stub (512 B) and
-  // commercialLogin remains gated. INTERACTIVE is the approved same-user channel.
   const artifactDir = join(repo, "apps", "pos-local-service", "dist");
   const interactiveArtifact = join(artifactDir, "pos-local-service-0.0.0-win32-x64.tar.gz");
   const scmArtifact = join(artifactDir, "pos-local-service-0.0.0-win32-x64-scm-candidate.tar.gz");
@@ -128,13 +216,18 @@ async function main() {
       "LOCAL_SERVICE_ARTIFACT_MISSING: run POS_ARTIFACT_TARGET=win32-x64 pnpm --filter @pos-platform/pos-local-service build:artifact",
     );
   }
+  const artifactSha = sha256File(artifact);
   const serviceExtract = join(outDir, "local-service");
   mkdirSync(serviceExtract, { recursive: true });
+  process.stdout.write(`EXTRACT_SERVICE archive=${artifact} dest=${serviceExtract}\n`);
   extractTarGz(artifact, serviceExtract);
-  const bundle = join(serviceExtract, "pos-local-service.mjs");
-  if (!existsSync(bundle)) throw new Error("LOCAL_SERVICE_BUNDLE_MISSING_IN_ARTIFACT");
 
-  // --- WinSW XML matching windows-service-descriptor.ts (commercialLogin=false) ---
+  const bundle = findFile(serviceExtract, "pos-local-service.mjs");
+  if (!bundle) throw new Error("LOCAL_SERVICE_BUNDLE_MISSING_IN_ARTIFACT");
+  const sqliteNode = findFile(join(serviceExtract, "node_modules", "better-sqlite3"), "win32-x64.node");
+  if (!sqliteNode) throw new Error("BETTER_SQLITE3_WIN32_X64_MISSING_IN_ARTIFACT");
+
+  // --- WinSW XML (commercialLogin=false; mirrors windows-service-descriptor.ts) ---
   const buildServiceDescriptor = (input) => {
     if (input.commercialLogin === true) throw new Error("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
     if (Object.hasOwn(input.environment, "POS_WINDOWS_COMMERCIAL_PROVISION_FILE")) {
@@ -186,8 +279,6 @@ async function main() {
     ].join("\n");
   };
 
-  // Placeholders replaced at install time by installer.nsh / lifecycle (PROGRAMDATA paths).
-  // Using tokens that the elevated install script substitutes.
   const xml = buildServiceDescriptor({
     nodeExecutable: "__CAMACHO_SERVICE_NODE__",
     bundle: "__CAMACHO_SERVICE_BUNDLE__",
@@ -205,22 +296,57 @@ async function main() {
     },
     commercialLogin: false,
   });
-  writeFileSync(join(outDir, `${SERVICE_ID}.xml.template`), xml, "utf8");
+  const xmlPath = join(outDir, `${SERVICE_ID}.xml.template`);
+  writeFileSync(xmlPath, xml, "utf8");
+
+  const helperSrc = join(desktop, "packaging", "install-camacho-local-service.ps1");
+  if (!existsSync(helperSrc)) throw new Error("SERVICE_INSTALL_HELPER_MISSING");
+  cpSync(helperSrc, join(outDir, "install-camacho-local-service.ps1"));
+
+  // --- Pre-publish gate: every NSIS resource must exist ---
+  const required = [
+    join(outDir, `${SERVICE_ID}.exe`),
+    join(outDir, `${SERVICE_ID}.xml.template`),
+    join(outDir, "runtime", "node.exe"),
+    join(outDir, "local-service", "pos-local-service.mjs"),
+    join(outDir, "install-camacho-local-service.ps1"),
+    sqliteNode,
+  ];
+  const missing = required.filter((p) => !existsSync(p));
+  if (missing.length > 0) {
+    throw new Error(`NSIS_PAYLOAD_INCOMPLETE:${missing.join("|")}`);
+  }
 
   const integrity = {
-    winsw: { file: `${SERVICE_ID}.exe`, sha256: WINSW.sha256, version: WINSW.version, source: WINSW.url },
-    node: { file: "runtime/node.exe", version: NODE.version, zipSha256: NODE.sha256 },
+    winsw: {
+      file: `${SERVICE_ID}.exe`,
+      sha256: WINSW.sha256,
+      version: WINSW.version,
+      source: WINSW.url,
+      arch: "amd64",
+      bytes: statSync(winswOut).size,
+    },
+    node: {
+      file: "runtime/node.exe",
+      version: NODE.version,
+      zipSha256: NODE.sha256,
+      arch: "amd64",
+      bytes: statSync(nodeStaged).size,
+    },
     localServiceArtifact: {
       file: artifact.split(/[/\\]/).pop(),
-      sha256: sha256(artifact),
+      sha256: artifactSha,
       profile: artifact.includes("scm-candidate") ? "SCM_CANDIDATE" : "INTERACTIVE",
       commercial_scm_gate: "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN",
+      bundle: relative(outDir, bundle).split("\\").join("/"),
+      betterSqlite3: relative(outDir, sqliteNode).split("\\").join("/"),
     },
     authenticode_product: "RT-009-B_BLOCKED",
-    note: "WinSW official hash pinned; Camacho PE unsigned until RT-009-B. commercialLogin=false in descriptor.",
+    extractTool: process.platform === "win32" ? "tar.exe_or_ZipFile_2arg" : "unzip_and_tar",
+    note: "WinSW/Node SHA+PE amd64 verified; commercialLogin=false; Expand-Archive not used (PS7 overload bug).",
   };
   writeFileSync(join(outDir, "payload-integrity.json"), `${JSON.stringify(integrity, null, 2)}\n`);
-  process.stdout.write(`${JSON.stringify({ staged: outDir, integrity }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ staged: outDir, integrity, requiredOk: true }, null, 2)}\n`);
 }
 
 main().catch((err) => {
