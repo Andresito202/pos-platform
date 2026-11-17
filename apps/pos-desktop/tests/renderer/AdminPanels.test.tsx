@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { CANONICAL_PERMISSION_CODES } from "@pos-platform/contracts";
+import { CANONICAL_PERMISSION_CODES, LicenseSectorEntitlement } from "@pos-platform/contracts";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { webcrypto } from "node:crypto";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -190,6 +190,46 @@ describe("CatalogPanel", () => {
     });
     expect(screen.queryByTestId("product-registered")).toBeNull();
   });
+
+  it("gates sector modules by signed license entitlements only", () => {
+    install({ status: "SUCCEEDED", result_code: "FOUND", result: { outcome: "FOUND", items: [], has_more: false } });
+    const { rerender } = render(
+      <CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} entitlements={new Set()} />,
+    );
+    expect(screen.queryByTestId("food-policy-product-id")).toBeNull();
+    expect(screen.queryByTestId("pharmacy-panel")).toBeNull();
+    expect(screen.queryByTestId("bakery-panel")).toBeNull();
+
+    rerender(
+      <CatalogPanel
+        permissions={new Set(CANONICAL_PERMISSION_CODES)}
+        entitlements={new Set([LicenseSectorEntitlement.SALSAMENTARIA])}
+      />,
+    );
+    expect(screen.getByTestId("food-policy-product-id")).toBeTruthy();
+    expect(screen.queryByTestId("pharmacy-panel")).toBeNull();
+    expect(screen.queryByTestId("bakery-panel")).toBeNull();
+
+    rerender(
+      <CatalogPanel
+        permissions={new Set(CANONICAL_PERMISSION_CODES)}
+        entitlements={new Set([LicenseSectorEntitlement.FARMACIA])}
+      />,
+    );
+    expect(screen.queryByTestId("food-policy-product-id")).toBeNull();
+    expect(screen.getByTestId("pharmacy-panel")).toBeTruthy();
+    expect(screen.queryByTestId("bakery-panel")).toBeNull();
+
+    rerender(
+      <CatalogPanel
+        permissions={new Set(CANONICAL_PERMISSION_CODES)}
+        entitlements={new Set([LicenseSectorEntitlement.PASTELERIA])}
+      />,
+    );
+    expect(screen.queryByTestId("food-policy-product-id")).toBeNull();
+    expect(screen.queryByTestId("pharmacy-panel")).toBeNull();
+    expect(screen.getByTestId("bakery-panel")).toBeTruthy();
+  });
 });
 
 describe("InventoryPanel", () => {
@@ -219,6 +259,28 @@ describe("InventoryPanel", () => {
       expect((calls.get("inventory.stock.adjust") ?? []).length).toBe(1);
     });
     expect(() => InventoryStockAdjustRequestSchema.parse(sent("inventory.stock.adjust"))).not.toThrow();
+  });
+
+  it("shows Salsamentaria transform only with adjust permission and sector entitlement", () => {
+    install({ status: "SUCCEEDED", result_code: "POSTED", result: null });
+    const { rerender } = render(
+      <InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} entitlements={new Set()} />,
+    );
+    expect(screen.queryByTestId("inventory-transform-panel")).toBeNull();
+    rerender(
+      <InventoryPanel
+        permissions={new Set(CANONICAL_PERMISSION_CODES)}
+        entitlements={new Set([LicenseSectorEntitlement.SALSAMENTARIA])}
+      />,
+    );
+    expect(screen.getByTestId("inventory-transform-panel")).toBeTruthy();
+    rerender(
+      <InventoryPanel
+        permissions={new Set(["INVENTORY_STOCK_READ"])}
+        entitlements={new Set([LicenseSectorEntitlement.SALSAMENTARIA])}
+      />,
+    );
+    expect(screen.queryByTestId("inventory-transform-panel")).toBeNull();
   });
 
   it("los motivos de entrada y de ajuste son listas disjuntas", () => {

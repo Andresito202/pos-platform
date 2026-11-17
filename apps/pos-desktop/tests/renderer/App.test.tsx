@@ -503,8 +503,13 @@ describe("Role-ordered navigation keeps permissions authoritative", () => {
     });
     expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
     expect(screen.queryByTestId("sale-panel")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Revisar transferencias" }));
-    expect(await screen.findByTestId("transfer-review-panel")).toBeTruthy();
+    // Native click + waitFor: fireEvent alone raced under CI load (Inventario
+    // stayed aria-current=page). Settled-identity nav reset in App also guards this.
+    screen.getByRole("button", { name: "Revisar transferencias" }).click();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Revisar transferencias" }).getAttribute("aria-current")).toBe("page");
+      expect(screen.getByTestId("transfer-review-panel")).toBeTruthy();
+    });
     expect(screen.queryByTestId("cart")).toBeNull();
     expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
   });

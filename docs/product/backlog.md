@@ -1042,7 +1042,7 @@ Continúa no autorizado:
 | SYNC-001 | P0 | DONE | Operation/outbox/inbox/idempotencia/checkpoint definidos. |
 | SYNC-002 | P0 | DONE | Configuración offline versionada por dominio. |
 | SYNC-003 | P0 | DONE | Conflictos/retry/recovery/dead letter/clock definidos. |
-| SYNC-004 | P1 | DONE | Bloque 5 cierre interno (`8ae99fea`, CI 6/6): outbox/restart/multicaja/perf TESTED + Central Sync lab gate en CI. Evidencia `docs/testing/bloque5-offline-sync-20261117.md`. Abierto fuera de bloque: stock global offline coordinado; certificación comercial/VPS; flake tip docs `App.test` SUPERVISOR. |
+| SYNC-004 | P1 | DONE | Bloque 5 cierre interno (`8ae99fea`, CI 6/6): outbox/restart/multicaja/perf TESTED + Central Sync lab gate en CI. Evidencia `docs/testing/bloque5-offline-sync-20261117.md`. Abierto fuera de bloque: stock global offline coordinado; certificación comercial/VPS. Flake SUPERVISOR App.test corregido en Bloque 6. |
 
 ### Reporting
 
@@ -1057,7 +1057,7 @@ Continúa no autorizado:
 | ID | Pri | Estado | Trabajo |
 |---|---|---|---|
 | UX-001 | P1 | DONE | Navegación inicial/decisiones UX. |
-| UX-002 | P1 | PLANNED | Flujos POS venta/pago/offline/hardware. |
+| UX-002 | P1 | IN_PROGRESS | Bloque 6 cierre interno: roles/sectores/UI gates TESTED + build Electron + artefactos service; captura login real. SKIP: homes rol Windows, NSIS/firma (RT-009-B). Evidencia `docs/testing/bloque6-commercial-packaging-20261117.md`. |
 | UX-003 | P1 | PLANNED | Design system accesible/resoluciones/touch. |
 | UX-004 | P2 | PLANNED | Usabilidad por rol/tipo de comercio. |
 

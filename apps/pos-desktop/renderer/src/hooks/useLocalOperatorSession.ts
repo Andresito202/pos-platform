@@ -22,7 +22,13 @@ export function useLocalOperatorSession(reloadToken = 0): LocalOperatorSessionVi
 
   useEffect(() => {
     let live = true;
-    setView({ username: null, role: null, ready: false });
+    // Keep an authenticated shell mounted during reload probes. Blanking the
+    // identity here used to clear App navigation back to the role home mid-click.
+    setView((prev) => (
+      prev.ready && prev.username !== null && prev.role !== null
+        ? prev
+        : { username: null, role: null, ready: false }
+    ));
     void getPosService()["local.operator.session"](buildEnvelope("local.operator.session", {}))
       .then((value) => {
         if (!live) return;

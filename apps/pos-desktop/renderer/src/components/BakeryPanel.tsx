@@ -59,7 +59,7 @@ export function BakeryPanel({ permissions }: {
   if (!canManage && !canProduce && !canRead && !canDeviate) return null;
 
   return (
-    <section aria-label="Pastelería" className="pos-panel-section">
+    <section data-testid="bakery-panel" aria-label="Pastelería" className="pos-panel-section">
       <h2>Pastelería / producción</h2>
       <p>
         Recetas versionadas y órdenes sobre el inventario compartido. No inventa

@@ -70,10 +70,17 @@ export function App(): React.JSX.Element {
     }
   }, [authorization.phase]);
 
+  // Reset workspace only when a settled local identity changes (login, role
+  // switch, logout). Transient probe blanks (ready=false) must not wipe the
+  // active screen — that raced SUPERVISOR navigation to transfer-review under CI.
+  const settledIdentity = localSession.ready
+    ? `${localSession.username ?? ""}:${localSession.role ?? ""}`
+    : null;
   useEffect(() => {
+    if (settledIdentity === null) return;
     setActiveScreen(null);
     setVisitedScreens(new Set());
-  }, [localSession.username, localSession.role]);
+  }, [settledIdentity]);
 
   const screens = useMemo<Screen[]>(() => {
     if (authorization.phase !== "ready" || !localSession.ready) return [];
