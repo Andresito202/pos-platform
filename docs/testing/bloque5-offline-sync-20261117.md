@@ -4,6 +4,7 @@
 **Rama única:** `cursor/commercial-design-review-0d11`  
 **PR:** #106 (Draft — no fusionar)  
 **HEAD inicial aprobado (pre-bloque):** `dcd753054670bcd13036a79e685d01aaf4911e52`  
+**HEAD funcional Bloque 5:** `b895d8a79789780274c70e86ecfa4c1c11b56717`  
 **Modo:** aprovechar el motor outbox/Central Sync existente. Sin segundo sync engine, sin otra DB local, sin Bloque 6, sin merge a `main`.
 
 ## Política de inventario en desconexiones simultáneas (explícita)
