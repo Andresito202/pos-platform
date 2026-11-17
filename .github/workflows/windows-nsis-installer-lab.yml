@@ -14,6 +14,7 @@ on:
       - 'apps/pos-desktop/**'
       - 'apps/pos-local-service/**'
       - 'tools/operators/windows-nsis-lab-lifecycle.ps1'
+      - 'tools/operators/windows-nsis-lab-sqlite-marker.mjs'
       - 'pnpm-lock.yaml'
       - 'package.json'
   pull_request:
@@ -24,6 +25,7 @@ on:
       - 'apps/pos-desktop/**'
       - 'apps/pos-local-service/**'
       - 'tools/operators/windows-nsis-lab-lifecycle.ps1'
+      - 'tools/operators/windows-nsis-lab-sqlite-marker.mjs'
       - 'pnpm-lock.yaml'
   workflow_dispatch:
 
@@ -121,11 +123,22 @@ jobs:
           if (-not $installer) { throw "LIFECYCLE_INSTALLER_MISSING" }
           pwsh -NoProfile -File tools/operators/windows-nsis-lab-lifecycle.ps1 `
             -InstallerPath $installer.FullName `
-            -WorkRoot $work
+            -WorkRoot $work `
+            -RepoRoot (Resolve-Path '.').Path
           $code = $LASTEXITCODE
           $report = Join-Path $work 'nsis-lifecycle-report.json'
           if (Test-Path -LiteralPath $report) {
             Copy-Item -Force $report "apps/pos-desktop/dist-installer/nsis-lifecycle-report.json"
+            Get-Content -LiteralPath $report | Write-Host
+          } else {
+            Write-Host 'LIFECYCLE_REPORT_MISSING_AFTER_RUN'
+          }
+          # Also copy service logs when present for exact failure diagnosis.
+          foreach ($logName in @('service.stdout.log','service.stderr.log')) {
+            $logPath = Join-Path $work $logName
+            if (Test-Path -LiteralPath $logPath) {
+              Copy-Item -Force $logPath "apps/pos-desktop/dist-installer/$logName"
+            }
           }
           if ($code -ne 0) { exit $code }
 

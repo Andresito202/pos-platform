@@ -49,6 +49,19 @@
 - Sectores/licencias firmadas pueden SKIP.
 - No FACTUS, no hardware, no VPS/dominio, no merge a `main`.
 
+## Corrección run #4 (`c4862bca` / job 134348051671)
+
+Fallo: `launch_installed_exe` sin Local Service/DPAPI → proceso salía; informe no se copiaba si exit≠0; STEP logs tragados por pipeline.
+
+Corrección vigente:
+- Informe JSON siempre (finally) + copy en workflow aunque falle.
+- STEP vía `Write-Host`; `failedSteps` explícitos (install/upgrade/uninstall).
+- Rutas reales (registry uninstall + LOCALAPPDATA).
+- SQLite real (`windows-nsis-lab-sqlite-marker.mjs`) preservado en upgrade.
+- Launch **sin** `--no-sandbox`; Local Service + DPAPI provisionados antes.
+- WinSW/SCM: SKIP justificado (no va en NSIS desktop), no FAIL→SKIP de launch.
+- Licencias sectoriales firmadas: `provision-lab-sector-license.ts` + `POS_LICENSE_CAPACITY_PROVISION_FILE`.
+
 ## Veredicto
 
 Se declara tras CI exact-head del tip que incluye este informe:

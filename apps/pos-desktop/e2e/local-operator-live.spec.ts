@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import type { Page } from "@playwright/test";
 
 const root=resolve(fileURLToPath(new URL("../../..",import.meta.url)));
@@ -47,6 +48,29 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
   writeFileSync(store,JSON.stringify({format:"CAMACHO_DEV_ACCOUNTS_V1",accounts}),"utf8");
   const ids={installation:randomUUID(),device:randomUUID(),tenant:randomUUID(),
     company:randomUUID(),branch:randomUUID()};
+  // Signed sector capacity via LicenseCapacityGate (Bloque 4 mechanism) — no bypass.
+  const provision = spawnSync(process.execPath, [
+    requireService.resolve("tsx/cli"),
+    join(serviceRoot, "scripts", "provision-lab-sector-license.ts"),
+    "--data-directory", dataDirectory,
+    "--tenant-id", ids.tenant,
+    "--company-id", ids.company,
+    "--branch-id", ids.branch,
+    "--installation-id", ids.installation,
+    "--device-id", ids.device,
+  ], { cwd: serviceRoot, encoding: "utf8" });
+  if (provision.status !== 0) {
+    throw new Error(`SECTOR_LICENSE_PROVISION_FAILED:${provision.stderr || provision.stdout}`);
+  }
+  const provisionSummary = JSON.parse(provision.stdout.trim().split("\n").at(-1)!) as {
+    provisionPath: string;
+    entitlements: string[];
+  };
+  expect(provisionSummary.entitlements).toEqual(expect.arrayContaining([
+    "CASH_REGISTER", "SECTOR_SALSAMENTARIA", "SECTOR_FARMACIA", "SECTOR_PASTELERIA",
+  ]));
+  console.log("REAL_LOCAL_LICENSES=PASS signed_capacity="+provisionSummary.entitlements.join(","));
+
   const cleanEnv=Object.fromEntries(Object.entries(process.env)
     .filter((entry):entry is [string,string]=>entry[1]!==undefined &&
       !entry[0].startsWith("POS_")&&entry[0]!=="ELECTRON_RUN_AS_NODE"));
@@ -54,7 +78,8 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     POS_INSTALLATION_ID:ids.installation,POS_DEVICE_ID:ids.device,
     POS_TENANT_ID:ids.tenant,POS_COMPANY_ID:ids.company,POS_BRANCH_ID:ids.branch,
     POS_PROTOCOL_MIN:"1.0.0",POS_PROTOCOL_MAX:"1.0.0",POS_SERVICE_VERSION:"1.0.0",
-    POS_LOCAL_OPERATOR_AUTH_STORE:store};
+    POS_LOCAL_OPERATOR_AUTH_STORE:store,
+    POS_LICENSE_CAPACITY_PROVISION_FILE:provisionSummary.provisionPath};
   let service:ChildProcessWithoutNullStreams|undefined;
   let electron:Awaited<ReturnType<typeof _electron.launch>>|undefined;
   const startService=async():Promise<ChildProcessWithoutNullStreams>=>{
@@ -116,19 +141,15 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     await page.getByRole("button",{name:"Ingresar",exact:true}).click();
     await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
 
-    // Sector surfaces: capture when reachable; honest SKIP without license entitlements.
-    for(const sector of ["Salsamentaria","Farmacia","Pastelería"] as const){
-      const sectorButton=page.getByRole("button",{name:sector,exact:true});
-      const count=await sectorButton.count();
-      if(count===0){
-        console.log(`REAL_LOCAL_SECTOR_${sector.toUpperCase()}=SKIP reason=NOT_LICENSED_OR_NOT_NAVIGABLE`);
-        continue;
-      }
-      await sectorButton.click();
-      await captureReal(page,`real-sector-${sector.toLowerCase().replace(/[áéíóúñ]/g,c=>({á:"a",é:"e",í:"i",ó:"o",ú:"u",ñ:"n"}[c]??c))}`);
-      console.log(`REAL_LOCAL_SECTOR_${sector.toUpperCase()}=PASS`);
-    }
-    console.log("REAL_LOCAL_LICENSES=SKIP reason=SIGNED_LICENSE_CAPACITY_NOT_PROVISIONED_ON_RUNNER");
+    // Sector surfaces live under Catálogo when signed entitlements are projected.
+    await page.getByRole("button",{name:"Catálogo",exact:true}).click();
+    await expect(page.getByRole("heading",{name:"Pastelería / producción",exact:true})).toBeVisible({timeout:20000});
+    await expect(page.getByRole("heading",{name:"Farmacia / Droguería",exact:true})).toBeVisible();
+    await expect(page.getByRole("heading",{name:"Política alimentaria",exact:true})).toBeVisible();
+    await captureReal(page,"real-sector-catalog-salsamentaria-farmacia-pasteleria");
+    console.log("REAL_LOCAL_SECTOR_SALSAMENTARIA=PASS");
+    console.log("REAL_LOCAL_SECTOR_FARMACIA=PASS");
+    console.log("REAL_LOCAL_SECTOR_PASTELERIA=PASS");
 
     const call=async(message_type:string,payload:Record<string,unknown>,mutation=false)=>{
       return page.evaluate(async({message_type,payload,mutation})=>{
