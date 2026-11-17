@@ -6,6 +6,9 @@
   Does NOT clear SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN.
   Does NOT claim Authenticode for Camacho PE (RT-009-B).
   Verifies WinSW payload SHA-256 against payload-integrity.json when present.
+
+  Virtual-account ACLs: after WinSW install creates NT SERVICE\CamachoPOSLocalService,
+  grant RX on the payload and Modify on ProgramData data/log directories before start.
 #>
 [CmdletBinding()]
 param(
@@ -23,6 +26,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $serviceId = 'CamachoPOSLocalService'
+$serviceAccount = "NT SERVICE\$serviceId"
 $winswExe = Join-Path $PayloadDir "$serviceId.exe"
 $template = Join-Path $PayloadDir "$serviceId.xml.template"
 $xmlPath = Join-Path $PayloadDir "$serviceId.xml"
@@ -30,11 +34,17 @@ $nodeExe = Join-Path $PayloadDir 'runtime\node.exe'
 $bundle = Join-Path $PayloadDir 'local-service\pos-local-service.mjs'
 $workDir = Join-Path $PayloadDir 'local-service'
 $integrityFile = Join-Path $PayloadDir 'payload-integrity.json'
+$logDirectory = Join-Path $env:ProgramData 'CamachoPOS\logs'
 
-function Write-Result([hashtable]$obj, [int]$code) {
-  if ($Json) { $obj | ConvertTo-Json -Depth 6 -Compress | Write-Output }
+function Write-Result($obj, [int]$code) {
+  if ($Json) { $obj | ConvertTo-Json -Depth 8 -Compress | Write-Output }
   else { $obj.GetEnumerator() | ForEach-Object { Write-Host ("{0}={1}" -f $_.Key, $_.Value) } }
   exit $code
+}
+
+function Escape-XmlValue([string]$Value) {
+  if ($null -eq $Value) { return '' }
+  return ($Value.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;').Replace('"', '&quot;'))
 }
 
 function Assert-Admin {
@@ -60,25 +70,108 @@ function Assert-Payload {
   }
 }
 
-function Materialize-Xml {
+function Resolve-DataDirectory {
   if ([string]::IsNullOrWhiteSpace($DataDirectory)) {
-    $DataDirectory = Join-Path $env:ProgramData 'CamachoPOS\lab-data'
+    return (Join-Path $env:ProgramData 'CamachoPOS\lab-data')
   }
-  New-Item -ItemType Directory -Force -Path $DataDirectory | Out-Null
-  $security = Join-Path $DataDirectory 'security'
-  New-Item -ItemType Directory -Force -Path $security | Out-Null
+  return $DataDirectory
+}
+
+function Materialize-Xml {
+  $script:resolvedDataDirectory = Resolve-DataDirectory
+  New-Item -ItemType Directory -Force -Path $script:resolvedDataDirectory | Out-Null
+  New-Item -ItemType Directory -Force -Path (Join-Path $script:resolvedDataDirectory 'security') | Out-Null
+  New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
 
   $xml = [IO.File]::ReadAllText($template)
-  $xml = $xml.Replace('__CAMACHO_SERVICE_NODE__', $nodeExe)
-  $xml = $xml.Replace('__CAMACHO_SERVICE_BUNDLE__', $bundle)
-  $xml = $xml.Replace('__CAMACHO_SERVICE_WORKDIR__', $workDir)
-  $xml = $xml.Replace('__CAMACHO_POS_DATA_DIRECTORY__', $DataDirectory)
-  $xml = $xml.Replace('__CAMACHO_POS_INSTALLATION_ID__', $InstallationId)
-  $xml = $xml.Replace('__CAMACHO_POS_DEVICE_ID__', $DeviceId)
-  $xml = $xml.Replace('__CAMACHO_POS_TENANT_ID__', $TenantId)
-  $xml = $xml.Replace('__CAMACHO_POS_COMPANY_ID__', $CompanyId)
-  $xml = $xml.Replace('__CAMACHO_POS_BRANCH_ID__', $BranchId)
+  $xml = $xml.Replace('__CAMACHO_SERVICE_NODE__', (Escape-XmlValue $nodeExe))
+  $xml = $xml.Replace('__CAMACHO_SERVICE_BUNDLE__', (Escape-XmlValue $bundle))
+  $xml = $xml.Replace('__CAMACHO_SERVICE_WORKDIR__', (Escape-XmlValue $workDir))
+  $xml = $xml.Replace('__CAMACHO_SERVICE_LOGDIR__', (Escape-XmlValue $logDirectory))
+  $xml = $xml.Replace('__CAMACHO_POS_DATA_DIRECTORY__', (Escape-XmlValue $script:resolvedDataDirectory))
+  $xml = $xml.Replace('__CAMACHO_POS_INSTALLATION_ID__', (Escape-XmlValue $InstallationId))
+  $xml = $xml.Replace('__CAMACHO_POS_DEVICE_ID__', (Escape-XmlValue $DeviceId))
+  $xml = $xml.Replace('__CAMACHO_POS_TENANT_ID__', (Escape-XmlValue $TenantId))
+  $xml = $xml.Replace('__CAMACHO_POS_COMPANY_ID__', (Escape-XmlValue $CompanyId))
+  $xml = $xml.Replace('__CAMACHO_POS_BRANCH_ID__', (Escape-XmlValue $BranchId))
+  if ($xml -notmatch '<logpath>') {
+    throw 'WINSW_TEMPLATE_MISSING_LOGPATH'
+  }
   [IO.File]::WriteAllText($xmlPath, $xml, [Text.UTF8Encoding]::new($false))
+}
+
+function Merge-Result([hashtable]$Base, $Extra) {
+  $merged = [ordered]@{}
+  foreach ($key in $Base.Keys) { $merged[$key] = $Base[$key] }
+  if ($null -ne $Extra) {
+    foreach ($key in $Extra.Keys) { $merged[$key] = $Extra[$key] }
+  }
+  return $merged
+}
+
+function Grant-VirtualServiceAcl {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][Security.AccessControl.FileSystemRights]$Rights,
+    [switch]$Directory
+  )
+  if (-not (Test-Path -LiteralPath $Path)) {
+    throw "ACL_TARGET_MISSING:$Path"
+  }
+  $account = New-Object Security.Principal.NTAccount($serviceAccount)
+  # Translate fails if the virtual account does not exist yet (must run after winsw install).
+  $null = $account.Translate([Security.Principal.SecurityIdentifier])
+  $acl = Get-Acl -LiteralPath $Path
+  $inherit = [Security.AccessControl.InheritanceFlags]::None
+  if ($Directory) {
+    $inherit = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor `
+      [Security.AccessControl.InheritanceFlags]::ObjectInherit
+  }
+  $rule = New-Object Security.AccessControl.FileSystemAccessRule(
+    $account,
+    $Rights,
+    $inherit,
+    [Security.AccessControl.PropagationFlags]::None,
+    [Security.AccessControl.AccessControlType]::Allow
+  )
+  $acl.AddAccessRule($rule) | Out-Null
+  Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
+function Grant-ServiceRuntimeAcls {
+  # Payload under Program Files: RX for the virtual account (not a Users-group member).
+  Grant-VirtualServiceAcl -Path $PayloadDir -Rights ([Security.AccessControl.FileSystemRights]::ReadAndExecute) -Directory
+  # Data + logs under ProgramData: Modify for SQLite/DPAPI/WinSW logs (not Program Files).
+  Grant-VirtualServiceAcl -Path $script:resolvedDataDirectory -Rights ([Security.AccessControl.FileSystemRights]::Modify) -Directory
+  Grant-VirtualServiceAcl -Path $logDirectory -Rights ([Security.AccessControl.FileSystemRights]::Modify) -Directory
+  # Parent CamachoPOS folder so the account can traverse.
+  $camachoRoot = Join-Path $env:ProgramData 'CamachoPOS'
+  if (Test-Path -LiteralPath $camachoRoot) {
+    Grant-VirtualServiceAcl -Path $camachoRoot -Rights ([Security.AccessControl.FileSystemRights]::ReadAndExecute) -Directory
+  }
+}
+
+function Get-ScmDiagnostics {
+  $query = (& sc.exe queryex $serviceId 2>&1 | Out-String).Trim()
+  $qc = (& sc.exe qc $serviceId 2>&1 | Out-String).Trim()
+  $logTail = ''
+  if (Test-Path -LiteralPath $logDirectory) {
+    $logFile = Get-ChildItem -LiteralPath $logDirectory -File -ErrorAction SilentlyContinue |
+      Sort-Object LastWriteTime -Descending |
+      Select-Object -First 1
+    if ($null -ne $logFile) {
+      $logTail = (Get-Content -LiteralPath $logFile.FullName -Tail 40 -ErrorAction SilentlyContinue) -join "`n"
+    }
+  }
+  return [ordered]@{
+    scQueryEx = $query
+    scQc = $qc
+    logTail = $logTail
+    xmlPath = $xmlPath
+    payloadDir = $PayloadDir
+    dataDirectory = $(if ($script:resolvedDataDirectory) { $script:resolvedDataDirectory } else { '' })
+    logDirectory = $logDirectory
+  }
 }
 
 function Invoke-WinSW {
@@ -89,12 +182,26 @@ function Invoke-WinSW {
   if ($clean.Count -eq 0) {
     throw 'WINSW_ARGUMENTS_EMPTY'
   }
-  $p = Start-Process -FilePath $winswExe `
-    -ArgumentList $clean `
-    -WorkingDirectory $PayloadDir `
-    -Wait -PassThru -NoNewWindow
-  if ($null -eq $p) { return -1 }
-  return [int]$p.ExitCode
+  $stdout = Join-Path $env:TEMP ("camacho-winsw-{0}-out.txt" -f [guid]::NewGuid().ToString('N'))
+  $stderr = Join-Path $env:TEMP ("camacho-winsw-{0}-err.txt" -f [guid]::NewGuid().ToString('N'))
+  try {
+    $p = Start-Process -FilePath $winswExe `
+      -ArgumentList $clean `
+      -WorkingDirectory $PayloadDir `
+      -Wait -PassThru -NoNewWindow `
+      -RedirectStandardOutput $stdout `
+      -RedirectStandardError $stderr
+    $outText = ''
+    $errText = ''
+    if (Test-Path -LiteralPath $stdout) { $outText = (Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue) }
+    if (Test-Path -LiteralPath $stderr) { $errText = (Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue) }
+    if (-not [string]::IsNullOrWhiteSpace($outText)) { Write-Host ("WINSW_STDOUT={0}" -f $outText.Trim()) }
+    if (-not [string]::IsNullOrWhiteSpace($errText)) { Write-Host ("WINSW_STDERR={0}" -f $errText.Trim()) }
+    if ($null -eq $p) { return -1 }
+    return [int]$p.ExitCode
+  } finally {
+    Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
+  }
 }
 
 switch ($Action) {
@@ -105,6 +212,10 @@ switch ($Action) {
       registered = [bool]$svc
       status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
       startType = $(if ($svc) { [string]$svc.StartType } else { '' })
+      startName = $(if ($svc) {
+          $cim = Get-CimInstance Win32_Service -Filter "Name='$serviceId'" -ErrorAction SilentlyContinue
+          if ($cim) { [string]$cim.StartName } else { '' }
+        } else { '' })
       payloadDir = $PayloadDir
       commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
     } 0
@@ -121,27 +232,54 @@ switch ($Action) {
     }
     $installCode = Invoke-WinSW -WinSwArguments @('install')
     if ($installCode -ne 0) {
-      Write-Result @{ ok = $false; error = 'WINSW_INSTALL_FAILED'; exitCode = $installCode; xml = $xmlPath; payloadDir = $PayloadDir } 5
+      Write-Result (Merge-Result @{
+        ok = $false
+        error = 'WINSW_INSTALL_FAILED'
+        exitCode = $installCode
+      } (Get-ScmDiagnostics)) 5
     }
+
+    # Virtual account exists only after install — grant runtime ACLs before start.
+    try {
+      Grant-ServiceRuntimeAcls
+    } catch {
+      Write-Result (Merge-Result @{
+        ok = $false
+        error = 'SERVICE_ACL_GRANT_FAILED'
+        message = [string]$_.Exception.Message
+      } (Get-ScmDiagnostics)) 9
+    }
+
     $startCode = Invoke-WinSW -WinSwArguments @('start')
     $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
-    $running = $null -ne $svc -and $svc.Status -eq 'Running'
-    if (-not $running -and $startCode -ne 0) {
-      Write-Result @{ ok = $false; error = 'WINSW_START_FAILED'; exitCode = $startCode; status = $(if ($svc) { [string]$svc.Status } else { 'Absent' }); xml = $xmlPath } 6
+    $running = $null -ne $svc -and ($svc.Status -eq 'Running' -or $svc.Status -eq 'StartPending')
+    if (-not $running) {
+      Write-Result (Merge-Result @{
+        ok = $false
+        error = 'WINSW_START_FAILED'
+        exitCode = $startCode
+        status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
+      } (Get-ScmDiagnostics)) 6
     }
     # Give Node child time to bind pipe / open SQLite
     Start-Sleep -Seconds 5
     $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
+    $cim = Get-CimInstance Win32_Service -Filter "Name='$serviceId'" -ErrorAction SilentlyContinue
+    $startName = if ($cim) { [string]$cim.StartName } else { '' }
+    $identityOk = $startName -eq $serviceAccount
     Write-Result @{
-      ok = ($null -ne $svc)
+      ok = (($null -ne $svc) -and $identityOk)
       registered = ($null -ne $svc)
       status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
-      dataDirectory = $DataDirectory
+      startName = $startName
+      identityOk = $identityOk
+      dataDirectory = $script:resolvedDataDirectory
+      logDirectory = $logDirectory
       xml = $xmlPath
       commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
       authenticodeProduct = 'RT-009-B_BLOCKED'
-      note = 'Service installed; commercial Desktop↔NT SERVICE IPC remains NOT_PROVEN until handoff certified'
-    } $(if ($null -ne $svc) { 0 } else { 7 })
+      note = 'Service installed under NT SERVICE virtual account; commercial Desktop↔NT SERVICE IPC remains NOT_PROVEN'
+    } $(if (($null -ne $svc) -and $identityOk) { 0 } else { 7 })
   }
   'Uninstall' {
     Assert-Admin

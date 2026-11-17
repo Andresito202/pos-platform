@@ -29,6 +29,7 @@
 - Hardware channel vertical: techo 60s bajo serialización Windows (evidencia timeout 30s).
 - Node zip extract: sin `Expand-Archive` (PS7 `ExtractToDirectory` 3-arg); `tar.exe` / ZipFile 2-arg / `unzip`.
 - Lifecycle `installDir`: resolución dinámica post-install/upgrade. `perMachine` → `Program Files\Camacho POS Colombia`; no congelar `LocalAppData\Programs` antes del install (electron-builder suele dejar `InstallLocation` vacío). SCM payload bajo `resources\service-payload`; datos SCM en `ProgramData\CamachoPOS\lab-data`; retención comercial AppData intacta.
+- WinSW helper: nunca parametrizar `$args` (colisión PS → `ArgumentList` null). Tras `winsw install`, ACL RX al payload y Modify a `ProgramData\CamachoPOS\{lab-data,logs}` para `NT SERVICE\CamachoPOSLocalService`. `<logpath>` fuera de Program Files. STDERR/sc diagnostics en fallos.
 
 ## Niveles de certificación
 

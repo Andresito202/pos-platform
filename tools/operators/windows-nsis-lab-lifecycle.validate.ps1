@@ -148,15 +148,17 @@ Assert-True ($helperErrors.Count -eq 0) 'helper_ast_errors' (($helperErrors | Fo
 Assert-True ($helperSrc -notmatch 'function\s+Invoke-WinSW\s*\(\s*\[string\[\]\]\s*\$args\s*\)') 'ban_invoke_winsw_args_param'
 Assert-True ($helperSrc -match 'WinSwArguments') 'uses_winsw_arguments_param'
 Assert-True ($helperSrc -match 'WorkingDirectory\s+\$PayloadDir') 'winsw_workdir_payload'
-
-# Synthetic: parameter named $args feeds Start-Process null ArgumentList (Windows PowerShell / PS7).
-function Invoke-BadArgsParam {
-  param([string[]]$args)
-  return $args
-}
-$bound = Invoke-BadArgsParam -args @('install')
-# Even when bound, documenting the Start-Process failure mode from CI:
 Assert-True ($helperSrc -match 'ValidateNotNullOrEmpty') 'helper_validates_winsw_args'
+Assert-True ($helperSrc -match 'Grant-ServiceRuntimeAcls|Grant-VirtualServiceAcl') 'grants_virtual_service_acl'
+Assert-True ($helperSrc -match 'CAMACHO_SERVICE_LOGDIR|logDirectory') 'winsw_log_under_programdata'
+Assert-True ($helperSrc -match 'RedirectStandardError') 'captures_winsw_stderr'
+Assert-True ($helperSrc -match 'sc\.exe queryex') 'scm_diagnostics_on_failure'
+
+$stagePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\apps\pos-desktop\scripts\stage-nsis-service-payload.mjs'))
+Assert-True (Test-Path -LiteralPath $stagePath) 'stage_script_present' $stagePath
+$stageSrc = Get-Content -LiteralPath $stagePath -Raw
+Assert-True ($stageSrc -match '<logpath>') 'stage_template_has_logpath'
+Assert-True ($stageSrc -match '__CAMACHO_SERVICE_LOGDIR__') 'stage_logdir_placeholder'
 
 if ($failed -gt 0) {
   Write-Host "VALIDATE_SUMMARY=FAIL count=$failed"

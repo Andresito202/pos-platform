@@ -256,6 +256,8 @@ async function main() {
       `  <executable>${esc(input.nodeExecutable)}</executable>`,
       `  <arguments>${esc(`"${input.bundle}"`)}</arguments>`,
       `  <workingdirectory>${esc(input.workingDirectory)}</workingdirectory>`,
+      // WinSW logs must not write under Program Files (virtual account has no write).
+      `  <logpath>${esc(input.logDirectory)}</logpath>`,
       "  <startmode>Automatic</startmode>",
       "  <serviceaccount>",
       `    <username>NT SERVICE\\${SERVICE_ID}</username>`,
@@ -283,6 +285,7 @@ async function main() {
     nodeExecutable: "__CAMACHO_SERVICE_NODE__",
     bundle: "__CAMACHO_SERVICE_BUNDLE__",
     workingDirectory: "__CAMACHO_SERVICE_WORKDIR__",
+    logDirectory: "__CAMACHO_SERVICE_LOGDIR__",
     environment: {
       POS_DATA_DIRECTORY: "__CAMACHO_POS_DATA_DIRECTORY__",
       POS_INSTALLATION_ID: "__CAMACHO_POS_INSTALLATION_ID__",
