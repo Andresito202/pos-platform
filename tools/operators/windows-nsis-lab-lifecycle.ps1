@@ -331,59 +331,51 @@ try {
   }))
   if ($missingPayload.Count -gt 0) { throw 'SERVICE_PAYLOAD_FILES_INCOMPLETE' }
 
-  # NSIS customInstall should have registered; if absent / wrong identity / not running, install now elevated.
-  # Use ProgramData for SCM service data (matches install-camacho-local-service.ps1 default),
-  # distinct from interactive AppData lab-data used for Desktop DPAPI channel tests.
+  # NSIS customInstall MUST have registered the service. Lab must NOT paper over
+  # installer failure with an auxiliary helper install (masks Get-FileHash / hook bugs).
   $scmDataDirectory = Join-Path $env:ProgramData 'CamachoPOS\lab-data'
   $expectedScmAccount = 'NT SERVICE\CamachoPOSLocalService'
-  $installFallbackExit = $null
-  $installOut = ''
-  $cimBefore = Get-CimInstance Win32_Service -Filter "Name='CamachoPOSLocalService'" -ErrorAction SilentlyContinue
-  $startNameBefore = if ($cimBefore) { [string]$cimBefore.StartName } else { '' }
-  $needsInstall = (-not $svc) -or ($startNameBefore -ne $expectedScmAccount) -or (
-    $null -ne $svc -and $svc.Status -ne 'Running' -and $svc.Status -ne 'StartPending'
-  )
-  # Surface NSIS helper trail when present (does not clear commercial IPC gate).
   $helperLog = Join-Path $env:ProgramData 'CamachoPOS\logs\winsw-helper.log'
+  $helperLogTail = ''
   if (Test-Path -LiteralPath $helperLog) {
-    Write-Host ('WINSW_HELPER_LOG_TAIL=' + ((Get-Content -LiteralPath $helperLog -Tail 30 -ErrorAction SilentlyContinue) -join ' || '))
-  }
-  if ($needsInstall) {
-    Write-Host ('PHASE=winsw_scm_install_fallback reason=absent={0};startName={1};status={2}' -f (-not $svc), $startNameBefore, $(if ($svc) { [string]$svc.Status } else { 'Absent' }))
-    $installOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
-      -Action Install -PayloadDir $payloadDir -DataDirectory $scmDataDirectory -Json 2>&1 | Out-String
-    $installFallbackExit = $LASTEXITCODE
-    Write-Host $installOut
-    Write-Host ("WINSW_INSTALL_FALLBACK_EXIT={0}" -f $installFallbackExit)
-    $svc = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+    $helperLogTail = ((Get-Content -LiteralPath $helperLog -Tail 40 -ErrorAction SilentlyContinue) -join ' || ')
+    Write-Host ('WINSW_HELPER_LOG_TAIL=' + $helperLogTail)
   }
   $scmStatus = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
     -Action Status -PayloadDir $payloadDir -Json 2>&1 | Out-String
   Write-Host $scmStatus
+  $svc = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
   $cimAfter = Get-CimInstance Win32_Service -Filter "Name='CamachoPOSLocalService'" -ErrorAction SilentlyContinue
   $startNameAfter = if ($cimAfter) { [string]$cimAfter.StartName } else { '' }
   $identityOk = $startNameAfter -eq $expectedScmAccount
   $runningOk = $null -ne $svc -and ($svc.Status -eq 'Running' -or $svc.Status -eq 'StartPending')
+  $autoStartOk = $null -ne $svc -and ($svc.StartType -eq 'Automatic')
   # LocalSystem / wrong account must NEVER pass — even if the process is Running.
-  $scmOk = $runningOk -and $identityOk
+  $scmOk = $runningOk -and $identityOk -and $autoStartOk
   $scQc = (& sc.exe qc CamachoPOSLocalService 2>&1 | Out-String).Trim()
+  $nsisRegistered = $scmOk -and ($helperLogTail -match 'RESULT action=Install code=0')
   [void]$steps.Add((Write-Step 'winsw_scm_registration' $(if ($scmOk) { 'PASS' } else { 'FAIL' }) @{
     servicePresent = [bool]$svc
     status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
+    startType = $(if ($svc) { [string]$svc.StartType } else { '' })
     startName = $startNameAfter
     identityOk = $identityOk
+    autoStartOk = $autoStartOk
     expectedStartName = $expectedScmAccount
     payloadDir = $payloadDir
     installDir = $installDir
     scmDataDirectory = $scmDataDirectory
-    installFallbackExit = "$installFallbackExit"
-    installFallbackOutput = $installOut.Trim()
+    labFallbackUsed = $false
+    nsisHelperInstallOk = $nsisRegistered
+    helperLogTail = $helperLogTail
     scQc = $scQc
     commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
     authenticodeProduct = 'RT-009-B_BLOCKED'
     statusJson = $scmStatus.Trim()
   }))
-  if (-not $scmOk) { throw 'WINSW_SCM_REGISTRATION_FAILED' }
+  if (-not $scmOk) {
+    throw 'WINSW_SCM_REGISTRATION_FAILED_NSIS_DID_NOT_REGISTER'
+  }
 
   # --- Real SQLite preservation marker (AppData commercial retention path) ---
   New-Item -ItemType Directory -Force -Path $dataDirectory | Out-Null
@@ -505,17 +497,34 @@ try {
     resolutionSource = "$($layoutAfterUpgrade.source)"
   }))
 
-  # Payload must still exist after upgrade (SCM paths).
+  # Payload + SCM service must survive upgrade (NSIS customInstall re-registers after
+  # customUnInstall). Lab must not reinstall the service here.
   $payloadAfter = Join-Path $installDir 'resources\service-payload'
   $payloadOk = Test-Path -LiteralPath (Join-Path $payloadAfter 'install-camacho-local-service.ps1') -PathType Leaf
   $svcAfterUpgrade = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
-  [void]$steps.Add((Write-Step 'paths_after_upgrade' $(if ($payloadOk) { 'PASS' } else { 'FAIL' }) @{
+  $cimAfterUpgrade = Get-CimInstance Win32_Service -Filter "Name='CamachoPOSLocalService'" -ErrorAction SilentlyContinue
+  $startNameAfterUpgrade = if ($cimAfterUpgrade) { [string]$cimAfterUpgrade.StartName } else { '' }
+  $identityAfterUpgrade = $startNameAfterUpgrade -eq $expectedScmAccount
+  $runningAfterUpgrade = $null -ne $svcAfterUpgrade -and (
+    $svcAfterUpgrade.Status -eq 'Running' -or $svcAfterUpgrade.Status -eq 'StartPending'
+  )
+  $autoAfterUpgrade = $null -ne $svcAfterUpgrade -and ($svcAfterUpgrade.StartType -eq 'Automatic')
+  $upgradeScmOk = $payloadOk -and $runningAfterUpgrade -and $identityAfterUpgrade -and $autoAfterUpgrade
+  $scQcAfterUpgrade = (& sc.exe qc CamachoPOSLocalService 2>&1 | Out-String).Trim()
+  [void]$steps.Add((Write-Step 'paths_after_upgrade' $(if ($upgradeScmOk) { 'PASS' } else { 'FAIL' }) @{
     installDir = $installDir
     payloadDir = $payloadAfter
+    payloadOk = $payloadOk
     servicePresent = [bool]$svcAfterUpgrade
     serviceStatus = $(if ($svcAfterUpgrade) { [string]$svcAfterUpgrade.Status } else { 'Absent' })
+    startType = $(if ($svcAfterUpgrade) { [string]$svcAfterUpgrade.StartType } else { '' })
+    startName = $startNameAfterUpgrade
+    identityOk = $identityAfterUpgrade
+    expectedStartName = $expectedScmAccount
+    scQc = $scQcAfterUpgrade
   }))
   if (-not $payloadOk) { throw 'SERVICE_PAYLOAD_MISSING_AFTER_UPGRADE' }
+  if (-not $upgradeScmOk) { throw 'WINSW_SCM_MISSING_OR_WRONG_IDENTITY_AFTER_UPGRADE' }
 
   $verifyOut = & node $markerScript verify $sqlitePath $markerToken 2>&1 | Out-String
   Write-Host $verifyOut

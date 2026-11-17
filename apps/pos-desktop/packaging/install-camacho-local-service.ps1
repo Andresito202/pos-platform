@@ -64,6 +64,29 @@ function Assert-Admin {
   }
 }
 
+function Get-FileSha256Hex {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  # Do NOT use Get-FileHash: nsExec-hosted Windows PowerShell (NSIS customInstall)
+  # frequently fails to resolve Microsoft.PowerShell.Utility cmdlets → HELPER_UNCAUGHT,
+  # silent SCM skip, and service Absent after upgrade. Use BCL SHA256 instead.
+  $algo = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+      $bytes = $algo.ComputeHash($stream)
+      $sb = New-Object System.Text.StringBuilder ($bytes.Length * 2)
+      foreach ($b in $bytes) {
+        [void]$sb.AppendFormat('{0:x2}', $b)
+      }
+      return $sb.ToString()
+    } finally {
+      $stream.Dispose()
+    }
+  } finally {
+    $algo.Dispose()
+  }
+}
+
 function Assert-Payload {
   foreach ($p in @($winswExe, $template, $nodeExe, $bundle)) {
     if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
@@ -72,7 +95,7 @@ function Assert-Payload {
   }
   if (Test-Path -LiteralPath $integrityFile) {
     $integrity = Get-Content -LiteralPath $integrityFile -Raw | ConvertFrom-Json
-    $hash = (Get-FileHash -LiteralPath $winswExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hash = Get-FileSha256Hex -Path $winswExe
     $expected = [string]$integrity.winsw.sha256
     if ($expected -and $hash -ne $expected.ToLowerInvariant()) {
       Write-Result @{ ok = $false; error = 'WINSW_SHA256_MISMATCH'; hash = $hash; expected = $expected } 4

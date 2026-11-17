@@ -33,6 +33,8 @@
 - WinSW 2.12 XML: usar `<domain>NT SERVICE</domain>` + `<user>CamachoPOSLocalService</user>`. El elemento `<username>` **no** lo lee XmlServiceConfig → el servicio queda en LocalSystem. `allowservicelogon=false` para cuentas virtuales (LookupAccountName corre antes de CreateService).
 - Lifecycle exige `StartName=NT SERVICE\CamachoPOSLocalService` + Running; LocalSystem nunca PASS.
 - Uninstall: helper ya no exige payload completo; stop + WinSW uninstall + `sc delete`; NSIS `customUnInstall` también ejecuta `sc stop/delete` por si el payload ya no está.
+- NSIS-hosted PS: **no** `Get-FileHash` (cmdlet ausente bajo nsExec) → SHA256 vía BCL. `customInstall` hace `Abort` si el helper ≠ 0.
+- Lifecycle: **sin** fallback auxiliar de registro. Exige servicio Running + `NT SERVICE\…` + Automatic tras install y tras upgrade; Absent post-upgrade = FAIL.
 
 ## Niveles de certificación
 
@@ -50,9 +52,15 @@
 - Causa raíz: plantilla con `<username>NT SERVICE\…</username>`; WinSW 2.12.0 `XmlServiceConfig` sólo asigna `Domain`/`User` desde `<domain>`/`<user>`, así que `HasServiceAccount()` era false y SCM caía al default LocalSystem.
 - Corrección en tip posterior: `<domain>/<user>` + `allowservicelogon=false` + gate lifecycle de identidad virtual.
 
+## Hallazgo CI `4c20762e` (run 44198910243) — SUCCESS enmascarado
+
+1. NSIS `customInstall` → `HELPER_UNCAUGHT`: `Get-FileHash` no reconocido bajo nsExec → servicio ausente tras install.
+2. Lifecycle usó fallback auxiliar → PASS falso de registro.
+3. Upgrade: `customUnInstall` quitó el servicio; `customInstall` falló otra vez por Get-FileHash → `servicePresent=False` con `paths_after_upgrade` aún PASS (sólo miraba payload).
+
 ## Veredicto
 
 Se declara tras CI exact-head del tip que incluye este empaquetado:
 
-- `WINDOWS_SCM_INTEGRACION_CERRADA` — sólo si SCM register/start/remove PASS **y** el alcance declarado no exige IPC comercial Session 0 (ese sigue NOT_PROVEN).
+- `WINDOWS_SCM_INTEGRACION_CERRADA` — sólo si SCM register/start/upgrade-persist/remove PASS **sin** fallback de lab, identidad virtual, Automatic start, **y** el alcance declarado no exige IPC comercial Session 0 (ese sigue NOT_PROVEN).
 - `WINDOWS_SCM_INTEGRACION_BLOQUEADA` — si falla payload/SCM/lifecycle, o si se pretendía cerrar handoff comercial sin evidencia.
