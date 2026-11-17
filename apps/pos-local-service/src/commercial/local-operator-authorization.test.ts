@@ -126,6 +126,17 @@ describe("local operator backend authorization",()=>{
       expect(permissions.includes(code)).toBe(role === "ADMINISTRADOR");
     }
   });
+  it("ADMINISTRADOR gets explicit bakery deviate; SUPERVISOR stays read-only", async () => {
+    const admin = setup("ADMINISTRADOR");
+    await admin.sessions.login("A", "admin.local", "valid");
+    expect(admin.read("A").result!.permissions).toContain(CanonicalPermission.BAKERY_PRODUCTION_DEVIATE);
+    expect(admin.read("A").result!.permissions).toContain(CanonicalPermission.BAKERY_PRODUCTION_EXECUTE);
+    const supervisor = setup("SUPERVISOR");
+    await supervisor.sessions.login("B", "supervisor.local", "valid");
+    expect(supervisor.read("B").result!.permissions).toContain(CanonicalPermission.BAKERY_PRODUCTION_READ);
+    expect(supervisor.read("B").result!.permissions).not.toContain(CanonicalPermission.BAKERY_PRODUCTION_DEVIATE);
+    expect(supervisor.read("B").result!.permissions).not.toContain(CanonicalPermission.BAKERY_PRODUCTION_EXECUTE);
+  });
   it.each(["SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)("rejects a forged sale.create request from %s in the real use case", async role => {
     const {sessions,handler}=setup(role);
     await sessions.login("A", "operator", "valid");

@@ -47,6 +47,8 @@ const ADMINISTRATOR = [
   CanonicalPermission.AUDIT_EVENT_READ,
   CanonicalPermission.BAKERY_RECIPE_MANAGE,
   CanonicalPermission.BAKERY_PRODUCTION_EXECUTE,
+  // Explicit — not implied by BAKERY_PRODUCTION_EXECUTE (see permission-codes).
+  CanonicalPermission.BAKERY_PRODUCTION_DEVIATE,
 ] as const;
 
 // No local permission to provision commercial BUSINESS licences, issue fiscal
