@@ -3,12 +3,14 @@
 **Repositorio:** Andresito202/pos-platform  
 **Rama única:** `cursor/commercial-design-review-0d11`  
 **PR:** #106 (Draft — no fusionar a `main`, no FACTUS)  
-**Estado:** **BLOQUE_7_CERRADO_INTERNO**
+**Estado:** **BLOQUE_7_BLOQUEADO** hasta CI exact-head SUCCESS del tip de remediación (luego `BLOQUE_7_CERRADO_INTERNO`)
 
 | Referencia | SHA |
 |---|---|
 | HEAD inicial (CI SUCCESS confirmado) | `1ee066d146d03a01ff7a23ff56137cd3f1ebbc5e` |
-| Tip funcional / claim CI | `ab8795949e71165a12498c8ea991383ed39ab0b1` |
+| Tip funcional Bloque 7 | `ab8795949e71165a12498c8ea991383ed39ab0b1` |
+| Tip docs previo (CI fail vulnerab.) | `b5c1247c2c8c1ad312e861a553eafeb83b566abe` |
+| Tip remediación supply-chain (este commit) | *(pin post-push)* |
 
 ## Defectos corregidos
 
@@ -17,6 +19,8 @@
 | StatusPanel sin operaciones pendientes de sync | `RuntimeStatusResultSchema` + `DurableSyncStore.outboxDepth()` + StatusPanel (conteos reales PENDING/IN_FLIGHT/RETRY_WAIT y DEAD_LETTER) |
 | `NOT_AUTHENTICATED` al boot no re-sonda | `CentralSyncComponent` arma probe espaciado y pasa a drenaje cuando aparece credencial |
 | ROLE-PREVIEW doc: SUPERVISOR con “caja y ventas” | Alineado con bridge/`ROLE_SCREEN_ORDER` (sin carrito) |
+| CI vulnerability gate: `electron-builder@26.0.12` → tar/app-builder-lib/builder-util-runtime high/critical | Bump `electron-builder@26.18.1` + `pnpm.overrides` (`tar`, `builder-util-runtime`, `app-builder-lib`, `dmg-builder`, `builder-util`, `electron-builder-squirrel-windows`) |
+| License gate: `truncate-utf8-bytes@1.0.2` SPDX `WTFPL` sin clasificar (vía sanitize-filename / builder-util) | `WTFPL` añadido a `allow` con `preserve-license-text` (permisiva; no debilita deny floor) |
 
 ## Funcionalidades verificadas
 
@@ -33,12 +37,13 @@
 | win-unpacked win32 generado en Linux | presente bajo `dist-installer/` (no versionado) | GENERATED (local) |
 | Firma Authenticode | RT-009-B | BLOCKED |
 | Instalación física / FACTUS / Android / VPS | fuera de alcance | SKIP |
+| Vulnerability + license gates (local, tip remediación) | PASS observados | TESTED (local; CI tip pendiente) |
 
 ## Pruebas PASS / FAIL / SKIP (este entorno)
 
-**PASS:** contracts 344; desktop 341; StatusPanel 6; central-sync+sync-store 12; bloque4+bloque5 18; architecture; typecheck desktop+local-service; desktop build.
+**PASS:** contracts 344; desktop 341; StatusPanel 6; central-sync+sync-store 12; bloque4+bloque5 18; architecture; typecheck desktop+local-service; desktop build; `ci:vulnerability-audit`; `ci:license-gate` (+ inventory/SBOM con `REVIEWED_SHA`); `ci:license-tests` 13; `ci:supply-chain-tests` / vulnerability policy tests.
 
-**FAIL:** ninguno en suites arriba.
+**FAIL:** tip `b5c1247c` CI — Repository policy / vulnerability audit (remediado en tip siguiente; no se declara PASS remoto hasta exact-head).
 
 **SKIP:** NSIS final sin wine; install/uninstall/upgrade físico; Authenticode; FACTUS; capturas homes rol Windows; VPS/Android/hardware.
 
@@ -48,7 +53,7 @@
 |---|---|
 | `apps/pos-desktop/electron-builder.yml` | versionado |
 | `apps/pos-desktop/scripts/pack-windows-nsis.mjs` | versionado |
-| `electron-builder@26.0.12` devDependency | versionado en lockfile |
+| `electron-builder@26.18.1` devDependency | versionado en lockfile |
 | `dist-installer/` | gitignored; generado localmente |
 
 ## Riesgos / dependencias externas
@@ -60,6 +65,7 @@
 5. DEC-024 TLS PROPOSED / provenance.
 6. picomatch GHSA-fc5q exceptions hasta 2026-12-17.
 7. Icono Electron por defecto en packer (brand icon no cableado al builder).
+8. `electron-builder-squirrel-windows` permanece como peer de `app-builder-lib` (DEC-010 sigue siendo NSIS; no se adopta Squirrel como empaquetador).
 
 ## Checklist previo a distribución comercial
 
@@ -72,5 +78,5 @@
 
 ## Estado final
 
-**BLOQUE_7_CERRADO_INTERNO**  
+**BLOQUE_7_BLOQUEADO** (CI tip remediación pendiente)  
 No certificación comercial. No `PRODUCTION`. No fusionar a `main` sin autorización. No intervenir FACTUS.
