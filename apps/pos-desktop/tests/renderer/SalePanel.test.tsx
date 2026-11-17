@@ -97,6 +97,7 @@ const BASE_OVERRIDES = {
   "cash.shift.open": succeeded({ outcome: "OPENED", shift_id: SHIFT, version: 1 }),
   "catalog.item.list": succeeded({ outcome: "FOUND", items: [], has_more: false }),
   "catalog.item.find": FOUND_ITEM,
+  "cart.waiting.list": succeeded({ outcome: "FOUND", carts: [], has_more: false }),
   "sale.create": succeeded({
     outcome: "CREATED",
     sale_id: SALE,
@@ -499,15 +500,12 @@ describe("SalePanel — vertical comercial", () => {
     expect(screen.queryByTestId("sale-completed")).toBeNull();
   });
 
-  it("sin turno abierto la venta viaja con cash_register_id nulo", async () => {
+  it("sin turno abierto no permite Continuar al cobro", async () => {
     install(BASE_OVERRIDES);
     render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     await addProduct();
-    await createSale();
-
-    const request = calls.get("sale.create")![0] as { payload: Record<string, unknown> };
-    expect(request.payload["cash_register_id"]).toBeNull();
-    expect(() => SaleCreateRequestSchema.parse(request)).not.toThrow();
+    expect((screen.getByTestId("create-sale-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(calls.get("sale.create")).toBeUndefined();
   });
 });
 
@@ -837,6 +835,58 @@ describe("SalePanel · transferencia", () => {
     expect((screen.getByTestId("confirm-transfer-button") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByTestId("select-payment-cash"));
     expect((screen.getByTestId("charge-cash-button") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("Block 2: blocks Nueva venta while an unpaid sale holds inventory", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    expect((screen.getByTestId("reset-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("sale-created")).toBeTruthy();
+  });
+
+  it("Block 2: after a partial, defaults the next amount to the remaining payable", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", false) });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.change(screen.getByTestId("payment-amount-input"), { target: { value: "2000" } });
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("payment-partial");
+    await waitFor(() => {
+      expect((screen.getByTestId("payment-amount-input") as HTMLInputElement).value).toBe("1500.000000");
+    });
+    expect(screen.getByTestId("payment-remaining-hint").textContent).toMatch(/pendiente/);
+  });
+
+  it("Block 2: Continuar al cobro requires an open shift", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await addProduct();
+    expect((screen.getByTestId("create-sale-button") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("Block 2: Daviplata shows merchant destinations without confirming money", async () => {
+    install({
+      ...BASE_OVERRIDES,
+      "payment.destination.get": succeeded({
+        outcome: "AVAILABLE",
+        sequence: 1,
+        destinations: [{
+          kind: "NEQUI_NUMBER",
+          label: "Nequi comercio",
+          destination_reference: "3001234567",
+          qr_asset_id: null,
+          qr_sha256: null,
+          version: 1,
+        }],
+      }),
+    });
+    render(<SalePanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByTestId("select-payment-daviplata"));
+    await screen.findByTestId("merchant-payment-methods");
+    expect(screen.getByTestId("merchant-destination-reference").textContent).toBe("3001234567");
+    expect(calls.get("payment.transfer.confirm")).toBeUndefined();
   });
 
 });

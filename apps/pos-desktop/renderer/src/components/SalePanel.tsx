@@ -1,5 +1,5 @@
 import { CanonicalPermission } from "@pos-platform/contracts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { readDesignReviewRegisterId } from "../desktop-hints.js";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
 import {
@@ -9,7 +9,9 @@ import {
   formatQuantityDisplay,
   formatScale6Display,
   parseCopMicros,
+  remainingPayableScale6,
 } from "../money-display.js";
+import { toScale6 } from "../scale6.js";
 import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
 import {MerchantPaymentMethods} from "./MerchantPaymentMethods.js";
 import { ProductAvatar } from "./ProductAvatar.js";
@@ -58,12 +60,18 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   });
   const completed = sale.payment?.sale_completed === true
     || (sale.transfer?.saleId === sale.sale?.saleId && sale.transferConfirmation?.sale_completed === true);
+  const confirmedCoverage = sale.payment?.confirmed_coverage
+    ?? (sale.transferConfirmation?.sale_completed === true ? null : sale.transferConfirmation?.confirmed_coverage)
+    ?? null;
+  const remainingAmount = sale.sale === null
+    ? null
+    : remainingPayableScale6(sale.sale.payableAmount, confirmedCoverage);
+  const hasPartialCoverage = !completed
+    && confirmedCoverage !== null
+    && confirmedCoverage !== "0.000000";
   const customers = useCustomerDirectory();
   const [customerDocument, setCustomerDocument] = useState("13");
   const [customerIdentification, setCustomerIdentification] = useState("");
-  useEffect(() => {
-    if (sale.customerId && permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ)) void customers.get(sale.customerId);
-  }, [sale.customerId, customers.get, permissions]);
   const [registerId, setRegisterId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "nequi" | "daviplata">("cash");
   const [showDenominations, setShowDenominations] = useState(false);
@@ -76,13 +84,31 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   const [denominationCounts, setDenominationCounts] = useState<Record<number, number>>({});
   const [paymentId, setPaymentId] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
+  const paymentAmountRequired = hasPartialCoverage && paymentAmount.trim() === "";
+  useEffect(() => {
+    if (sale.customerId && permissions.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ)) void customers.get(sale.customerId);
+  }, [sale.customerId, customers.get, permissions]);
+  const waitingListed = useRef(false);
+  useEffect(() => {
+    if (waitingListed.current) return;
+    if (!permissions.has(CanonicalPermission.SALES_SALE_CREATE)) return;
+    waitingListed.current = true;
+    void sale.listWaiting();
+  }, [permissions, sale.listWaiting]);
+  useEffect(() => {
+    if (!hasPartialCoverage || remainingAmount === null) return;
+    setPaymentAmount(remainingAmount);
+  }, [hasPartialCoverage, remainingAmount]);
   const selectedDenominationTotal = cashDenominations.reduce(
     (total, denomination) => total + BigInt(denomination.value) * BigInt(denominationCounts[denomination.value] ?? 0),
     0n,
   );
   const receivedTotal = BigInt(manualTendered || "0") + selectedDenominationTotal;
   const tendered = manualTendered !== "" || selectedDenominationTotal > 0n ? receivedTotal.toString() : "";
-  const previewPayable = parseCopMicros(paymentAmount || sale.sale?.payableAmount || "");
+  const previewSource = paymentAmount.trim() !== ""
+    ? (toScale6(paymentAmount) ?? paymentAmount)
+    : (remainingAmount ?? sale.sale?.payableAmount ?? "");
+  const previewPayable = parseCopMicros(previewSource);
   const previewDelta = receivedTotal > 0n && previewPayable !== null
     ? receivedTotal * 1_000_000n - previewPayable : null;
   const activePrecision = sale.foundItem?.unit_precision
@@ -134,7 +160,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
           <label>Base inicial (COP)<input data-testid="opening-amount-input" aria-label="Base inicial" value={opening}
             onChange={(e) => { setOpening(e.target.value); }} placeholder="Base inicial" inputMode="decimal" disabled={sale.busy} /></label>
           <button data-testid="open-shift-button" onClick={() => { void sale.openShift(registerId.trim(), opening.trim()); }}
-            disabled={sale.busy || !permissions.has(CanonicalPermission.CASH_SHIFT_OPEN) || registerId.trim() === ""}>{sale.busy ? "Abriendo…" : "Abrir turno"}</button>
+            disabled={sale.busy || sale.unresolved || !permissions.has(CanonicalPermission.CASH_SHIFT_OPEN) || registerId.trim() === ""}>{sale.busy ? "Abriendo…" : "Abrir turno"}</button>
           {sale.error && <p role="alert">{({REGISTER_NOT_FOUND:"La caja no está registrada en este negocio. Solicita su habilitación al administrador.",REGISTER_INACTIVE:"La caja está inactiva. Solicita su habilitación al administrador.",INCOMPATIBLE_SHIFT:"Esta caja ya tiene un turno incompatible. Revisa el turno activo antes de abrir otro.",INVALID_OPENING_AMOUNT:"Ingresa una base inicial válida, por ejemplo 50000.",INVALID_CASH_REGISTER:"Selecciona el identificador válido de la caja habilitada.",UNAUTHORIZED:"Tu sesión no tiene permiso para abrir esta caja."} as Record<string,string>)[sale.error] ?? `No se pudo abrir el turno: ${sale.error}`}</p>}
         </div>
       ) : (
@@ -143,7 +169,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
           <input data-testid="counted-amount-input" aria-label="Efectivo contado" value={counted}
             onChange={(e) => { setCounted(e.target.value); }} placeholder="Efectivo contado" disabled={sale.busy} />
           <button data-testid="close-shift-button" onClick={() => { void sale.closeShift(counted.trim()); }}
-            disabled={sale.busy || !permissions.has(CanonicalPermission.CASH_SHIFT_CLOSE) || counted.trim() === ""}>Cerrar turno</button>
+            disabled={sale.busy || sale.unresolved || !permissions.has(CanonicalPermission.CASH_SHIFT_CLOSE) || counted.trim() === ""}>Cerrar turno</button>
         </div>
       )}
 
@@ -257,7 +283,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                 {cart.payload.label || "Cliente en espera"} · {cart.line_count} líneas
               </button>
               <button aria-label={`Eliminar ${cart.payload.label || "cliente en espera"}`}
-                disabled={sale.busy || sale.unresolved || sale.lines.length>0 || sale.sale!==null}
+                disabled={sale.busy || sale.unresolved || sale.sale!==null}
                 onClick={()=>{if(window.confirm("¿Eliminar este carrito en espera? No se eliminarán ventas ni pagos.")) void sale.discardWaiting(cart);}}>Eliminar</button>
             </li>)}</ul>}
           </div>}
@@ -277,7 +303,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
           </ul>
           <button data-testid="create-sale-button" className="pos-primary-action"
             onClick={() => { void sale.createSale(); }}
-            disabled={sale.busy || !permissions.has(CanonicalPermission.SALES_SALE_CREATE) || sale.lines.length === 0 || sale.sale !== null}>Continuar al cobro</button>
+            disabled={sale.busy || sale.unresolved || sale.shift === null || !permissions.has(CanonicalPermission.SALES_SALE_CREATE) || sale.lines.length === 0 || sale.sale !== null}>Continuar al cobro</button>
 
           {sale.sale !== null && (
             <div data-testid="sale-created" className="pos-payment-card">
@@ -290,7 +316,15 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
               <details className="pos-payment-reference"><summary>Referencia de la venta</summary>{sale.sale.saleId}</details>
               <h3>Medio de pago</h3>
               <label>Importe de este pago<input data-testid="payment-amount-input" aria-label="Importe de este pago"
-                value={paymentAmount} placeholder={formatScale6Display(sale.sale.payableAmount)} onChange={(event) => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} /></label>
+                value={paymentAmount}
+                placeholder={formatScale6Display(remainingAmount ?? sale.sale.payableAmount)}
+                onChange={(event) => setPaymentAmount(event.target.value)}
+                disabled={sale.busy || completed} /></label>
+              {hasPartialCoverage && (
+                <p data-testid="payment-remaining-hint">
+                  Cubierto {formatScale6Display(confirmedCoverage)} · pendiente {formatScale6Display(remainingAmount)}
+                </p>
+              )}
               <div className="pos-payment-methods">
                 {paymentButtons.map(method => <button key={method.id} type="button"
                   data-testid={`select-payment-${method.id}`} aria-pressed={paymentMethod === method.id}
@@ -299,10 +333,10 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                 </button>)}
               </div>
 
-              {(paymentMethod==="nequi"||paymentMethod==="transfer")&&
+              {(paymentMethod==="nequi"||paymentMethod==="daviplata"||paymentMethod==="transfer")&&
                 <MerchantPaymentMethods
                   enabled={permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ)}
-                  amount={formatScale6Display(sale.sale.payableAmount)} />}
+                  amount={formatScale6Display(remainingAmount ?? sale.sale.payableAmount)} />}
               {paymentMethod === "cash" && <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
                 <label>Efectivo recibido (COP)<input aria-label="Efectivo recibido (COP)" inputMode="numeric" value={manualTendered}
                   onChange={event=>{const value=event.target.value; if (/^\d{0,12}$/.test(value)) setManualTendered(value.replace(/^0+(?=\d)/, ""));}}
@@ -370,11 +404,11 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
               <div className="pos-checkout-action">
                 {paymentMethod === "cash" ? <button type="button" className="pos-primary-action" data-testid="charge-cash-button"
                   onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
-                  disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}>
+                  disabled={sale.busy || sale.unresolved || completed || paymentAmountRequired || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}>
                   {sale.busy ? "Procesando…" : "Confirmar cobro en efectivo"}</button>
                 : <button type="button" className="pos-primary-action" data-testid="register-transfer-button"
                   onClick={() => { void sale.registerTransfer(paymentAmount || undefined, paymentMethod === "nequi" ? "NEQUI" : paymentMethod === "daviplata" ? "DAVIPLATA" : null); }}
-                  disabled={sale.busy || sale.unresolved || completed || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}>
+                  disabled={sale.busy || sale.unresolved || completed || paymentAmountRequired || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}>
                   {sale.busy ? "Procesando…" : paymentMethod === "nequi" ? "Reportar pago Nequi" : paymentMethod === "daviplata" ? "Reportar pago Daviplata" : "Reportar transferencia"}</button>}
               </div>
               <p className="pos-payment-note">{paymentMethod === "cash" ? "Confirma después de contar el efectivo recibido." : "Reportar no confirma el ingreso. Un operador autorizado debe verificarlo."}</p>
@@ -437,12 +471,23 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
         ) : <div data-testid="shift-close-rejected">{sale.closedShift.outcome}</div>
       )}
 
-      {sale.error !== null && <div data-testid="sale-error" role={sale.shift ? "alert" : undefined}>{sale.error === "LICENSE_BLOCKED" ? "La licencia no autoriza nuevas ventas. Consulta al administrador para revisar vigencia, pago o bloqueo." : sale.error}</div>}
+      {sale.error !== null && <div data-testid="sale-error" role={sale.shift ? "alert" : undefined}>{
+        sale.error === "LICENSE_BLOCKED"
+          ? "La licencia no autoriza nuevas ventas. Consulta al administrador para revisar vigencia, pago o bloqueo."
+          : sale.error === "SALE_IN_PROGRESS_REQUIRES_COMPLETION"
+            ? "Hay una venta pendiente de cobro. Completa o cancela el cobro antes de iniciar otra (cancelación IPC aún no materializada)."
+            : sale.error === "PAYMENT_AMOUNT_REQUIRED"
+              ? "Indica el importe de este pago parcial. No se usa el total completo tras una cobertura previa."
+              : sale.error
+      }</div>}
       {sale.unresolved && <div role="alert">
         El resultado de una operación sigue pendiente. El reintento conserva los datos y el importe originales. Resuélvala antes de iniciar otra.
         <button data-testid="retry-pending-operation" disabled={sale.busy} onClick={() => { void sale.retryPending(); }}>Reintentar operación pendiente</button>
       </div>}
-      <button data-testid="reset-button" onClick={() => { if (sale.reset()) { setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); setPaymentMethod("cash"); setShowDenominations(false); } }} disabled={sale.busy}>Nueva venta</button>
+      <button data-testid="reset-button" onClick={() => { if (sale.reset()) { setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); setPaymentMethod("cash"); setShowDenominations(false); } }}
+        disabled={sale.busy || sale.unresolved || (sale.sale !== null && !completed)}
+        title={sale.sale !== null && !completed ? "Completa el cobro antes de abandonar la venta (libera inventario)" : undefined}
+      >Nueva venta</button>
     </section>
   );
 }

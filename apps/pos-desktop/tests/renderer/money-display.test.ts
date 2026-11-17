@@ -4,12 +4,19 @@ import {
   formatQuantityDisplay,
   formatScale6Display,
   parseCopMicros,
+  remainingPayableScale6,
 } from "../../renderer/src/money-display.js";
 
 describe("money-display", () => {
   it("formats whole COP amounts without six trailing decimals", () => {
     expect(formatScale6Display("3500.000000")).toBe("$3.500");
     expect(parseCopMicros("3500.000000")).toBe(3_500_000_000n);
+  });
+
+  it("accepts cashier comma decimals and derives remaining payable without inventing totals", () => {
+    expect(parseCopMicros("12,5")).toBe(12_500_000n);
+    expect(remainingPayableScale6("3500.000000", "2000.000000")).toBe("1500.000000");
+    expect(remainingPayableScale6("3500.000000", null)).toBe("3500.000000");
   });
 
   it("keeps meaningful fractional COP digits when present", () => {

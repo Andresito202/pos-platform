@@ -4,10 +4,27 @@
  */
 
 export function parseCopMicros(value: string): bigint | null {
-  const match = /^(-)?(\d{1,12})(?:\.(\d{1,6}))?$/.exec(value.trim());
+  // Cashiers may type comma decimals; normalize before the canonical scale-6 form.
+  const normalized = value.trim().replace(",", ".");
+  const match = /^(-)?(\d{1,12})(?:\.(\d{1,6}))?$/.exec(normalized);
   if (!match) return null;
   const magnitude = BigInt(match[2]!) * 1_000_000n + BigInt((match[3] ?? "").padEnd(6, "0"));
   return match[1] === "-" ? -magnitude : magnitude;
+}
+
+/** Remaining payable = payable − confirmed coverage (scale-6), never inventing totals. */
+export function remainingPayableScale6(
+  payable: string,
+  confirmedCoverage: string | null | undefined,
+): string | null {
+  const payableMicros = parseCopMicros(payable);
+  const coverageMicros = parseCopMicros(confirmedCoverage ?? "0.000000");
+  if (payableMicros === null || coverageMicros === null) return null;
+  const remaining = payableMicros - coverageMicros;
+  if (remaining < 0n) return null;
+  const whole = remaining / 1_000_000n;
+  const fraction = (remaining % 1_000_000n).toString().padStart(6, "0");
+  return `${whole.toString()}.${fraction}`;
 }
 
 /** Human COP from micros, without trailing fractional zeros. */

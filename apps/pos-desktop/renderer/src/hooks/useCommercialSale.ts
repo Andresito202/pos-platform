@@ -172,10 +172,12 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
         setUnresolved(false);
       } else {
         pending.uncertain = true;
+        setUnresolved(true);
       }
       return response;
     } catch (error) {
       pending.uncertain = true;
+      setUnresolved(true);
       throw error;
     }
   }, []);
@@ -188,8 +190,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     if (pendingMutation.current !== null && pendingMutation.current.signature !== signature) {
       throw new Error("OPERATION_OUTCOME_UNRESOLVED");
     }
+    // Do not mark unresolved during a normal in-flight send; busy covers that.
+    // unresolved is reserved for lost/non-conclusive responses that need retry.
     pendingMutation.current ??= { signature, uncertain: false, messageType, request: buildEnvelope(messageType, payload, newIdempotencyKey()), apply: applyMutation.current };
-    setUnresolved(true);
     return sendMutation<T>(pendingMutation.current);
   }, [sendMutation]);
 
@@ -385,7 +388,10 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
           return;
         }
         setSale({ saleId: result.sale_id, payableAmount: result.payable_amount });
-        if(activeWaiting) setWaitingCarts(current=>current.filter(cart=>cart.id!==activeWaiting.id));
+        if (activeWaiting) {
+          setWaitingCarts((current) => current.filter((cart) => cart.id !== activeWaiting.id));
+          setActiveWaiting(null);
+        }
       },
     );
   }, [lines, shift, activeWaiting, customerId, run, callMutation]);
@@ -393,6 +399,14 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;
     if (current === null) return;
+    const priorCoverage = payment?.confirmed_coverage;
+    const hasPriorCoverage = priorCoverage !== null && priorCoverage !== undefined
+      && priorCoverage !== "0.000000" && payment?.sale_completed !== true;
+    // After a partial, never default to the full payable — that triggers OVERPAYMENT.
+    if (hasPriorCoverage && (paymentAmount === undefined || paymentAmount.trim() === "")) {
+      setError("PAYMENT_AMOUNT_REQUIRED");
+      return;
+    }
     const amount = toScale6(paymentAmount ?? current.payableAmount);
     if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
     const tendered = toScale6(tenderedAmount ?? amount);
@@ -412,7 +426,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [sale, run, callMutation]);
+  }, [sale, payment, run, callMutation]);
 
   /**
    * Cerrar el turno con el efectivo contado.
@@ -483,6 +497,16 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   const registerTransfer = useCallback(async (paymentAmount?: string, provider: "NEQUI" | "DAVIPLATA" | null = null): Promise<void> => {
     const current = sale;
     if (current === null) return;
+    const priorCoverage = payment?.confirmed_coverage
+      ?? (transferConfirmation?.sale_completed === true ? null : transferConfirmation?.confirmed_coverage);
+    const hasPriorCoverage = priorCoverage !== null && priorCoverage !== undefined
+      && priorCoverage !== "0.000000"
+      && payment?.sale_completed !== true
+      && transferConfirmation?.sale_completed !== true;
+    if (hasPriorCoverage && (paymentAmount === undefined || paymentAmount.trim() === "")) {
+      setError("PAYMENT_AMOUNT_REQUIRED");
+      return;
+    }
     const amount = toScale6(paymentAmount ?? current.payableAmount);
     if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
     setTransferConfirmation(null);
@@ -507,7 +531,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     if (registeredId === null) return;
 
     await loadTransfer(registeredId);
-  }, [sale, run, loadTransfer, callMutation]);
+  }, [sale, payment, transferConfirmation, run, loadTransfer, callMutation]);
 
   /**
    * Atestiguar la transferencia — `UC-PAY-003`.
@@ -559,11 +583,12 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   }, [transfer, run, loadTransfer, callMutation]);
 
   const listWaiting = useCallback(async ():Promise<void> => {
+    // Read-only: must not take the mutation busy lock or it races Abrir turno / Cobrar.
     await run(() => callCommercial("cart.waiting.list",{}), result => {
       const parsed=WaitingCartResultSchema.safeParse(result);
       if(!parsed.success || parsed.data.outcome!=="FOUND") {setError("WAITING_CART_RESPONSE_INVALID");return;}
       setWaitingCarts(parsed.data.carts);
-    });
+    }, false);
   },[run]);
   const holdCart = useCallback(async ():Promise<void> => {
     if(busyRef.current || pendingMutation.current || sale || !shift || lines.length===0) return;
@@ -604,6 +629,14 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
 
   const reset = useCallback((): boolean => {
     if (busyRef.current || pendingMutation.current !== null) { setError("OPERATION_OUTCOME_UNRESOLVED"); return false; }
+    // sale.cancel IPC is not materialized; abandoning READY_FOR_PAYMENT would
+    // leave inventory SALE holds. Block until the sale is completed or cancelled
+    // through an authorized path.
+    const saleCompleted = payment?.sale_completed === true || transferConfirmation?.sale_completed === true;
+    if (sale !== null && !saleCompleted) {
+      setError("SALE_IN_PROGRESS_REQUIRES_COMPLETION");
+      return false;
+    }
     setLines([]);
     setActiveWaiting(null);setWaitingLabel("");setCustomerId(null);
     setSale(null);
@@ -613,7 +646,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     setTransferConfirmation(null);
     setError(null);
     return true;
-  }, []);
+  }, [sale, payment, transferConfirmation]);
 
   return {
     customerId, selectCustomer: (id) => {

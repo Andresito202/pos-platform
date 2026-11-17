@@ -39,6 +39,11 @@ function makeService() {
     "operation.result.get": vi.fn(),
     "operation.confirm": vi.fn(),
     "catalog.item.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
+    "cart.waiting.list": vi.fn().mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "FOUND",
+      result: { outcome: "FOUND", carts: [], has_more: false },
+    }),
     "admin.metrics.get": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
     "license.offers.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
     "audit.event.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
