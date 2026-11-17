@@ -69,7 +69,7 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
   expect(provisionSummary.entitlements).toEqual(expect.arrayContaining([
     "CASH_REGISTER", "SECTOR_SALSAMENTARIA", "SECTOR_FARMACIA", "SECTOR_PASTELERIA",
   ]));
-  console.log("REAL_LOCAL_LICENSES=PASS signed_capacity="+provisionSummary.entitlements.join(","));
+  console.log("REAL_LOCAL_LICENSES_SIGNED=PASS entitlements="+provisionSummary.entitlements.join(","));
 
   const cleanEnv=Object.fromEntries(Object.entries(process.env)
     .filter((entry):entry is [string,string]=>entry[1]!==undefined &&
@@ -95,17 +95,47 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
         clearTimeout(timeout);
         error?reject(error):resolveReady();
       };
-      const timeout=setTimeout(()=>done(new Error("LOCAL_SERVICE_BOOT_TIMEOUT:"+stderr.slice(-1200))),30000);
+      const timeout=setTimeout(()=>done(new Error("LOCAL_SERVICE_BOOT_TIMEOUT:stdout="+buffer.slice(-800)+";stderr="+stderr.slice(-800))),30000);
       child.stdout.on("data",(chunk:Buffer)=>{
         buffer+=chunk.toString("utf8");
         if(buffer.includes('"event":"runtime.started"'))done();
       });
       child.stderr.on("data",(chunk:Buffer)=>{stderr+=chunk.toString("utf8");});
-      child.once("exit",code=>done(new Error("LOCAL_SERVICE_EARLY_EXIT_"+code+":"+stderr.slice(-1200))));
+      child.once("exit",code=>done(new Error("LOCAL_SERVICE_EARLY_EXIT_"+code+":stdout="+buffer.slice(-800)+";stderr="+stderr.slice(-800))));
     });
     return child;
   };
+  const stopService=async(child:ChildProcessWithoutNullStreams)=>{
+    const exited=new Promise<void>((resolveExit,reject)=>{
+      const timeout=setTimeout(()=>reject(Error("LOCAL_SERVICE_STOP_TIMEOUT")),15000);
+      child.once("exit",()=>{clearTimeout(timeout);resolveExit();});
+    });
+    child.kill();
+    await exited;
+  };
   try{
+    // Boot once so LocalSecurityComponent registers the real device identity,
+    // then activate the signed capacity against that DB (no parallel device key).
+    service=await startService();
+    await stopService(service);
+    service=undefined;
+    const activated=spawnSync(process.execPath,[
+      requireService.resolve("tsx/cli"),
+      join(serviceRoot,"scripts","provision-lab-sector-license.ts"),
+      "--activate",
+      "--data-directory",dataDirectory,
+      "--tenant-id",ids.tenant,
+      "--company-id",ids.company,
+      "--branch-id",ids.branch,
+      "--installation-id",ids.installation,
+      "--device-id",ids.device,
+    ],{cwd:serviceRoot,encoding:"utf8"});
+    if(activated.status!==0){
+      throw new Error(`SECTOR_LICENSE_ACTIVATE_FAILED:${activated.stderr||activated.stdout}`);
+    }
+    const activatedSummary=JSON.parse(activated.stdout.trim().split("\n").at(-1)!) as {entitlements:string[]};
+    expect(activatedSummary.entitlements.length).toBeGreaterThanOrEqual(4);
+    console.log("REAL_LOCAL_LICENSES=PASS activated="+activatedSummary.entitlements.join(","));
     service=await startService();
     electron=await _electron.launch({executablePath:requireDesktop("electron") as string,
       args:[join(desktop,"dist","start.bundle.mjs")],env});
