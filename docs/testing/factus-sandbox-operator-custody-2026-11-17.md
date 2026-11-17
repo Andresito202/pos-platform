@@ -101,7 +101,7 @@ https://github.com/Andresito202/pos-platform/actions/workflows/target-foundation
 3. Rama: `cursor/commercial-design-review-0d11` (obligatoria; usa el YAML de esa rama).
 4. `run_factus_sandbox_exceptional`: **true**.
 5. `owner_authorization`: `OWNER_AUTHORIZED_SANDBOX_ONLY`.
-6. `reviewed_sha`: SHA de 40 caracteres del commit revisado en esa rama (**usar el tip actual**, no un SHA anterior: el job hace checkout exacto de ese SHA).
+6. `reviewed_sha`: **dejar vacío** (usa el tip del dispatch) **o** pegar el tip actual de la rama. El job **rechaza** SHA atrasados (p. ej. `98513aae`); no reutilizar el SHA del hallazgo original.
 7. Pulsar el botón verde **Run workflow**.
 8. Esperar el job **FACTUS sandbox exceptional (owner authorized)**; descargar el artifact `factus-sandbox-exceptional-<sha>`.
 9. Si FACTUS queda `OBSERVED_FAIL kind=INCOMPLETE`, el JSON del artifact incluye `findings=` (código/campo/diag) sin secretos. Pay puede pasar aunque FACTUS falle.

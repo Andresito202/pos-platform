@@ -19,7 +19,7 @@ on:
         default: ""
         required: false
       reviewed_sha:
-        description: "SHA exacto (40 hex) del commit revisado en la rama autorizada"
+        description: "SHA tip actual de cursor/commercial-design-review-0d11 (40 hex). Vacío = tip del dispatch. No reutilizar SHA viejos (p.ej. 98513aae)."
         type: string
         default: ""
         required: false
@@ -475,40 +475,44 @@ jobs:
     timeout-minutes: 25
     env:
       CAMACHO_FACTUS_SANDBOX_EXCEPTIONAL: ${{ inputs.owner_authorization }}
-      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      # Vacío en el input → tip del dispatch (github.sha). Evita reutilizar SHA viejos.
+      REVIEWED_SHA: ${{ inputs.reviewed_sha || github.sha }}
       CAMACHO_SANDBOX_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/factus-sandbox-exceptional
 
     steps:
-      - name: Refuse invalid reviewed_sha
+      - name: Refuse invalid or stale reviewed_sha
         run: |
           set -euo pipefail
-          if ! printf '%s' "${{ inputs.reviewed_sha }}" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "REFUSED: reviewed_sha must be 40 lowercase hex"
+          if ! printf '%s' "${REVIEWED_SHA}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "REFUSED: reviewed_sha must be 40 lowercase hex (or leave empty for tip)"
             exit 2
           fi
+          # Checkout tip first to compare; refuse lagging SHAs that re-run old gate code.
+          echo "reviewed_sha=${REVIEWED_SHA}"
+          echo "dispatch_sha=${GITHUB_SHA}"
 
       - name: Checkout exact reviewed SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.reviewed_sha }}
+          ref: ${{ env.REVIEWED_SHA }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify SHA belongs to authorized branch
+      - name: Verify SHA is the authorized branch tip
         run: |
           set -euo pipefail
           git fetch --no-tags origin cursor/commercial-design-review-0d11
-          if ! git merge-base --is-ancestor "${REVIEWED_SHA}" "origin/cursor/commercial-design-review-0d11"; then
-            echo "REFUSED: ${REVIEWED_SHA} is not an ancestor of the authorized branch"
-            exit 2
-          fi
-          test "$(git rev-parse HEAD)" = "${REVIEWED_SHA}"
           tip="$(git rev-parse origin/cursor/commercial-design-review-0d11)"
           echo "reviewed_sha=${REVIEWED_SHA}"
           echo "branch_tip=${tip}"
           if [ "${REVIEWED_SHA}" != "${tip}" ]; then
-            echo "WARNING: reviewed_sha is behind the authorized branch tip; gate code/YAML may disagree"
+            echo "REFUSED: reviewed_sha must equal the authorized branch tip"
+            echo "REFUSED: tip=${tip}"
+            echo "REFUSED: got=${REVIEWED_SHA}"
+            echo "REFUSED: leave reviewed_sha empty or paste the tip above"
+            exit 2
           fi
+          test "$(git rev-parse HEAD)" = "${REVIEWED_SHA}"
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -571,7 +575,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: factus-sandbox-exceptional-${{ inputs.reviewed_sha }}
+          name: factus-sandbox-exceptional-${{ env.REVIEWED_SHA }}
           path: artifacts/factus-sandbox-exceptional/
           if-no-files-found: warn
           retention-days: 14
