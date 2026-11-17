@@ -6,6 +6,7 @@
 import { applyPostgres001, applyPostgres002 } from "./postgres.js";
 import { applyPostgres003 } from "./postgres-003-runner.js";
 import { applyPostgres004 } from "./postgres-004-runner.js";
+import { applyPostgres028 } from "./postgres-028-runner.js";
 import { applyRoleReadiness, checkRoleReadiness } from "./postgres-003-role-readiness.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -72,3 +73,12 @@ console.log(JSON.stringify({ migration: "003_fiscal_electronic_invoicing_foundat
 
 const four = await applyPostgres004({ adminUrl: url, expectedDatabase: "postgres", repositoryCommit: commit });
 console.log(JSON.stringify({ migration: "004_device_trust", result: four }));
+
+// Domain projection ledger for typed Central consumers (lab path after 001+004).
+// Full commercial chain still applies 028 after 027 via MERCHANT_NOTIFICATIONS.
+const twentyEight = await applyPostgres028({
+  adminUrl: url,
+  expectedDatabase: "postgres",
+  repositoryCommit: commit,
+});
+console.log(JSON.stringify({ migration: "028_sync_domain_projections", result: twentyEight }));

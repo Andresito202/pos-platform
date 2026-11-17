@@ -9,6 +9,7 @@ import {POSTGRES_010_DESCRIPTOR} from "./postgres-010-webauthn-material-contract
 import {POSTGRES_011_DESCRIPTOR} from "./postgres-011-ssa-sequence-contract.js";
 import {POSTGRES_012_DESCRIPTOR} from "./postgres-012-device-proof-contract.js";
 import {POSTGRES_013_DESCRIPTOR} from "./postgres-013-browser-sessions-contract.js";
+import {POSTGRES_028_DESCRIPTOR as POSTGRES_028_CONTRACT} from "./postgres-028-domain-projections-contract.js";
 import {MigrationInvariantError,POSTGRES_MIGRATION_LOCK_RESOURCE,RUNNER_VERSION,readArtifact,sha256,uuidV7} from "./shared.js";
 
 const descriptor=(id:string,predecessor:string,tables:readonly string[],schema:string):MigrationDescriptor=>({migrationId:id,
@@ -50,7 +51,9 @@ export const POSTGRES_026_DESCRIPTOR=descriptor("026_merchant_payment_notice_rep
  ["payments.merchant_payment_notification_inbox"],"payments");
 export const POSTGRES_027_DESCRIPTOR=descriptor("027_merchant_notice_revocation_guard",POSTGRES_026_DESCRIPTOR.migrationId,
  ["payments.merchant_notification_bridge_consents"],"payments");
-export const MERCHANT_NOTIFICATION_MIGRATIONS=Object.freeze([...MERCHANT_DESTINATION_MIGRATIONS,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR,POSTGRES_027_DESCRIPTOR]);
+export const POSTGRES_028_DESCRIPTOR={...POSTGRES_028_CONTRACT,
+  dependencies:[POSTGRES_027_DESCRIPTOR.migrationId]};
+export const MERCHANT_NOTIFICATION_MIGRATIONS=Object.freeze([...MERCHANT_DESTINATION_MIGRATIONS,POSTGRES_025_DESCRIPTOR,POSTGRES_026_DESCRIPTOR,POSTGRES_027_DESCRIPTOR,POSTGRES_028_DESCRIPTOR]);
 type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG"|"MERCHANT_DESTINATIONS"|"MERCHANT_NOTIFICATIONS";
 function migrations(target:CommercialMigrationTarget){
   if(target==="MERCHANT_NOTIFICATIONS")return MERCHANT_NOTIFICATION_MIGRATIONS;

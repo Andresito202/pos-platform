@@ -1,9 +1,9 @@
 name: Windows NSIS installer lab
 
-# Generates an unsigned electron-builder/NSIS installer on windows-2022 for lab
-# verification. Authenticode signing remains RT-009-B BLOCKED — no self-signed
-# certificates are invented. Distinguishes: generated installer ≠ commercially
-# signed distribution.
+# Unsigned electron-builder/NSIS lab on windows-2022:
+# generate installer → silent install/upgrade/uninstall → real-auth commercial
+# captures. Authenticode remains RT-009-B BLOCKED. Distinguishes lab runner
+# evidence from physical certification.
 
 on:
   push:
@@ -12,6 +12,8 @@ on:
     paths:
       - '.github/workflows/windows-nsis-installer-lab.yml'
       - 'apps/pos-desktop/**'
+      - 'apps/pos-local-service/**'
+      - 'tools/operators/windows-nsis-lab-lifecycle.ps1'
       - 'pnpm-lock.yaml'
       - 'package.json'
   pull_request:
@@ -20,6 +22,8 @@ on:
     paths:
       - '.github/workflows/windows-nsis-installer-lab.yml'
       - 'apps/pos-desktop/**'
+      - 'apps/pos-local-service/**'
+      - 'tools/operators/windows-nsis-lab-lifecycle.ps1'
       - 'pnpm-lock.yaml'
   workflow_dispatch:
 
@@ -35,7 +39,7 @@ jobs:
   nsis-lab:
     name: Generate unsigned NSIS installer (lab)
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Checkout exact HEAD
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -84,7 +88,7 @@ jobs:
           $out = "apps/pos-desktop/dist-installer"
           if (-not (Test-Path $out)) { throw "DIST_INSTALLER_MISSING" }
           Get-ChildItem -Recurse $out | ForEach-Object { $_.FullName }
-          $exes = Get-ChildItem -Path $out -Filter *.exe -Recurse
+          $exes = Get-ChildItem -Path $out -Filter *.exe -Recurse | Where-Object { $_.Name -notlike 'Uninstall*' }
           if ($exes.Count -lt 1) { throw "NSIS_EXE_NOT_GENERATED" }
           $report = @()
           foreach ($exe in $exes) {
@@ -92,13 +96,57 @@ jobs:
             $line = "{0}  {1}  bytes={2}" -f $hash, $exe.Name, $exe.Length
             Write-Output $line
             $report += $line
+            "INSTALLER_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "INSTALLER_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "INSTALLER_NAME=$($exe.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           }
           $report += "authenticode=UNSIGNED_LAB_ONLY"
           $report += "rt009b=BLOCKED_REQUIRES_CERTIFICATE"
           $report += "reviewed_sha=$env:GITHUB_SHA"
+          $report += "certification_scope=WINDOWS_LAB_RUNNER_NOT_PHYSICAL"
           $report -join "`n" | Set-Content -Path "$out/installer-integrity.txt" -Encoding utf8
 
+      - name: Silent NSIS lifecycle (install/upgrade/uninstall)
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'nsis-lifecycle'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $installer = Get-ChildItem -Path "apps/pos-desktop/dist-installer" -Filter *.exe -Recurse |
+            Where-Object { $_.Name -like 'CamachoPOSColombia-*-win-*.exe' } |
+            Select-Object -First 1
+          if (-not $installer) { throw "LIFECYCLE_INSTALLER_MISSING" }
+          pwsh -NoProfile -File tools/operators/windows-nsis-lab-lifecycle.ps1 `
+            -InstallerPath $installer.FullName `
+            -WorkRoot $work
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item -Force (Join-Path $work 'nsis-lifecycle-report.json') "apps/pos-desktop/dist-installer/nsis-lifecycle-report.json"
+
+      - name: Windows desktop smoke (non role-preview)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop exec vitest run tests/window-security.test.ts tests/ipc-allowlist.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-dpapi.test.ts tests/windows-winsw-readiness.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Real-auth commercial Electron live + screenshots
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $captures = Join-Path $env:RUNNER_TEMP 'commercial-captures'
+          New-Item -ItemType Directory -Force -Path $captures | Out-Null
+          $env:POS_E2E_AUDIT_DIRECTORY = $captures
+          # Real named-pipe + DPAPI + password auth. Not role-preview.
+          pnpm --filter @pos-platform/pos-desktop exec playwright test --config e2e/playwright.config.ts e2e/local-operator-live.spec.ts --workers=1 --retries=0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $dest = "apps/pos-desktop/dist-installer/commercial-captures"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item -Force -Recurse "$captures\*" $dest
+          Get-ChildItem $dest | ForEach-Object { Write-Output "CAPTURE=$($_.Name) bytes=$($_.Length)" }
+
       - name: Upload NSIS lab artifacts
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: camacho-pos-nsis-lab-${{ github.sha }}
@@ -106,14 +154,3 @@ jobs:
             apps/pos-desktop/dist-installer/**
           if-no-files-found: error
           retention-days: 14
-
-      - name: Windows desktop smoke (non role-preview)
-        if: ${{ !cancelled() }}
-        shell: pwsh
-        run: |
-          # Contract/runtime suites that are safe on hosted runners without
-          # presenting role-preview as the commercial product.
-          pnpm --filter @pos-platform/pos-desktop exec vitest run tests/window-security.test.ts tests/ipc-allowlist.test.ts --no-file-parallelism
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-dpapi.test.ts tests/windows-winsw-readiness.test.ts --no-file-parallelism
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -61,4 +61,6 @@ export { POSTGRES_010_DESCRIPTOR, WEBAUTHN_010_COLUMNS, WEBAUTHN_010_TABLES } fr
 export { POSTGRES_011_DESCRIPTOR, POSTGRES_011_SSA_SEQUENCE_TABLES, POSTGRES_011_SSA_SEQUENCE_COLUMNS } from "./postgres-011-ssa-sequence-contract.js";
 export { POSTGRES_012_DESCRIPTOR, DEVICE_PROOF_012_TABLES, DEVICE_PROOF_012_COLUMNS } from "./postgres-012-device-proof-contract.js";
 export {POSTGRES_013_DESCRIPTOR,BROWSER_SESSION_013_TABLES} from "./postgres-013-browser-sessions-contract.js";
-export {applyCommercialMigrations,COMMERCIAL_MIGRATIONS,POSTGRES_014_DESCRIPTOR,POSTGRES_015_DESCRIPTOR,POSTGRES_016_DESCRIPTOR} from "./postgres-commercial-runner.js";
+export {applyCommercialMigrations,COMMERCIAL_MIGRATIONS,POSTGRES_014_DESCRIPTOR,POSTGRES_015_DESCRIPTOR,POSTGRES_016_DESCRIPTOR,POSTGRES_028_DESCRIPTOR} from "./postgres-commercial-runner.js";
+export { POSTGRES_028_DESCRIPTOR as POSTGRES_028_DOMAIN_PROJECTIONS_DESCRIPTOR, DOMAIN_PROJECTIONS_028_TABLES } from "./postgres-028-domain-projections-contract.js";
+export { applyPostgres028 } from "./postgres-028-runner.js";

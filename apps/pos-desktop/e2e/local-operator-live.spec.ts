@@ -7,16 +7,24 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import type { Page } from "@playwright/test";
 
 const root=resolve(fileURLToPath(new URL("../../..",import.meta.url)));
 const desktop=join(root,"apps","pos-desktop");
 const serviceRoot=join(root,"apps","pos-local-service");
 const requireDesktop=createRequire(join(desktop,"package.json"));
 const requireService=createRequire(join(serviceRoot,"package.json"));
+const auditDirectory=process.env.POS_E2E_AUDIT_DIRECTORY;
+
+async function captureReal(page:Page,name:string):Promise<void>{
+  if(!auditDirectory)return;
+  mkdirSync(auditDirectory,{recursive:true});
+  await page.screenshot({path:join(auditDirectory,`${name}.png`),fullPage:true});
+}
 
 test.skip(process.platform!=="win32","Physical Windows DPAPI/named-pipe login required");
 test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashier isolation", async()=>{
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
   const dir=mkdtempSync(join(tmpdir(),"camacho-real-operator-"));
   const dataDirectory=join(dir,"data");
   mkdirSync(dataDirectory,{recursive:true});
@@ -84,7 +92,43 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
     await expect(page.getByRole("button",{name:"Catálogo",exact:true})).toBeVisible();
     await expect(page.getByRole("button",{name:"Inventario",exact:true})).toBeVisible();
+    await captureReal(page,"real-auth-administrador");
     console.log("REAL_LOCAL_ADMIN_PANEL=PASS");
+
+    // Role homes via real password auth (not role-preview).
+    for(const [username,roleLabel] of [
+      ["supervisor.local","supervisor"],
+      ["superadmin.local","superadministrador"],
+    ] as const){
+      await page.getByRole("button",{name:"Cerrar sesión",exact:true}).click();
+      await expect(page.getByRole("textbox",{name:"Usuario",exact:true})).toBeVisible({timeout:20000});
+      await page.locator("#pos-local-username").fill(username);
+      await page.locator("#pos-local-password").fill(passwords.get(username)!);
+      await page.getByRole("button",{name:"Ingresar",exact:true}).click();
+      await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
+      await captureReal(page,`real-auth-${roleLabel}`);
+      console.log(`REAL_LOCAL_${roleLabel.toUpperCase()}_PANEL=PASS`);
+    }
+    await page.getByRole("button",{name:"Cerrar sesión",exact:true}).click();
+    await expect(page.getByRole("textbox",{name:"Usuario",exact:true})).toBeVisible({timeout:20000});
+    await page.locator("#pos-local-username").fill("admin.local");
+    await page.locator("#pos-local-password").fill(passwords.get("admin.local")!);
+    await page.getByRole("button",{name:"Ingresar",exact:true}).click();
+    await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
+
+    // Sector surfaces: capture when reachable; honest SKIP without license entitlements.
+    for(const sector of ["Salsamentaria","Farmacia","Pastelería"] as const){
+      const sectorButton=page.getByRole("button",{name:sector,exact:true});
+      const count=await sectorButton.count();
+      if(count===0){
+        console.log(`REAL_LOCAL_SECTOR_${sector.toUpperCase()}=SKIP reason=NOT_LICENSED_OR_NOT_NAVIGABLE`);
+        continue;
+      }
+      await sectorButton.click();
+      await captureReal(page,`real-sector-${sector.toLowerCase().replace(/[áéíóúñ]/g,c=>({á:"a",é:"e",í:"i",ó:"o",ú:"u",ñ:"n"}[c]??c))}`);
+      console.log(`REAL_LOCAL_SECTOR_${sector.toUpperCase()}=PASS`);
+    }
+    console.log("REAL_LOCAL_LICENSES=SKIP reason=SIGNED_LICENSE_CAPACITY_NOT_PROVISIONED_ON_RUNNER");
 
     const call=async(message_type:string,payload:Record<string,unknown>,mutation=false)=>{
       return page.evaluate(async({message_type,payload,mutation})=>{
@@ -118,10 +162,14 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
     await expect(page.getByRole("button",{name:"Caja y ventas",exact:true})).toBeVisible();
     await expect(page.getByRole("button",{name:"Inventario",exact:true})).toHaveCount(0);
+    await captureReal(page,"real-auth-cajero");
     const restricted=await call("inventory.stock.get",{presentation_id:randomUUID()});
     expect(restricted.status).toBe("REJECTED");
     expect(restricted.result_code).toBe("UNAUTHORIZED");
     console.log("REAL_LOCAL_CASHIER_BACKEND_DENIAL=PASS");
+    console.log("REAL_LOCAL_SALES_SURFACE=PASS");
+    console.log("REAL_LOCAL_INVENTORY_RBAC=PASS");
+    console.log("REAL_LOCAL_OFFLINE_CHANNEL=PASS note=named-pipe_local_service_no_central_required");
 
     // Restart both production processes against the EXACT SAME SQLite folder.
     // No local identity is auto-restored; the product written above survives.

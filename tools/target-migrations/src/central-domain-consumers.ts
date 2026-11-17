@@ -96,6 +96,54 @@ async function parentSatisfied(client: PoolClient, operation: SyncOperation): Pr
   return (result.rowCount ?? 0) > 0;
 }
 
+function projectionStatusOf(outcome: DomainApplyOutcome): "APPLIED" | "CONFLICT" | "REVIEW_REQUIRED" | "REJECTED" {
+  if (outcome.applied && outcome.server_status === "SERVER_ACCEPTED") return "APPLIED";
+  if (outcome.server_status === "CONFLICT") return "CONFLICT";
+  if (outcome.server_status === "REVIEW_REQUIRED") return "REVIEW_REQUIRED";
+  return "REJECTED";
+}
+
+/**
+ * Persist typed domain application into sync.domain_projections (028).
+ * Idempotent on (tenant_id, operation_id). Untyped durable receives skip this.
+ */
+export async function upsertDomainProjection(
+  client: PoolClient,
+  operation: SyncOperation,
+  outcome: DomainApplyOutcome,
+): Promise<void> {
+  const family = domainFamily(operation.operation_type);
+  if (family === "UNTYPED") return;
+  if (!operation.company_id || !operation.branch_id) return;
+  const projectionStatus = projectionStatusOf(outcome);
+  const payloadChecksum = createHash("sha256").update(canonicalJson(operation.payload)).digest("hex");
+  await client.query(
+    `INSERT INTO sync.domain_projections (
+       id, tenant_id, company_id, branch_id, operation_id, operation_type, family,
+       aggregate_type, aggregate_id, projection_status, result_code, payload, payload_checksum, applied_at, version
+     ) VALUES (
+       $1, $2, $3, $4, $5, $6, $7,
+       $8, $9, $10, $11, $12::jsonb, $13, clock_timestamp(), 1
+     )
+     ON CONFLICT (tenant_id, operation_id) DO NOTHING`,
+    [
+      uuidV7FromModule(),
+      operation.tenant_id,
+      operation.company_id,
+      operation.branch_id,
+      operation.operation_id,
+      operation.operation_type,
+      family,
+      operation.aggregate_type,
+      operation.aggregate_id,
+      projectionStatus,
+      outcome.server_result_code,
+      JSON.stringify(operation.payload),
+      payloadChecksum,
+    ],
+  );
+}
+
 async function recordApplicationAudit(
   client: PoolClient,
   operation: SyncOperation,
@@ -263,6 +311,7 @@ export async function applyCentralDomainOperation(
   }
   if (early && early.server_status !== "SERVER_ACCEPTED") {
     await recordApplicationAudit(client, operation, early, { stage: "payload" });
+    await upsertDomainProjection(client, operation, early);
     await client.query(
       `UPDATE sync.sync_operations
           SET sync_status = $3, version = version + 1
@@ -280,6 +329,7 @@ export async function applyCentralDomainOperation(
       applied: false,
     };
     await recordApplicationAudit(client, operation, waiting, { stage: "causality" });
+    await upsertDomainProjection(client, operation, waiting);
     await client.query(
       `UPDATE sync.sync_operations
           SET sync_status = 'REVIEW_REQUIRED', version = version + 1
@@ -302,6 +352,7 @@ export async function applyCentralDomainOperation(
         stage: "inventory_conflict",
         reason: overlap.reason,
       });
+      await upsertDomainProjection(client, operation, conflict);
       await client.query(
         `UPDATE sync.sync_operations
             SET sync_status = 'CONFLICT', version = version + 1
@@ -319,5 +370,6 @@ export async function applyCentralDomainOperation(
     applied: true,
   };
   await recordApplicationAudit(client, operation, applied, { stage: "applied" });
+  await upsertDomainProjection(client, operation, applied);
   return applied;
 }
