@@ -453,7 +453,7 @@ describe("SyncDispatcher — D-2", () => {
     let clock = new Date("2026-09-14T12:00:00Z");
     const store = new DurableSyncStore(
       database,
-      { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 1_000 },
+      { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 1_000, jitterRatio: 0 },
       () => clock,
     );
     store.enqueue(operation(1, "01"));

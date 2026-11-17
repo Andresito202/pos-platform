@@ -22,6 +22,12 @@ export interface RetryPolicy {
   readonly maxAttempts: number;
   readonly baseDelayMs: number;
   readonly maxDelayMs: number;
+  /**
+   * Uniform jitter as a fraction of the exponential delay (DEC-007 / integration-contracts).
+   * `next = exponential + U[0, exponential * jitterRatio]`, then capped is already applied to
+   * the exponential term. `0` disables jitter (deterministic tests).
+   */
+  readonly jitterRatio: number;
 }
 
 export type EnqueueResult = "ENQUEUED" | "ALREADY_ENQUEUED";
@@ -39,6 +45,7 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
   maxAttempts: 5,
   baseDelayMs: 1_000,
   maxDelayMs: 60_000,
+  jitterRatio: 0.2,
 };
 
 function assertRetryPolicy(policy: RetryPolicy): void {
@@ -51,15 +58,26 @@ function assertRetryPolicy(policy: RetryPolicy): void {
   if (!Number.isSafeInteger(policy.maxDelayMs) || policy.maxDelayMs < policy.baseDelayMs) {
     throw new Error("maxDelayMs must be >= baseDelayMs");
   }
+  if (!Number.isFinite(policy.jitterRatio) || policy.jitterRatio < 0 || policy.jitterRatio > 1) {
+    throw new Error("jitterRatio must be a finite number in [0, 1]");
+  }
 }
 
 function scopeValues(scope: SyncScope): readonly string[] {
   return [scope.tenantId, scope.companyId, scope.branchId, scope.deviceId, scope.installationId];
 }
 
-function retryDelayMs(attemptCount: number, policy: RetryPolicy): number {
+function retryDelayMs(
+  attemptCount: number,
+  policy: RetryPolicy,
+  random: () => number = Math.random,
+): number {
   const exponent = Math.max(0, Math.min(attemptCount - 1, 30));
-  return Math.min(policy.maxDelayMs, policy.baseDelayMs * (2 ** exponent));
+  const exponential = Math.min(policy.maxDelayMs, policy.baseDelayMs * (2 ** exponent));
+  if (policy.jitterRatio === 0) return exponential;
+  const unit = random();
+  const jitterUnit = Number.isFinite(unit) ? Math.min(1, Math.max(0, unit)) : 0;
+  return Math.floor(exponential + exponential * policy.jitterRatio * jitterUnit);
 }
 
 function checksum(value: unknown): string {
@@ -73,6 +91,7 @@ export class DurableSyncStore {
     private readonly database: LocalDatabase,
     retryPolicy: RetryPolicy = DEFAULT_RETRY_POLICY,
     private readonly now: () => Date = () => new Date(),
+    private readonly random: () => number = Math.random,
   ) {
     assertRetryPolicy(retryPolicy);
     this.retryPolicy = retryPolicy;
@@ -329,7 +348,7 @@ export class DurableSyncStore {
       this.deadLetter(operationId, attemptCount, errorCode, at);
       return;
     }
-    const next = new Date(Date.parse(at) + retryDelayMs(attemptCount, this.retryPolicy)).toISOString();
+    const next = new Date(Date.parse(at) + retryDelayMs(attemptCount, this.retryPolicy, this.random)).toISOString();
     this.database.native.prepare(
       `UPDATE local_sync_outbox
           SET status='RETRY_WAIT',next_attempt_at=?,last_error_code=?,updated_at=?

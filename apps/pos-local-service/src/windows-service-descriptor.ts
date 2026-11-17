@@ -45,9 +45,9 @@ export const SERVICE_ACCOUNT = `NT SERVICE\\${SERVICE_ID}`;
  * Política de recuperación, **derivada del propio repositorio**, no inventada.
  *
  * `DEFAULT_RETRY_POLICY` en `src/sync/durable-sync-store.ts` fija para el outbox
- * `maxAttempts: 5`, `baseDelayMs: 1_000`, `maxDelayMs: 60_000` con retroceso
- * exponencial. El servicio adopta la misma forma: cinco reintentos, 1 s
- * duplicando hasta el tope de 60 s.
+ * `maxAttempts: 5`, `baseDelayMs: 1_000`, `maxDelayMs: 60_000`, `jitterRatio: 0.2`
+ * con retroceso exponencial más jitter. El servicio adopta la misma forma: cinco
+ * reintentos, 1 s duplicando hasta el tope de 60 s.
  *
  * **Pendiente de ratificación.** El proyecto no ha fijado normativamente la
  * política de recuperación del *servicio*; ésta la hereda de la del *outbox*

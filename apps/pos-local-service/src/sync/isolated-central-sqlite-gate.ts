@@ -41,7 +41,7 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
   let database = LocalDatabase.open({ dataDirectory: directory });
   try {
     let clock = new Date();
-    const policy = { maxAttempts: 4, baseDelayMs: 1_000, maxDelayMs: 1_000 };
+    const policy = { maxAttempts: 4, baseDelayMs: 1_000, maxDelayMs: 1_000, jitterRatio: 0.2 };
     let store = new DurableSyncStore(database, policy, () => clock);
     const payload = { gate: "SQLITE_OUTBOX_CENTRAL", nonce: input.uuidV7() };
     const operationId = input.uuidV7();
