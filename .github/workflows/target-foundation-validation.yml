@@ -8,6 +8,21 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      run_factus_sandbox_exceptional:
+        description: "true = ejecutar SÓLO el gate sandbox FACTUS/Pay (no CI ordinario)"
+        type: boolean
+        default: false
+      owner_authorization:
+        description: "Escriba exactamente OWNER_AUTHORIZED_SANDBOX_ONLY"
+        type: string
+        default: ""
+        required: false
+      reviewed_sha:
+        description: "SHA exacto (40 hex) del commit revisado en la rama autorizada"
+        type: string
+        default: ""
+        required: false
 
 permissions:
   contents: read
@@ -72,6 +87,7 @@ jobs:
 
   supply-chain-baseline:
     name: Repository policy, dependency inventory and vulnerability audit
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -163,6 +179,7 @@ jobs:
 
   validate:
     name: TypeScript, SQLite and PostgreSQL 16.14
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -350,6 +367,7 @@ jobs:
 
   runtime-windows:
     name: Windows local runtime platform checks
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
     runs-on: windows-2022
     timeout-minutes: 15
 
@@ -389,6 +407,7 @@ jobs:
 
   provenance:
     name: Provenance evidence
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
     needs:
       - supply-chain-baseline
       - validate
@@ -441,3 +460,109 @@ jobs:
             artifacts/ci/provenance-source-index.json
           if-no-files-found: error
           retention-days: 90
+
+  # Gate excepcional FACTUS + FACTUS Pay (sandbox). No corre en push/PR.
+  # Activación: Actions → TARGET foundation validation → Run workflow →
+  # rama cursor/commercial-design-review-0d11 + run_factus_sandbox_exceptional=true.
+  factus-sandbox-exceptional:
+    name: FACTUS sandbox exceptional (owner authorized)
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+          && inputs.run_factus_sandbox_exceptional
+          && inputs.owner_authorization == 'OWNER_AUTHORIZED_SANDBOX_ONLY'
+          && github.ref == 'refs/heads/cursor/commercial-design-review-0d11' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CAMACHO_FACTUS_SANDBOX_EXCEPTIONAL: ${{ inputs.owner_authorization }}
+      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      CAMACHO_SANDBOX_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/factus-sandbox-exceptional
+
+    steps:
+      - name: Refuse invalid reviewed_sha
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${{ inputs.reviewed_sha }}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "REFUSED: reviewed_sha must be 40 lowercase hex"
+            exit 2
+          fi
+
+      - name: Checkout exact reviewed SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify SHA belongs to authorized branch
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin cursor/commercial-design-review-0d11
+          if ! git merge-base --is-ancestor "${REVIEWED_SHA}" "origin/cursor/commercial-design-review-0d11"; then
+            echo "REFUSED: ${REVIEWED_SHA} is not an ancestor of the authorized branch"
+            exit 2
+          fi
+          test "$(git rev-parse HEAD)" = "${REVIEWED_SHA}"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck fiscal adapters and POS local service
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/fiscal-adapters typecheck
+          pnpm --filter @pos-platform/pos-local-service typecheck
+
+      - name: Execute exceptional sandbox gate (redacted)
+        env:
+          FACTUS_SANDBOX_CLIENT_ID: ${{ secrets.FACTUS_SANDBOX_CLIENT_ID }}
+          FACTUS_SANDBOX_CLIENT_SECRET: ${{ secrets.FACTUS_SANDBOX_CLIENT_SECRET }}
+          FACTUS_SANDBOX_USERNAME: ${{ secrets.FACTUS_SANDBOX_USERNAME }}
+          FACTUS_SANDBOX_PASSWORD: ${{ secrets.FACTUS_SANDBOX_PASSWORD }}
+          FACTUS_PAY_SANDBOX_EMAIL: ${{ secrets.FACTUS_PAY_SANDBOX_EMAIL }}
+          FACTUS_PAY_SANDBOX_PASSWORD: ${{ secrets.FACTUS_PAY_SANDBOX_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in FACTUS_SANDBOX_CLIENT_ID FACTUS_SANDBOX_CLIENT_SECRET FACTUS_SANDBOX_USERNAME FACTUS_SANDBOX_PASSWORD FACTUS_PAY_SANDBOX_EMAIL FACTUS_PAY_SANDBOX_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "MISSING_SECRET_NAME=${name}"
+              missing=1
+            else
+              echo "SECRET_PRESENT_NAME=${name}"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 2
+          fi
+          mkdir -p "${CAMACHO_SANDBOX_EVIDENCE_DIR}"
+          pnpm --filter @pos-platform/pos-local-service exec tsx ../../tools/operators/factus-sandbox-exceptional-gate.ts
+
+      - name: Upload redacted evidence artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: factus-sandbox-exceptional-${{ inputs.reviewed_sha }}
+          path: artifacts/factus-sandbox-exceptional/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Boundary reminder
+        if: always()
+        run: |
+          echo "claim_level=OBSERVED_ONLY"
+          echo "sandbox_verified_declared=false"
+          echo "production_calls=forbidden"

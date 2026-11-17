@@ -75,18 +75,35 @@ Sin las cuatro variables FACTUS / el par Pay depositado, las suites sandbox se o
 
 ## Gate excepcional vía GitHub Actions (autorizado por el propietario)
 
-No forma parte del CI ordinario ni de PRs. Workflow: `.github/workflows/factus-sandbox-exceptional-gate.yml` (`workflow_dispatch` únicamente).
+GitHub sólo lista workflows presentes en `main`. Por eso **no** hay un workflow
+independiente `factus-sandbox-exceptional-gate.yml` ejecutable sin merge.
+
+Se reutiliza el workflow ya existente en `main`:
+**TARGET foundation validation**
+(`.github/workflows/target-foundation-validation.yml`), con un job opcional
+`factus-sandbox-exceptional` que sólo corre en `workflow_dispatch` cuando:
+
+- rama = `cursor/commercial-design-review-0d11`
+- `run_factus_sandbox_exceptional` = true
+- `owner_authorization` = `OWNER_AUTHORIZED_SANDBOX_ONLY`
+
+Los seis secretos se inyectan **sólo** en el paso de ejecución sandbox; el CI
+ordinario de ese dispatch se omite.
+
+### URL funcional (celular)
+
+https://github.com/Andresito202/pos-platform/actions/workflows/target-foundation-validation.yml
 
 ### Cómo activarlo desde el celular
 
-1. Abrir en el navegador: `https://github.com/Andresito202/pos-platform/actions/workflows/factus-sandbox-exceptional-gate.yml`
-2. Iniciar sesión en GitHub si hace falta.
-3. Pulsar **Run workflow**.
-4. Rama: `cursor/commercial-design-review-0d11` (única autorizada).
-5. `owner_authorization`: escribir exactamente `OWNER_AUTHORIZED_SANDBOX_ONLY`.
-6. `reviewed_sha`: el SHA de 40 caracteres del commit revisado (por ejemplo el HEAD actual de esa rama).
+1. Abrir la URL anterior (iniciar sesión si hace falta).
+2. Pulsar **Run workflow**.
+3. Rama: `cursor/commercial-design-review-0d11` (obligatoria; usa el YAML de esa rama).
+4. `run_factus_sandbox_exceptional`: **true**.
+5. `owner_authorization`: `OWNER_AUTHORIZED_SANDBOX_ONLY`.
+6. `reviewed_sha`: SHA de 40 caracteres del commit revisado en esa rama.
 7. Pulsar el botón verde **Run workflow**.
-8. Esperar el job; descargar el artifact `factus-sandbox-exceptional-<sha>` (JSON redactado).
+8. Esperar el job **FACTUS sandbox exceptional (owner authorized)**; descargar el artifact `factus-sandbox-exceptional-<sha>`.
 
 ### Límites de claim
 
