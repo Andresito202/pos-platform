@@ -88,18 +88,21 @@ jobs:
           $out = "apps/pos-desktop/dist-installer"
           if (-not (Test-Path $out)) { throw "DIST_INSTALLER_MISSING" }
           Get-ChildItem -Recurse $out | ForEach-Object { $_.FullName }
-          $exes = Get-ChildItem -Path $out -Filter *.exe -Recurse | Where-Object { $_.Name -notlike 'Uninstall*' }
+          # Only the product NSIS artifact — ignore helpers like elevate.exe.
+          $exes = @(Get-ChildItem -Path $out -Filter 'CamachoPOSColombia-*-win-*.exe' -Recurse)
           if ($exes.Count -lt 1) { throw "NSIS_EXE_NOT_GENERATED" }
           $report = @()
+          $primary = $exes | Select-Object -First 1
           foreach ($exe in $exes) {
             $hash = (Get-FileHash -Algorithm SHA256 -Path $exe.FullName).Hash.ToLowerInvariant()
             $line = "{0}  {1}  bytes={2}" -f $hash, $exe.Name, $exe.Length
             Write-Output $line
             $report += $line
-            "INSTALLER_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            "INSTALLER_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            "INSTALLER_NAME=$($exe.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           }
+          $primaryHash = (Get-FileHash -Algorithm SHA256 -Path $primary.FullName).Hash.ToLowerInvariant()
+          "INSTALLER_PATH=$($primary.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "INSTALLER_SHA256=$primaryHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "INSTALLER_NAME=$($primary.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           $report += "authenticode=UNSIGNED_LAB_ONLY"
           $report += "rt009b=BLOCKED_REQUIRES_CERTIFICATE"
           $report += "reviewed_sha=$env:GITHUB_SHA"
@@ -107,6 +110,7 @@ jobs:
           $report -join "`n" | Set-Content -Path "$out/installer-integrity.txt" -Encoding utf8
 
       - name: Silent NSIS lifecycle (install/upgrade/uninstall)
+        id: nsis_lifecycle
         shell: pwsh
         run: |
           $work = Join-Path $env:RUNNER_TEMP 'nsis-lifecycle'
@@ -118,8 +122,25 @@ jobs:
           pwsh -NoProfile -File tools/operators/windows-nsis-lab-lifecycle.ps1 `
             -InstallerPath $installer.FullName `
             -WorkRoot $work
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item -Force (Join-Path $work 'nsis-lifecycle-report.json') "apps/pos-desktop/dist-installer/nsis-lifecycle-report.json"
+          $code = $LASTEXITCODE
+          $report = Join-Path $work 'nsis-lifecycle-report.json'
+          if (Test-Path -LiteralPath $report) {
+            Copy-Item -Force $report "apps/pos-desktop/dist-installer/nsis-lifecycle-report.json"
+          }
+          if ($code -ne 0) { exit $code }
+
+      - name: Preserve lifecycle report on failure
+        if: ${{ failure() && steps.nsis_lifecycle.outcome == 'failure' }}
+        shell: pwsh
+        run: |
+          $report = Join-Path $env:RUNNER_TEMP 'nsis-lifecycle/nsis-lifecycle-report.json'
+          if (Test-Path -LiteralPath $report) {
+            New-Item -ItemType Directory -Force -Path "apps/pos-desktop/dist-installer" | Out-Null
+            Copy-Item -Force $report "apps/pos-desktop/dist-installer/nsis-lifecycle-report.json"
+            Get-Content $report
+          } else {
+            Write-Output "LIFECYCLE_REPORT_MISSING"
+          }
 
       - name: Windows desktop smoke (non role-preview)
         if: ${{ !cancelled() }}
@@ -146,7 +167,7 @@ jobs:
           Get-ChildItem $dest | ForEach-Object { Write-Output "CAPTURE=$($_.Name) bytes=$($_.Length)" }
 
       - name: Upload NSIS lab artifacts
-        if: ${{ !cancelled() }}
+        if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: camacho-pos-nsis-lab-${{ github.sha }}
