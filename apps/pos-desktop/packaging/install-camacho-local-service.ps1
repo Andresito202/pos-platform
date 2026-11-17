@@ -46,9 +46,15 @@ function Write-HelperLog([string]$Message) {
 }
 
 function Write-Result($obj, [int]$code) {
-  Write-HelperLog ("RESULT action={0} code={1} payload={2}" -f $Action, $code, ($obj | ConvertTo-Json -Depth 6 -Compress))
-  if ($Json) { $obj | ConvertTo-Json -Depth 8 -Compress | Write-Output }
-  else { $obj.GetEnumerator() | ForEach-Object { Write-Host ("{0}={1}" -f $_.Key, $_.Value) } }
+  $payloadText = ''
+  try { $payloadText = ($obj | ConvertTo-Json -Depth 6 -Compress) } catch { $payloadText = [string]$obj }
+  Write-HelperLog ("RESULT action={0} code={1} payload={2}" -f $Action, $code, $payloadText)
+  if ($Json) {
+    try { $obj | ConvertTo-Json -Depth 8 -Compress | Write-Output }
+    catch { Write-Output $payloadText }
+  } else {
+    $obj.GetEnumerator() | ForEach-Object { Write-Host ("{0}={1}" -f $_.Key, $_.Value) }
+  }
   exit $code
 }
 
@@ -66,25 +72,56 @@ function Assert-Admin {
 
 function Get-FileSha256Hex {
   param([Parameter(Mandatory = $true)][string]$Path)
-  # Do NOT use Get-FileHash: nsExec-hosted Windows PowerShell (NSIS customInstall)
-  # frequently fails to resolve Microsoft.PowerShell.Utility cmdlets → HELPER_UNCAUGHT,
-  # silent SCM skip, and service Absent after upgrade. Use BCL SHA256 instead.
+  # Do NOT use Get-FileHash: nsExec-hosted Windows PowerShell often cannot resolve
+  # Microsoft.PowerShell.Utility. Prefer certutil (always present on Windows), then BCL.
+  $certutil = Join-Path $env:WINDIR 'System32\certutil.exe'
+  if (Test-Path -LiteralPath $certutil -PathType Leaf) {
+    $raw = & $certutil -hashfile $Path SHA256 2>&1
+    if ($LASTEXITCODE -eq 0) {
+      $hex = (
+        @($raw | ForEach-Object { [string]$_ }) |
+          Where-Object { $_ -match '^[0-9A-Fa-f]{64}$' -or $_ -match '^[0-9A-Fa-f]{2}( [0-9A-Fa-f]{2}){31}$' } |
+          Select-Object -First 1
+      )
+      if ($hex) {
+        return (($hex -replace '\s', '').ToLowerInvariant())
+      }
+    }
+  }
   $algo = [System.Security.Cryptography.SHA256]::Create()
   try {
     $stream = [System.IO.File]::OpenRead($Path)
     try {
       $bytes = $algo.ComputeHash($stream)
-      $sb = New-Object System.Text.StringBuilder ($bytes.Length * 2)
-      foreach ($b in $bytes) {
-        [void]$sb.AppendFormat('{0:x2}', $b)
-      }
-      return $sb.ToString()
+      return ([BitConverter]::ToString($bytes) -replace '-', '').ToLowerInvariant()
     } finally {
       $stream.Dispose()
     }
   } finally {
     $algo.Dispose()
   }
+}
+
+function Clear-ScmInstallOkMarker {
+  $marker = Join-Path $env:ProgramData 'CamachoPOS\logs\scm-install.ok'
+  if (Test-Path -LiteralPath $marker) {
+    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+  }
+}
+
+function Write-ScmInstallOkMarker {
+  param([Parameter(Mandatory = $true)]$Payload)
+  $dir = Join-Path $env:ProgramData 'CamachoPOS\logs'
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  $marker = Join-Path $dir 'scm-install.ok'
+  $body = [ordered]@{
+    at = [DateTime]::UtcNow.ToString('o')
+    serviceId = $serviceId
+    startName = [string]$Payload.startName
+    status = [string]$Payload.status
+    identityOk = [bool]$Payload.identityOk
+  }
+  ($body | ConvertTo-Json -Compress) | Set-Content -LiteralPath $marker -Encoding ASCII
 }
 
 function Assert-Payload {
@@ -272,6 +309,7 @@ switch ($Action) {
   }
   'Install' {
     Assert-Admin
+    Clear-ScmInstallOkMarker
     Assert-Payload
     Materialize-Xml
     $existing = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
@@ -351,7 +389,7 @@ switch ($Action) {
         authenticodeProduct = 'RT-009-B_BLOCKED'
       } (Get-ScmDiagnostics)) 7
     }
-    Write-Result @{
+    $success = @{
       ok = $true
       registered = $true
       status = [string]$svc.Status
@@ -362,8 +400,10 @@ switch ($Action) {
       xml = $xmlPath
       commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
       authenticodeProduct = 'RT-009-B_BLOCKED'
-      note = 'Service installed under NT SERVICE virtual account; commercial Desktop↔NT SERVICE IPC remains NOT_PROVEN'
-    } 0
+      note = 'Service installed under NT SERVICE virtual account; commercial Desktop/NT SERVICE IPC remains NOT_PROVEN'
+    }
+    Write-ScmInstallOkMarker -Payload $success
+    Write-Result $success 0
   }
   'Uninstall' {
     Assert-Admin

@@ -33,8 +33,9 @@
 - WinSW 2.12 XML: usar `<domain>NT SERVICE</domain>` + `<user>CamachoPOSLocalService</user>`. El elemento `<username>` **no** lo lee XmlServiceConfig → el servicio queda en LocalSystem. `allowservicelogon=false` para cuentas virtuales (LookupAccountName corre antes de CreateService).
 - Lifecycle exige `StartName=NT SERVICE\CamachoPOSLocalService` + Running; LocalSystem nunca PASS.
 - Uninstall: helper ya no exige payload completo; stop + WinSW uninstall + `sc delete`; NSIS `customUnInstall` también ejecuta `sc stop/delete` por si el payload ya no está.
-- NSIS-hosted PS: **no** `Get-FileHash` (cmdlet ausente bajo nsExec) → SHA256 vía BCL. `customInstall` hace `Abort` si el helper ≠ 0.
-- Lifecycle: **sin** fallback auxiliar de registro. Exige servicio Running + `NT SERVICE\…` + Automatic tras install y tras upgrade; Absent post-upgrade = FAIL.
+- NSIS-hosted PS: **no** `Get-FileHash` → SHA256 vía `certutil` (fallback BCL). Éxito escribe `ProgramData\CamachoPOS\logs\scm-install.ok`.
+- NSIS `customInstall`: `Abort` si falta `scm-install.ok` (no confiar sólo en el exit code de nsExec).
+- Lifecycle: **sin** fallback auxiliar. Exige marker + Running + `NT SERVICE\…` + Automatic tras install y tras upgrade; Absent post-upgrade = FAIL.
 
 ## Niveles de certificación
 

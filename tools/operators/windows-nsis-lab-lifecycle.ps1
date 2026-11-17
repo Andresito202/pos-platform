@@ -255,12 +255,31 @@ try {
 
   # --- Silent install ---
   Write-Host "PHASE=silent_install"
+  $helperLogPath = Join-Path $env:ProgramData 'CamachoPOS\logs\winsw-helper.log'
+  $scmOkMarkerPath = Join-Path $env:ProgramData 'CamachoPOS\logs\scm-install.ok'
   $p = Start-Process -FilePath $InstallerPath -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
-  if ($p.ExitCode -ne 0) {
-    [void]$steps.Add((Write-Step 'silent_install' 'FAIL' @{ exitCode = $p.ExitCode; phase = 'install'; installer = $InstallerPath }))
-    throw "SILENT_INSTALL_FAILED:exit=$($p.ExitCode)"
+  $helperLogTail = ''
+  if (Test-Path -LiteralPath $helperLogPath) {
+    $helperLogTail = ((Get-Content -LiteralPath $helperLogPath -Tail 50 -ErrorAction SilentlyContinue) -join ' || ')
+    Write-Host ('WINSW_HELPER_LOG_TAIL=' + $helperLogTail)
   }
-  [void]$steps.Add((Write-Step 'silent_install' 'PASS' @{ exitCode = 0; installer = $InstallerPath }))
+  $scmOkMarkerPresent = Test-Path -LiteralPath $scmOkMarkerPath -PathType Leaf
+  if ($p.ExitCode -ne 0 -or -not $scmOkMarkerPresent) {
+    [void]$steps.Add((Write-Step 'silent_install' 'FAIL' @{
+      exitCode = $p.ExitCode
+      phase = 'install'
+      installer = $InstallerPath
+      scmOkMarkerPresent = $scmOkMarkerPresent
+      scmOkMarkerPath = $scmOkMarkerPath
+      helperLogTail = $helperLogTail
+    }))
+    throw ("SILENT_INSTALL_FAILED:exit={0};scmOkMarker={1}" -f $p.ExitCode, $scmOkMarkerPresent)
+  }
+  [void]$steps.Add((Write-Step 'silent_install' 'PASS' @{
+    exitCode = 0
+    installer = $InstallerPath
+    scmOkMarkerPresent = $true
+  }))
 
   Start-Sleep -Seconds 3
 
@@ -335,11 +354,19 @@ try {
   # installer failure with an auxiliary helper install (masks Get-FileHash / hook bugs).
   $scmDataDirectory = Join-Path $env:ProgramData 'CamachoPOS\lab-data'
   $expectedScmAccount = 'NT SERVICE\CamachoPOSLocalService'
-  $helperLog = Join-Path $env:ProgramData 'CamachoPOS\logs\winsw-helper.log'
-  $helperLogTail = ''
+  $helperLog = $helperLogPath
   if (Test-Path -LiteralPath $helperLog) {
     $helperLogTail = ((Get-Content -LiteralPath $helperLog -Tail 40 -ErrorAction SilentlyContinue) -join ' || ')
     Write-Host ('WINSW_HELPER_LOG_TAIL=' + $helperLogTail)
+  }
+  if (-not (Test-Path -LiteralPath $scmOkMarkerPath -PathType Leaf)) {
+    [void]$steps.Add((Write-Step 'winsw_scm_registration' 'FAIL' @{
+      reason = 'SCM_INSTALL_OK_MARKER_MISSING'
+      scmOkMarkerPath = $scmOkMarkerPath
+      helperLogTail = $helperLogTail
+      labFallbackUsed = $false
+    }))
+    throw 'WINSW_SCM_REGISTRATION_FAILED_NSIS_DID_NOT_REGISTER'
   }
   $scmStatus = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
     -Action Status -PayloadDir $payloadDir -Json 2>&1 | Out-String
@@ -509,12 +536,18 @@ try {
     $svcAfterUpgrade.Status -eq 'Running' -or $svcAfterUpgrade.Status -eq 'StartPending'
   )
   $autoAfterUpgrade = $null -ne $svcAfterUpgrade -and ($svcAfterUpgrade.StartType -eq 'Automatic')
-  $upgradeScmOk = $payloadOk -and $runningAfterUpgrade -and $identityAfterUpgrade -and $autoAfterUpgrade
+  $markerAfterUpgrade = Test-Path -LiteralPath $scmOkMarkerPath -PathType Leaf
+  $upgradeScmOk = $payloadOk -and $runningAfterUpgrade -and $identityAfterUpgrade -and $autoAfterUpgrade -and $markerAfterUpgrade
   $scQcAfterUpgrade = (& sc.exe qc CamachoPOSLocalService 2>&1 | Out-String).Trim()
+  $helperLogAfterUpgrade = ''
+  if (Test-Path -LiteralPath $helperLogPath) {
+    $helperLogAfterUpgrade = ((Get-Content -LiteralPath $helperLogPath -Tail 40 -ErrorAction SilentlyContinue) -join ' || ')
+  }
   [void]$steps.Add((Write-Step 'paths_after_upgrade' $(if ($upgradeScmOk) { 'PASS' } else { 'FAIL' }) @{
     installDir = $installDir
     payloadDir = $payloadAfter
     payloadOk = $payloadOk
+    scmOkMarkerPresent = $markerAfterUpgrade
     servicePresent = [bool]$svcAfterUpgrade
     serviceStatus = $(if ($svcAfterUpgrade) { [string]$svcAfterUpgrade.Status } else { 'Absent' })
     startType = $(if ($svcAfterUpgrade) { [string]$svcAfterUpgrade.StartType } else { '' })
@@ -522,6 +555,7 @@ try {
     identityOk = $identityAfterUpgrade
     expectedStartName = $expectedScmAccount
     scQc = $scQcAfterUpgrade
+    helperLogTail = $helperLogAfterUpgrade
   }))
   if (-not $payloadOk) { throw 'SERVICE_PAYLOAD_MISSING_AFTER_UPGRADE' }
   if (-not $upgradeScmOk) { throw 'WINSW_SCM_MISSING_OR_WRONG_IDENTITY_AFTER_UPGRADE' }
