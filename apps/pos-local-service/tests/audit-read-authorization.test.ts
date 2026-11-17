@@ -98,4 +98,28 @@ describe("ListAuditEventsUseCase authorization", () => {
     expect(result.kind).toBe("UNAUTHORIZED");
     expect(auditStore.list).not.toHaveBeenCalled();
   });
+
+  it("denies an assignment scoped to another company in the same tenant", () => {
+    const auditStore = store();
+    const otherCompany = "99999999-9999-7999-8999-999999999999";
+    const foreignCompany: StoredAuthorizationSnapshot = {
+      ...snapshot(),
+      claims: {
+        ...snapshot().claims,
+        assignments: [{
+          ...snapshot().claims.assignments[0]!,
+          tenant_id: TENANT,
+          company_id: otherCompany,
+        }],
+      },
+    };
+    const result = new ListAuditEventsUseCase(auditStore).execute(
+      { tenantId: TENANT, companyId: COMPANY, branchId: BRANCH, deviceId: DEVICE, installationId: INSTALLATION },
+      foreignCompany,
+      request,
+      new Date("2026-10-08T12:00:00.000Z"),
+    );
+    expect(result.kind).toBe("UNAUTHORIZED");
+    expect(auditStore.list).not.toHaveBeenCalled();
+  });
 });

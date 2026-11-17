@@ -1158,25 +1158,29 @@ export class CommercialRequestHandler {
     request: Extract<CommercialRequest, { message_type: "admin.metrics.get" }>,
     connectionId: string,
   ): unknown {
+    const empty = {
+      outcome: "AVAILABLE" as const,
+      sales_completed_count: null,
+      sales_completed_amount: null,
+      inventory_tracked_count: null,
+      cash_open_shift_count: null,
+    };
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {
-      return rejected(request, authenticated.rejection, {
-        outcome: "AVAILABLE",
-        sales_completed_count: null,
-        sales_completed_amount: null,
-        inventory_tracked_count: null,
-        cash_open_shift_count: null,
-      });
+      return rejected(request, authenticated.rejection, empty);
     }
 
     const result = this.commercial.getAdminMetrics.execute(
       this.scope(),
       authenticated.snapshot,
     );
+    if (result.kind === "UNAUTHORIZED") {
+      return rejected(request, "UNAUTHORIZED", empty);
+    }
 
     return succeeded(request, "AVAILABLE", {
       outcome: "AVAILABLE",
-      ...result,
+      ...result.metrics,
     });
   }
 

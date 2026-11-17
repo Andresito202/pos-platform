@@ -150,17 +150,28 @@ export function App(): React.JSX.Element {
     }
 
     if (permissions.has(CanonicalPermission.AUDIT_EVENT_READ)) {
-      result.push({
-        id: "dashboard",
-        label: "Dashboard",
-        section: "Administración",
-        render: () => <AdministrativeControlPanel kind="admin" />,
-      }, {
-        id: "admin-audit",
-        label: "Auditoría administrativa",
-        section: "Plataforma",
-        render: () => <AdministrativeControlPanel kind="audit" />,
-      });
+      // Local SUPERADMINISTRADOR is audit-only development authority — never the
+      // GLOBAL platform portal (platform-entry.tsx) and never company admin UX.
+      if (localSession.role === "SUPERADMINISTRADOR") {
+        result.push({
+          id: "admin-audit",
+          label: "Auditoría administrativa",
+          section: "Plataforma",
+          render: () => <AdministrativeControlPanel kind="audit" />,
+        });
+      } else {
+        result.push({
+          id: "dashboard",
+          label: "Dashboard",
+          section: "Administración",
+          render: () => <AdministrativeControlPanel kind="admin" />,
+        }, {
+          id: "admin-audit",
+          label: "Auditoría administrativa",
+          section: "Plataforma",
+          render: () => <AdministrativeControlPanel kind="audit" />,
+        });
+      }
     }
 
     return orderScreensByRole(result, localSession.role);
@@ -215,7 +226,7 @@ export function App(): React.JSX.Element {
         <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
         <BrandMark variant="sidebar" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
-        <p className="pos-subtitle">{localSession.role === "CAJERO" ? "Caja" : localSession.role === "SUPERVISOR" ? "Supervisión" : localSession.role === "ADMINISTRADOR" ? "Administración" : localSession.role === "SUPERADMINISTRADOR" ? "Plataforma" : "Mi negocio"}</p>
+        <p className="pos-subtitle">{localSession.role === "CAJERO" ? "Caja" : localSession.role === "SUPERVISOR" ? "Supervisión" : localSession.role === "ADMINISTRADOR" ? "Administración" : localSession.role === "SUPERADMINISTRADOR" ? "Auditoría local (no GLOBAL)" : "Mi negocio"}</p>
         <nav className="pos-nav">
           {(["Operación", "Catálogo e inventario", "Administración", "Plataforma"] as const).map((section) => {
             const sectionScreens = screens.filter((screen) => screen.section === section);

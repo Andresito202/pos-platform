@@ -24,8 +24,8 @@ export const ROLE_SCREEN_ORDER: Readonly<Record<LocalOperatorRole, readonly stri
     "fiscal",
     "hardware",
   ],
-  // Development local surface: only truly authorized admin audit screens.
-  SUPERADMINISTRADOR: ["dashboard", "admin-audit"],
+  // Local development profile ≠ GLOBAL PLATFORM_OWNER. Only audit read is granted.
+  SUPERADMINISTRADOR: ["admin-audit"],
 };
 
 export function orderScreensByRole<T extends { id: string }>(

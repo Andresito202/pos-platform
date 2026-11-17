@@ -535,9 +535,10 @@ describe("Role-ordered navigation keeps permissions authoritative", () => {
     });
     render(<App />);
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Dashboard" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Auditoría administrativa" })).toBeTruthy();
     });
+    expect(screen.getByText("Auditoría local (no GLOBAL)")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Licencias" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Superadministrador" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();

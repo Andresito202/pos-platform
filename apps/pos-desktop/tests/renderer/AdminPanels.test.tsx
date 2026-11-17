@@ -572,7 +572,42 @@ describe("AdministrativeControlPanel", () => {
     expect(screen.getByRole("heading", { name: "Seguimiento" })).toBeTruthy();
     expect(screen.getByText("Sin datos ejecutables")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Seguridad" }));
-    expect(screen.getByText("Autorización efectiva")).toBeTruthy();
+    expect(screen.getByTestId("admin-security-surface")).toBeTruthy();
+    expect(screen.getByText(/Autorización efectiva/)).toBeTruthy();
+    expect((screen.getByTestId("admin-security-revoke-session") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("admin-security-change-permissions") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId("admin-security-global-only")).toBeTruthy();
+  });
+
+  it("conecta Seguridad de administrador a auditoría real y deja mutaciones sin backend deshabilitadas", async () => {
+    install({
+      status: "SUCCEEDED",
+      result_code: "FOUND",
+      result: {
+        outcome: "FOUND",
+        events: [{
+          sequence: 3,
+          actor_type: "USER",
+          actor_id: "11111111-1111-4111-8111-111111111111",
+          session_id: "22222222-2222-4222-8222-222222222222",
+          action_code: "SESSION_BOUND",
+          resource_type: "SESSION",
+          resource_id: "33333333-3333-4333-8333-333333333333",
+          correlation_id: "44444444-4444-4444-8444-444444444444",
+          causation_id: null,
+          reason_code: null,
+          created_at: "2026-09-07T10:00:00.000Z",
+        }],
+        has_more: false,
+      },
+    });
+    render(<AdministrativeControlPanel kind="admin" />);
+    fireEvent.click(screen.getByRole("button", { name: "Seguridad" }));
+    await waitFor(() => { expect(screen.getByText(/SESSION_BOUND/)).toBeTruthy(); });
+    expect(screen.getByTestId("admin-security-audit")).toBeTruthy();
+    expect((screen.getByTestId("admin-security-revoke-session") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("admin-security-change-permissions") as HTMLButtonElement).disabled).toBe(true);
+    expect(calls.get("audit.event.list")?.length).toBeGreaterThanOrEqual(1);
   });
 
   it("consume métricas administrativas reales sin calcularlas en el renderer", async () => {

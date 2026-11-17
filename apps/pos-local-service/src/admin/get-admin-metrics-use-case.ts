@@ -4,6 +4,7 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
+import { CanonicalPermission } from "@pos-platform/contracts";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { SqliteAdminMetricsStore } from "./sqlite-admin-metrics-store.js";
@@ -30,14 +31,23 @@ export class GetAdminMetricsUseCase {
     scope: SyncScope,
     authSnapshot: StoredAuthorizationSnapshot,
     at: Date = new Date(),
-  ): AdminMetricsResult {
+  ): { kind: "UNAUTHORIZED" } | { kind: "AVAILABLE"; metrics: AdminMetricsResult } {
     const actor = createActor("USER", authSnapshot.claims.user_id);
     const operationScope = createOperationScope(scope.tenantId, scope.companyId, scope.branchId);
     const assignments = toRoleAssignments(authSnapshot.claims);
 
+    const canAudit = evaluatePermission({
+      actor, permission: CanonicalPermission.AUDIT_EVENT_READ, scope: operationScope, at, assignments,
+    }).allowed;
     const canReadInventory = evaluatePermission({
       actor, permission: PERMISSION_ADMIN_INVENTORY_READ, scope: operationScope, at, assignments,
     }).allowed;
+
+    // A bound session alone is not enough: cashiers and other operational roles
+    // must not obtain the administrative metrics surface by forging IPC.
+    if (!canAudit && !canReadInventory) {
+      return { kind: "UNAUTHORIZED" };
+    }
 
     // Do not reuse SALES_RECEIPT_READ or CASH_SHIFT_OPEN here. Those permissions
     // authorize operational actions/reads, not branch-wide administrative
@@ -47,10 +57,13 @@ export class GetAdminMetricsUseCase {
     const cash = null;
 
     return {
-      sales_completed_count: null,
-      sales_completed_amount: null,
-      inventory_tracked_count: inventory,
-      cash_open_shift_count: cash,
+      kind: "AVAILABLE",
+      metrics: {
+        sales_completed_count: null,
+        sales_completed_amount: null,
+        inventory_tracked_count: inventory,
+        cash_open_shift_count: cash,
+      },
     };
   }
 }

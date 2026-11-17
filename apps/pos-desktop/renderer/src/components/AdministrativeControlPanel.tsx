@@ -63,7 +63,8 @@ const copy: Record<ControlKind, {
 export function AdministrativeControlPanel({ kind,platform,platformEditor }: { kind: ControlKind;platform?:{client:PlatformClient;offers:PublishedOffer[];onChanged:()=>Promise<void>};platformEditor?:ReactNode }): React.JSX.Element {
   const [tab, setTab] = useState<Tab>("overview");
   const model = copy[kind];
-  const audit = useAdministrativeAudit(kind === "audit");
+  // Admin + audit surfaces may read append-only evidence; never fabricate events.
+  const audit = useAdministrativeAudit(kind === "audit" || kind === "admin");
   const adminMetrics = useAdminMetrics(kind === "admin");
 
   return (
@@ -175,14 +176,76 @@ export function AdministrativeControlPanel({ kind,platform,platformEditor }: { k
       {kind==="superadmin"&&tab==="overview"&&platformEditor}
       {kind==="admin"&&tab==="overview"&&<BusinessLicenseOffers/>}
       {tab === "security" && (
-        <div className="pos-admin-surface">
+        <div className="pos-admin-surface" data-testid="admin-security-surface">
           <h3>Seguridad y trazabilidad</h3>
-          <p>Las acciones sensibles se mantienen separadas de la presentación. El frontend no concede permisos ni fabrica eventos.</p>
-          <div className="pos-admin-security-list">
-            <span>Autorización efectiva</span>
-            <span>Scope tenant / company / branch</span>
-            <span>Sesión y dispositivo</span>
-            <span>Auditoría append-only</span>
+          <p>
+            El frontend no concede permisos. Scope, sesión y dispositivo los resuelve
+            el servicio local; las mutaciones de seguridad de plataforma requieren
+            autoridad Central GLOBAL o BUSINESS firmada.
+          </p>
+          <div className="pos-admin-security-list" aria-label="Controles de seguridad">
+            <span>Autorización efectiva: claims del snapshot verificado</span>
+            <span>Scope: tenant / company / branch derivados del servicio</span>
+            <span>Sesión y dispositivo: binding local, no sustituye SSA/SAS</span>
+            <span>Auditoría append-only: contrato audit.event.list</span>
+          </div>
+
+          {(kind === "admin" || kind === "audit") ? (
+            <div data-testid="admin-security-audit">
+              <h4>Evidencia reciente</h4>
+              <p>Consulta real del registro local. No se inventan eventos en el renderer.</p>
+              <button
+                type="button"
+                data-testid="admin-security-audit-refresh"
+                onClick={() => { void audit.refresh(); }}
+                disabled={audit.busy}
+              >
+                {audit.busy ? "Consultando…" : "Actualizar auditoría"}
+              </button>
+              {audit.error !== null && (
+                <div className="pos-admin-empty" role="alert">
+                  <strong>{audit.error}</strong>
+                  <span>La consulta de seguridad fue rechazada o no pudo completarse.</span>
+                </div>
+              )}
+              <ul aria-label="Eventos de seguridad recientes">
+                {audit.events.slice(0, 10).map((event) => (
+                  <li key={event.sequence}>
+                    {event.action_code} · {event.resource_type} · {new Date(event.created_at).toLocaleString()}
+                  </li>
+                ))}
+              </ul>
+              {audit.events.length === 0 && audit.error === null && (
+                <div className="pos-admin-empty" role="status">
+                  <strong>Sin eventos cargados</strong>
+                  <span>Pulse actualizar para consultar el registro autorizado.</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="pos-admin-empty" role="status" data-testid="admin-security-global-only">
+              <strong>Portal GLOBAL</strong>
+              <span>
+                La revocación de dispositivos, planes y cuentas de plataforma se opera
+                desde la autoridad Central HTTPS (`platform-entry`), no desde esta
+                superficie local de desarrollo.
+              </span>
+            </div>
+          )}
+
+          <div className="pos-admin-security-actions" data-testid="admin-security-disabled-actions">
+            <p>Operaciones que requieren backend Central aún no expuesto en el canal local:</p>
+            <button type="button" disabled data-testid="admin-security-revoke-session" title="Requiere Central session-trust / SSA revoke">
+              Revocar sesión remota (no disponible localmente)
+            </button>
+            <button type="button" disabled data-testid="admin-security-change-permissions" title="Requiere role_permission_grants de Central">
+              Cambiar permisos de usuario (no disponible localmente)
+            </button>
+            <button type="button" disabled data-testid="admin-security-open-licenses" title="Solo portal GLOBAL con PlatformClient">
+              {kind === "superadmin" && platform
+                ? "Use la pestaña Licencias (portal GLOBAL)"
+                : "Licencias GLOBAL (requiere portal platform-entry)"}
+            </button>
           </div>
         </div>
       )}

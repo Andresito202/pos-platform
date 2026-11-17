@@ -43,17 +43,36 @@ describe("GetAdminMetricsUseCase", () => {
       new Date("2026-09-07T10:00:00.000Z"),
     );
     expect(result).toEqual({
-      sales_completed_count: null, sales_completed_amount: null,
-      inventory_tracked_count: 21, cash_open_shift_count: null,
+      kind: "AVAILABLE",
+      metrics: {
+        sales_completed_count: null, sales_completed_amount: null,
+        inventory_tracked_count: 21, cash_open_shift_count: null,
+      },
     });
+  });
+
+  it("rechaza la superficie administrativa sin permiso de auditoría ni inventario", () => {
+    expect(new GetAdminMetricsUseCase(store).execute(
+      SCOPE, auth(["SALES_SALE_CREATE", "SALES_RECEIPT_READ", "CASH_SHIFT_OPEN"]),
+      new Date("2026-09-07T10:00:00.000Z"),
+    )).toEqual({ kind: "UNAUTHORIZED" });
   });
 
   it("no amplía acceso cuando el snapshot no tiene permisos de lectura", () => {
     expect(new GetAdminMetricsUseCase(store).execute(
       SCOPE, auth([]), new Date("2026-09-07T10:00:00.000Z"),
+    )).toEqual({ kind: "UNAUTHORIZED" });
+  });
+
+  it("permite auditoría sin inventar agregados de ventas o caja", () => {
+    expect(new GetAdminMetricsUseCase(store).execute(
+      SCOPE, auth(["AUDIT_EVENT_READ"]), new Date("2026-09-07T10:00:00.000Z"),
     )).toEqual({
-      sales_completed_count: null, sales_completed_amount: null,
-      inventory_tracked_count: null, cash_open_shift_count: null,
+      kind: "AVAILABLE",
+      metrics: {
+        sales_completed_count: null, sales_completed_amount: null,
+        inventory_tracked_count: null, cash_open_shift_count: null,
+      },
     });
   });
 });

@@ -16,6 +16,7 @@ import { AdjustStockUseCase } from "../inventory/adjust-stock-use-case.js";
 import { OpenCashShiftUseCase } from "../cash/open-cash-shift-use-case.js";
 import { CloseCashShiftUseCase } from "../cash/close-cash-shift-use-case.js";
 import { RegisterCashPaymentUseCase } from "../payments/register-cash-payment-use-case.js";
+import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 
 function setup(role: LocalOperator["role"], now: () => number = Date.now) {
   const config={
@@ -42,6 +43,7 @@ function setup(role: LocalOperator["role"], now: () => number = Date.now) {
     // Real use case must reject before any store access. A permission regression
     // reaches these absent stores and fails this test instead of writing data.
     createSale: new CreateSaleUseCase(null as never, null as never, null as never, null as never),
+    getAdminMetrics: new GetAdminMetricsUseCase(null as never),
   } as unknown as CommercialComponent;
   const handler=new CommercialRequestHandler(config,commercial,id=>sessions.resolve(id));
   const req={
@@ -206,6 +208,18 @@ describe("local operator backend authorization",()=>{
     expect(permissions).not.toContain(CanonicalPermission.SALES_SALE_CREATE);
     expect(permissions).not.toContain(CanonicalPermission.CATALOG_PRODUCT_REGISTER);
     expect(permissions).not.toContain(CanonicalPermission.LICENSE_PLAN_MANAGE);
+  });
+  it("cajero cannot forge admin.metrics.get", async () => {
+    const {sessions,handler,read}=setup("CAJERO");
+    await sessions.login("A","cajero.local","valid");
+    const permissions=read("A").result!.permissions;
+    expect(permissions).not.toContain(CanonicalPermission.AUDIT_EVENT_READ);
+    expect(permissions).not.toContain(CanonicalPermission.INVENTORY_STOCK_READ);
+    const response=handler.handle({
+      protocol_version:"1.0.0",message_type:"admin.metrics.get",
+      request_id:randomUUID(),correlation_id:randomUUID(),payload_schema_version:"1.0.0",payload:{},
+    },"A");
+    expect(response).toMatchObject({status:"REJECTED",result_code:"UNAUTHORIZED"});
   });
 });
 

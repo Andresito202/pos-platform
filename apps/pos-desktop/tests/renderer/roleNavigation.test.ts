@@ -33,12 +33,13 @@ describe("roleNavigation", () => {
     expect(orderScreensByRole(screens, "ADMINISTRADOR").map((s) => s.id)[0]).not.toBe("sales");
   });
 
-  it("limits SUPERADMINISTRADOR visual preference to authorized audit surfaces", () => {
+  it("limits SUPERADMINISTRADOR visual preference to audit-only (not GLOBAL portal)", () => {
     expect(orderScreensByRole(screens, "SUPERADMINISTRADOR").map((s) => s.id)).toEqual([
-      "dashboard",
       "admin-audit",
     ]);
-    expect(homeScreenId(screens, "SUPERADMINISTRADOR")).toBe("dashboard");
+    expect(homeScreenId(screens, "SUPERADMINISTRADOR")).toBe("admin-audit");
+    expect(ROLE_SCREEN_ORDER.SUPERADMINISTRADOR).not.toContain("dashboard");
+    expect(ROLE_SCREEN_ORDER.SUPERADMINISTRADOR).not.toContain("sales");
   });
   it.each(["SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)("never exposes a cart to %s", role => {
     expect(orderScreensByRole(screens, role).map(s => s.id)).not.toContain("sales");
