@@ -8,7 +8,8 @@
 | Referencia | SHA |
 |---|---|
 | HEAD inicial aprobado | `8ae99fea1607c79665f3b869c21dee573da53e25` |
-| Tip funcional Bloque 6 (este informe) | `0cb6d72d019c620548bf9756f695a22f48e2e9b6` |
+| Tip funcional Bloque 6 | `0cb6d72d019c620548bf9756f695a22f48e2e9b6` |
+| Tip docs / claim CI | `f160bb8257cde399465b9caac27d40a3748e4433` |
 
 Motor UI: `apps/pos-desktop` + `apps/pos-local-service` existentes. Sin segundo POS, sin role-preview como producto, sin rediseño de login, sin FACTUS.
 
