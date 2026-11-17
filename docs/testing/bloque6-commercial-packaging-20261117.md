@@ -9,9 +9,24 @@
 |---|---|
 | HEAD inicial aprobado | `8ae99fea1607c79665f3b869c21dee573da53e25` |
 | Tip funcional Bloque 6 | `0cb6d72d019c620548bf9756f695a22f48e2e9b6` |
-| Tip docs / claim CI | `f160bb8257cde399465b9caac27d40a3748e4433` |
+| Tip CI exact-head (claim) | `f7926274d24e998bb95703ce09afda62dd8e1b05` |
 
 Motor UI: `apps/pos-desktop` + `apps/pos-local-service` existentes. Sin segundo POS, sin role-preview como producto, sin rediseño de login, sin FACTUS.
+
+## CI exact-head (`f7926274`) — 6/6 SUCCESS
+
+Observado 2026-11-17 contra tip `f7926274d24e998bb95703ce09afda62dd8e1b05`:
+
+| # | Workflow | Run | Conclusión |
+|---|---|---|---|
+| 1 | TARGET foundation validation | [44149722614](https://github.com/Andresito202/pos-platform/actions/runs/44149722614) | success |
+| 2 | CodeQL SAST | [44149722634](https://github.com/Andresito202/pos-platform/actions/runs/44149722634) | success |
+| 3 | D-3 Live Security E2E | [44149722476](https://github.com/Andresito202/pos-platform/actions/runs/44149722476) | success |
+| 4 | G1.2 Live Session Bootstrap | [44149722558](https://github.com/Andresito202/pos-platform/actions/runs/44149722558) | success |
+| 5 | Central Sync Persistence Gate | [44149722719](https://github.com/Andresito202/pos-platform/actions/runs/44149722719) | success |
+| 6 | strix-penetration-test | [44149722603](https://github.com/Andresito202/pos-platform/actions/runs/44149722603) | success |
+
+Check-runs: 9 success · 2 skipped · **0 failed** (skipped: Main push governance, FACTUS).
 
 ## Defectos corregidos
 
