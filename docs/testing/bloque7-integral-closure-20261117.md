@@ -22,6 +22,7 @@
 | ROLE-PREVIEW doc: SUPERVISOR con “caja y ventas” | Alineado con bridge/`ROLE_SCREEN_ORDER` (sin carrito) |
 | CI vulnerability gate: `electron-builder@26.0.12` → tar/app-builder-lib/builder-util-runtime high/critical | Bump `electron-builder@26.18.1` + `pnpm.overrides` (`tar`, `builder-util-runtime`, `app-builder-lib`, `dmg-builder`, `builder-util`, `electron-builder-squirrel-windows`) |
 | License gate: `truncate-utf8-bytes@1.0.2` SPDX `WTFPL` sin clasificar (vía sanitize-filename / builder-util) | `WTFPL` añadido a `allow` con `preserve-license-text` (permisiva; no debilita deny floor) |
+| `channel.test.ts` fixture sin campos outbox → socket fail-closed (CI Linux+Windows) | `compatibleResponse` incluye `outbox_pending_count` / `outbox_dead_letter_count` |
 
 ## Funcionalidades verificadas
 
@@ -44,7 +45,9 @@
 
 **PASS:** contracts 344; desktop 341; StatusPanel 6; central-sync+sync-store 12; bloque4+bloque5 18; architecture; typecheck desktop+local-service; desktop build; `ci:vulnerability-audit`; `ci:license-gate` (+ inventory/SBOM con `REVIEWED_SHA`); `ci:license-tests` 13; `ci:supply-chain-tests` / vulnerability policy tests.
 
-**FAIL:** tip `b5c1247c` CI — Repository policy / vulnerability audit (remediado en tip siguiente; no se declara PASS remoto hasta exact-head).
+**FAIL (remotos, remediados en tip siguiente; no PASS exact-head aún):**
+- tip `b5c1247c` — vulnerability audit (electron-builder 26.0.12)
+- tip `9c9cf45b` — `channel.test.ts` fixture incompleta (outbox counts)
 
 **SKIP:** NSIS final sin wine; install/uninstall/upgrade físico; Authenticode; FACTUS; capturas homes rol Windows; VPS/Android/hardware.
 
