@@ -32,6 +32,7 @@
 - WinSW helper: nunca parametrizar `$args` (colisión PS → `ArgumentList` null). Tras `winsw install`, ACL RX al payload y Modify a `ProgramData\CamachoPOS\{lab-data,logs}` para `NT SERVICE\CamachoPOSLocalService`. `<logpath>` fuera de Program Files. STDERR/sc diagnostics en fallos.
 - WinSW 2.12 XML: usar `<domain>NT SERVICE</domain>` + `<user>CamachoPOSLocalService</user>`. El elemento `<username>` **no** lo lee XmlServiceConfig → el servicio queda en LocalSystem. `allowservicelogon=false` para cuentas virtuales (LookupAccountName corre antes de CreateService).
 - Lifecycle exige `StartName=NT SERVICE\CamachoPOSLocalService` + Running; LocalSystem nunca PASS.
+- Uninstall: helper ya no exige payload completo; stop + WinSW uninstall + `sc delete`; NSIS `customUnInstall` también ejecuta `sc stop/delete` por si el payload ya no está.
 
 ## Niveles de certificación
 

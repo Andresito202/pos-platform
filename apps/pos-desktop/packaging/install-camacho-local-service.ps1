@@ -229,6 +229,8 @@ Write-HelperLog ("BEGIN action={0} payloadDir={1} dataDirectory={2} elevated={3}
   } catch { 'unknown' }
 ))
 
+try {
+
 switch ($Action) {
   'Status' {
     $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
@@ -342,13 +344,42 @@ switch ($Action) {
   }
   'Uninstall' {
     Assert-Admin
-    Assert-Payload
+    # Do not require the full runtime payload (node/bundle/template). Uninstall must
+    # succeed even if NSIS already removed part of $INSTDIR; otherwise the running
+    # service keeps file locks and Program Files cannot be deleted.
     $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
+    $stopNotes = New-Object System.Collections.Generic.List[string]
     if ($svc) {
-      try { Stop-Service -Name $serviceId -Force -ErrorAction SilentlyContinue } catch {}
+      try {
+        Stop-Service -Name $serviceId -Force -ErrorAction Stop
+        [void]$stopNotes.Add('Stop-Service=ok')
+      } catch {
+        [void]$stopNotes.Add(('Stop-Service=' + $_.Exception.Message))
+      }
+      $scStop = (& sc.exe stop $serviceId 2>&1 | Out-String).Trim()
+      [void]$stopNotes.Add(('sc_stop=' + $scStop))
+      for ($i = 0; $i -lt 45; $i++) {
+        $wait = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
+        if ($null -eq $wait -or $wait.Status -eq 'Stopped') { break }
+        Start-Sleep -Seconds 1
+      }
+      if (Test-Path -LiteralPath $winswExe -PathType Leaf) {
+        try {
+          $unCode = Invoke-WinSW -WinSwArguments @('uninstall')
+          [void]$stopNotes.Add(('winsw_uninstall_exit=' + $unCode))
+        } catch {
+          [void]$stopNotes.Add(('winsw_uninstall=' + $_.Exception.Message))
+        }
+      } else {
+        [void]$stopNotes.Add('winsw_exe_absent')
+      }
+      # Authoritative SCM removal — WinSW uninstall alone can leave the key if the
+      # process was busy or the exe was already deleted by NSIS.
+      $scDelete = (& sc.exe delete $serviceId 2>&1 | Out-String).Trim()
+      [void]$stopNotes.Add(('sc_delete=' + $scDelete))
       Start-Sleep -Seconds 2
-      [void](Invoke-WinSW -WinSwArguments @('uninstall'))
-      Start-Sleep -Seconds 2
+    } else {
+      [void]$stopNotes.Add('service_already_absent')
     }
     $after = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
     # Never delete commercial AppData / ProgramData SQLite here.
@@ -356,7 +387,19 @@ switch ($Action) {
       ok = ($null -eq $after)
       registered = ($null -ne $after)
       dataPreserved = $true
+      stopNotes = ([string[]]$stopNotes.ToArray() -join ' | ')
       note = 'Service removed; commercial data directories left intact'
     } $(if ($null -eq $after) { 0 } else { 8 })
   }
+}
+
+} catch {
+  Write-Result @{
+    ok = $false
+    error = 'HELPER_UNCAUGHT'
+    message = [string]$_.Exception.Message
+    scriptStackTrace = [string]$_.ScriptStackTrace
+    action = $Action
+    payloadDir = $PayloadDir
+  } 10
 }

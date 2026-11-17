@@ -539,10 +539,20 @@ try {
   }
   $trackedInstallDir = $installDir
   $uninstallProc = Start-Process -FilePath $uninstallerExe -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
-  Start-Sleep -Seconds 3
+  # SCM delete can leave a brief "marked for deletion" window; wait for absence.
+  $svcAfter = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+  for ($i = 0; $i -lt 30 -and $null -ne $svcAfter; $i++) {
+    Start-Sleep -Seconds 1
+    $svcAfter = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+  }
   $pfGone = -not (Test-Path -LiteralPath $programFilesInstallDir)
   $laGone = -not (Test-Path -LiteralPath $localAppInstallDir)
   $trackedGone = -not (Test-Path -LiteralPath $trackedInstallDir)
+  $helperLogTail = ''
+  $helperLogPath = Join-Path $env:ProgramData 'CamachoPOS\logs\winsw-helper.log'
+  if (Test-Path -LiteralPath $helperLogPath) {
+    $helperLogTail = ((Get-Content -LiteralPath $helperLogPath -Tail 40 -ErrorAction SilentlyContinue) -join ' || ')
+  }
   if ($uninstallProc.ExitCode -ne 0) {
     [void]$steps.Add((Write-Step 'silent_uninstall' 'FAIL' @{
       exitCode = $uninstallProc.ExitCode
@@ -550,6 +560,7 @@ try {
       programFilesRemoved = $pfGone
       localAppRemoved = $laGone
       phase = 'uninstall'
+      helperLogTail = $helperLogTail
     }))
     throw "SILENT_UNINSTALL_FAILED:exit=$($uninstallProc.ExitCode)"
   }
@@ -561,9 +572,11 @@ try {
     uninstaller = $uninstallerExe
   }))
 
-  $svcAfter = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+  $scAfter = (& sc.exe query CamachoPOSLocalService 2>&1 | Out-String).Trim()
   [void]$steps.Add((Write-Step 'winsw_scm_removed_after_uninstall' $(if ($null -eq $svcAfter) { 'PASS' } else { 'FAIL' }) @{
     servicePresent = [bool]$svcAfter
+    scQuery = $scAfter
+    helperLogTail = $helperLogTail
     note = 'NSIS customUnInstall must remove CamachoPOSLocalService without wiping commercial data'
   }))
   if ($null -ne $svcAfter) { throw 'WINSW_SCM_STILL_REGISTERED_AFTER_UNINSTALL' }
