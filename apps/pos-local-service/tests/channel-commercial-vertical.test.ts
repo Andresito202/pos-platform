@@ -112,6 +112,9 @@ const SCOPE = {
 const NOW = new Date("2026-09-03T12:00:00.000Z");
 const clock = { now: () => NOW };
 
+// Windows CI serializes this suite (--maxWorkers 1). Cold channel + SQLite open for
+// prepareCounter/createSale/pay can exceed the default 30s under runner load without
+// a hang (a12d5ecf Windows job: timeout-only; same HEAD TypeScript/NSIS green).
 it("hardware: confirmed cash fact authorizes one durable drawer intent, never an unpaid sale or replay",async()=>{
   await withRealChannel(async(send,database)=>{
     const ids=await prepareCounter(send,database,"hardware");
@@ -137,7 +140,7 @@ it("hardware: confirmed cash fact authorizes one durable drawer intent, never an
     expect(denied.status).toBe("REJECTED"); // canonical cashier fixture has no hardware permission
     expect(store.list(SCOPE).jobs[0]?.state).toBe("PENDING");
   });
-},30000);
+},60000);
 
 const PERMISSIONS = [
   "CASH_SHIFT_OPEN",
