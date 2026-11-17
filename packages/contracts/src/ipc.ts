@@ -215,6 +215,10 @@ export const RuntimeStatusResultSchema = z.strictObject({
   protocol_version: ContractVersionSchema,
   service_state: StableCodeSchema,
   schema_version: VersionIdentifierSchema,
+  /** Real local_sync_outbox depth: PENDING + IN_FLIGHT + RETRY_WAIT (DEC-007 outbox_depth). */
+  outbox_pending_count: z.number().int().nonnegative(),
+  /** Real dead-letter rows awaiting authorized requeue. */
+  outbox_dead_letter_count: z.number().int().nonnegative(),
 });
 
 export const RuntimeStatusResponseSchema = createResponseEnvelopeSchema(RuntimeStatusResultSchema);

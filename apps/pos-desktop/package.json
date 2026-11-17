@@ -13,16 +13,17 @@
     "build": "pnpm build:main && pnpm build:entry && pnpm build:preload && pnpm build:renderer",
     "start:smoke": "electron --no-sandbox e2e/smoke-entry.mjs",
     "start:production": "electron dist/start.bundle.mjs",
+    "pack:windows-nsis": "node scripts/pack-windows-nsis.mjs",
     "test": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test --config e2e/playwright.config.ts"
   },
   "dependencies": {
     "@pos-platform/contracts": "workspace:*",
+    "@pos-platform/local-channel": "workspace:*",
     "@pos-platform/observability": "workspace:*",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "zod": "4.6.6",
-    "@pos-platform/local-channel": "workspace:*"
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
@@ -31,8 +32,9 @@
     "@types/react": "19.1.0",
     "@types/react-dom": "19.1.0",
     "@vitejs/plugin-react": "4.5.0",
-    "esbuild": "0.28.2",
     "electron": "44.9.1",
+    "electron-builder": "26.0.12",
+    "esbuild": "0.28.2",
     "jsdom": "26.1.0",
     "playwright": "1.63.0",
     "typescript": "6.0.3",

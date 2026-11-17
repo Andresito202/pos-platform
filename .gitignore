@@ -4,6 +4,7 @@ __pycache__/
 .env.*
 *.egg-info/
 dist/
+dist-installer/
 build/
 .venv/
 node_modules/

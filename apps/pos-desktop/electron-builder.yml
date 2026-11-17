@@ -1,0 +1,32 @@
+# DEC-010 — Windows packager: electron-builder + NSIS.
+# Bloque 7 materializes the config. Authenticode signing remains RT-009-B BLOCKED
+# until a real code-signing certificate is provisioned. Do not invent self-signed
+# certs to greenwash distribution.
+appId: com.camachopos.colombia.desktop
+productName: Camacho POS Colombia
+copyright: Copyright © Camacho POS Colombia
+directories:
+  output: dist-installer
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+extraMetadata:
+  main: dist/start.bundle.mjs
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: CamachoPOSColombia-${version}-win-${arch}.${ext}
+  # Unsigned until RT-009-B certificate exists. Installer may be generated for
+  # lab verification; it is NOT a commercially signed distribution.
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Camacho POS Colombia
+  deleteAppDataOnUninstall: false
+publish: null

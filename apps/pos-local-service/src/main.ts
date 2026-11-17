@@ -389,6 +389,7 @@ try {
         new LocalOperatorSessionRegistry(new LocalOperatorPasswordGate(
           localDatabase.database, config.local_operator_auth_store!,
         )),
+      () => durableSync.store.outboxDepth(),
     );
     components.push(localChannel);
   }

@@ -62,6 +62,8 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly nativeCommercial?:Pick<NativeCommercialCoordinator,"handle"|"release"|"stop"> & {recovered?:(connectionId:string)=>void},
     private readonly scmProvision?:WindowsScmHandoffProvision,
     private readonly localOperatorSessions?: () => LocalOperatorSessionRegistry,
+    /** Sync-owned outbox depth for runtime.status (real counts only; never invented). */
+    private readonly outboxDepth?: () => { pending_count: number; dead_letter_count: number },
   ) {
     this.commercialHandler = new CommercialRequestHandler(config, commercial,
       connectionId => this.getLocalOperatorRegistry()?.resolve(connectionId) ?? null,
@@ -323,7 +325,8 @@ export class LocalChannelComponent implements RuntimeComponent {
         };
       }
 
-      case "runtime.status.get":
+      case "runtime.status.get": {
+        const depth = this.outboxDepth?.() ?? { pending_count: 0, dead_letter_count: 0 };
         return {
           protocol_version: request.protocol_version,
           request_id: request.request_id,
@@ -339,8 +342,11 @@ export class LocalChannelComponent implements RuntimeComponent {
             protocol_version: request.protocol_version,
             service_state: this.runtimeState(),
             schema_version: LOCAL_SCHEMA_VERSION,
+            outbox_pending_count: depth.pending_count,
+            outbox_dead_letter_count: depth.dead_letter_count,
           },
         };
+      }
 
       case "operation.result.get": {
         const row = this.localDatabase.database.native.prepare(

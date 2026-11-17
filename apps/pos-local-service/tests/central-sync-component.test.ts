@@ -10,6 +10,7 @@ import { DurableSyncComponent } from "../src/sync/durable-sync-component.js";
 import type { SyncScope } from "../src/sync/durable-sync-store.js";
 import type { CentralHttpResponse, CentralTransport } from "../src/sync/central-transport.js";
 import {
+  CentralCredentialUnavailableError,
   UnprovisionedDeviceCredentialProvider,
   type DeviceCredentialProvider,
 } from "../src/sync/device-credential.js";
@@ -181,14 +182,61 @@ describe("CentralSyncComponent — D-2", () => {
       attempt_count: 0,
     });
 
-    // Esperar mas de un intervalo no produce ningun despacho: no hay temporizador.
+    // Sin credencial no hay drenaje periódico (solo re-sonda auth espaciada).
     await new Promise((resolve) => { setTimeout(resolve, 60); });
     expect(sent.count).toBe(0);
+    expect(report.lifecycle).toHaveLength(1);
 
     await component.stop();
     await sync.stop();
     await database.stop();
   });
+
+  it("re-sonda autenticación y drena cuando aparece la credencial tras NOT_AUTHENTICATED", async () => {
+    const { database, sync } = await runtime();
+    sync.store.enqueue(operation(1));
+    const sent = { count: 0 };
+    const report = recorder();
+    let provisioned = false;
+    const switchingCredentials: DeviceCredentialProvider = {
+      isProvisioned: () => provisioned,
+      authorization: () => provisioned
+        ? Promise.resolve("Bearer test-only")
+        : Promise.reject(new CentralCredentialUnavailableError("device credential not yet provisioned")),
+    };
+
+    const component = new CentralSyncComponent(
+      () => new SyncDispatcher(
+        sync.store,
+        acceptingTransport(sent),
+        switchingCredentials,
+        "https://central.invalid",
+        "1.0.0",
+      ),
+      scope,
+      60_000,
+      report,
+      1_000,
+    );
+
+    await component.start();
+    expect(report.lifecycle.map((entry) => entry.reason)).toEqual(["NO_DEVICE_CREDENTIAL"]);
+    expect(sent.count).toBe(0);
+
+    provisioned = true;
+    await new Promise((resolve) => { setTimeout(resolve, 1_400); });
+
+    expect(sent.count).toBe(1);
+    expect(report.lifecycle.map((entry) => entry.reason)).toEqual([
+      "NO_DEVICE_CREDENTIAL",
+      "STARTED",
+    ]);
+    expect(sync.store.checkpoint(scope)).toBe(1);
+
+    await component.stop();
+    await sync.stop();
+    await database.stop();
+  }, 10_000);
 
   it("con credencial drena el outbox en el arranque y reporta el ciclo de vida", async () => {
     const { database, sync } = await runtime();

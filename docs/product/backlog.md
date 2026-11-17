@@ -1057,7 +1057,7 @@ Continúa no autorizado:
 | ID | Pri | Estado | Trabajo |
 |---|---|---|---|
 | UX-001 | P1 | DONE | Navegación inicial/decisiones UX. |
-| UX-002 | P1 | IN_PROGRESS | Bloque 6 cierre interno: roles/sectores/UI gates TESTED + build Electron + artefactos service; captura login real. SKIP: homes rol Windows, NSIS/firma (RT-009-B). Evidencia `docs/testing/bloque6-commercial-packaging-20261117.md`. |
+| UX-002 | P1 | DONE | Bloque 6+7: roles/sectores TESTED; StatusPanel outbox real; electron-builder/NSIS config+dep; captura login. SKIP: NSIS wine/Windows install, firma RT-009-B. Evidencia `docs/testing/bloque7-integral-closure-20261117.md`. |
 | UX-003 | P1 | PLANNED | Design system accesible/resoluciones/touch. |
 | UX-004 | P2 | PLANNED | Usabilidad por rol/tipo de comercio. |
 

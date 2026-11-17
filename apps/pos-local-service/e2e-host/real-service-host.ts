@@ -437,7 +437,14 @@ async function main(): Promise<void> {
           correlation_id: envelope.correlation_id, operation_id: null,
           status: "SUCCEEDED", result_code: "OK", result_schema_version: "1.0.0",
           error: null, server_time: NOW.toISOString(),
-          result: { service_version: "1.0.0", protocol_version: "1.0.0", service_state: "READY", schema_version: "5" },
+          result: {
+            service_version: "1.0.0",
+            protocol_version: "1.0.0",
+            service_state: "READY",
+            schema_version: "5",
+            outbox_pending_count: 0,
+            outbox_dead_letter_count: 0,
+          },
         };
       }
       // El servidor ya validó el sobre; el handshake quedó atendido arriba.

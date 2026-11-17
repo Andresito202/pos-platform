@@ -38,7 +38,7 @@ function request(handshake=false){return {protocol_version:"1.0.0",message_type:
 function response(req:IpcRequest){return {protocol_version:"1.0.0",request_id:req.request_id,correlation_id:req.correlation_id,
   operation_id:null,status:"SUCCEEDED",result_code:"OK",result_schema_version:"1.0.0",error:null,server_time:new Date().toISOString(),
   result:req.message_type==="runtime.handshake"?{status:"COMPATIBLE",negotiated_protocol_version:"1.0.0"}:
-    {service_version:"1.0.0",protocol_version:"1.0.0",service_state:"READY",schema_version:"5"}};}
+    {service_version:"1.0.0",protocol_version:"1.0.0",service_state:"READY",schema_version:"5",outbox_pending_count:0,outbox_dead_letter_count:0}};}
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
 const cleanups:(()=>Promise<void>)[]=[];
 afterEach(async()=>{for(const cleanup of cleanups.splice(0).reverse())await cleanup();});

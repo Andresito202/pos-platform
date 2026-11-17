@@ -30,7 +30,7 @@ describe("physical Windows SCM transport (not BUSINESS/human certification)",()=
       beforeRevocationRows=(db.native.prepare("SELECT count(*) AS n FROM local_channel_replay_state").get() as {n:number}).n;
       transport.revokeConnections([...ids],context.connectionId);
     }
-    return {protocol_version:"1.0.0",request_id:r.request_id,correlation_id:r.correlation_id,operation_id:null,status:"SUCCEEDED",result_code:"OK",result_schema_version:"1.0.0",error:null,server_time:new Date().toISOString(),result:r.message_type==="runtime.handshake"?{status:"COMPATIBLE",negotiated_protocol_version:"1.0.0"}:{service_version:"1.0.0",protocol_version:"1.0.0",service_state:"READY",schema_version:"5"}};
+    return {protocol_version:"1.0.0",request_id:r.request_id,correlation_id:r.correlation_id,operation_id:null,status:"SUCCEEDED",result_code:"OK",result_schema_version:"1.0.0",error:null,server_time:new Date().toISOString(),result:r.message_type==="runtime.handshake"?{status:"COMPATIBLE",negotiated_protocol_version:"1.0.0"}:{service_version:"1.0.0",protocol_version:"1.0.0",service_state:"READY",schema_version:"5",outbox_pending_count:0,outbox_dead_letter_count:0}};
    },range,32,64,5000,id=>closed.add(id),transport);
    try{
     await server.start();

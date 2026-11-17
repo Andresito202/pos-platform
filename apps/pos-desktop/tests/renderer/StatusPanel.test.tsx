@@ -26,11 +26,43 @@ describe("StatusPanel", () => {
 
   it("shows connected state after successful response", async () => {
     (window.posService["runtime.status.get"] as ReturnType<typeof vi.fn>)
-      .mockResolvedValue({ status: "SUCCEEDED" });
+      .mockResolvedValue({
+        status: "SUCCEEDED",
+        result: {
+          service_version: "1.0.0",
+          protocol_version: "1.0.0",
+          service_state: "READY",
+          schema_version: "5",
+          outbox_pending_count: 0,
+          outbox_dead_letter_count: 0,
+        },
+      });
     render(<StatusPanel />);
     await waitFor(() => {
       expect(screen.getByTestId("status-connected")).toBeTruthy();
+      expect(screen.getByTestId("status-outbox-idle")).toBeTruthy();
     });
+  });
+
+  it("shows real pending outbox depth from runtime.status", async () => {
+    (window.posService["runtime.status.get"] as ReturnType<typeof vi.fn>)
+      .mockResolvedValue({
+        status: "SUCCEEDED",
+        result: {
+          service_version: "1.0.0",
+          protocol_version: "1.0.0",
+          service_state: "READY",
+          schema_version: "5",
+          outbox_pending_count: 3,
+          outbox_dead_letter_count: 1,
+        },
+      });
+    render(<StatusPanel />);
+    await waitFor(() => {
+      expect(screen.getByTestId("status-outbox-pending").textContent).toContain("3");
+      expect(screen.getByTestId("status-outbox-dead-letter").textContent).toContain("1");
+    });
+    expect(screen.queryByTestId("status-outbox-idle")).toBeNull();
   });
 
   it("shows the sanitized error state when the service transport fails", async () => {
@@ -46,7 +78,17 @@ describe("StatusPanel", () => {
 
   it("calls runtime.status.get on mount", async () => {
     (window.posService["runtime.status.get"] as ReturnType<typeof vi.fn>)
-      .mockResolvedValue({ status: "SUCCEEDED" });
+      .mockResolvedValue({
+        status: "SUCCEEDED",
+        result: {
+          service_version: "1.0.0",
+          protocol_version: "1.0.0",
+          service_state: "READY",
+          schema_version: "5",
+          outbox_pending_count: 0,
+          outbox_dead_letter_count: 0,
+        },
+      });
     render(<StatusPanel />);
     await waitFor(() => {
       expect(window.posService["runtime.status.get"]).toHaveBeenCalledTimes(1);

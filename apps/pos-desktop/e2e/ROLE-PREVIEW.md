@@ -118,8 +118,10 @@ cambia las sesiones Windows instaladas. El banner indica explícitamente
 
 - Cajero: caja/ventas/cobros, catálogo de lectura y clientes de lectura; no
   puede consultar inventario de stock ni administrar hardware.
-- Supervisor: caja y ventas, confirmación de transferencias, inventario de
-  lectura y auditoría, sin administración de hardware.
+- Supervisor: inventario de lectura, confirmación/cancelación de transferencias,
+  catálogo/clientes/comprobantes de lectura; **sin** caja/carrito ni ventas
+  (alineado con `ROLE_SCREEN_ORDER` y el bridge local). Sin administración de
+  hardware.
 - Administrador: permisos **locales implementados** de operación y hardware;
   no recibe permiso global de planes/licencias.
 - Superadministrador: solo capacidad global `LICENSE_PLAN_MANAGE`; **no**
