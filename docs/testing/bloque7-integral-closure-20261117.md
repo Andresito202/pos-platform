@@ -8,7 +8,7 @@
 | Referencia | SHA |
 |---|---|
 | HEAD inicial (CI SUCCESS confirmado) | `1ee066d146d03a01ff7a23ff56137cd3f1ebbc5e` |
-| Tip funcional / claim CI | *(rellenar tras push)* |
+| Tip funcional / claim CI | `ab8795949e71165a12498c8ea991383ed39ab0b1` |
 
 ## Defectos corregidos
 
