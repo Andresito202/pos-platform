@@ -92,12 +92,17 @@ pnpm test:migrations:sqlite → 13 passed
 
 Debe acreditarse contra el **HEAD final** de este bloque en la rama activa (workflows del PR #106). Verde en un commit anterior no sustituye el HEAD exacto.
 
+## Auditoría de stack (confirmación)
+
+Auditoría independiente del pipe local→Central ([Audit Central Sync stack](bc-c1fa8d3f-4d53-54a9-9afb-5a2929da3969)): **no construir motor paralelo**; outbox same-tx + dispatcher + lab gate son el camino. Confirmó: reservas 024 = misma DB; multicaja offline sin stock global; Central lab append-only (sin proyección de dominio); `NOT_AUTHENTICATED` al boot no arma timer (credencial ≠ red). Huecos de provenance `LOCAL_DEVICE`, DEC-024 TLS y consumers tipados quedan fuera de este cierre interno.
+
 ## Riesgos pendientes (no cerrados)
 
 1. Receptor Central tipado para todos los eventos de inventario/reserva aún no es certificación `END_TO_END` productiva.
 2. Stock compartido entre cajas offline sin reserva previa sigue sujeto a sobreventa relativa (política arriba).
 3. `CentralSyncComponent` no re-sonda si el arranque fue `NOT_AUTHENTICATED` (credencial ausente ≠ caída de red); documentado en el componente — no se amplió vigencia offline.
 4. Gate PostgreSQL Central Sync: pendiente de ejecución con Docker/lab en CI del HEAD.
+5. Excepción temporal `GHSA-fc5q-39xc-vjpf` (picomatch 4.0.5/4.0.7, tooling Vite/Vitest) hasta release parchado — ver `tools/ci/dependency-vulnerability-policy.json`.
 
 ## Estado
 
