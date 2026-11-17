@@ -72,3 +72,25 @@ Token: se obtiene con `POST /auth` y se cachea cifrado; un segundo `/auth` inval
 ## Pruebas reales
 
 Sin las cuatro variables FACTUS / el par Pay depositado, las suites sandbox se omiten (`describe.skipIf`). No fabricar respuestas del proveedor.
+
+## Gate excepcional vía GitHub Actions (autorizado por el propietario)
+
+No forma parte del CI ordinario ni de PRs. Workflow: `.github/workflows/factus-sandbox-exceptional-gate.yml` (`workflow_dispatch` únicamente).
+
+### Cómo activarlo desde el celular
+
+1. Abrir en el navegador: `https://github.com/Andresito202/pos-platform/actions/workflows/factus-sandbox-exceptional-gate.yml`
+2. Iniciar sesión en GitHub si hace falta.
+3. Pulsar **Run workflow**.
+4. Rama: `cursor/commercial-design-review-0d11` (única autorizada).
+5. `owner_authorization`: escribir exactamente `OWNER_AUTHORIZED_SANDBOX_ONLY`.
+6. `reviewed_sha`: el SHA de 40 caracteres del commit revisado (por ejemplo el HEAD actual de esa rama).
+7. Pulsar el botón verde **Run workflow**.
+8. Esperar el job; descargar el artifact `factus-sandbox-exceptional-<sha>` (JSON redactado).
+
+### Límites de claim
+
+- El gate emite `OBSERVED_PASS` / `OBSERVED_FAIL` / `BLOCKED` / `NOT_AVAILABLE` por paso.
+- **No** declara `SANDBOX_VERIFIED` automáticamente.
+- FACTUS Pay: el simulador oficial de pago es UI (`https://pay-api-sandbox.factus.com.co/simulator`); no hay API headless de pago simulado. Sin escaneo en el simulador, el estado permanece el observado por GET.
+- Producción y dinero real están prohibidos.

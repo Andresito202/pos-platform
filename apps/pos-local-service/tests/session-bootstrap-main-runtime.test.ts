@@ -145,6 +145,32 @@ async function stopService(child: ChildProcessWithoutNullStreams): Promise<void>
   }
 }
 
+/**
+ * El servicio hijo mantiene abierto `pos-local.db` (better-sqlite3 / WAL).
+ * En Windows, tras el `close` del proceso el SO puede retener el lock unos
+ * cientos de ms: un `rmSync` inmediato falla con `EBUSY` y enmascara el
+ * resultado real de la prueba (la aserción ya pasó). Se reintenta el borrado
+ * sólo ante `EBUSY`/`EPERM`; cualquier otro error se propaga.
+ */
+async function removeTempDirectory(path: string): Promise<void> {
+  const delaysMs = [0, 50, 100, 200, 400, 800, 1_600];
+  let lastError: unknown;
+  for (const delay of delaysMs) {
+    if (delay > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    }
+    try {
+      rmSync(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== "EBUSY" && code !== "EPERM") throw error;
+    }
+  }
+  throw lastError;
+}
+
 function spawnService(serviceRoot: string, dataDirectory: string, rootPublicKeyPem: string, artifactPath: string, deployment:NodeJS.ProcessEnv={}): ChildProcessWithoutNullStreams {
   const tsxCli = join(serviceRoot, "node_modules", "tsx", "dist", "cli.mjs");
   const child = spawn(process.execPath, [tsxCli, "src/main.ts"], {
@@ -191,7 +217,12 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       await client.connect(envelope("runtime.handshake",{desktop_version:"1.0.0",service_version:"1.0.0",protocol_min:"1.0.0",protocol_max:"1.0.0",installation_id:IDS.installationId,device_id:IDS.deviceId,schema_version:"5",service_state:"READY"}));
       const response=await client.request(envelope("commercial.native.begin",{state:"s".repeat(43),code_challenge:"c".repeat(43)})) as {error:{code:string}};
       expect(response.error.code).toBe("NATIVE_COMMERCIAL_DENIED");
-    }finally{await client?.close();auth?.destroy();if(service)await stopService(service);rmSync(dir,{recursive:true,force:true});}
+    }finally{
+      await client?.close().catch(() => undefined);
+      auth?.destroy();
+      if(service)await stopService(service);
+      await removeTempDirectory(dir);
+    }
   },90_000);
   it.each(["file","https"] as const)("boots and restarts the real main with installer-provisioned deployment SAS under DPAPI %s",async mode=>{
     const dir=mkdtempSync(join(process.env.TEMP??process.cwd(),"camacho-sas-main-"));
@@ -244,7 +275,11 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
         await stopService(service);service=undefined;
       }
       if(mode==="https")expect(requests).toBeGreaterThanOrEqual(3);
-    }finally{if(service)await stopService(service);if(server){server.closeAllConnections();await new Promise<void>(resolve=>server!.close(()=>resolve()));}rmSync(dir,{recursive:true,force:true});}
+    }finally{
+      if(service)await stopService(service);
+      if(server){server.closeAllConnections();await new Promise<void>(resolve=>server!.close(()=>resolve()));}
+      await removeTempDirectory(dir);
+    }
   },120_000);
   it("boots the real service, activates through the real named pipe, recovers after restart and honors trust revocation", async () => {
     const root = generateKeyPairSync("ed25519");
@@ -371,7 +406,7 @@ describe.skipIf(process.platform !== "win32")("G1.2 main runtime bootstrap", () 
       if (service !== undefined) {
         await stopService(service);
       }
-      rmSync(dataDirectory, { recursive: true, force: true });
+      await removeTempDirectory(dataDirectory);
     }
   }, 90_000);
 });
