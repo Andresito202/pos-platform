@@ -11,7 +11,8 @@
 | Tip funcional Bloque 7 | `ab8795949e71165a12498c8ea991383ed39ab0b1` |
 | Tip docs previo (CI fail vulnerab.) | `b5c1247c2c8c1ad312e861a553eafeb83b566abe` |
 | Tip remediación supply-chain | `c5a1f0699391effe0974dfebecdada2f599174c3` |
-| Tip docs / claim CI | `0f7f59717755281b833bd1ebdafa7995c17baa8f` |
+| Tip fallido TARGET #1473 | `9c9cf45b28ff7cfb7987f13d3f6f5c0415981be6` |
+| Tip fix channel fixture / claim CI | `a6df1f6e948bcc62a0444625b367261572daabe2` |
 
 ## Defectos corregidos
 
@@ -45,9 +46,9 @@
 
 **PASS:** contracts 344; desktop 341; StatusPanel 6; central-sync+sync-store 12; bloque4+bloque5 18; architecture; typecheck desktop+local-service; desktop build; `ci:vulnerability-audit`; `ci:license-gate` (+ inventory/SBOM con `REVIEWED_SHA`); `ci:license-tests` 13; `ci:supply-chain-tests` / vulnerability policy tests.
 
-**FAIL (remotos, remediados en tip siguiente; no PASS exact-head aún):**
+**FAIL (remotos, remediados; no PASS exact-head hasta CI tip):**
 - tip `b5c1247c` — vulnerability audit (electron-builder 26.0.12)
-- tip `9c9cf45b` — `channel.test.ts` fixture incompleta (outbox counts)
+- tip `9c9cf45b` — TARGET #1473 (`channel.test.ts` L237/L370/L125); RCA `docs/testing/target-1473-channel-outbox-fixture-20261117.md`
 
 **SKIP:** NSIS final sin wine; install/uninstall/upgrade físico; Authenticode; FACTUS; capturas homes rol Windows; VPS/Android/hardware.
 
