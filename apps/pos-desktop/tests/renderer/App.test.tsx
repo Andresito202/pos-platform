@@ -562,16 +562,25 @@ describe("Role-ordered navigation keeps permissions authoritative", () => {
       result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ"] },
     });
     render(<App />);
-    await screen.findByTestId("sale-panel");
-    const navigation = screen.getByRole("complementary", { name: "Navegación principal" });
-    fireEvent.click(within(navigation).getByRole("button", { name: "Catálogo" }));
+    // Wait for the role home to settle before navigating. findByTestId alone can
+    // resolve on the first paint while App's settled-identity effect still has
+    // setActiveScreen(null) queued — fireEvent then loses the click under CI load
+    // (Caja stays aria-current=page; same race as SUPERVISOR → transfer-review).
+    const navigation = await screen.findByRole("complementary", { name: "Navegación principal" });
     await waitFor(() => {
+      expect(within(navigation).getByRole("button", { name: "Caja y ventas" }).getAttribute("aria-current")).toBe("page");
+      expect(screen.getByTestId("sale-panel")).toBeTruthy();
+    });
+    within(navigation).getByRole("button", { name: "Catálogo" }).click();
+    await waitFor(() => {
+      expect(within(navigation).getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");
       expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBeTruthy();
       expect(screen.getByTestId("catalog-panel")).toBeTruthy();
     });
     // Focus revalidation must not bounce the operator back to Caja.
     window.dispatchEvent(new Event("focus"));
     await waitFor(() => {
+      expect(within(navigation).getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");
       expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBeTruthy();
       expect(screen.getByTestId("catalog-panel")).toBeTruthy();
     });
