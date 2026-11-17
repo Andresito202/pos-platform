@@ -82,6 +82,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   const [barcode, setBarcode] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [quantity, setQuantity] = useState("1");
+  const [pharmacyPrescriptionId, setPharmacyPrescriptionId] = useState("");
   const [counted, setCounted] = useState("");
   const [manualTendered, setManualTendered] = useState("");
   const [denominationCounts, setDenominationCounts] = useState<Record<number, number>>({});
@@ -198,7 +199,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                 <button type="button" className="pos-product-tile" key={item.presentation_id} data-testid={`catalog-product-${item.presentation_id}`}
                   onClick={() => {
                     const qty = quantity.trim() === "" ? defaultQuantityInput(item.unit_precision) : quantity.trim();
-                    sale.addCatalogItem(item, qty);
+                    sale.addCatalogItem(item, qty, pharmacyPrescriptionId.trim() || null);
                   }} disabled={sale.busy || sale.unresolved || sale.sale !== null}>
                   <ProductAvatar item={item} />
                   <strong className="pos-product-name-value">{item.name}</strong>
@@ -210,7 +211,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
               ))
             ) : sale.foundItem !== null ? (
               <button type="button" className="pos-product-tile" data-testid="found-product-tile"
-                onClick={() => { sale.addFoundItem(quantity.trim()); }}
+                onClick={() => { sale.addFoundItem(quantity.trim(), pharmacyPrescriptionId.trim() || null); }}
                 disabled={sale.busy || sale.unresolved || sale.sale !== null || sale.foundItem.price_amount === null}>
                 <ProductAvatar item={sale.foundItem} />
                 <strong className="pos-product-name-value" data-testid="found-item-name">{sale.foundItem.name}</strong>
@@ -246,11 +247,15 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
               <label>Cantidad<input data-testid="quantity-input" aria-label="Cantidad" value={quantity}
                 onChange={(e) => { setQuantity(e.target.value); }} disabled={sale.busy}
                 inputMode={activePrecision === 0 ? "numeric" : "decimal"} /></label>
+              <label>Fórmula (farmacia)<input data-testid="pharmacy-prescription-input" aria-label="ID de fórmula farmacéutica"
+                value={pharmacyPrescriptionId}
+                onChange={(e) => { setPharmacyPrescriptionId(e.target.value); }}
+                disabled={sale.busy} placeholder="Opcional — UUID de fórmula" /></label>
               {sale.foundItem !== null ? (
-                <button data-testid="add-item-button" onClick={() => { sale.addFoundItem(quantity.trim()); }}
+                <button data-testid="add-item-button" onClick={() => { sale.addFoundItem(quantity.trim(), pharmacyPrescriptionId.trim() || null); }}
                   disabled={sale.busy || sale.unresolved || sale.sale !== null || sale.foundItem.price_amount === null}>Agregar al carrito</button>
               ) : (
-                <span className="pos-product-capture-hint">La cantidad se aplica a la tarjeta que toques.</span>
+                <span className="pos-product-capture-hint">La cantidad se aplica a la tarjeta que toques. La fórmula viaja con la línea.</span>
               )}
             </div>
           </div>

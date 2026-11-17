@@ -25,8 +25,8 @@ export function InventoryTransformPanel({ businessDate }: {
 
   return (
     <section data-testid="inventory-transform-panel">
-      <h3>Despiece / transformación</h3>
-      <p>Una sola transacción. Si falla una salida, se revierte el consumo. La merma documenta masa ya consumida; no descuenta de nuevo. Sin masa medida solo se admite conservación exacta de la misma unidad.</p>
+      <h3>Salsamentaria — despiece / transformación</h3>
+      <p>Base avícola/salsamentaria sobre inventario compartido. Una sola transacción. Si falla una salida, se revierte el consumo. La merma documenta masa ya consumida; no descuenta de nuevo. Sin masa medida solo se admite conservación exacta de la misma unidad. La balanza física permanece fuera de este bloque.</p>
       <div className="pos-form-grid">
         <label className="pos-field">Motivo
           <input data-testid="transform-reason" aria-label="Motivo de transformación"

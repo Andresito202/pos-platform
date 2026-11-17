@@ -32,7 +32,9 @@ type CommercialRequest = Extract<
       | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
       | "fiscal.document.issue" | "fiscal.numbering.sync"
       | "catalog.product.register" | "catalog.presentation.register" | "catalog.food_policy.upsert" | "pharmacy.establishment.upsert" | "pharmacy.profile.upsert" | "pharmacy.prescription.register" | "pharmacy.technical_receipt.register" | "pharmacy.sanitary_alert.register"
-      | "bakery.recipe.draft.create" | "bakery.recipe.approve" | "bakery.production.deviation.authorize" | "bakery.production.confirm" | "bakery.production.trace.get"
+      | "bakery.recipe.draft.create" | "bakery.recipe.approve"
+      | "bakery.production.order.create" | "bakery.production.order.plan" | "bakery.production.release"
+      | "bakery.production.deviation.authorize" | "bakery.production.confirm" | "bakery.production.trace.get"
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.batch.list" | "inventory.batch.status" | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
@@ -289,6 +291,9 @@ export class CommercialRequestHandler {
       case "pharmacy.sanitary_alert.register": return this.registerPharmacySanitaryAlert(request, connectionId);
       case "bakery.recipe.draft.create": return this.createBakeryRecipeDraft(request, connectionId);
       case "bakery.recipe.approve": return this.approveBakeryRecipe(request, connectionId);
+      case "bakery.production.order.create": return this.createBakeryProductionOrder(request, connectionId);
+      case "bakery.production.order.plan": return this.planBakeryProductionOrder(request, connectionId);
+      case "bakery.production.release": return this.releaseBakeryFinishedLot(request, connectionId);
       case "bakery.production.deviation.authorize":
         return this.authorizeBakeryProductionDeviation(request, connectionId);
       case "bakery.production.confirm": return this.confirmBakeryProduction(request, connectionId);
@@ -2269,6 +2274,95 @@ export class CommercialRequestHandler {
       version: "version" in result ? result.version : null,
     };
     return result.kind === "APPROVED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private createBakeryProductionOrder(
+    request: Extract<CommercialRequest, { message_type: "bakery.production.order.create" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", order_id: null, recipe_version: null,
+      });
+    }
+    const result = this.commercial.createBakeryProductionOrder.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        recipeId: request.payload.recipe_id,
+        plannedQuantity: request.payload.planned_quantity,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      order_id: "orderId" in result ? result.orderId : null,
+      recipe_version: "recipeVersion" in result ? result.recipeVersion : null,
+    };
+    return result.kind === "CREATED" || result.kind === "IDEMPOTENT"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private planBakeryProductionOrder(
+    request: Extract<CommercialRequest, { message_type: "bakery.production.order.plan" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", order_id: null, shortages: null,
+      });
+    }
+    const result = this.commercial.planBakeryProductionOrder.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        orderId: request.payload.order_id,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      order_id: "orderId" in result ? result.orderId : null,
+      shortages: "shortages" in result
+        ? result.shortages.map((line) => ({
+          presentation_id: line.presentationId,
+          required: line.required,
+          available: line.available,
+        }))
+        : null,
+    };
+    return result.kind === "PLANNED"
+      ? succeeded(request, result.kind, response)
+      : rejected(request, result.kind, response);
+  }
+
+  private releaseBakeryFinishedLot(
+    request: Extract<CommercialRequest, { message_type: "bakery.production.release" }>,
+    connectionId: string,
+  ): unknown {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, {
+        outcome: "UNAUTHORIZED", lot_id: null,
+      });
+    }
+    const result = this.commercial.releaseBakeryFinishedLot.execute(
+      this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
+        orderId: request.payload.order_id,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    const response = {
+      outcome: result.kind,
+      lot_id: "lotId" in result ? result.lotId : null,
+    };
+    return result.kind === "RELEASED" || result.kind === "IDEMPOTENT"
       ? succeeded(request, result.kind, response)
       : rejected(request, result.kind, response);
   }

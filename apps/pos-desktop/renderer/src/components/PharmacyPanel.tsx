@@ -17,6 +17,19 @@ export function PharmacyPanel({ permissions }: {
   const [commercialName, setCommercialName] = useState("");
   const [category, setCategory] = useState<"OTC" | "PRESCRIPTION" | "CONTROLLED_SPECIAL" | "UNKNOWN">("OTC");
   const [verification, setVerification] = useState<"UNVERIFIED" | "VERIFIED_MANUAL" | "INVALID" | "EXPIRED">("UNVERIFIED");
+  const [prescribedQty, setPrescribedQty] = useState("1.000000");
+  const [issuerId, setIssuerId] = useState("");
+  const [issuerName, setIssuerName] = useState("");
+  const [patientRef, setPatientRef] = useState("");
+  const [presentationId, setPresentationId] = useState("");
+  const [lotId, setLotId] = useState("");
+  const [batchCode, setBatchCode] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
+  const [receiptQty, setReceiptQty] = useState("1.000000");
+  const [inspection, setInspection] = useState<"ACCEPTED" | "QUARANTINE" | "REJECTED">("ACCEPTED");
+  const [alertReference, setAlertReference] = useState("");
+  const [alertNote, setAlertNote] = useState("");
+  const [alertAction, setAlertAction] = useState<"QUARANTINE" | "RECALL">("QUARANTINE");
 
   return (
     <section data-testid="pharmacy-panel">
@@ -107,18 +120,155 @@ export function PharmacyPanel({ permissions }: {
         {pharmacy.profileOutcome !== null && (
           <div data-testid="pharmacy-profile-outcome">{pharmacy.profileOutcome}</div>
         )}
+
+        <h4>Registrar fórmula</h4>
+        <div className="pos-form-grid">
+          <label className="pos-field">Cantidad prescrita
+            <input value={prescribedQty} disabled={pharmacy.busy}
+              onChange={(e) => setPrescribedQty(e.target.value)} />
+          </label>
+          <label className="pos-field">ID profesional
+            <input value={issuerId} disabled={pharmacy.busy}
+              onChange={(e) => setIssuerId(e.target.value)} />
+          </label>
+          <label className="pos-field">Nombre profesional
+            <input value={issuerName} disabled={pharmacy.busy}
+              onChange={(e) => setIssuerName(e.target.value)} />
+          </label>
+          <label className="pos-field">Referencia paciente
+            <input value={patientRef} disabled={pharmacy.busy}
+              onChange={(e) => setPatientRef(e.target.value)} />
+          </label>
+          <button
+            type="button"
+            data-testid="pharmacy-prescription-register-button"
+            disabled={pharmacy.busy || productId.trim() === "" || issuerId.trim() === "" || issuerName.trim() === "" || patientRef.trim() === ""}
+            onClick={() => {
+              const now = new Date();
+              const expires = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+              void pharmacy.registerPrescription({
+                productId: productId.trim(),
+                prescribedQuantity: prescribedQty,
+                prescribedAt: now.toISOString(),
+                expiresAt: expires.toISOString(),
+                issuerProfessionalId: issuerId.trim(),
+                issuerName: issuerName.trim(),
+                patientReference: patientRef.trim(),
+              });
+            }}
+          >Registrar fórmula</button>
+        </div>
+        {pharmacy.prescriptionOutcome !== null && (
+          <div data-testid="pharmacy-prescription-outcome">{pharmacy.prescriptionOutcome}</div>
+        )}
+        {pharmacy.lastPrescriptionId !== null && (
+          <p data-testid="pharmacy-prescription-id">Fórmula: {pharmacy.lastPrescriptionId}</p>
+        )}
       </>}
 
       {canReceive && (
-        <p data-testid="pharmacy-receive-hint">
-          Recepción técnica: use Inventario para entrar lote y registre inspección ACCEPTED/QUARANTINE/REJECTED.
-          Un rechazo no aumenta existencias disponibles.
-        </p>
+        <div>
+          <h4>Recepción técnica</h4>
+          <p data-testid="pharmacy-receive-hint">
+            Entre el lote en Inventario y registre la inspección. REJECTED no aumenta existencias.
+          </p>
+          <div className="pos-form-grid">
+            <label className="pos-field">Presentación
+              <input value={presentationId} disabled={pharmacy.busy}
+                onChange={(e) => setPresentationId(e.target.value)} />
+            </label>
+            <label className="pos-field">Lote (opcional)
+              <input value={lotId} disabled={pharmacy.busy}
+                onChange={(e) => setLotId(e.target.value)} />
+            </label>
+            <label className="pos-field">Código de lote
+              <input value={batchCode} disabled={pharmacy.busy}
+                onChange={(e) => setBatchCode(e.target.value)} />
+            </label>
+            <label className="pos-field">Vencimiento (AAAA-MM-DD)
+              <input value={expiryDate} disabled={pharmacy.busy}
+                onChange={(e) => setExpiryDate(e.target.value)} />
+            </label>
+            <label className="pos-field">Cantidad
+              <input value={receiptQty} disabled={pharmacy.busy}
+                onChange={(e) => setReceiptQty(e.target.value)} />
+            </label>
+            <label className="pos-field">Inspección
+              <select value={inspection} disabled={pharmacy.busy}
+                onChange={(e) => setInspection(e.target.value as typeof inspection)}>
+                <option value="ACCEPTED">Aceptado</option>
+                <option value="QUARANTINE">Cuarentena</option>
+                <option value="REJECTED">Rechazado</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              data-testid="pharmacy-technical-receipt-button"
+              disabled={pharmacy.busy || presentationId.trim() === "" || batchCode.trim() === ""}
+              onClick={() => {
+                void pharmacy.registerTechnicalReceipt({
+                  presentationId: presentationId.trim(),
+                  lotId: lotId.trim() === "" ? null : lotId.trim(),
+                  sanitaryRegistration: null,
+                  batchCode: batchCode.trim(),
+                  expiryDate: expiryDate.trim() === "" ? null : expiryDate.trim(),
+                  quantity: receiptQty,
+                  storageCondition: "AMBIENT",
+                  inspectionResult: inspection,
+                  observations: null,
+                  inventoryMovementId: null,
+                });
+              }}
+            >Registrar recepción técnica</button>
+          </div>
+          {pharmacy.receiptOutcome !== null && (
+            <div data-testid="pharmacy-receipt-outcome">{pharmacy.receiptOutcome}</div>
+          )}
+        </div>
       )}
+
       {canAdjust && (
-        <p data-testid="pharmacy-alert-hint">
-          Alertas sanitarias: carga administrativa respaldada. No se presenta como sincronización oficial INVIMA.
-        </p>
+        <div>
+          <h4>Alerta sanitaria (administrativa)</h4>
+          <p data-testid="pharmacy-alert-hint">
+            Carga administrativa respaldada. No es sincronización oficial INVIMA.
+          </p>
+          <div className="pos-form-grid">
+            <label className="pos-field">Referencia
+              <input value={alertReference} disabled={pharmacy.busy}
+                onChange={(e) => setAlertReference(e.target.value)} />
+            </label>
+            <label className="pos-field">Evidencia
+              <input value={alertNote} disabled={pharmacy.busy}
+                onChange={(e) => setAlertNote(e.target.value)} />
+            </label>
+            <label className="pos-field">Acción
+              <select value={alertAction} disabled={pharmacy.busy}
+                onChange={(e) => setAlertAction(e.target.value as typeof alertAction)}>
+                <option value="QUARANTINE">Cuarentena</option>
+                <option value="RECALL">Retiro</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              data-testid="pharmacy-sanitary-alert-button"
+              disabled={pharmacy.busy || alertReference.trim() === "" || alertNote.trim() === ""}
+              onClick={() => {
+                void pharmacy.registerSanitaryAlert({
+                  sourceKind: "MANUAL_AUTHORIZED",
+                  sourceReference: alertReference.trim(),
+                  productId: productId.trim() === "" ? null : productId.trim(),
+                  lotId: lotId.trim() === "" ? null : lotId.trim(),
+                  actionCode: alertAction,
+                  evidenceNote: alertNote.trim(),
+                });
+              }}
+            >Registrar alerta</button>
+          </div>
+          {pharmacy.alertOutcome !== null && (
+            <div data-testid="pharmacy-alert-outcome">{pharmacy.alertOutcome}</div>
+          )}
+        </div>
       )}
       {pharmacy.error !== null && <div data-testid="pharmacy-error">{pharmacy.error}</div>}
     </section>

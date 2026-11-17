@@ -24,12 +24,20 @@ export function usePharmacyAdmin() {
   const [error, setError] = useState<Outcome>(null);
   const [establishmentOutcome, setEstablishmentOutcome] = useState<Outcome>(null);
   const [profileOutcome, setProfileOutcome] = useState<Outcome>(null);
+  const [prescriptionOutcome, setPrescriptionOutcome] = useState<Outcome>(null);
+  const [lastPrescriptionId, setLastPrescriptionId] = useState<string | null>(null);
+  const [receiptOutcome, setReceiptOutcome] = useState<Outcome>(null);
+  const [alertOutcome, setAlertOutcome] = useState<Outcome>(null);
 
   return {
     busy,
     error,
     establishmentOutcome,
     profileOutcome,
+    prescriptionOutcome,
+    lastPrescriptionId,
+    receiptOutcome,
+    alertOutcome,
     async upsertEstablishment(input: {
       establishmentType: string;
       authorizedOtc: boolean;
@@ -100,6 +108,103 @@ export function usePharmacyAdmin() {
           regulatory_review_at: input.regulatoryReviewAt,
         });
         setProfileOutcome(result.result?.outcome ?? "UNKNOWN");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "PHARMACY_ERROR");
+      } finally {
+        setBusy(false);
+      }
+    },
+    async registerPrescription(input: {
+      productId: string;
+      prescribedQuantity: string;
+      prescribedAt: string;
+      expiresAt: string;
+      issuerProfessionalId: string;
+      issuerName: string;
+      patientReference: string;
+    }) {
+      setBusy(true); setError(null);
+      try {
+        const result = await invoke<{ result?: { outcome?: string; prescription_id?: string | null } }>(
+          "pharmacy.prescription.register",
+          {
+            product_id: input.productId,
+            prescribed_quantity: input.prescribedQuantity,
+            prescribed_at: input.prescribedAt,
+            expires_at: input.expiresAt,
+            issuer_professional_id: input.issuerProfessionalId,
+            issuer_name: input.issuerName,
+            patient_reference: input.patientReference,
+          },
+        );
+        setPrescriptionOutcome(result.result?.outcome ?? "UNKNOWN");
+        if (typeof result.result?.prescription_id === "string") {
+          setLastPrescriptionId(result.result.prescription_id);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "PHARMACY_ERROR");
+      } finally {
+        setBusy(false);
+      }
+    },
+    async registerTechnicalReceipt(input: {
+      presentationId: string;
+      lotId: string | null;
+      sanitaryRegistration: string | null;
+      batchCode: string;
+      expiryDate: string | null;
+      quantity: string;
+      storageCondition: "AMBIENT" | "CHILLED" | "CONTROLLED_ROOM" | "OTHER";
+      inspectionResult: "ACCEPTED" | "QUARANTINE" | "REJECTED";
+      observations: string | null;
+      inventoryMovementId: string | null;
+    }) {
+      setBusy(true); setError(null);
+      try {
+        const result = await invoke<{ result?: { outcome?: string } }>(
+          "pharmacy.technical_receipt.register",
+          {
+            presentation_id: input.presentationId,
+            lot_id: input.lotId,
+            sanitary_registration: input.sanitaryRegistration,
+            batch_code: input.batchCode,
+            expiry_date: input.expiryDate,
+            quantity: input.quantity,
+            storage_condition: input.storageCondition,
+            inspection_result: input.inspectionResult,
+            observations: input.observations,
+            inventory_movement_id: input.inventoryMovementId,
+          },
+        );
+        setReceiptOutcome(result.result?.outcome ?? "UNKNOWN");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "PHARMACY_ERROR");
+      } finally {
+        setBusy(false);
+      }
+    },
+    async registerSanitaryAlert(input: {
+      sourceKind: "MANUAL_AUTHORIZED" | "EXTERNAL_IMPORT";
+      sourceReference: string;
+      productId: string | null;
+      lotId: string | null;
+      actionCode: "QUARANTINE" | "RECALL";
+      evidenceNote: string;
+    }) {
+      setBusy(true); setError(null);
+      try {
+        const result = await invoke<{ result?: { outcome?: string } }>(
+          "pharmacy.sanitary_alert.register",
+          {
+            source_kind: input.sourceKind,
+            source_reference: input.sourceReference,
+            product_id: input.productId,
+            lot_id: input.lotId,
+            action_code: input.actionCode,
+            evidence_note: input.evidenceNote,
+          },
+        );
+        setAlertOutcome(result.result?.outcome ?? "UNKNOWN");
       } catch (err) {
         setError(err instanceof Error ? err.message : "PHARMACY_ERROR");
       } finally {

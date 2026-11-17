@@ -28,6 +28,8 @@ export interface CartLine {
   readonly currencyCode: string;
   readonly quantity: string;
   readonly identifier: string;
+  /** Optional pharmacy prescription binding for restricted dispensation. */
+  readonly pharmacyPrescriptionId?: string | null | undefined;
 }
 
 export interface OpenShift {
@@ -136,9 +138,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   discardWaiting(cart: WaitingCart): Promise<void>;
   openShift(cashRegisterId: string, openingAmount: string): Promise<void>;
   listCatalogItems(query?: string, offset?: number): Promise<void>;
-  addCatalogItem(item: CatalogItemListItem, quantity: string): void;
+  addCatalogItem(item: CatalogItemListItem, quantity: string, pharmacyPrescriptionId?: string | null): void;
   findItem(barcode: string): Promise<void>;
-  addFoundItem(quantity: string): void;
+  addFoundItem(quantity: string, pharmacyPrescriptionId?: string | null): void;
   removeLine(index: number): void;
   createSale(): Promise<void>;
   chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
@@ -327,7 +329,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     if (canReadCatalog) void listCatalogItems();
   }, [canReadCatalog, listCatalogItems]);
 
-  const addCatalogItem = useCallback((item: CatalogItemListItem, quantity: string): void => {
+  const addCatalogItem = useCallback((item: CatalogItemListItem, quantity: string, pharmacyPrescriptionId?: string | null): void => {
     if (busyRef.current || sale !== null || pendingMutation.current !== null) return;
     const canonical = toScale6(quantity);
     if (canonical === null || canonical === "0.000000") {
@@ -343,6 +345,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
       currencyCode: item.currency_code,
       quantity: canonical,
       identifier: item.code,
+      ...(pharmacyPrescriptionId
+        ? { pharmacyPrescriptionId }
+        : {}),
     }]);
   }, [sale]);
 
@@ -360,7 +365,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     );
   }, [run, callMutation]);
 
-  const addFoundItem = useCallback((quantity: string): void => {
+  const addFoundItem = useCallback((quantity: string, pharmacyPrescriptionId?: string | null): void => {
     if (busyRef.current || pendingMutation.current !== null) return;
     const canonical = toScale6(quantity);
     if (canonical === null || canonical === "0.000000") {
@@ -373,6 +378,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
       productId: item.product_id!, presentationId: item.presentation_id!, name: item.name ?? "",
       presentationName: item.presentation_name ?? "", priceAmount: item.price_amount!, currencyCode: item.currency_code!, quantity: canonical,
       identifier: item.barcode!,
+      ...(pharmacyPrescriptionId
+        ? { pharmacyPrescriptionId }
+        : {}),
     }]);
     setFoundItem(null);
   }, [foundItem, sale]);
@@ -399,6 +407,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
           presentation_id: line.presentationId,
           quantity: line.quantity,
           identifier: line.identifier,
+          ...(line.pharmacyPrescriptionId
+            ? { pharmacy_prescription_id: line.pharmacyPrescriptionId }
+            : {}),
         })),
         ...operationTime(new Date()),
       }),
@@ -732,7 +743,20 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
         if(!found.active_shift) {setError("Abre la misma caja del carrito antes de recuperarlo.");return;}
         setShift({shiftId:found.active_shift.shift_id,version:found.active_shift.version,cashRegisterId:found.payload.cash_register_id});
       }
-      setLines([...found.payload.lines]);setActiveWaiting(found);setWaitingLabel(found.payload.label);setCustomerId(found.payload.customer_id ?? null);setError(null);
+      setLines(found.payload.lines.map((line) => ({
+        productId: line.productId,
+        presentationId: line.presentationId,
+        name: line.name,
+        presentationName: line.presentationName,
+        priceAmount: line.priceAmount,
+        currencyCode: line.currencyCode,
+        quantity: line.quantity,
+        identifier: line.identifier,
+        ...(line.pharmacyPrescriptionId
+          ? { pharmacyPrescriptionId: line.pharmacyPrescriptionId }
+          : {}),
+      })));
+      setActiveWaiting(found);setWaitingLabel(found.payload.label);setCustomerId(found.payload.customer_id ?? null);setError(null);
     });
   },[sale,lines,shift,run]);
 

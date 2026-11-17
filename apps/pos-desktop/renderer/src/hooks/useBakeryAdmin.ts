@@ -19,16 +19,30 @@ async function invoke<T>(messageType: string, payload: Record<string, unknown>):
   });
 }
 
+export type BakeryRecipeDeviationInput = {
+  kind: "OMISSION" | "SUBSTITUTION" | "QUANTITY_VARIANCE";
+  recipePresentationId: string | null;
+  ingredientPresentationId: string | null;
+  reason: string;
+  approvalId: string;
+};
+
 export function useBakeryAdmin() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Outcome>(null);
   const [lastOutcome, setLastOutcome] = useState<Outcome>(null);
+  const [lastRecipeId, setLastRecipeId] = useState<string | null>(null);
+  const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  const [lastApprovalIds, setLastApprovalIds] = useState<ReadonlyArray<string>>([]);
   const [traceJson, setTraceJson] = useState<string | null>(null);
 
   return {
     busy,
     error,
     lastOutcome,
+    lastRecipeId,
+    lastOrderId,
+    lastApprovalIds,
     traceJson,
     async createRecipeDraft(input: {
       name: string;
@@ -48,7 +62,7 @@ export function useBakeryAdmin() {
     }) {
       setBusy(true); setError(null);
       try {
-        const result = await invoke<{ result?: { outcome?: string; recipe_id?: string } }>(
+        const result = await invoke<{ result?: { outcome?: string; recipe_id?: string | null } }>(
           "bakery.recipe.draft.create",
           {
             recipe_family_id: null,
@@ -70,6 +84,7 @@ export function useBakeryAdmin() {
           },
         );
         setLastOutcome(result.result?.outcome ?? "UNKNOWN");
+        if (typeof result.result?.recipe_id === "string") setLastRecipeId(result.result.recipe_id);
       } catch (err) {
         setError(err instanceof Error ? err.message : "BAKERY_ERROR");
       } finally {
@@ -84,6 +99,74 @@ export function useBakeryAdmin() {
           expected_version: input.expectedVersion,
         });
         setLastOutcome(result.result?.outcome ?? "UNKNOWN");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "BAKERY_ERROR");
+      } finally {
+        setBusy(false);
+      }
+    },
+    async createProductionOrder(input: { recipeId: string; plannedQuantity: string }) {
+      setBusy(true); setError(null);
+      try {
+        const result = await invoke<{ result?: { outcome?: string; order_id?: string | null } }>(
+          "bakery.production.order.create",
+          {
+            recipe_id: input.recipeId,
+            planned_quantity: input.plannedQuantity,
+          },
+        );
+        setLastOutcome(result.result?.outcome ?? "UNKNOWN");
+        if (typeof result.result?.order_id === "string") setLastOrderId(result.result.order_id);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "BAKERY_ERROR");
+      } finally {
+        setBusy(false);
+      }
+    },
+    async planProductionOrder(orderId: string) {
+      setBusy(true); setError(null);
+      try {
+        const result = await invoke<{ result?: { outcome?: string; order_id?: string | null } }>(
+          "bakery.production.order.plan",
+          { order_id: orderId },
+        );
+        setLastOutcome(result.result?.outcome ?? "UNKNOWN");
+        if (typeof result.result?.order_id === "string") setLastOrderId(result.result.order_id);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "BAKERY_ERROR");
+      } finally {
+        setBusy(false);
+      }
+    },
+    async authorizeDeviation(input: {
+      orderId: string;
+      deviations: ReadonlyArray<{
+        kind: "OMISSION" | "SUBSTITUTION" | "QUANTITY_VARIANCE";
+        recipePresentationId: string | null;
+        ingredientPresentationId: string | null;
+        approvedQuantity: string;
+        equivalenceBasis: string | null;
+        reason: string;
+      }>;
+    }) {
+      setBusy(true); setError(null);
+      try {
+        const result = await invoke<{ result?: { outcome?: string; approval_ids?: string[] | null } }>(
+          "bakery.production.deviation.authorize",
+          {
+            order_id: input.orderId,
+            deviations: input.deviations.map((line) => ({
+              kind: line.kind,
+              recipe_presentation_id: line.recipePresentationId,
+              ingredient_presentation_id: line.ingredientPresentationId,
+              approved_quantity: line.approvedQuantity,
+              equivalence_basis: line.equivalenceBasis,
+              reason: line.reason,
+            })),
+          },
+        );
+        setLastOutcome(result.result?.outcome ?? "UNKNOWN");
+        setLastApprovalIds(result.result?.approval_ids ?? []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "BAKERY_ERROR");
       } finally {
@@ -105,13 +188,7 @@ export function useBakeryAdmin() {
         actualQuantity: string;
         massQuantity: string | null;
       }>;
-      recipeDeviations?: ReadonlyArray<{
-        kind: "OMISSION" | "SUBSTITUTION" | "QUANTITY_VARIANCE";
-        recipePresentationId: string | null;
-        ingredientPresentationId: string | null;
-        reason: string;
-        approvalId: string;
-      }>;
+      recipeDeviations: ReadonlyArray<BakeryRecipeDeviationInput>;
       directCosts: ReadonlyArray<{ costKind: string; amount: string; sourceNote: string }>;
       shrinkageAttributions: ReadonlyArray<{
         presentationId: string; lotId: string; quantity: string; massQuantity: string | null;
@@ -134,7 +211,7 @@ export function useBakeryAdmin() {
             actual_quantity: line.actualQuantity,
             mass_quantity: line.massQuantity,
           })),
-          recipe_deviations: (input.recipeDeviations ?? []).map((line) => ({
+          recipe_deviations: input.recipeDeviations.map((line) => ({
             kind: line.kind,
             recipe_presentation_id: line.recipePresentationId,
             ingredient_presentation_id: line.ingredientPresentationId,
@@ -153,6 +230,20 @@ export function useBakeryAdmin() {
             mass_quantity: line.massQuantity,
           })),
         });
+        setLastOutcome(result.result?.outcome ?? "UNKNOWN");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "BAKERY_ERROR");
+      } finally {
+        setBusy(false);
+      }
+    },
+    async releaseFinishedLot(orderId: string) {
+      setBusy(true); setError(null);
+      try {
+        const result = await invoke<{ result?: { outcome?: string; lot_id?: string | null } }>(
+          "bakery.production.release",
+          { order_id: orderId },
+        );
         setLastOutcome(result.result?.outcome ?? "UNKNOWN");
       } catch (err) {
         setError(err instanceof Error ? err.message : "BAKERY_ERROR");
