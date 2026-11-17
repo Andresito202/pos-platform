@@ -78,7 +78,7 @@ export function App(): React.JSX.Element {
   const screens = useMemo<Screen[]>(() => {
     if (authorization.phase !== "ready" || !localSession.ready) return [];
 
-    const { permissions } = authorization;
+    const { permissions, entitlements } = authorization;
     const result: Screen[] = [];
 
     if (permissions.has(CanonicalPermission.SALES_SALE_CREATE)) {
@@ -86,7 +86,7 @@ export function App(): React.JSX.Element {
         id: "sales",
         label: "Caja y ventas",
         section: "Operación",
-        render: () => <SalePanel permissions={permissions}
+        render: () => <SalePanel permissions={permissions} entitlements={entitlements}
           onReceipt={permissions.has(CanonicalPermission.SALES_RECEIPT_READ) ? (id) => { setReceiptTarget(id); navigateTo("receipts", "sales"); } : undefined}
           onInvoice={permissions.has(CanonicalPermission.FISCAL_DOCUMENT_ISSUE) ? (id) => { setFiscalTarget(id); navigateTo("fiscal", "sales"); } : undefined} />,
       });
@@ -113,7 +113,7 @@ export function App(): React.JSX.Element {
         id: "catalog",
         label: "Catálogo",
         section: "Catálogo e inventario",
-        render: () => <CatalogPanel permissions={permissions}
+        render: () => <CatalogPanel permissions={permissions} entitlements={entitlements}
           onReceiveStock={permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) ? (id) => { setInventoryTarget(id); navigateTo("inventory", "catalog"); } : undefined} />,
       });
     }
@@ -127,7 +127,7 @@ export function App(): React.JSX.Element {
         id: "inventory",
         label: "Inventario",
         section: "Catálogo e inventario",
-        render: () => <InventoryPanel permissions={permissions} initialPresentationId={inventoryTarget} />,
+        render: () => <InventoryPanel permissions={permissions} entitlements={entitlements} initialPresentationId={inventoryTarget} />,
       });
     }
 

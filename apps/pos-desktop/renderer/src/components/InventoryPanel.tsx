@@ -2,7 +2,7 @@ import { InventoryBatchPanel } from "./InventoryBatchPanel.js";
 import { InventoryTransformPanel } from "./InventoryTransformPanel.js";
 import { InventoryConversionPanel } from "./InventoryConversionPanel.js";
 import { InventoryCsvImport } from "./InventoryCsvImport.js";
-import { CanonicalPermission } from "@pos-platform/contracts";
+import { CanonicalPermission, LicenseSectorEntitlement } from "@pos-platform/contracts";
 import { useEffect, useState } from "react";
 import {
   useInventoryAdmin,
@@ -45,7 +45,11 @@ function today(): string {
  * permitiría registrar una merma eligiendo «compra», y el libro de movimientos
  * dejaría de servir para auditar.
  */
-export function InventoryPanel({ permissions, initialPresentationId = null }: { permissions: ReadonlySet<string>; initialPresentationId?: string | null }): React.JSX.Element {
+export function InventoryPanel({ permissions, entitlements = new Set(), initialPresentationId = null }: {
+  permissions: ReadonlySet<string>;
+  entitlements?: ReadonlySet<string>;
+  initialPresentationId?: string | null;
+}): React.JSX.Element {
   const inventory = useInventoryAdmin();
   const [presentationId, setPresentationId] = useState("");
   const [batchPending,setBatchPending]=useState(false);
@@ -231,7 +235,8 @@ export function InventoryPanel({ permissions, initialPresentationId = null }: { 
         <InventoryConversionPanel key={target} sourcePresentationId={target} businessDate={businessDate.trim()}
           canApprove={permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)} />}
 
-      {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) &&
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)
+        && entitlements.has(LicenseSectorEntitlement.SALSAMENTARIA) &&
         <InventoryTransformPanel businessDate={businessDate.trim() || "2026-09-07"} />}
 
       <h3>Consulta</h3>

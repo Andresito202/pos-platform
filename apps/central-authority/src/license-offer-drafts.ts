@@ -1,5 +1,5 @@
 import {createHash} from "node:crypto";
-import {LicenseOfferDraftSchema,previewLicenseOffer,CanonicalPermission,uuidV7,UuidSchema,canonicalSessionTrustJson,type LicenseOfferDraft} from "@pos-platform/contracts";
+import {LicenseOfferDraftSchema,previewLicenseOffer,CanonicalPermission,uuidV7,UuidSchema,canonicalSessionTrustJson,normalizePlanEntitlementCodes,type LicenseOfferDraft} from "@pos-platform/contracts";
 import {PostgresPlatformAdministrationSessionRepository,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {licenseOfferFromRow} from "./license-offer-reader.js";
 
@@ -127,6 +127,37 @@ export class LicenseOfferDrafts{
   private offer(row:Record<string,unknown>):LicenseOfferDraft{
     return licenseOfferFromRow(row);
   }
+  /**
+   * GLOBAL assigns independent sector modules on a DRAFT plan before publish.
+   * Replaces plan_entitlements for that plan id; always keeps CASH_REGISTER.
+   * Does not invent a second licensing system — quotes/licenses still snapshot
+   * these rows into license_entitlements → signed capacity entitlements.
+   */
+  setEntitlements(sessionId:string,planId:string,expectedVersion:number,entitlements:unknown,correlationId:string){
+    UuidSchema.parse(planId);UuidSchema.parse(correlationId);
+    if(!Number.isSafeInteger(expectedVersion)||expectedVersion<1)throw Error("LICENSE_PLAN_EXPECTED_VERSION_REQUIRED");
+    if(!Array.isArray(entitlements)||entitlements.length>32||!entitlements.every(v=>typeof v==="string"))
+      throw Error("LICENSE_ENTITLEMENTS_REQUIRED");
+    const codes=normalizePlanEntitlementCodes(entitlements as string[]);
+    return this.transaction(sessionId,async(c,userId)=>{
+      const row=(await c.query(
+        "SELECT * FROM licensing.plans WHERE id=$1 AND offer_profile IN ('CAMACHO_LICENSE_OFFER_V1','CAMACHO_LICENSE_OFFER_V2')",[planId],
+      )).rows[0];
+      if(!row||row.status!=="DRAFT"||Number(row.version)!==expectedVersion)throw Error("LICENSE_OFFER_VERSION_CONFLICT");
+      await c.query("DELETE FROM licensing.plan_entitlements WHERE plan_id=$1",[planId]);
+      for(const code of codes){
+        await c.query(`INSERT INTO licensing.plan_entitlements(id,plan_id,capability_code,enabled,limit_type,limit_value,created_at)
+          VALUES($1,$2,$3,true,'NOT_APPLICABLE',NULL,clock_timestamp())`,[uuidV7(),planId,code]);
+      }
+      const payload=canonicalSessionTrustJson({planId,version:expectedVersion,entitlements:codes});
+      await c.query(`INSERT INTO audit.audit_events(id,actor_type,actor_id,session_id,action_code,resource_type,resource_reference_kind,resource_id,
+        correlation_id,schema_version,reported_at,server_recorded_at,result,new_value,payload_checksum)
+        VALUES($1,'PLATFORM_ACCOUNT',$2,$3,'LICENSE_OFFER_ENTITLEMENTS_SET','LICENSE_PLAN','INSTANCE',$4,$5,1,clock_timestamp(),clock_timestamp(),'SUCCEEDED',$6::jsonb,$7)`,
+        [uuidV7(),userId,sessionId,planId,correlationId,payload,createHash("sha256").update(payload).digest("hex")]);
+      return {planId,version:expectedVersion,entitlements:codes};
+    });
+  }
+
   /** Owner-approved initial data only; never a fallback for reads or a payment.
    * Each missing code becomes DRAFT. Existing prices/versions are untouched. */
   async initializePreproduction(sessionId:string){

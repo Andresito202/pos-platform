@@ -1,4 +1,4 @@
-import { CanonicalPermission } from "@pos-platform/contracts";
+import { CanonicalPermission, LicenseSectorEntitlement } from "@pos-platform/contracts";
 import { useEffect, useRef, useState } from "react";
 import { readDesignReviewRegisterId } from "../desktop-hints.js";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
@@ -50,11 +50,13 @@ const cashDenominations = [
   { value: 1000, kind: "monedas", label: "Moneda de $1.000" },
 ] as const;
 
-export function SalePanel({ permissions, onReceipt, onInvoice }: {
+export function SalePanel({ permissions, entitlements = new Set(), onReceipt, onInvoice }: {
   permissions: ReadonlySet<string>;
+  entitlements?: ReadonlySet<string>;
   onReceipt?: ((saleId: string) => void) | undefined;
   onInvoice?: ((saleId: string) => void) | undefined;
 }): React.JSX.Element {
+  const pharmacyLicensed = entitlements.has(LicenseSectorEntitlement.FARMACIA);
   const sale = useCommercialSale({
     canReadCatalog: permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ),
     canReadPayment: permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ),
@@ -247,15 +249,26 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
               <label>Cantidad<input data-testid="quantity-input" aria-label="Cantidad" value={quantity}
                 onChange={(e) => { setQuantity(e.target.value); }} disabled={sale.busy}
                 inputMode={activePrecision === 0 ? "numeric" : "decimal"} /></label>
-              <label>Fórmula (farmacia)<input data-testid="pharmacy-prescription-input" aria-label="ID de fórmula farmacéutica"
-                value={pharmacyPrescriptionId}
-                onChange={(e) => { setPharmacyPrescriptionId(e.target.value); }}
-                disabled={sale.busy} placeholder="Opcional — UUID de fórmula" /></label>
+              {pharmacyLicensed && (
+                <label>Fórmula (farmacia)<input data-testid="pharmacy-prescription-input" aria-label="ID de fórmula farmacéutica"
+                  value={pharmacyPrescriptionId}
+                  onChange={(e) => { setPharmacyPrescriptionId(e.target.value); }}
+                  disabled={sale.busy} placeholder="Opcional — UUID de fórmula" /></label>
+              )}
               {sale.foundItem !== null ? (
-                <button data-testid="add-item-button" onClick={() => { sale.addFoundItem(quantity.trim(), pharmacyPrescriptionId.trim() || null); }}
+                <button data-testid="add-item-button" onClick={() => {
+                  sale.addFoundItem(
+                    quantity.trim(),
+                    pharmacyLicensed ? (pharmacyPrescriptionId.trim() || null) : null,
+                  );
+                }}
                   disabled={sale.busy || sale.unresolved || sale.sale !== null || sale.foundItem.price_amount === null}>Agregar al carrito</button>
               ) : (
-                <span className="pos-product-capture-hint">La cantidad se aplica a la tarjeta que toques. La fórmula viaja con la línea.</span>
+                <span className="pos-product-capture-hint">
+                  {pharmacyLicensed
+                    ? "La cantidad se aplica a la tarjeta que toques. La fórmula viaja con la línea."
+                    : "La cantidad se aplica a la tarjeta que toques."}
+                </span>
               )}
             </div>
           </div>

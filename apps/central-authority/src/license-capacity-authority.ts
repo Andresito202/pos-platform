@@ -1,6 +1,6 @@
 import {createHash,createPublicKey,sign,type KeyObject} from "node:crypto";
 import {LicenseAllocationRequestSchema,LicenseActivationPolicySchema,LicenseCapacityClaimsSchema,canonicalSessionTrustJson,uuidV7,UuidSchema,
-  LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseActivationPageRequestSchema,LicenseActivationPageSchema,SignedLicenseCapacityRevocationSchema,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
+  LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseActivationPageRequestSchema,LicenseActivationPageSchema,SignedLicenseCapacityRevocationSchema,isLicenseSectorEntitlement,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
 import {PostgresDeviceProofReplayVerifier,type DeviceProofRequest,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {requireLicenseAdministrator} from "./license-administration.js";
 
@@ -129,8 +129,11 @@ export class LicenseCapacityAuthority{
         a.device_id!==binding.deviceId||a.installation_id!==binding.installationId||!checksum(a.request_payload).equals(a.request_checksum)||
         canonicalSessionTrustJson(a.request_payload.policy)!==canonicalSessionTrustJson(this.policy))throw Error("LICENSE_ACTIVATION_BINDING_OR_POLICY_REJECTED");
       if(a.activation_status==='ACTIVE')return {artifact:{claims:a.canonical_payload,signature:a.signature.toString("base64url")} as SignedLicenseCapacity,key,idempotent:true};
-      const entitlements=(await c.query("SELECT capability_code FROM licensing.license_entitlements WHERE license_id=$1 AND enabled=true ORDER BY capability_code FOR SHARE",[a.license_id])).rows
-        .map(e=>String(e.capability_code)).filter(code=>this.policy.offline_capabilities.includes(code));
+      const contracted=(await c.query("SELECT capability_code FROM licensing.license_entitlements WHERE license_id=$1 AND enabled=true ORDER BY capability_code FOR SHARE",[a.license_id])).rows
+        .map(e=>String(e.capability_code));
+      // Sector modules are local-first; project contracted SECTOR_* even when the
+      // activation policy allowlist only names CASH_REGISTER historically.
+      const entitlements=contracted.filter(code=>this.policy.offline_capabilities.includes(code)||isLicenseSectorEntitlement(code));
       if(!entitlements.includes("CASH_REGISTER"))throw Error("LICENSE_CASH_REGISTER_ENTITLEMENT_REQUIRED");
       const now=(await c.query("SELECT clock_timestamp() AS at")).rows[0].at as Date;
       const claims=LicenseCapacityClaimsSchema.parse({profile:"CAMACHO_LICENSE_CAPACITY_V2",license_id:a.license_id,tenant_id:a.tenant_id,company_id:a.company_id,

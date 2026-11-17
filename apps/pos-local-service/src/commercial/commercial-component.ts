@@ -89,7 +89,8 @@ import { ListAuditEventsUseCase } from "../audit/list-audit-events-use-case.js";
 import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js";
 import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 import { HardwareService } from "../hardware/hardware-service.js";
-import type { CashRegisterLicenseGate } from "../security/license-capacity-gate.js";
+import type { CashRegisterLicenseGate, SectorLicenseGate } from "../security/license-capacity-gate.js";
+import type { SyncScope } from "../sync/durable-sync-store.js";
 import { HardwareStore } from "../hardware/hardware-store.js";
 import { loadHardwareRegistry,loadAutomaticDrawerPolicy } from "../hardware/platform-transports.js";
 
@@ -216,8 +217,34 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly factusPaySecretStore: EncryptedFileSecretStore | undefined = undefined,
     private readonly licenseGate?: CashRegisterLicenseGate,
     private readonly publicLicenseCatalog?:()=>Promise<PublicLicenseCatalog>,
+    private readonly sectorLicenseGate?: SectorLicenseGate,
+    private readonly licenseEntitlementsReader?: (scope: SyncScope) => readonly string[],
   ) {
     this.bindings = new SessionBindingRegistry(now);
+  }
+
+  private installationScope(): SyncScope {
+    return {
+      tenantId: this.config.tenant_id,
+      companyId: this.config.company_id,
+      branchId: this.config.branch_id,
+      installationId: this.config.installation_id,
+      deviceId: this.config.device_id,
+    };
+  }
+
+  /**
+   * Fail-closed sector gate when a capacity provision is wired.
+   * Tests without a provision leave the gate undefined and skip the check.
+   */
+  requireSectorEntitlement(entitlement: string): string | null {
+    if (!this.sectorLicenseGate) return null;
+    return this.sectorLicenseGate(this.installationScope(), entitlement);
+  }
+
+  listLicenseEntitlements(): readonly string[] {
+    if (!this.licenseEntitlementsReader) return [];
+    return this.licenseEntitlementsReader(this.installationScope());
   }
 
   private get ready(): NonNullable<CommercialComponent["state"]> {

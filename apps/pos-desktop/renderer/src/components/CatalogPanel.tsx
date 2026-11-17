@@ -1,5 +1,5 @@
 import { formatScale6Display } from "../money-display.js";
-import { CanonicalPermission } from "@pos-platform/contracts";
+import { CanonicalPermission, LicenseSectorEntitlement } from "@pos-platform/contracts";
 import { useRef, useState } from "react";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
 import { catalogCsvTemplate, previewCatalogCsv, matchCatalogCsv, confirmCatalogCsv, type CatalogCsvPlan, type CatalogCsvOutcome } from "../catalog-csv.js";
@@ -14,8 +14,9 @@ import { BakeryPanel } from "./BakeryPanel.js";
  * existencia necesita a continuación. Esconderlo obligaría a buscarlo en la base
  * de datos, que es justo lo que una pantalla existe para evitar.
  */
-export function CatalogPanel({ permissions, onReceiveStock }: {
+export function CatalogPanel({ permissions, entitlements = new Set(), onReceiveStock }: {
   permissions: ReadonlySet<string>;
+  entitlements?: ReadonlySet<string>;
   onReceiveStock?: ((presentationId: string) => void) | undefined;
 }): React.JSX.Element {
   const catalog = useCatalogAdmin();
@@ -359,8 +360,12 @@ export function CatalogPanel({ permissions, onReceiveStock }: {
 
       {catalog.error !== null && <div data-testid="catalog-error">{catalog.error}</div>}
 
-      <PharmacyPanel permissions={permissions} />
-      <BakeryPanel permissions={permissions} />
+      {entitlements.has(LicenseSectorEntitlement.FARMACIA) && (
+        <PharmacyPanel permissions={permissions} />
+      )}
+      {entitlements.has(LicenseSectorEntitlement.PASTELERIA) && (
+        <BakeryPanel permissions={permissions} />
+      )}
     </section>
   );
 }

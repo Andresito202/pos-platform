@@ -275,6 +275,18 @@ try {
       return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path)).authorize(scope, registerId);
     },
     nativeConfiguration?()=>fetchPublicLicenseCatalog(nativeConfiguration.registration.authorizationOrigin,nativeConfiguration.request_timeout_ms):undefined,
+    (scope, entitlement) => {
+      const path = config.license_capacity_provision_file;
+      if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
+      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path))
+        .authorizeEntitlement(scope, entitlement);
+    },
+    (scope) => {
+      const path = config.license_capacity_provision_file;
+      if (!path) return [];
+      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path))
+        .listEntitlements(scope);
+    },
   );
   const nativeCommercial=commercialProvision===undefined?undefined:new WindowsCommercialRuntime(
     nativeConfiguration!,{database:localDatabase,security,commercial,

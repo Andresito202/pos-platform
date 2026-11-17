@@ -3,18 +3,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { callCommercial, observeAccessInvalidation } from "../pos-service.js";
 
 type AuthorizationState =
-  | { phase: "loading"; permissions: ReadonlySet<string> }
-  | { phase: "ready"; permissions: ReadonlySet<string> }
-  | { phase: "unauthenticated"; permissions: ReadonlySet<string> }
-  | { phase: "denied"; permissions: ReadonlySet<string> }
-  | { phase: "expired"; permissions: ReadonlySet<string> }
-  | { phase: "error"; permissions: ReadonlySet<string>; message: string };
+  | { phase: "loading"; permissions: ReadonlySet<string>; entitlements: ReadonlySet<string> }
+  | { phase: "ready"; permissions: ReadonlySet<string>; entitlements: ReadonlySet<string> }
+  | { phase: "unauthenticated"; permissions: ReadonlySet<string>; entitlements: ReadonlySet<string> }
+  | { phase: "denied"; permissions: ReadonlySet<string>; entitlements: ReadonlySet<string> }
+  | { phase: "expired"; permissions: ReadonlySet<string>; entitlements: ReadonlySet<string> }
+  | { phase: "error"; permissions: ReadonlySet<string>; entitlements: ReadonlySet<string>; message: string };
 export type AuthorizationCapabilities = AuthorizationState & { retry: () => void };
+
+const emptyAccess = { permissions: new Set<string>(), entitlements: new Set<string>() };
 
 export function useAuthorizationCapabilities(): AuthorizationCapabilities {
   const [state, setState] = useState<AuthorizationState>({
     phase: "loading",
-    permissions: new Set(),
+    ...emptyAccess,
   });
   const [reload, setReload] = useState(0);
   const generation = useRef(0);
@@ -24,7 +26,7 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
     // (e.g. window focus). Flashing `loading` unmounted the workspace and
     // wiped activeScreen back to the role home — including mid-navigation.
     setState((prev) => (
-      prev.phase === "ready" ? prev : { phase: "loading", permissions: new Set() }
+      prev.phase === "ready" ? prev : { phase: "loading", ...emptyAccess }
     ));
     setReload(value => value + 1);
   }, []);
@@ -32,8 +34,8 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
   useEffect(() => observeAccessInvalidation(reason => {
     generation.current++;
     setState(reason === "SESSION_NOT_BOUND"
-      ? { phase: "unauthenticated", permissions: new Set() }
-      : { phase: "error", permissions: new Set(), message: reason });
+      ? { phase: "unauthenticated", ...emptyAccess }
+      : { phase: "error", ...emptyAccess, message: reason });
   }), []);
 
   useEffect(() => {
@@ -66,17 +68,17 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
           if (!result.success) throw Error("SESSION_RECOVERY_RESPONSE_INVALID");
           if (recovered.status === "REJECTED" && recovered.result_code === "UNVERIFIABLE" &&
               result.data.outcome === "UNVERIFIABLE" && result.data.decision === "EXPIRED") {
-            commit({ phase: "expired", permissions: new Set() });
+            commit({ phase: "expired", ...emptyAccess });
             return;
           }
           if (recovered.status === "SUCCEEDED" && recovered.result_code === "NONE" && result.data.outcome === "NONE" &&
             result.data.session_id === null && result.data.offline_valid_until === null && result.data.decision === null) {
-            commit({ phase: "unauthenticated", permissions: new Set() });
+            commit({ phase: "unauthenticated", ...emptyAccess });
             return;
           }
           if (recovered.status !== "SUCCEEDED" || recovered.result_code !== "ACTIVE" || result.data.outcome !== "ACTIVE" ||
             result.data.session_id === null || result.data.offline_valid_until === null || result.data.decision !== null) {
-            commit({ phase: "error", permissions: new Set(), message: recovered.result_code });
+            commit({ phase: "error", ...emptyAccess, message: recovered.result_code });
             return;
           }
           // ACTIVE is not a permission grant. Read only the backend's effective
@@ -88,7 +90,7 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
         if (response.status !== "SUCCEEDED" || response.result_code !== "AVAILABLE" || !result.success || result.data.outcome !== "AVAILABLE") {
           commit({
             phase: "error",
-            permissions: new Set(),
+            ...emptyAccess,
             message: response.result_code,
           });
           return;
@@ -97,12 +99,13 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
         commit({
           phase: result.data.permissions.length === 0 ? "denied" : "ready",
           permissions: new Set(result.data.permissions),
+          entitlements: new Set(result.data.entitlements),
         });
       } catch (error) {
         if (!cancelled) {
           commit({
             phase: "error",
-            permissions: new Set(),
+            ...emptyAccess,
             message: "LOCAL_SERVICE_UNAVAILABLE",
           });
         }

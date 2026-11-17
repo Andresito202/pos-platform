@@ -143,6 +143,12 @@ export const AuthorizationCapabilitiesGetRequestSchema = createRequestEnvelopeSc
 export const AuthorizationCapabilitiesGetResultSchema = z.strictObject({
   outcome: z.enum(["AVAILABLE", "UNAUTHORIZED"]),
   permissions: z.array(PermissionCodeSchema).max(512),
+  /**
+   * Effective license entitlements for this installation (signed capacity).
+   * Navigation may hide sector modules; handlers still re-authorize.
+   * Default keeps older fixtures parseable; producers always emit the field.
+   */
+  entitlements: z.array(StableCodeSchema).max(256).default([]),
 });
 
 export const AuthorizationCapabilitiesGetResponseSchema =

@@ -47,6 +47,8 @@ export function parseLicenseCapacityKeys(input:unknown){
 }
 
 export type CashRegisterLicenseGate = (scope: SyncScope, registerId: string) => string | null;
+/** Sector/module entitlement check against the same signed capacity artifact. */
+export type SectorLicenseGate = (scope: SyncScope, entitlement: string) => string | null;
 export interface OperationalLicenseInformation {
   status:"UNVERIFIED"|"CURRENT"|"EXPIRED"|"SUSPENDED"|"REVOKED";
   signedValidUntil:string|null;lastAcceptedLocalCheck:string|null;evaluatedAt:string|null;
@@ -114,6 +116,86 @@ export class LicenseCapacityGate {
       }).immediate();
     } catch {
       return "LICENSE_CAPACITY_UNAVAILABLE";
+    }
+  }
+
+  /**
+   * Authorize a contracted sector/module entitlement for this company scope.
+   * Same signed artifact and activation rules as cash register; no local
+   * entitlement editing — missing codes fail closed.
+   */
+  authorizeEntitlement(scope: SyncScope, entitlement: string): string | null {
+    try {
+      const { artifact, keys } = this.load();
+      const verifier = new LicenseVerifier(keys, new TrustedClockGuard(this.database), this.now);
+      const result = verifier.verifyCapacity(artifact, scope, true);
+      const c = result.claims;
+      if (result.decision !== "VALID" || !c) return `LICENSE_${result.decision}`;
+      if (c.tenant_id !== scope.tenantId || c.company_id !== scope.companyId) return "LICENSE_SCOPE_MISMATCH";
+      if (this.database.native.prepare(
+        "SELECT 1 FROM local_security_audit WHERE event_type='LICENSE_CAPACITY_REVOCATION_ACCEPTED' AND subject_id=? LIMIT 1",
+      ).get(c.license_id)) return "LICENSE_REVOKED";
+      const digest = createHash("sha256").update(canonicalJson(c)).digest("hex");
+      const lifecycle = new LocalSecurityLifecycle(this.database, this.now);
+      return this.database.native.transaction(() => {
+        const row = this.database.native.prepare(`SELECT details_json FROM local_security_audit
+          WHERE event_type='LICENSE_CAPACITY_ACCEPTED' AND subject_id=? ORDER BY sequence DESC LIMIT 1`)
+          .get(scope.installationId) as { details_json: string } | undefined;
+        const previous = row
+          ? JSON.parse(row.details_json) as { license_id: string; version: number; digest: string }
+          : undefined;
+        if (previous && (previous.license_id !== c.license_id || previous.version > c.license_version ||
+            (previous.version === c.license_version && previous.digest !== digest))) {
+          return "LICENSE_ROLLBACK_OR_CONFLICT";
+        }
+        const activation = this.database.native.prepare(
+          "SELECT status FROM local_license_activation_state WHERE license_id=?",
+        ).get(c.license_id) as { status: string } | undefined;
+        if (activation && activation.status !== "ACTIVE") return `LICENSE_${activation.status}`;
+        if (!activation) lifecycle.activateLicense(result);
+        const decision = lifecycle.capabilityDecision(entitlement, result);
+        if (decision !== "ALLOW") return `LICENSE_${decision}`;
+        if (!previous || previous.version < c.license_version) {
+          this.database.native.prepare(`INSERT INTO local_security_audit(event_type,subject_id,details_json,created_at)
+            VALUES ('LICENSE_CAPACITY_ACCEPTED',?,?,?)`).run(scope.installationId,
+            JSON.stringify({ license_id: c.license_id, version: c.license_version, digest }),
+            result.evaluatedAt);
+        }
+        return null;
+      }).immediate();
+    } catch {
+      return "LICENSE_CAPACITY_UNAVAILABLE";
+    }
+  }
+
+  /** Read-model projection of signed entitlements for navigation. Never authorizes. */
+  listEntitlements(scope: SyncScope): readonly string[] {
+    try {
+      const { artifact, keys } = this.load();
+      const result = new LicenseVerifier(keys, new TrustedClockGuard(this.database), this.now)
+        .verifyCapacity(artifact, scope, true);
+      const c = result.claims;
+      if (!c || !["VALID", "EXPIRED"].includes(result.decision)) return [];
+      if (c.tenant_id !== scope.tenantId || c.company_id !== scope.companyId) return [];
+      const accepted = this.database.native.prepare(`SELECT details_json FROM local_security_audit
+        WHERE event_type='LICENSE_CAPACITY_ACCEPTED' AND subject_id=? ORDER BY sequence DESC LIMIT 1`)
+        .get(scope.installationId) as { details_json: string } | undefined;
+      if (!accepted) return [];
+      const previous = JSON.parse(accepted.details_json) as { license_id: string; version: number; digest: string };
+      const digest = createHash("sha256").update(canonicalJson(c)).digest("hex");
+      if (previous.license_id !== c.license_id || previous.version !== c.license_version || previous.digest !== digest) {
+        return [];
+      }
+      if (this.database.native.prepare(
+        "SELECT 1 FROM local_security_audit WHERE event_type='LICENSE_CAPACITY_REVOCATION_ACCEPTED' AND subject_id=? LIMIT 1",
+      ).get(c.license_id)) return [];
+      const activation = this.database.native.prepare(
+        "SELECT status FROM local_license_activation_state WHERE license_id=?",
+      ).get(c.license_id) as { status: string } | undefined;
+      if (!activation || activation.status !== "ACTIVE") return [];
+      return c.entitlements;
+    } catch {
+      return [];
     }
   }
 }

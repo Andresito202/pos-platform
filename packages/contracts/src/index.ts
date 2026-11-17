@@ -12,6 +12,7 @@ export * from "./sync.js";
 export * from "./compatibility.js";
 export * from "./local-channel.js";
 export * from "./local-security.js";
+export * from "./license-sector.js";
 export * from "./release.js";
 export * from "./authorization.js";
 export { PermissionCode as CanonicalPermission, CANONICAL_PERMISSION_CODES } from "./permission-codes.js";

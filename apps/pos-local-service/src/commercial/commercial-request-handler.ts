@@ -5,7 +5,14 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
-import { visibleCompanyDestinations, CanonicalPermission, type ContractError, type ErrorCategory, type IpcRequest } from "@pos-platform/contracts";
+import {
+  visibleCompanyDestinations,
+  CanonicalPermission,
+  LicenseSectorEntitlement,
+  type ContractError,
+  type ErrorCategory,
+  type IpcRequest,
+} from "@pos-platform/contracts";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
 import { localOperatorAuthorization, type LocalAuthorizedSession } from "../security/local-operator-development-bridge.js";
@@ -107,6 +114,16 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   CASH_SHIFT_MISSING: "CONFLICT",
   CASH_SHIFT_NOT_OPEN: "CONFLICT",
   LICENSE_BLOCKED: "AUTHORIZATION",
+  LICENSE_ENTITLEMENT_MISSING: "AUTHORIZATION",
+  LICENSE_SCOPE_MISMATCH: "AUTHORIZATION",
+  LICENSE_CAPACITY_NOT_PROVISIONED: "AUTHORIZATION",
+  LICENSE_CAPACITY_UNAVAILABLE: "AUTHORIZATION",
+  LICENSE_INVALID: "AUTHORIZATION",
+  LICENSE_NOT_ACTIVATED: "AUTHORIZATION",
+  LICENSE_SUSPENDED: "AUTHORIZATION",
+  LICENSE_REVOKED: "AUTHORIZATION",
+  LICENSE_EXPIRED: "AUTHORIZATION",
+  LICENSE_ROLLBACK_OR_CONFLICT: "AUTHORIZATION",
   INSUFFICIENT_TENDER: "VALIDATION",
   PAYMENT_NOT_FOUND: "NOT_FOUND",
   PAYMENT_NOT_CONFIRMABLE: "CONFLICT",
@@ -200,6 +217,11 @@ export class CommercialRequestHandler {
       deviceId: this.config.device_id,
       installationId: this.config.installation_id,
     };
+  }
+
+  /** Signed capacity entitlement for sector modules — fails closed when provisioned. */
+  private sectorDenial(entitlement: string): string | null {
+    return this.commercial.requireSectorEntitlement?.(entitlement) ?? null;
   }
 
   /**
@@ -1624,6 +1646,8 @@ export class CommercialRequestHandler {
     const empty = { outcome: "UNAUTHORIZED" as const, order_id: null, available: null };
     const session = this.authenticate(connectionId);
     if ("rejection" in session) return rejected(request, session.rejection, empty);
+    const sector = this.sectorDenial(LicenseSectorEntitlement.SALSAMENTARIA);
+    if (sector) return rejected(request, sector, { outcome: "LICENSE_BLOCKED", order_id: null, available: null });
     const payload = request.payload;
     const result = this.commercial.executeTransform.execute(
       this.scope(),
@@ -1768,6 +1792,7 @@ export class CommercialRequestHandler {
       return rejected(request, authenticated.rejection, {
         outcome: "UNAUTHORIZED",
         permissions: [],
+        entitlements: [],
       });
     }
 
@@ -1793,10 +1818,12 @@ export class CommercialRequestHandler {
         assignments,
       }).allowed,
     );
+    const entitlements = [...(this.commercial.listLicenseEntitlements?.() ?? [])];
 
     return succeeded(request, "AVAILABLE", {
       outcome: "AVAILABLE",
       permissions,
+      entitlements,
     });
   }
 
@@ -2045,6 +2072,8 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", version: null });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.FARMACIA);
+    if (sector) return rejected(request, sector, { outcome: "LICENSE_BLOCKED", version: null });
     const payload = request.payload;
     const result = this.commercial.upsertPharmacyEstablishment.execute(
       this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
@@ -2074,6 +2103,8 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", version: null });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.FARMACIA);
+    if (sector) return rejected(request, sector, { outcome: "LICENSE_BLOCKED", version: null });
     const payload = request.payload;
     const result = this.commercial.upsertPharmacyProfile.execute(
       this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
@@ -2114,6 +2145,8 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", prescription_id: null });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.FARMACIA);
+    if (sector) return rejected(request, sector, { outcome: "LICENSE_BLOCKED", prescription_id: null });
     const payload = request.payload;
     const result = this.commercial.registerPharmacyPrescription.execute(
       this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
@@ -2146,6 +2179,8 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", receipt_id: null });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.FARMACIA);
+    if (sector) return rejected(request, sector, { outcome: "LICENSE_BLOCKED", receipt_id: null });
     const payload = request.payload;
     const result = this.commercial.registerPharmacyTechnicalReceipt.execute(
       this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
@@ -2181,6 +2216,8 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", alert_id: null });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.FARMACIA);
+    if (sector) return rejected(request, sector, { outcome: "LICENSE_BLOCKED", alert_id: null });
     const payload = request.payload;
     const result = this.commercial.registerPharmacySanitaryAlert.execute(
       this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
@@ -2212,6 +2249,12 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, {
         outcome: "UNAUTHORIZED", recipe_id: null, version: null, recipe_family_id: null,
+      });
+    }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.PASTELERIA);
+    if (sector) {
+      return rejected(request, sector, {
+        outcome: "LICENSE_BLOCKED", recipe_id: null, version: null, recipe_family_id: null,
       });
     }
     const payload = request.payload;
@@ -2259,6 +2302,12 @@ export class CommercialRequestHandler {
         outcome: "UNAUTHORIZED", recipe_id: null, version: null,
       });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.PASTELERIA);
+    if (sector) {
+      return rejected(request, sector, {
+        outcome: "LICENSE_BLOCKED", recipe_id: null, version: null,
+      });
+    }
     const result = this.commercial.approveBakeryRecipe.execute(
       this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
         recipeId: request.payload.recipe_id,
@@ -2288,6 +2337,12 @@ export class CommercialRequestHandler {
         outcome: "UNAUTHORIZED", order_id: null, recipe_version: null,
       });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.PASTELERIA);
+    if (sector) {
+      return rejected(request, sector, {
+        outcome: "LICENSE_BLOCKED", order_id: null, recipe_version: null,
+      });
+    }
     const result = this.commercial.createBakeryProductionOrder.execute(
       this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
         recipeId: request.payload.recipe_id,
@@ -2315,6 +2370,12 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, {
         outcome: "UNAUTHORIZED", order_id: null, shortages: null,
+      });
+    }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.PASTELERIA);
+    if (sector) {
+      return rejected(request, sector, {
+        outcome: "LICENSE_BLOCKED", order_id: null, shortages: null,
       });
     }
     const result = this.commercial.planBakeryProductionOrder.execute(
@@ -2350,6 +2411,12 @@ export class CommercialRequestHandler {
         outcome: "UNAUTHORIZED", lot_id: null,
       });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.PASTELERIA);
+    if (sector) {
+      return rejected(request, sector, {
+        outcome: "LICENSE_BLOCKED", lot_id: null,
+      });
+    }
     const result = this.commercial.releaseBakeryFinishedLot.execute(
       this.scope(), authenticated.identity.ssaSessionId, authenticated.snapshot, {
         orderId: request.payload.order_id,
@@ -2375,6 +2442,12 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, {
         outcome: "UNAUTHORIZED", approval_ids: null,
+      });
+    }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.PASTELERIA);
+    if (sector) {
+      return rejected(request, sector, {
+        outcome: "LICENSE_BLOCKED", approval_ids: null,
       });
     }
     const payload = request.payload;
@@ -2412,6 +2485,13 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, {
         outcome: "UNAUTHORIZED", order_id: null, transform_order_id: null, finished_lot_id: null,
+        cost_status: null, total_production_cost: null, unit_cost: null, sellable: null,
+      });
+    }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.PASTELERIA);
+    if (sector) {
+      return rejected(request, sector, {
+        outcome: "LICENSE_BLOCKED", order_id: null, transform_order_id: null, finished_lot_id: null,
         cost_status: null, total_production_cost: null, unit_cost: null, sellable: null,
       });
     }
@@ -2484,6 +2564,14 @@ export class CommercialRequestHandler {
         total_production_cost: null, unit_cost: null, sources: null,
       });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.PASTELERIA);
+    if (sector) {
+      return rejected(request, sector, {
+        outcome: "LICENSE_BLOCKED", order_id: null, recipe_id: null, recipe_version: null,
+        transform_order_id: null, finished_lot_id: null, cost_status: null,
+        total_production_cost: null, unit_cost: null, sources: null,
+      });
+    }
     const result = this.commercial.getBakeryProductionTrace.execute(
       this.scope(), authenticated.snapshot, request.payload.order_id,
     );
@@ -2516,6 +2604,18 @@ export class CommercialRequestHandler {
         outcome: "UNAUTHORIZED",
         sale_id: null, sale_number: null, payable_amount: null, calculation_checksum: null,
       });
+    }
+    const pharmacyLines = request.payload.lines.some(
+      (line) => line.pharmacy_prescription_id != null && line.pharmacy_prescription_id !== "",
+    ) || request.payload.pharmacy_professional_competence_code != null;
+    if (pharmacyLines) {
+      const sector = this.sectorDenial(LicenseSectorEntitlement.FARMACIA);
+      if (sector) {
+        return rejected(request, sector, {
+          outcome: "LICENSE_BLOCKED",
+          sale_id: null, sale_number: null, payable_amount: null, calculation_checksum: null,
+        });
+      }
     }
 
     const create = () => this.commercial.createSale.execute(
