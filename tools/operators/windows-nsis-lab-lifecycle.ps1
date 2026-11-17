@@ -9,6 +9,9 @@
 
   WinSW/SCM: PASS when bundled payload registers CamachoPOSLocalService.
   Commercial Desktop↔NT SERVICE IPC remains NOT_PROVEN (no fake handoff).
+
+  Install-dir resolution is dynamic AFTER install/upgrade: electron-builder
+  perMachine lands under Program Files and often leaves InstallLocation empty.
 #>
 [CmdletBinding()]
 param(
@@ -21,11 +24,13 @@ param(
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force -Path $WorkRoot | Out-Null
 $reportPath = Join-Path $WorkRoot 'nsis-lifecycle-report.json'
-# perMachine NSIS → Program Files; keep LocalAppData as fallback for older artifacts.
-$installDir = Join-Path ${env:ProgramFiles} $ProductName
-if (-not (Test-Path -LiteralPath $installDir)) {
-  $installDir = Join-Path $env:LOCALAPPDATA "Programs\$ProductName"
-}
+
+# Canonical candidates (resolved only after install/upgrade — never freeze AppData pre-install).
+$programFilesInstallDir = Join-Path ${env:ProgramFiles} $ProductName
+$localAppInstallDir = Join-Path $env:LOCALAPPDATA "Programs\$ProductName"
+$installDir = $null
+$installedExe = $null
+$uninstallerExe = $null
 $userDataDir = Join-Path $env:APPDATA $ProductName
 $dataDirectory = Join-Path $userDataDir 'lab-data'
 $sqlitePath = Join-Path $dataDirectory 'lab-preservation.sqlite'
@@ -51,6 +56,10 @@ function Save-Report([System.Collections.Generic.List[object]]$StepList) {
     installer = $InstallerPath
     repoRoot = $RepoRoot
     installDir = $installDir
+    programFilesInstallDir = $programFilesInstallDir
+    localAppInstallDir = $localAppInstallDir
+    installedExe = $installedExe
+    uninstallerExe = $uninstallerExe
     userDataDir = $userDataDir
     dataDirectory = $dataDirectory
     certificationScope = 'WINDOWS_LAB_RUNNER_NOT_PHYSICAL'
@@ -65,21 +74,131 @@ function Save-Report([System.Collections.Generic.List[object]]$StepList) {
   return $failed.Count
 }
 
-function Find-UninstallEntry {
+function Get-QuotedExe([string]$Raw) {
+  if ([string]::IsNullOrWhiteSpace($Raw)) { return $null }
+  if ($Raw -match '"([^"]+\.exe)"') { return $Matches[1] }
+  if ($Raw -match '([A-Za-z]:\\[^\s"]+\.exe)') { return $Matches[1] }
+  return $null
+}
+
+function Find-UninstallEntries {
+  # perMachine → prefer HKLM; keep HKCU for older per-user artifacts.
   $paths = @(
-    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
     'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
   )
+  $hits = New-Object System.Collections.Generic.List[object]
   foreach ($pattern in $paths) {
     try {
-      $hit = Get-ItemProperty -Path $pattern -ErrorAction SilentlyContinue |
+      Get-ItemProperty -Path $pattern -ErrorAction SilentlyContinue |
         Where-Object { $_.DisplayName -like "*Camacho POS*" -or $_.DisplayName -eq $ProductName } |
-        Select-Object -First 1
-      if ($hit) { return $hit }
+        ForEach-Object { [void]$hits.Add($_) }
     } catch {}
   }
-  return $null
+  return @($hits)
+}
+
+function Test-ProductInstallDir([string]$Dir) {
+  if ([string]::IsNullOrWhiteSpace($Dir)) { return $false }
+  if (-not (Test-Path -LiteralPath $Dir -PathType Container)) { return $false }
+  $exeNames = @("$ProductName.exe", 'Camacho POS Colombia.exe')
+  foreach ($name in $exeNames) {
+    if (Test-Path -LiteralPath (Join-Path $Dir $name) -PathType Leaf) { return $true }
+  }
+  # Accept dir that already has Uninstall*.exe + resources (partial layout during upgrade race).
+  $hasUninstall = [bool](Get-ChildItem -LiteralPath $Dir -Filter 'Uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1)
+  $hasResources = Test-Path -LiteralPath (Join-Path $Dir 'resources') -PathType Container
+  return ($hasUninstall -and $hasResources)
+}
+
+function Resolve-InstalledLayout {
+  $entries = Find-UninstallEntries
+  $primary = $entries | Select-Object -First 1
+  $dirCandidates = New-Object System.Collections.Generic.List[string]
+  $exeCandidates = New-Object System.Collections.Generic.List[string]
+  $uninstallCandidates = New-Object System.Collections.Generic.List[string]
+
+  foreach ($entry in $entries) {
+    if ($entry.InstallLocation) {
+      $loc = [string]$entry.InstallLocation.Trim().TrimEnd('\')
+      if ($loc) { [void]$dirCandidates.Add($loc) }
+    }
+    if ($entry.DisplayIcon) {
+      $iconPath = Get-QuotedExe (($entry.DisplayIcon -split ',')[0])
+      if (-not $iconPath) { $iconPath = (($entry.DisplayIcon -split ',')[0]).Trim().Trim('"') }
+      if ($iconPath -and (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+        [void]$exeCandidates.Add($iconPath)
+        [void]$dirCandidates.Add([IO.Path]::GetDirectoryName($iconPath))
+      }
+    }
+    if ($entry.UninstallString) {
+      $u = Get-QuotedExe ([string]$entry.UninstallString)
+      if ($u -and (Test-Path -LiteralPath $u -PathType Leaf)) {
+        [void]$uninstallCandidates.Add($u)
+        [void]$dirCandidates.Add([IO.Path]::GetDirectoryName($u))
+      }
+    }
+  }
+
+  # Filesystem discovery — Program Files first (perMachine), then LocalAppData (legacy).
+  foreach ($dir in @($programFilesInstallDir, $localAppInstallDir)) {
+    [void]$dirCandidates.Add($dir)
+  }
+
+  $resolvedDir = $null
+  # Prefer Program Files when the product is actually there.
+  if (Test-ProductInstallDir $programFilesInstallDir) {
+    $resolvedDir = $programFilesInstallDir
+  } else {
+    foreach ($dir in ($dirCandidates | Select-Object -Unique)) {
+      if (Test-ProductInstallDir $dir) { $resolvedDir = $dir; break }
+    }
+  }
+
+  if (-not $resolvedDir) {
+    return [ordered]@{
+      ok = $false
+      installDir = $null
+      installedExe = $null
+      uninstallerExe = $null
+      registryDisplayName = $(if ($primary) { [string]$primary.DisplayName } else { '' })
+      registryInstallLocation = $(if ($primary -and $primary.InstallLocation) { [string]$primary.InstallLocation } else { '' })
+      source = 'NONE'
+    }
+  }
+
+  $exeNames = @("$ProductName.exe", 'Camacho POS Colombia.exe')
+  foreach ($name in $exeNames) {
+    $p = Join-Path $resolvedDir $name
+    if (Test-Path -LiteralPath $p -PathType Leaf) { [void]$exeCandidates.Insert(0, $p) }
+  }
+  $resolvedExe = @($exeCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1)
+
+  $uninstallFromDir = (Get-ChildItem -LiteralPath $resolvedDir -Filter 'Uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1)?.FullName
+  if ($uninstallFromDir) { [void]$uninstallCandidates.Insert(0, $uninstallFromDir) }
+  $resolvedUninstall = @($uninstallCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1)
+
+  $source = if ($resolvedDir -eq $programFilesInstallDir) { 'PROGRAM_FILES' }
+    elseif ($resolvedDir -eq $localAppInstallDir) { 'LOCALAPPDATA_PROGRAMS' }
+    else { 'REGISTRY_OR_DERIVED' }
+
+  return [ordered]@{
+    ok = [bool]$resolvedExe -and [bool]$resolvedUninstall -and (Test-Path -LiteralPath $resolvedDir)
+    installDir = $resolvedDir
+    installedExe = $resolvedExe
+    uninstallerExe = $resolvedUninstall
+    registryDisplayName = $(if ($primary) { [string]$primary.DisplayName } else { '' })
+    registryInstallLocation = $(if ($primary -and $primary.InstallLocation) { [string]$primary.InstallLocation } else { '' })
+    source = $source
+    servicePayloadDir = (Join-Path $resolvedDir 'resources\service-payload')
+  }
+}
+
+function Apply-ResolvedLayout($Layout) {
+  $script:installDir = [string]$Layout.installDir
+  $script:installedExe = [string]$Layout.installedExe
+  $script:uninstallerExe = [string]$Layout.uninstallerExe
 }
 
 $steps = New-Object System.Collections.Generic.List[object]
@@ -100,41 +219,22 @@ try {
 
   Start-Sleep -Seconds 3
 
-  # --- Real path discovery ---
-  $uninstall = Find-UninstallEntry
-  $regInstallLocation = if ($uninstall -and $uninstall.InstallLocation) { $uninstall.InstallLocation.TrimEnd('\') } else { '' }
-  if ($regInstallLocation -and (Test-Path -LiteralPath $regInstallLocation)) {
-    $installDir = $regInstallLocation
-  }
-  $exeCandidates = @(
-    (Join-Path $installDir "$ProductName.exe"),
-    (Join-Path $installDir 'Camacho POS Colombia.exe')
-  )
-  if ($uninstall -and $uninstall.DisplayIcon) {
-    $iconPath = ($uninstall.DisplayIcon -split ',')[0]
-    if ($iconPath -and (Test-Path -LiteralPath $iconPath)) { $exeCandidates = @($iconPath) + $exeCandidates }
-  }
-  $installedExe = $exeCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
-  $uninstallerExe = $null
-  if ($uninstall -and $uninstall.UninstallString) {
-    if ($uninstall.UninstallString -match '"([^"]+\.exe)"') { $uninstallerExe = $Matches[1] }
-    elseif ($uninstall.UninstallString -match '([^\s]+\.exe)') { $uninstallerExe = $Matches[1] }
-  }
-  if (-not $uninstallerExe) {
-    $uninstallerExe = (Get-ChildItem -LiteralPath $installDir -Filter 'Uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1)?.FullName
-  }
-
-  $pathOk = [bool]$installedExe -and (Test-Path -LiteralPath $installDir)
-  [void]$steps.Add((Write-Step 'verify_installed_paths' $(if ($pathOk) { 'PASS' } else { 'FAIL' }) @{
-    installDir = $installDir
-    exe = "$installedExe"
-    uninstaller = "$uninstallerExe"
-    registryDisplayName = $(if ($uninstall) { $uninstall.DisplayName } else { '' })
-    registryInstallLocation = $regInstallLocation
+  # --- Real path discovery (dynamic; do not trust pre-install AppData fallback) ---
+  $layout = Resolve-InstalledLayout
+  Apply-ResolvedLayout $layout
+  [void]$steps.Add((Write-Step 'verify_installed_paths' $(if ($layout.ok) { 'PASS' } else { 'FAIL' }) @{
+    installDir = "$($layout.installDir)"
+    exe = "$($layout.installedExe)"
+    uninstaller = "$($layout.uninstallerExe)"
+    registryDisplayName = "$($layout.registryDisplayName)"
+    registryInstallLocation = "$($layout.registryInstallLocation)"
+    resolutionSource = "$($layout.source)"
+    programFilesCandidate = $programFilesInstallDir
+    localAppCandidate = $localAppInstallDir
   }))
-  if (-not $pathOk) { throw 'INSTALLED_PRODUCT_PATHS_MISSING' }
+  if (-not $layout.ok) { throw 'INSTALLED_PRODUCT_PATHS_MISSING' }
 
-  # --- ACL ---
+  # --- ACL on real installDir ---
   $aclSummary = ''
   try {
     $acl = Get-Acl -LiteralPath $installDir
@@ -142,7 +242,10 @@ try {
       "{0}:{1}:{2}" -f $_.IdentityReference, $_.FileSystemRights, $_.AccessControlType
     }) -join '|'
   } catch { $aclSummary = "ACL_READ_FAILED:$($_.Exception.Message)" }
-  [void]$steps.Add((Write-Step 'verify_install_acl' $(if ($aclSummary -and ($aclSummary -notlike 'ACL_READ_FAILED*')) { 'PASS' } else { 'FAIL' }) @{ acl = $aclSummary }))
+  [void]$steps.Add((Write-Step 'verify_install_acl' $(if ($aclSummary -and ($aclSummary -notlike 'ACL_READ_FAILED*')) { 'PASS' } else { 'FAIL' }) @{
+    acl = $aclSummary
+    installDir = $installDir
+  }))
 
   # --- Native dependencies next to EXE ---
   $installFiles = @(Get-ChildItem -LiteralPath $installDir -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
@@ -151,6 +254,7 @@ try {
   [void]$steps.Add((Write-Step 'verify_native_dependencies' $(if ($nativePresent.Count -ge 2) { 'PASS' } else { 'FAIL' }) @{
     found = ($nativePresent -join ',')
     installFileCount = $installFiles.Count
+    installDir = $installDir
   }))
 
   # --- Services / WinSW/SCM (bundled under resources/service-payload when staged) ---
@@ -161,15 +265,35 @@ try {
     [void]$steps.Add((Write-Step 'winsw_scm_registration' 'FAIL' @{
       reason = 'SERVICE_PAYLOAD_MISSING_FROM_INSTALLER'
       payloadDir = $payloadDir
+      installDir = $installDir
       servicePresent = [bool]$svc
     }))
     throw 'SERVICE_PAYLOAD_MISSING_FROM_INSTALLER'
   }
+
+  # Expected payload leaves (audit before SCM claims).
+  $requiredPayload = @(
+    (Join-Path $payloadDir 'CamachoPOSLocalService.exe'),
+    (Join-Path $payloadDir 'CamachoPOSLocalService.xml.template'),
+    (Join-Path $payloadDir 'runtime\node.exe'),
+    (Join-Path $payloadDir 'local-service\pos-local-service.mjs'),
+    (Join-Path $payloadDir 'install-camacho-local-service.ps1')
+  )
+  $missingPayload = @($requiredPayload | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+  [void]$steps.Add((Write-Step 'verify_service_payload_files' $(if ($missingPayload.Count -eq 0) { 'PASS' } else { 'FAIL' }) @{
+    payloadDir = $payloadDir
+    missing = ($missingPayload -join ',')
+  }))
+  if ($missingPayload.Count -gt 0) { throw 'SERVICE_PAYLOAD_FILES_INCOMPLETE' }
+
   # NSIS customInstall should have registered; if not (silent race), install now elevated.
+  # Use ProgramData for SCM service data (matches install-camacho-local-service.ps1 default),
+  # distinct from interactive AppData lab-data used for Desktop DPAPI channel tests.
+  $scmDataDirectory = Join-Path $env:ProgramData 'CamachoPOS\lab-data'
   if (-not $svc) {
     Write-Host 'PHASE=winsw_scm_install_fallback'
     $installOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
-      -Action Install -PayloadDir $payloadDir -DataDirectory $dataDirectory -Json 2>&1 | Out-String
+      -Action Install -PayloadDir $payloadDir -DataDirectory $scmDataDirectory -Json 2>&1 | Out-String
     Write-Host $installOut
     $svc = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
   }
@@ -181,13 +305,15 @@ try {
     servicePresent = [bool]$svc
     status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
     payloadDir = $payloadDir
+    installDir = $installDir
+    scmDataDirectory = $scmDataDirectory
     commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
     authenticodeProduct = 'RT-009-B_BLOCKED'
     statusJson = $scmStatus.Trim()
   }))
   if (-not $scmOk) { throw 'WINSW_SCM_REGISTRATION_FAILED' }
 
-  # --- Real SQLite preservation marker ---
+  # --- Real SQLite preservation marker (AppData commercial retention path) ---
   New-Item -ItemType Directory -Force -Path $dataDirectory | Out-Null
   $markerScript = Join-Path $RepoRoot 'tools/operators/windows-nsis-lab-sqlite-marker.mjs'
   $createOut = & node $markerScript create $sqlitePath $markerToken 2>&1 | Out-String
@@ -198,7 +324,8 @@ try {
   }
   [void]$steps.Add((Write-Step 'sqlite_marker_create' 'PASS' @{ path = $sqlitePath; output = $createOut.Trim() }))
 
-  # --- Provision Local Service (process) + channel secret for installed EXE ---
+  # --- Provision interactive Local Service (process) + channel secret for installed EXE ---
+  # This is NOT the NT SERVICE path; commercial Desktop↔SCM IPC stays NOT_PROVEN.
   Write-Host "PHASE=local_service_provision"
   $serviceRoot = Join-Path $RepoRoot 'apps/pos-local-service'
   Push-Location $serviceRoot
@@ -207,8 +334,6 @@ try {
   } finally { Pop-Location }
   if (-not $tsxPath) { throw 'TSX_CLI_RESOLVE_FAILED' }
 
-  # Child processes inherit this process environment.
-  # Match the known-working Local Service lab path (DPAPI + named pipe).
   $env:NODE_ENV = 'development'
   $env:POS_DATA_DIRECTORY = $dataDirectory
   $env:POS_INSTALLATION_ID = $installationId
@@ -241,6 +366,7 @@ try {
     ready = $ready
     exited = $serviceProc.HasExited
     exitCode = $(if ($serviceProc.HasExited) { $serviceProc.ExitCode } else { '' })
+    dataDirectory = $dataDirectory
   }))
   if (-not $ready) { throw 'LOCAL_SERVICE_NOT_READY' }
 
@@ -251,7 +377,6 @@ try {
 
   # --- Launch installed EXE without --no-sandbox, with production provisioning env ---
   Write-Host "PHASE=launch_installed_exe"
-  # Env already set for Local Service; keep the same POS_* values for Desktop.
   $launch = Start-Process -FilePath $installedExe -PassThru -WorkingDirectory $installDir
   $spawned = $null -ne $launch -and $launch.Id -gt 0
   Start-Sleep -Seconds 12
@@ -259,9 +384,10 @@ try {
   $launchExit = if ($spawned -and $launch.HasExited) { $launch.ExitCode } else { $null }
   [void]$steps.Add((Write-Step 'launch_installed_exe_spawn' $(if ($spawned) { 'PASS' } else { 'FAIL' }) @{
     pid = $(if ($spawned) { $launch.Id } else { 0 })
+    exe = $installedExe
+    workingDirectory = $installDir
     args = 'none(--no-sandbox_not_used)'
   }))
-  # Persistence is required when Local Service + DPAPI secret are provisioned.
   [void]$steps.Add((Write-Step 'launch_installed_exe_persist' $(if ($alive) { 'PASS' } else { 'FAIL' }) @{
     alive = $alive
     exitCode = "$launchExit"
@@ -273,7 +399,6 @@ try {
   }
   if (-not $alive) { throw "LAUNCH_INSTALLED_EXE_PERSIST_FAILED:exit=$launchExit" }
 
-  # Interactive same-user IPC (CurrentUser DPAPI) — not NT SERVICE commercial handoff.
   [void]$steps.Add((Write-Step 'electron_local_service_ipc' 'PASS' @{
     note = 'Installed EXE stayed alive against interactive Local Service/DPAPI channel'
     scmCommercialIpc = 'NOT_PROVEN'
@@ -287,12 +412,38 @@ try {
   # --- Silent upgrade ---
   Write-Host "PHASE=silent_upgrade"
   $upgrade = Start-Process -FilePath $InstallerPath -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
-  $exeAfterUpgrade = Test-Path -LiteralPath $installedExe
+  Start-Sleep -Seconds 3
+  $layoutAfterUpgrade = Resolve-InstalledLayout
+  Apply-ResolvedLayout $layoutAfterUpgrade
+  $exeAfterUpgrade = [bool]$layoutAfterUpgrade.ok -and (Test-Path -LiteralPath $installedExe -PathType Leaf)
   if ($upgrade.ExitCode -ne 0 -or -not $exeAfterUpgrade) {
-    [void]$steps.Add((Write-Step 'silent_upgrade' 'FAIL' @{ exitCode = $upgrade.ExitCode; exePresent = $exeAfterUpgrade; phase = 'upgrade' }))
+    [void]$steps.Add((Write-Step 'silent_upgrade' 'FAIL' @{
+      exitCode = $upgrade.ExitCode
+      exePresent = $exeAfterUpgrade
+      installDir = "$installDir"
+      resolutionSource = "$($layoutAfterUpgrade.source)"
+      phase = 'upgrade'
+    }))
     throw "SILENT_UPGRADE_FAILED:exit=$($upgrade.ExitCode);exePresent=$exeAfterUpgrade"
   }
-  [void]$steps.Add((Write-Step 'silent_upgrade' 'PASS' @{ exitCode = 0; exePresent = $true }))
+  [void]$steps.Add((Write-Step 'silent_upgrade' 'PASS' @{
+    exitCode = 0
+    exePresent = $true
+    installDir = $installDir
+    resolutionSource = "$($layoutAfterUpgrade.source)"
+  }))
+
+  # Payload must still exist after upgrade (SCM paths).
+  $payloadAfter = Join-Path $installDir 'resources\service-payload'
+  $payloadOk = Test-Path -LiteralPath (Join-Path $payloadAfter 'install-camacho-local-service.ps1') -PathType Leaf
+  $svcAfterUpgrade = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+  [void]$steps.Add((Write-Step 'paths_after_upgrade' $(if ($payloadOk) { 'PASS' } else { 'FAIL' }) @{
+    installDir = $installDir
+    payloadDir = $payloadAfter
+    servicePresent = [bool]$svcAfterUpgrade
+    serviceStatus = $(if ($svcAfterUpgrade) { [string]$svcAfterUpgrade.Status } else { 'Absent' })
+  }))
+  if (-not $payloadOk) { throw 'SERVICE_PAYLOAD_MISSING_AFTER_UPGRADE' }
 
   $verifyOut = & node $markerScript verify $sqlitePath $markerToken 2>&1 | Out-String
   Write-Host $verifyOut
@@ -307,17 +458,36 @@ try {
   # --- Silent uninstall ---
   Write-Host "PHASE=silent_uninstall"
   if (-not $uninstallerExe -or -not (Test-Path -LiteralPath $uninstallerExe)) {
-    [void]$steps.Add((Write-Step 'silent_uninstall' 'FAIL' @{ reason = 'UNINSTALLER_MISSING'; phase = 'uninstall' }))
+    $layoutForUninstall = Resolve-InstalledLayout
+    Apply-ResolvedLayout $layoutForUninstall
+  }
+  if (-not $uninstallerExe -or -not (Test-Path -LiteralPath $uninstallerExe)) {
+    [void]$steps.Add((Write-Step 'silent_uninstall' 'FAIL' @{ reason = 'UNINSTALLER_MISSING'; phase = 'uninstall'; installDir = "$installDir" }))
     throw 'UNINSTALLER_MISSING'
   }
-  $uninstall = Start-Process -FilePath $uninstallerExe -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
+  $trackedInstallDir = $installDir
+  $uninstallProc = Start-Process -FilePath $uninstallerExe -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
   Start-Sleep -Seconds 3
-  $dirGone = -not (Test-Path -LiteralPath $installDir)
-  if ($uninstall.ExitCode -ne 0) {
-    [void]$steps.Add((Write-Step 'silent_uninstall' 'FAIL' @{ exitCode = $uninstall.ExitCode; installDirRemoved = $dirGone; phase = 'uninstall' }))
-    throw "SILENT_UNINSTALL_FAILED:exit=$($uninstall.ExitCode)"
+  $pfGone = -not (Test-Path -LiteralPath $programFilesInstallDir)
+  $laGone = -not (Test-Path -LiteralPath $localAppInstallDir)
+  $trackedGone = -not (Test-Path -LiteralPath $trackedInstallDir)
+  if ($uninstallProc.ExitCode -ne 0) {
+    [void]$steps.Add((Write-Step 'silent_uninstall' 'FAIL' @{
+      exitCode = $uninstallProc.ExitCode
+      installDirRemoved = $trackedGone
+      programFilesRemoved = $pfGone
+      localAppRemoved = $laGone
+      phase = 'uninstall'
+    }))
+    throw "SILENT_UNINSTALL_FAILED:exit=$($uninstallProc.ExitCode)"
   }
-  [void]$steps.Add((Write-Step 'silent_uninstall' 'PASS' @{ exitCode = 0; installDirRemoved = $dirGone }))
+  [void]$steps.Add((Write-Step 'silent_uninstall' 'PASS' @{
+    exitCode = 0
+    installDirRemoved = $trackedGone
+    programFilesRemoved = $pfGone
+    localAppRemoved = $laGone
+    uninstaller = $uninstallerExe
+  }))
 
   $svcAfter = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
   [void]$steps.Add((Write-Step 'winsw_scm_removed_after_uninstall' $(if ($null -eq $svcAfter) { 'PASS' } else { 'FAIL' }) @{
@@ -330,7 +500,9 @@ try {
   [void]$steps.Add((Write-Step 'residuals_after_uninstall' 'PASS' @{
     note = 'deleteAppDataOnUninstall=false; commercial/AppData retention expected'
     sqliteStillPresent = $sqliteAfterUninstall
-    installDirPresent = (-not $dirGone)
+    installDirPresent = (-not $trackedGone)
+    programFilesPresent = (-not $pfGone)
+    localAppPresent = (-not $laGone)
   }))
 
   # Cleanup lab SQLite only (do not claim commercial wipe of other AppData).
