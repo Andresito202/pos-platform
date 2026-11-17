@@ -1042,7 +1042,7 @@ Continúa no autorizado:
 | SYNC-001 | P0 | DONE | Operation/outbox/inbox/idempotencia/checkpoint definidos. |
 | SYNC-002 | P0 | DONE | Configuración offline versionada por dominio. |
 | SYNC-003 | P0 | DONE | Conflictos/retry/recovery/dead letter/clock definidos. |
-| SYNC-004 | P1 | IN_PROGRESS | Bloque 5 interno: outbox/restart/multicaja/perf TESTED en motor existente (`docs/testing/bloque5-offline-sync-20261117.md`). Pendiente: gate Central/Postgres en lab, stock global offline coordinado, certificación comercial. |
+| SYNC-004 | P1 | DONE | Bloque 5 cierre interno (`8ae99fea`, CI 6/6): outbox/restart/multicaja/perf TESTED + Central Sync lab gate en CI. Evidencia `docs/testing/bloque5-offline-sync-20261117.md`. Abierto fuera de bloque: stock global offline coordinado; certificación comercial/VPS; flake tip docs `App.test` SUPERVISOR. |
 
 ### Reporting
 

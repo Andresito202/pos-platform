@@ -13,11 +13,22 @@
 
 Motor: **únicamente** `DurableSyncStore` + `SyncDispatcher` + `CentralSyncComponent` existentes. Sin segundo sync engine, sin otra DB local, sin rediseño de pantallas ni login.
 
-## CI exact-head (`8ae99fea`)
+## CI exact-head (`8ae99fea`) — 6/6 SUCCESS
 
-Observado contra el tip `8ae99fea1607c79665f3b869c21dee573da53e25` (check-runs GitHub, 2026-11-17):
+Workflows de PR observados contra `8ae99fea1607c79665f3b869c21dee573da53e25` (2026-11-17T17:33:26Z):
 
-| Check | Conclusión |
+| # | Workflow | Run | Conclusión |
+|---|---|---|---|
+| 1 | TARGET foundation validation | [44138285139](https://github.com/Andresito202/pos-platform/actions/runs/44138285139) | success |
+| 2 | CodeQL SAST | [44138284811](https://github.com/Andresito202/pos-platform/actions/runs/44138284811) | success |
+| 3 | D-3 Live Security E2E | [44138284625](https://github.com/Andresito202/pos-platform/actions/runs/44138284625) | success |
+| 4 | G1.2 Live Session Bootstrap | [44138284650](https://github.com/Andresito202/pos-platform/actions/runs/44138284650) | success |
+| 5 | Central Sync Persistence Gate | [44138284705](https://github.com/Andresito202/pos-platform/actions/runs/44138284705) | success |
+| 6 | strix-penetration-test | [44138284631](https://github.com/Andresito202/pos-platform/actions/runs/44138284631) | success |
+
+**6/6 SUCCESS** en workflows de PR. Check-runs del mismo SHA: 9 success · 2 skipped · **0 failed** (skipped: Main push governance, FACTUS sandbox).
+
+| Check (detalle TARGET / hermanos) | Conclusión |
 |---|---|
 | TypeScript, SQLite and PostgreSQL 16.14 | success |
 | Repository policy, dependency inventory and vulnerability audit | success |
@@ -31,8 +42,7 @@ Observado contra el tip `8ae99fea1607c79665f3b869c21dee573da53e25` (check-runs G
 | Main push governance | skipped |
 | FACTUS sandbox exceptional | skipped |
 
-**Resultado:** 9 success · 2 skipped · **0 failed**.  
-(El enunciado “6/6 SUCCESS” se interpreta como el conjunto de gates productivos del tip sin fallos; la matriz completa arriba es la evidencia exact-head.)
+Nota: el tip documental posterior `6cbc19d6` falló TARGET por flake de UI `App.test.tsx` (SUPERVISOR → `transfer-review-panel`), **ajeno al motor outbox/Central Sync**. No invalida el claim CI de `8ae99fea`. No se re-ejecutaron suites Bloque 5 ya aprobadas.
 
 ## Defectos corregidos en el bloque
 
@@ -104,6 +114,7 @@ Alcance: tooling Vite/Vitest/tinyglobby (dev/build), no runtime outbox/Central S
 4. `NOT_AUTHENTICATED` al boot no re-sonda hasta reinicio con credencial.
 5. Excepciones picomatch temporales (arriba).
 6. Certificación comercial / VPS / Android / FACTUS / FNE / hardware — fuera de alcance.
+7. Flake tip documental `6cbc19d6`: `App.test.tsx` SUPERVISOR no encuentra `transfer-review-panel` bajo carga CI (Inventario permanece `aria-current=page`). Fuera del alcance funcional de Bloque 5; no se parcheó aquí sin fix verificado.
 
 ## Pruebas PASS / SKIP (cierre)
 
