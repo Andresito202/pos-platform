@@ -62,7 +62,9 @@ function requireEnv(name: string): string {
   if (value === undefined || value.trim() === "") {
     throw new Error(`MISSING_ENV:${name}`);
   }
-  return value;
+  // GitHub secret paste often keeps trailing newlines/spaces; FACTUS OAuth
+  // rejects them as CREDENTIAL_REJECTED → validateConfiguration INCOMPLETE.
+  return value.trim();
 }
 
 function redact(value: string): string {

@@ -503,6 +503,12 @@ jobs:
             exit 2
           fi
           test "$(git rev-parse HEAD)" = "${REVIEWED_SHA}"
+          tip="$(git rev-parse origin/cursor/commercial-design-review-0d11)"
+          echo "reviewed_sha=${REVIEWED_SHA}"
+          echo "branch_tip=${tip}"
+          if [ "${REVIEWED_SHA}" != "${tip}" ]; then
+            echo "WARNING: reviewed_sha is behind the authorized branch tip; gate code/YAML may disagree"
+          fi
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
