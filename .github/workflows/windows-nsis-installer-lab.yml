@@ -1,0 +1,119 @@
+name: Windows NSIS installer lab
+
+# Generates an unsigned electron-builder/NSIS installer on windows-2022 for lab
+# verification. Authenticode signing remains RT-009-B BLOCKED — no self-signed
+# certificates are invented. Distinguishes: generated installer ≠ commercially
+# signed distribution.
+
+on:
+  push:
+    branches:
+      - cursor/commercial-design-review-0d11
+    paths:
+      - '.github/workflows/windows-nsis-installer-lab.yml'
+      - 'apps/pos-desktop/**'
+      - 'pnpm-lock.yaml'
+      - 'package.json'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/windows-nsis-installer-lab.yml'
+      - 'apps/pos-desktop/**'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: windows-nsis-installer-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nsis-lab:
+    name: Generate unsigned NSIS installer (lab)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact HEAD
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Build desktop bundles
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify brand icon for packager
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "apps/pos-desktop/packaging/icon.png")) {
+            throw "MISSING_BRAND_ICON: apps/pos-desktop/packaging/icon.png"
+          }
+
+      - name: Generate NSIS installer (unsigned lab)
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/pos-desktop pack:windows-nsis
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Inventory installer artifacts and SHA-256
+        shell: pwsh
+        run: |
+          $out = "apps/pos-desktop/dist-installer"
+          if (-not (Test-Path $out)) { throw "DIST_INSTALLER_MISSING" }
+          Get-ChildItem -Recurse $out | ForEach-Object { $_.FullName }
+          $exes = Get-ChildItem -Path $out -Filter *.exe -Recurse
+          if ($exes.Count -lt 1) { throw "NSIS_EXE_NOT_GENERATED" }
+          $report = @()
+          foreach ($exe in $exes) {
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $exe.FullName).Hash.ToLowerInvariant()
+            $line = "{0}  {1}  bytes={2}" -f $hash, $exe.Name, $exe.Length
+            Write-Output $line
+            $report += $line
+          }
+          $report += "authenticode=UNSIGNED_LAB_ONLY"
+          $report += "rt009b=BLOCKED_REQUIRES_CERTIFICATE"
+          $report += "reviewed_sha=$env:GITHUB_SHA"
+          $report -join "`n" | Set-Content -Path "$out/installer-integrity.txt" -Encoding utf8
+
+      - name: Upload NSIS lab artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: camacho-pos-nsis-lab-${{ github.sha }}
+          path: |
+            apps/pos-desktop/dist-installer/**
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Windows desktop smoke (non role-preview)
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          # Contract/runtime suites that are safe on hosted runners without
+          # presenting role-preview as the commercial product.
+          pnpm --filter @pos-platform/pos-desktop exec vitest run tests/window-security.test.ts tests/ipc-allowlist.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-dpapi.test.ts tests/windows-winsw-readiness.test.ts --no-file-parallelism
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
