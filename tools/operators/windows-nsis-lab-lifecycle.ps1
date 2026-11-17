@@ -49,7 +49,9 @@ function Write-Step([string]$Name, [string]$Status, [hashtable]$Detail = @{}) {
 }
 
 function Save-Report([System.Collections.Generic.List[object]]$StepList) {
-  $failed = @($StepList | Where-Object { $_.status -eq 'FAIL' })
+  $stepArray = Convert-ObjectListToArray -List $StepList
+  $failed = @($stepArray | Where-Object { $_.status -eq 'FAIL' })
+  $failedNames = @($failed | ForEach-Object { [string]$_.name })
   $payload = [ordered]@{
     schema = 'camacho-nsis-lab-lifecycle/v1'
     productName = $ProductName
@@ -65,19 +67,51 @@ function Save-Report([System.Collections.Generic.List[object]]$StepList) {
     certificationScope = 'WINDOWS_LAB_RUNNER_NOT_PHYSICAL'
     authenticode = 'UNSIGNED_LAB_ONLY'
     failed = $failed.Count
-    failedSteps = @($failed | ForEach-Object { $_.name })
-    steps = $StepList
+    failedSteps = $failedNames
+    steps = $stepArray
   }
   $payload | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $reportPath -Encoding utf8
   Write-Host "REPORT=$reportPath"
-  Write-Host ("FAILED_COUNT={0} FAILED_STEPS={1}" -f $failed.Count, (($failed | ForEach-Object { $_.name }) -join ','))
-  return $failed.Count
+  Write-Host ("FAILED_COUNT={0} FAILED_STEPS={1}" -f $failed.Count, ($failedNames -join ','))
+  return [int]$failed.Count
 }
 
 function Get-QuotedExe([string]$Raw) {
   if ([string]::IsNullOrWhiteSpace($Raw)) { return $null }
   if ($Raw -match '"([^"]+\.exe)"') { return $Matches[1] }
   if ($Raw -match '([A-Za-z]:\\[^\s"]+\.exe)') { return $Matches[1] }
+  return $null
+}
+
+function Convert-ObjectListToArray {
+  # PS7: wrapping List[object] with the array subexpression operator throws
+  # ArgumentException "Argument types do not match". Use List.ToArray() instead.
+  # Unary comma keeps Object[] intact across function returns.
+  param($List)
+  if ($null -eq $List) { return ,[object[]]@() }
+  if ($List -is [System.Collections.Generic.List[object]]) {
+    if ($List.Count -eq 0) { return ,[object[]]@() }
+    return ,[object[]]$List.ToArray()
+  }
+  $buf = [System.Collections.Generic.List[object]]::new()
+  foreach ($item in $List) { [void]$buf.Add($item) }
+  if ($buf.Count -eq 0) { return ,[object[]]@() }
+  return ,[object[]]$buf.ToArray()
+}
+
+function Convert-StringListToArray {
+  param([Parameter(Mandatory = $true)][System.Collections.Generic.List[string]]$List)
+  if ($List.Count -eq 0) { return ,[string[]]@() }
+  return ,[string[]]$List.ToArray()
+}
+
+function Find-FirstExistingPath {
+  param([AllowNull()][object]$Candidates)
+  foreach ($candidate in @($Candidates)) {
+    if ([string]::IsNullOrWhiteSpace([string]$candidate)) { continue }
+    $path = [string]$candidate
+    if (Test-Path -LiteralPath $path -PathType Leaf) { return $path }
+  }
   return $null
 }
 
@@ -88,7 +122,7 @@ function Find-UninstallEntries {
     'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
     'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
   )
-  $hits = New-Object System.Collections.Generic.List[object]
+  $hits = [System.Collections.Generic.List[object]]::new()
   foreach ($pattern in $paths) {
     try {
       Get-ItemProperty -Path $pattern -ErrorAction SilentlyContinue |
@@ -96,7 +130,8 @@ function Find-UninstallEntries {
         ForEach-Object { [void]$hits.Add($_) }
     } catch {}
   }
-  return @($hits)
+  # Never wrap $hits with the array subexpression operator (PS7 type mismatch).
+  return (Convert-ObjectListToArray -List $hits)
 }
 
 function Test-ProductInstallDir([string]$Dir) {
@@ -113,37 +148,40 @@ function Test-ProductInstallDir([string]$Dir) {
 }
 
 function Resolve-InstalledLayout {
-  $entries = Find-UninstallEntries
-  $primary = $entries | Select-Object -First 1
-  $dirCandidates = New-Object System.Collections.Generic.List[string]
-  $exeCandidates = New-Object System.Collections.Generic.List[string]
-  $uninstallCandidates = New-Object System.Collections.Generic.List[string]
+  $entries = @(Find-UninstallEntries)
+  $primary = if ($entries.Count -gt 0) { $entries[0] } else { $null }
+  $dirCandidates = [System.Collections.Generic.List[string]]::new()
+  $exeCandidates = [System.Collections.Generic.List[string]]::new()
+  $uninstallCandidates = [System.Collections.Generic.List[string]]::new()
 
   foreach ($entry in $entries) {
-    if ($entry.InstallLocation) {
+    if ($null -eq $entry) { continue }
+    if ($entry.PSObject.Properties['InstallLocation'] -and $entry.InstallLocation) {
       $loc = [string]$entry.InstallLocation.Trim().TrimEnd('\')
       if ($loc) { [void]$dirCandidates.Add($loc) }
     }
-    if ($entry.DisplayIcon) {
+    if ($entry.PSObject.Properties['DisplayIcon'] -and $entry.DisplayIcon) {
       $iconPath = Get-QuotedExe (($entry.DisplayIcon -split ',')[0])
       if (-not $iconPath) { $iconPath = (($entry.DisplayIcon -split ',')[0]).Trim().Trim('"') }
       if ($iconPath -and (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
-        [void]$exeCandidates.Add($iconPath)
-        [void]$dirCandidates.Add([IO.Path]::GetDirectoryName($iconPath))
+        [void]$exeCandidates.Add([string]$iconPath)
+        $iconDir = [IO.Path]::GetDirectoryName([string]$iconPath)
+        if ($iconDir) { [void]$dirCandidates.Add([string]$iconDir) }
       }
     }
-    if ($entry.UninstallString) {
+    if ($entry.PSObject.Properties['UninstallString'] -and $entry.UninstallString) {
       $u = Get-QuotedExe ([string]$entry.UninstallString)
       if ($u -and (Test-Path -LiteralPath $u -PathType Leaf)) {
-        [void]$uninstallCandidates.Add($u)
-        [void]$dirCandidates.Add([IO.Path]::GetDirectoryName($u))
+        [void]$uninstallCandidates.Add([string]$u)
+        $uDir = [IO.Path]::GetDirectoryName([string]$u)
+        if ($uDir) { [void]$dirCandidates.Add([string]$uDir) }
       }
     }
   }
 
   # Filesystem discovery — Program Files first (perMachine), then LocalAppData (legacy).
   foreach ($dir in @($programFilesInstallDir, $localAppInstallDir)) {
-    [void]$dirCandidates.Add($dir)
+    if (-not [string]::IsNullOrWhiteSpace($dir)) { [void]$dirCandidates.Add([string]$dir) }
   }
 
   $resolvedDir = $null
@@ -151,8 +189,9 @@ function Resolve-InstalledLayout {
   if (Test-ProductInstallDir $programFilesInstallDir) {
     $resolvedDir = $programFilesInstallDir
   } else {
-    foreach ($dir in ($dirCandidates | Select-Object -Unique)) {
-      if (Test-ProductInstallDir $dir) { $resolvedDir = $dir; break }
+    $uniqueDirs = @(Convert-StringListToArray -List $dirCandidates | Select-Object -Unique)
+    foreach ($dir in $uniqueDirs) {
+      if (Test-ProductInstallDir ([string]$dir)) { $resolvedDir = [string]$dir; break }
     }
   }
 
@@ -163,7 +202,7 @@ function Resolve-InstalledLayout {
       installedExe = $null
       uninstallerExe = $null
       registryDisplayName = $(if ($primary) { [string]$primary.DisplayName } else { '' })
-      registryInstallLocation = $(if ($primary -and $primary.InstallLocation) { [string]$primary.InstallLocation } else { '' })
+      registryInstallLocation = $(if ($primary -and $primary.PSObject.Properties['InstallLocation'] -and $primary.InstallLocation) { [string]$primary.InstallLocation } else { '' })
       source = 'NONE'
     }
   }
@@ -171,25 +210,31 @@ function Resolve-InstalledLayout {
   $exeNames = @("$ProductName.exe", 'Camacho POS Colombia.exe')
   foreach ($name in $exeNames) {
     $p = Join-Path $resolvedDir $name
-    if (Test-Path -LiteralPath $p -PathType Leaf) { [void]$exeCandidates.Insert(0, $p) }
+    if (Test-Path -LiteralPath $p -PathType Leaf) { [void]$exeCandidates.Insert(0, [string]$p) }
   }
-  $resolvedExe = @($exeCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1)
+  $resolvedExe = Find-FirstExistingPath -Candidates (Convert-StringListToArray -List $exeCandidates)
 
-  $uninstallFromDir = (Get-ChildItem -LiteralPath $resolvedDir -Filter 'Uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1)?.FullName
+  $uninstallFromDir = $null
+  $uninstallLeaf = Get-ChildItem -LiteralPath $resolvedDir -Filter 'Uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($null -ne $uninstallLeaf) { $uninstallFromDir = [string]$uninstallLeaf.FullName }
   if ($uninstallFromDir) { [void]$uninstallCandidates.Insert(0, $uninstallFromDir) }
-  $resolvedUninstall = @($uninstallCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } | Select-Object -First 1)
+  $resolvedUninstall = Find-FirstExistingPath -Candidates (Convert-StringListToArray -List $uninstallCandidates)
 
   $source = if ($resolvedDir -eq $programFilesInstallDir) { 'PROGRAM_FILES' }
     elseif ($resolvedDir -eq $localAppInstallDir) { 'LOCALAPPDATA_PROGRAMS' }
     else { 'REGISTRY_OR_DERIVED' }
 
+  $ok = -not [string]::IsNullOrWhiteSpace($resolvedExe) `
+    -and -not [string]::IsNullOrWhiteSpace($resolvedUninstall) `
+    -and (Test-Path -LiteralPath $resolvedDir -PathType Container)
+
   return [ordered]@{
-    ok = [bool]$resolvedExe -and [bool]$resolvedUninstall -and (Test-Path -LiteralPath $resolvedDir)
-    installDir = $resolvedDir
-    installedExe = $resolvedExe
-    uninstallerExe = $resolvedUninstall
+    ok = [bool]$ok
+    installDir = [string]$resolvedDir
+    installedExe = $(if ($resolvedExe) { [string]$resolvedExe } else { $null })
+    uninstallerExe = $(if ($resolvedUninstall) { [string]$resolvedUninstall } else { $null })
     registryDisplayName = $(if ($primary) { [string]$primary.DisplayName } else { '' })
-    registryInstallLocation = $(if ($primary -and $primary.InstallLocation) { [string]$primary.InstallLocation } else { '' })
+    registryInstallLocation = $(if ($primary -and $primary.PSObject.Properties['InstallLocation'] -and $primary.InstallLocation) { [string]$primary.InstallLocation } else { '' })
     source = $source
     servicePayloadDir = (Join-Path $resolvedDir 'resources\service-payload')
   }
@@ -513,8 +558,17 @@ try {
   } catch {}
 }
 catch {
-  Write-Host "LIFECYCLE_ERROR=$($_.Exception.Message)"
-  [void]$steps.Add((Write-Step 'lifecycle_exception' 'FAIL' @{ message = $_.Exception.Message }))
+  $errMsg = [string]$_.Exception.Message
+  $stack = [string]$_.ScriptStackTrace
+  $errType = [string]$_.Exception.GetType().FullName
+  Write-Host "LIFECYCLE_ERROR=$errMsg"
+  Write-Host "LIFECYCLE_EXCEPTION_TYPE=$errType"
+  Write-Host "SCRIPT_STACK_TRACE=$stack"
+  [void]$steps.Add((Write-Step 'lifecycle_exception' 'FAIL' @{
+    message = $errMsg
+    exceptionType = $errType
+    scriptStackTrace = $stack
+  }))
   $exitCode = 1
 }
 finally {
