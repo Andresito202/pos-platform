@@ -10,7 +10,7 @@
 | HEAD inicial (CI SUCCESS confirmado) | `1ee066d146d03a01ff7a23ff56137cd3f1ebbc5e` |
 | Tip funcional Bloque 7 | `ab8795949e71165a12498c8ea991383ed39ab0b1` |
 | Tip docs previo (CI fail vulnerab.) | `b5c1247c2c8c1ad312e861a553eafeb83b566abe` |
-| Tip remediación supply-chain (este commit) | *(pin post-push)* |
+| Tip remediación supply-chain (este commit) | `c5a1f0699391effe0974dfebecdada2f599174c3` |
 
 ## Defectos corregidos
 
