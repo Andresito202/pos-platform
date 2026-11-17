@@ -207,7 +207,27 @@ async function runFactus(credential: FactusCredential, signal: AbortSignal): Pro
     if (config.kind === "VALID" && authorizesIssuance(config)) {
       record("FACTUS", "authentication_and_configuration", "OBSERVED_PASS", "validateConfiguration=VALID");
     } else {
-      record("FACTUS", "authentication_and_configuration", "OBSERVED_FAIL", `kind=${config.kind}`);
+      const findings = "findings" in config && Array.isArray(config.findings)
+        ? config.findings.map((finding) => {
+          const code = typeof finding === "object" && finding !== null && "code" in finding
+            ? String(finding.code)
+            : "UNKNOWN";
+          const field = typeof finding === "object" && finding !== null && "fieldName" in finding && finding.fieldName
+            ? `;field=${String(finding.fieldName)}`
+            : "";
+          const diagnostic = typeof finding === "object" && finding !== null && "diagnosticReference" in finding && finding.diagnosticReference
+            ? `;diag=${String(finding.diagnosticReference)}`
+            : "";
+          return `${code}${field}${diagnostic}`;
+        }).join("|")
+        : "no_findings";
+      const reason = "reasonCode" in config && config.reasonCode ? `;reason=${String(config.reasonCode)}` : "";
+      record(
+        "FACTUS",
+        "authentication_and_configuration",
+        "OBSERVED_FAIL",
+        `kind=${config.kind}${reason};findings=${findings}`,
+      );
       return;
     }
 
@@ -372,16 +392,23 @@ async function runFactusPay(signal: AbortSignal): Promise<void> {
   const installationId = "018f0000-0000-7000-8000-00000000sb02";
   const deviceId = "018f0000-0000-7000-8000-00000000sb03";
   const dir = mkdtempSync(join(tmpdir(), "factus-pay-sandbox-gate-"));
-  const secrets = new EncryptedFileSecretStore(
-    dir,
-    new InsecureDerivedKeyProvider(dir),
-    `factus-pay-sandbox-gate:${installationId}:${deviceId}:${companyId}`,
-  );
-  const store = new FactusPayCredentialStore(secrets, companyId);
-  store.deposit({ environment: "SANDBOX", email, password });
-  const client = new FactusPayClient(store, "SANDBOX", () => new Date(), fetch);
 
+  // InsecureDerivedKeyProvider is TEST_ONLY. This exceptional gate is an
+  // observed lab runner — force the test environment for the key provider only.
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "test";
+
+  let secrets: EncryptedFileSecretStore | null = null;
   try {
+    secrets = new EncryptedFileSecretStore(
+      dir,
+      new InsecureDerivedKeyProvider(dir),
+      `factus-pay-sandbox-gate:${installationId}:${deviceId}:${companyId}`,
+    );
+    const store = new FactusPayCredentialStore(secrets, companyId);
+    store.deposit({ environment: "SANDBOX", email, password });
+    const client = new FactusPayClient(store, "SANDBOX", () => new Date(), fetch);
+
     const referenceCode = `PAY-SBX-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const amountScale6 = "150000.000000";
     const created = await client.createCollection({
@@ -450,7 +477,9 @@ async function runFactusPay(signal: AbortSignal): Promise<void> {
     record("FACTUS_PAY", "reconciliation_get", "NOT_RUN", "create failed");
     record("FACTUS_PAY", "official_payment_simulation", "NOT_RUN", "create failed");
   } finally {
-    secrets.destroy();
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+    secrets?.destroy();
   }
 }
 
@@ -482,8 +511,15 @@ async function main(): Promise<void> {
   console.log(`claim_level=OBSERVED_ONLY (does not promote SANDBOX_VERIFIED)`);
 
   const signal = AbortSignal.timeout(120_000);
-  await runFactus(credential, signal);
-  await runFactusPay(signal);
+  let crashMessage: string | null = null;
+  try {
+    await runFactus(credential, signal);
+    await runFactusPay(signal);
+  } catch (error) {
+    crashMessage = error instanceof Error ? error.message : "UNKNOWN";
+    failed = true;
+    console.error(`GATE_CRASH:${crashMessage}`);
+  }
 
   const byProvider = {
     FACTUS: steps.filter((s) => s.provider === "FACTUS"),
@@ -501,6 +537,7 @@ async function main(): Promise<void> {
     },
     commit: process.env.REVIEWED_SHA ?? process.env.GITHUB_SHA ?? null,
     generated_at: new Date().toISOString(),
+    crash: crashMessage,
     steps,
     by_provider: byProvider,
   };
@@ -514,6 +551,7 @@ async function main(): Promise<void> {
   console.log(JSON.stringify({
     summary: steps.map((s) => ({ provider: s.provider, step: s.step, status: s.status })),
     sandbox_verified_declared: false,
+    crash: crashMessage,
   }));
 
   if (failed) process.exit(1);
@@ -522,5 +560,24 @@ async function main(): Promise<void> {
 main().catch((error) => {
   const message = error instanceof Error ? error.message : "UNKNOWN";
   console.error(`GATE_CRASH:${message}`);
+  // Last-resort evidence so the upload step is never empty on unexpected throws.
+  try {
+    const outDir = process.env.CAMACHO_SANDBOX_EVIDENCE_DIR
+      ?? join(process.cwd(), "artifacts", "factus-sandbox-exceptional");
+    mkdirSync(outDir, { recursive: true });
+    const outFile = join(outDir, `evidence-crash-${Date.now()}.json`);
+    writeFileSync(outFile, `${JSON.stringify({
+      gate: "factus-sandbox-exceptional",
+      claim_level: "OBSERVED_ONLY",
+      sandbox_verified_declared: false,
+      crash: message,
+      steps,
+      generated_at: new Date().toISOString(),
+      commit: process.env.REVIEWED_SHA ?? process.env.GITHUB_SHA ?? null,
+    }, null, 2)}\n`, "utf8");
+    console.log(`evidence_path=${outFile}`);
+  } catch {
+    // ignore secondary write failures
+  }
   process.exit(1);
 });

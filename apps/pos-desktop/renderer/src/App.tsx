@@ -54,7 +54,14 @@ export function App(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (authorization.phase !== "ready") {
+    // Only clear workspace navigation when the session leaves the authorized
+    // shell. Transient `loading` (focus revalidation) must not wipe the screen.
+    if (
+      authorization.phase === "unauthenticated"
+      || authorization.phase === "denied"
+      || authorization.phase === "expired"
+      || authorization.phase === "error"
+    ) {
       setActiveScreen(null);
       setVisitedScreens(new Set());
       setReceiptTarget(null);

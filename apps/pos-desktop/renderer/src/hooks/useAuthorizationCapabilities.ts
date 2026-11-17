@@ -20,7 +20,12 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
   const generation = useRef(0);
   const retry = useCallback(() => {
     generation.current++;
-    setState({ phase: "loading", permissions: new Set() });
+    // Keep an already-authorized shell mounted during background revalidation
+    // (e.g. window focus). Flashing `loading` unmounted the workspace and
+    // wiped activeScreen back to the role home — including mid-navigation.
+    setState((prev) => (
+      prev.phase === "ready" ? prev : { phase: "loading", permissions: new Set() }
+    ));
     setReload(value => value + 1);
   }, []);
 

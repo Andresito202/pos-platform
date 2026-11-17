@@ -528,6 +528,8 @@ jobs:
 
       - name: Execute exceptional sandbox gate (redacted)
         env:
+          # Lab-only: InsecureDerivedKeyProvider for FACTUS Pay ephemeral store.
+          NODE_ENV: test
           FACTUS_SANDBOX_CLIENT_ID: ${{ secrets.FACTUS_SANDBOX_CLIENT_ID }}
           FACTUS_SANDBOX_CLIENT_SECRET: ${{ secrets.FACTUS_SANDBOX_CLIENT_SECRET }}
           FACTUS_SANDBOX_USERNAME: ${{ secrets.FACTUS_SANDBOX_USERNAME }}
@@ -549,7 +551,15 @@ jobs:
             exit 2
           fi
           mkdir -p "${CAMACHO_SANDBOX_EVIDENCE_DIR}"
+          set +e
           pnpm --filter @pos-platform/pos-local-service exec tsx ../../tools/operators/factus-sandbox-exceptional-gate.ts
+          gate_status=$?
+          set -e
+          if [ -z "$(find "${CAMACHO_SANDBOX_EVIDENCE_DIR}" -type f -name 'evidence-*.json' | head -n 1)" ]; then
+            echo "REFUSED: sandbox gate produced no redacted evidence artifact"
+            exit 2
+          fi
+          exit "${gate_status}"
 
       - name: Upload redacted evidence artifact
         if: always()

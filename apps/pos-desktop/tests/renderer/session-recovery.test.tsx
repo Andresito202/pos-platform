@@ -63,14 +63,16 @@ describe("canonical session recovery coordination (unit fixtures only)", () => {
     expect(result.current).toMatchObject({ phase: "error", message: "LOCAL_SERVICE_UNAVAILABLE" });
     expect(result.current.permissions.size).toBe(0);
   });
-  it("focus removes displayed grants until capabilities are revalidated", async () => {
+  it("focus revalidates capabilities without unmounting a ready workspace", async () => {
     const api = service(active);
     api.capabilities.mockReset().mockResolvedValueOnce(available).mockReturnValue(new Promise(() => {}));
     const { result } = renderHook(useAuthorizationCapabilities);
     await waitFor(() => expect(result.current.phase).toBe("ready"));
     act(() => window.dispatchEvent(new Event("focus")));
-    expect(result.current.phase).toBe("loading");
-    expect(result.current.permissions.size).toBe(0);
+    // Soft revalidation: keep ready shell and prior grants visible while the
+    // background reread runs. Flashing loading wiped activeScreen mid-navigation.
+    expect(result.current.phase).toBe("ready");
+    expect([...result.current.permissions]).toEqual(["CATALOG_PRODUCT_READ"]);
     await waitFor(() => expect(api.capabilities).toHaveBeenCalledTimes(2));
   });
   it("ACTIVE rereads capabilities; the recovery UUID grants nothing", async () => {

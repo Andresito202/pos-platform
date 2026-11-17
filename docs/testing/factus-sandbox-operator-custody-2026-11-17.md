@@ -110,4 +110,6 @@ https://github.com/Andresito202/pos-platform/actions/workflows/target-foundation
 - El gate emite `OBSERVED_PASS` / `OBSERVED_FAIL` / `BLOCKED` / `NOT_AVAILABLE` por paso.
 - **No** declara `SANDBOX_VERIFIED` automáticamente.
 - FACTUS Pay: el simulador oficial de pago es UI (`https://pay-api-sandbox.factus.com.co/simulator`); no hay API headless de pago simulado. Sin escaneo en el simulador, el estado permanece el observado por GET.
+- El job fija `NODE_ENV=test` sólo en el paso sandbox para el almacén efímero `InsecureDerivedKeyProvider` (TEST_ONLY). No es un claim de producto.
+- Ante `OBSERVED_FAIL` o crash, el gate **siempre** escribe `evidence-*.json` redacted en el artifact (no subir peldaño; sólo evidencia).
 - Producción y dinero real están prohibidos.

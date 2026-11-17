@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
 import { SalesReceiptGetRequestSchema } from "@pos-platform/contracts";
 import { App } from "../../renderer/src/App.js";
 
@@ -558,8 +558,18 @@ describe("Role-ordered navigation keeps permissions authoritative", () => {
     });
     render(<App />);
     await screen.findByTestId("sale-panel");
-    fireEvent.click(screen.getByRole("button", { name: "Catálogo" }));
-    expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBeTruthy();
+    const navigation = screen.getByRole("complementary", { name: "Navegación principal" });
+    fireEvent.click(within(navigation).getByRole("button", { name: "Catálogo" }));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBeTruthy();
+      expect(screen.getByTestId("catalog-panel")).toBeTruthy();
+    });
+    // Focus revalidation must not bounce the operator back to Caja.
+    window.dispatchEvent(new Event("focus"));
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBeTruthy();
+      expect(screen.getByTestId("catalog-panel")).toBeTruthy();
+    });
 
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "REJECTED",
