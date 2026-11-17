@@ -30,6 +30,8 @@
 - Node zip extract: sin `Expand-Archive` (PS7 `ExtractToDirectory` 3-arg); `tar.exe` / ZipFile 2-arg / `unzip`.
 - Lifecycle `installDir`: resolución dinámica post-install/upgrade. `perMachine` → `Program Files\Camacho POS Colombia`; no congelar `LocalAppData\Programs` antes del install (electron-builder suele dejar `InstallLocation` vacío). SCM payload bajo `resources\service-payload`; datos SCM en `ProgramData\CamachoPOS\lab-data`; retención comercial AppData intacta.
 - WinSW helper: nunca parametrizar `$args` (colisión PS → `ArgumentList` null). Tras `winsw install`, ACL RX al payload y Modify a `ProgramData\CamachoPOS\{lab-data,logs}` para `NT SERVICE\CamachoPOSLocalService`. `<logpath>` fuera de Program Files. STDERR/sc diagnostics en fallos.
+- WinSW 2.12 XML: usar `<domain>NT SERVICE</domain>` + `<user>CamachoPOSLocalService</user>`. El elemento `<username>` **no** lo lee XmlServiceConfig → el servicio queda en LocalSystem. `allowservicelogon=false` para cuentas virtuales (LookupAccountName corre antes de CreateService).
+- Lifecycle exige `StartName=NT SERVICE\CamachoPOSLocalService` + Running; LocalSystem nunca PASS.
 
 ## Niveles de certificación
 
@@ -39,6 +41,13 @@
 | IPC comercial Desktop↔NT SERVICE | BLOQUEADO por gate de interoperabilidad |
 | Distribución Authenticode Camacho | RT-009-B BLOCKED |
 | Física PC propietario | Fuera de alcance |
+
+## Hallazgo CI `feec4277` (job 134429481565)
+
+- Paths/ACL/payload/native: PASS.
+- WinSW `install`+`start` reportaron éxito, pero `StartName=LocalSystem` → `identityOk=false` → exit 7 → `WINSW_SCM_REGISTRATION_FAILED`.
+- Causa raíz: plantilla con `<username>NT SERVICE\…</username>`; WinSW 2.12.0 `XmlServiceConfig` sólo asigna `Domain`/`User` desde `<domain>`/`<user>`, así que `HasServiceAccount()` era false y SCM caía al default LocalSystem.
+- Corrección en tip posterior: `<domain>/<user>` + `allowservicelogon=false` + gate lifecycle de identidad virtual.
 
 ## Veredicto
 

@@ -7,7 +7,8 @@
   nsExec::ExecToLog '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\service-payload\install-camacho-local-service.ps1" -Action Install -PayloadDir "$INSTDIR\resources\service-payload" -Json'
   Pop $0
   DetailPrint "Camacho service install exit=$0"
-  ; Non-zero is recorded but does not abort silent lab installs; lifecycle report asserts SCM.
+  ; Non-zero is recorded; lab lifecycle asserts SCM identity (NT SERVICE) fail-closed.
+  ; Do not abort NSIS here so uninstall/upgrade paths remain observable in the same run.
 !macroend
 
 !macro customUnInstall

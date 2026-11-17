@@ -36,7 +36,17 @@ $workDir = Join-Path $PayloadDir 'local-service'
 $integrityFile = Join-Path $PayloadDir 'payload-integrity.json'
 $logDirectory = Join-Path $env:ProgramData 'CamachoPOS\logs'
 
+function Write-HelperLog([string]$Message) {
+  try {
+    $dir = Join-Path $env:ProgramData 'CamachoPOS\logs'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $line = '{0} {1}' -f ([DateTime]::UtcNow.ToString('o')), $Message
+    Add-Content -LiteralPath (Join-Path $dir 'winsw-helper.log') -Value $line -Encoding UTF8
+  } catch {}
+}
+
 function Write-Result($obj, [int]$code) {
+  Write-HelperLog ("RESULT action={0} code={1} payload={2}" -f $Action, $code, ($obj | ConvertTo-Json -Depth 6 -Compress))
   if ($Json) { $obj | ConvertTo-Json -Depth 8 -Compress | Write-Output }
   else { $obj.GetEnumerator() | ForEach-Object { Write-Host ("{0}={1}" -f $_.Key, $_.Value) } }
   exit $code
@@ -96,6 +106,14 @@ function Materialize-Xml {
   $xml = $xml.Replace('__CAMACHO_POS_BRANCH_ID__', (Escape-XmlValue $BranchId))
   if ($xml -notmatch '<logpath>') {
     throw 'WINSW_TEMPLATE_MISSING_LOGPATH'
+  }
+  # WinSW 2.12 XmlServiceConfig only binds <domain>/<user>. A lone <username>
+  # is ignored and the service installs as LocalSystem — reject that shape.
+  if ($xml -match '<username>') {
+    throw 'WINSW_TEMPLATE_USES_USERNAME_NOT_DOMAIN_USER'
+  }
+  if ($xml -notmatch '(?s)<serviceaccount>.*<domain>NT SERVICE</domain>.*<user>CamachoPOSLocalService</user>') {
+    throw 'WINSW_TEMPLATE_MISSING_VIRTUAL_SERVICEACCOUNT'
   }
   [IO.File]::WriteAllText($xmlPath, $xml, [Text.UTF8Encoding]::new($false))
 }
@@ -204,6 +222,13 @@ function Invoke-WinSW {
   }
 }
 
+Write-HelperLog ("BEGIN action={0} payloadDir={1} dataDirectory={2} elevated={3}" -f $Action, $PayloadDir, $DataDirectory, $(
+  try {
+    $p = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+    [string]$p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+  } catch { 'unknown' }
+))
+
 switch ($Action) {
   'Status' {
     $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
@@ -239,6 +264,22 @@ switch ($Action) {
       } (Get-ScmDiagnostics)) 5
     }
 
+    # Fail closed before start if SCM did not bind the virtual account.
+    $cimAfterInstall = Get-CimInstance Win32_Service -Filter "Name='$serviceId'" -ErrorAction SilentlyContinue
+    $startNameAfterInstall = if ($cimAfterInstall) { [string]$cimAfterInstall.StartName } else { '' }
+    if ($startNameAfterInstall -ne $serviceAccount) {
+      Write-Result (Merge-Result @{
+        ok = $false
+        error = 'WINSW_VIRTUAL_ACCOUNT_NOT_BOUND'
+        startName = $startNameAfterInstall
+        expectedStartName = $serviceAccount
+        xmlSnippet = $(if (Test-Path -LiteralPath $xmlPath) {
+            $xmlBody = [IO.File]::ReadAllText($xmlPath)
+            (($xmlBody -split "`n") | Select-String -Pattern 'serviceaccount|domain|user|username' | ForEach-Object { $_.Line.Trim() }) -join ' | '
+          } else { '' })
+      } (Get-ScmDiagnostics)) 7
+    }
+
     # Virtual account exists only after install — grant runtime ACLs before start.
     try {
       Grant-ServiceRuntimeAcls
@@ -247,6 +288,7 @@ switch ($Action) {
         ok = $false
         error = 'SERVICE_ACL_GRANT_FAILED'
         message = [string]$_.Exception.Message
+        startName = $startNameAfterInstall
       } (Get-ScmDiagnostics)) 9
     }
 
@@ -259,6 +301,7 @@ switch ($Action) {
         error = 'WINSW_START_FAILED'
         exitCode = $startCode
         status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
+        startName = $startNameAfterInstall
       } (Get-ScmDiagnostics)) 6
     }
     # Give Node child time to bind pipe / open SQLite
@@ -267,19 +310,35 @@ switch ($Action) {
     $cim = Get-CimInstance Win32_Service -Filter "Name='$serviceId'" -ErrorAction SilentlyContinue
     $startName = if ($cim) { [string]$cim.StartName } else { '' }
     $identityOk = $startName -eq $serviceAccount
+    $stillRunning = $null -ne $svc -and ($svc.Status -eq 'Running' -or $svc.Status -eq 'StartPending')
+    if (-not ($stillRunning -and $identityOk)) {
+      Write-Result (Merge-Result @{
+        ok = $false
+        error = $(if (-not $identityOk) { 'WINSW_VIRTUAL_ACCOUNT_NOT_BOUND' } else { 'WINSW_START_NOT_STABLE' })
+        registered = ($null -ne $svc)
+        status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
+        startName = $startName
+        identityOk = $identityOk
+        dataDirectory = $script:resolvedDataDirectory
+        logDirectory = $logDirectory
+        xml = $xmlPath
+        commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+        authenticodeProduct = 'RT-009-B_BLOCKED'
+      } (Get-ScmDiagnostics)) 7
+    }
     Write-Result @{
-      ok = (($null -ne $svc) -and $identityOk)
-      registered = ($null -ne $svc)
-      status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
+      ok = $true
+      registered = $true
+      status = [string]$svc.Status
       startName = $startName
-      identityOk = $identityOk
+      identityOk = $true
       dataDirectory = $script:resolvedDataDirectory
       logDirectory = $logDirectory
       xml = $xmlPath
       commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
       authenticodeProduct = 'RT-009-B_BLOCKED'
       note = 'Service installed under NT SERVICE virtual account; commercial Desktop↔NT SERVICE IPC remains NOT_PROVEN'
-    } $(if (($null -ne $svc) -and $identityOk) { 0 } else { 7 })
+    } 0
   }
   'Uninstall' {
     Assert-Admin

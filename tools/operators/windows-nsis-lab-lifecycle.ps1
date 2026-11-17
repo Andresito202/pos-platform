@@ -331,14 +331,25 @@ try {
   }))
   if ($missingPayload.Count -gt 0) { throw 'SERVICE_PAYLOAD_FILES_INCOMPLETE' }
 
-  # NSIS customInstall should have registered; if not (silent race / helper fault), install now elevated.
+  # NSIS customInstall should have registered; if absent / wrong identity / not running, install now elevated.
   # Use ProgramData for SCM service data (matches install-camacho-local-service.ps1 default),
   # distinct from interactive AppData lab-data used for Desktop DPAPI channel tests.
   $scmDataDirectory = Join-Path $env:ProgramData 'CamachoPOS\lab-data'
+  $expectedScmAccount = 'NT SERVICE\CamachoPOSLocalService'
   $installFallbackExit = $null
   $installOut = ''
-  if (-not $svc) {
-    Write-Host 'PHASE=winsw_scm_install_fallback'
+  $cimBefore = Get-CimInstance Win32_Service -Filter "Name='CamachoPOSLocalService'" -ErrorAction SilentlyContinue
+  $startNameBefore = if ($cimBefore) { [string]$cimBefore.StartName } else { '' }
+  $needsInstall = (-not $svc) -or ($startNameBefore -ne $expectedScmAccount) -or (
+    $null -ne $svc -and $svc.Status -ne 'Running' -and $svc.Status -ne 'StartPending'
+  )
+  # Surface NSIS helper trail when present (does not clear commercial IPC gate).
+  $helperLog = Join-Path $env:ProgramData 'CamachoPOS\logs\winsw-helper.log'
+  if (Test-Path -LiteralPath $helperLog) {
+    Write-Host ('WINSW_HELPER_LOG_TAIL=' + ((Get-Content -LiteralPath $helperLog -Tail 30 -ErrorAction SilentlyContinue) -join ' || '))
+  }
+  if ($needsInstall) {
+    Write-Host ('PHASE=winsw_scm_install_fallback reason=absent={0};startName={1};status={2}' -f (-not $svc), $startNameBefore, $(if ($svc) { [string]$svc.Status } else { 'Absent' }))
     $installOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
       -Action Install -PayloadDir $payloadDir -DataDirectory $scmDataDirectory -Json 2>&1 | Out-String
     $installFallbackExit = $LASTEXITCODE
@@ -349,15 +360,25 @@ try {
   $scmStatus = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
     -Action Status -PayloadDir $payloadDir -Json 2>&1 | Out-String
   Write-Host $scmStatus
-  $scmOk = $null -ne $svc -and ($svc.Status -eq 'Running' -or $svc.Status -eq 'StartPending')
+  $cimAfter = Get-CimInstance Win32_Service -Filter "Name='CamachoPOSLocalService'" -ErrorAction SilentlyContinue
+  $startNameAfter = if ($cimAfter) { [string]$cimAfter.StartName } else { '' }
+  $identityOk = $startNameAfter -eq $expectedScmAccount
+  $runningOk = $null -ne $svc -and ($svc.Status -eq 'Running' -or $svc.Status -eq 'StartPending')
+  # LocalSystem / wrong account must NEVER pass — even if the process is Running.
+  $scmOk = $runningOk -and $identityOk
+  $scQc = (& sc.exe qc CamachoPOSLocalService 2>&1 | Out-String).Trim()
   [void]$steps.Add((Write-Step 'winsw_scm_registration' $(if ($scmOk) { 'PASS' } else { 'FAIL' }) @{
     servicePresent = [bool]$svc
     status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
+    startName = $startNameAfter
+    identityOk = $identityOk
+    expectedStartName = $expectedScmAccount
     payloadDir = $payloadDir
     installDir = $installDir
     scmDataDirectory = $scmDataDirectory
     installFallbackExit = "$installFallbackExit"
     installFallbackOutput = $installOut.Trim()
+    scQc = $scQc
     commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
     authenticodeProduct = 'RT-009-B_BLOCKED'
     statusJson = $scmStatus.Trim()

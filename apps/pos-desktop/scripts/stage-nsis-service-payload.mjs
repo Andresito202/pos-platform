@@ -259,9 +259,13 @@ async function main() {
       // WinSW logs must not write under Program Files (virtual account has no write).
       `  <logpath>${esc(input.logDirectory)}</logpath>`,
       "  <startmode>Automatic</startmode>",
+      // WinSW 2.12 reads <domain>/<user> only; <username> is ignored → LocalSystem.
+      // allowservicelogon=false: WinSW LookupAccountName runs before CreateService,
+      // and NT SERVICE virtual accounts do not exist until CreateService succeeds.
       "  <serviceaccount>",
-      `    <username>NT SERVICE\\${SERVICE_ID}</username>`,
-      "    <allowservicelogon>true</allowservicelogon>",
+      "    <domain>NT SERVICE</domain>",
+      `    <user>${SERVICE_ID}</user>`,
+      "    <allowservicelogon>false</allowservicelogon>",
       "  </serviceaccount>",
       "  <stoptimeout>30 sec</stoptimeout>",
       "  <stopparentprocessfirst>false</stopparentprocessfirst>",

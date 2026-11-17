@@ -141,9 +141,15 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
     `  <arguments>${escapeXml(`"${input.bundle}"`)}</arguments>`,
     `  <workingdirectory>${escapeXml(input.workingDirectory)}</workingdirectory>`,
     "  <startmode>Automatic</startmode>",
+    // WinSW 2.12 XmlServiceConfig reads <domain>/<user> only — <username> is ignored
+    // and the service silently installs as LocalSystem (HasServiceAccount => false).
+    // allowservicelogon must stay false for NT SERVICE virtual accounts: WinSW grants
+    // SeServiceLogonRight via LookupAccountName BEFORE CreateService, but the virtual
+    // account does not exist until CreateService succeeds.
     "  <serviceaccount>",
-    `    <username>${escapeXml(SERVICE_ACCOUNT)}</username>`,
-    "    <allowservicelogon>true</allowservicelogon>",
+    "    <domain>NT SERVICE</domain>",
+    `    <user>${escapeXml(SERVICE_ID)}</user>`,
+    "    <allowservicelogon>false</allowservicelogon>",
     "  </serviceaccount>",
     `  <stoptimeout>${STOP_TIMEOUT}</stoptimeout>`,
     // El proceso Node es el hijo directo: se le señala a él, no al grupo.

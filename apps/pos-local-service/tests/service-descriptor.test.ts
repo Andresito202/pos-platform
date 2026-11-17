@@ -99,7 +99,10 @@ describe("descriptor de servicio WinSW", () => {
 
   it("corre bajo la cuenta virtual, no bajo LocalSystem ni un usuario", () => {
     const xml = descriptor();
-    expect(xml).toContain(`<username>NT SERVICE\\${SERVICE_ID}</username>`);
+    // WinSW 2.12: <domain>/<user> (not <username>, which is ignored → LocalSystem).
+    expect(xml).toContain("<domain>NT SERVICE</domain>");
+    expect(xml).toContain(`<user>${SERVICE_ID}</user>`);
+    expect(xml).not.toContain("<username>");
     expect(SERVICE_ACCOUNT).toBe(`NT SERVICE\\${SERVICE_ID}`);
     expect(xml).not.toContain("LocalSystem");
     expect(xml).not.toContain("NT AUTHORITY");
