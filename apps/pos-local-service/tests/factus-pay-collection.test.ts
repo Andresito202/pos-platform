@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rmSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,11 +33,51 @@ const SCOPE: SyncScope = {
 };
 
 const databases: LocalDatabase[] = [];
+const secretStores: EncryptedFileSecretStore[] = [];
+const directories: string[] = [];
+
+/**
+ * Windows bloquea `unlink` de `pos-local.db` / `-shm` / `-wal` mientras el
+ * handle de better-sqlite3 permanece abierto. Cerrar DB y destruir el almacén
+ * de secretos **antes** de borrar el directorio temporal.
+ */
 afterEach(() => {
+  for (const secrets of secretStores.splice(0)) {
+    try { secrets.destroy(); } catch { /* cleanup */ }
+  }
   for (const database of databases.splice(0)) {
-    try { database.close(); } catch {}
+    try { database.close(); } catch { /* cleanup */ }
+  }
+  for (const dir of directories.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
+
+async function openFixture(): Promise<{
+  dir: string;
+  database: LocalDatabase;
+  secrets: EncryptedFileSecretStore;
+  paymentStore: SqlitePaymentStore;
+  credentialStore: FactusPayCredentialStore;
+}> {
+  const dir = await mkdtemp(join(tmpdir(), "factus-pay-collection-"));
+  directories.push(dir);
+  const database = LocalDatabase.open({ dataDirectory: dir });
+  databases.push(database);
+  const sync = new DurableSyncStore(database);
+  const cashStore = new SqliteCashShiftStore(database, sync, () => NOW);
+  const inventoryStore = new SqliteInventoryStore(database, sync, () => NOW);
+  const paymentStore = new SqlitePaymentStore(database, sync, cashStore, inventoryStore, () => NOW);
+  const secrets = new EncryptedFileSecretStore(
+    dir,
+    new InsecureDerivedKeyProvider(dir),
+    `factus-pay-test:${INSTALL}:${DEVICE}:${COMPANY}`,
+  );
+  secretStores.push(secrets);
+  const credentialStore = new FactusPayCredentialStore(secrets, COMPANY);
+  credentialStore.deposit({ environment: "SANDBOX", email: "t@invalid", password: "pw" });
+  return { dir, database, secrets, paymentStore, credentialStore };
+}
 
 function auth(): StoredAuthorizationSnapshot {
   return {
@@ -106,22 +147,8 @@ function seedSale(db: LocalDatabase, saleId = randomUUID(), payable = "150000.00
 
 describe("Factus Pay Caja collections", () => {
   it("registers QR payment, creates provider collection, verifies paid and confirms", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "factus-pay-collection-"));
-    const database = LocalDatabase.open({ dataDirectory: dir });
-    databases.push(database);
-    const sync = new DurableSyncStore(database);
-    const cashStore = new SqliteCashShiftStore(database, sync, () => NOW);
-    const inventoryStore = new SqliteInventoryStore(database, sync, () => NOW);
-    const paymentStore = new SqlitePaymentStore(database, sync, cashStore, inventoryStore, () => NOW);
+    const { database, paymentStore, credentialStore } = await openFixture();
     const saleId = seedSale(database);
-
-    const secrets = new EncryptedFileSecretStore(
-      dir,
-      new InsecureDerivedKeyProvider(dir),
-      `factus-pay-test:${INSTALL}:${DEVICE}:${COMPANY}`,
-    );
-    const credentialStore = new FactusPayCredentialStore(secrets, COMPANY);
-    credentialStore.deposit({ environment: "SANDBOX", email: "t@invalid", password: "pw" });
 
     const collections = new Map<string, Record<string, unknown>>();
     const transport: typeof fetch = async (input, init) => {
@@ -159,7 +186,7 @@ describe("Factus Pay Caja collections", () => {
       causationId: null,
     });
     expect(collected.kind).toBe("COLLECTED");
-    if (collected.kind !== "COLLECTED") return;
+    if (collected.kind !== "COLLECTED") throw new Error(`expected COLLECTED, got ${collected.kind}`);
     expect(collected.qr).toContain("data:image/png");
 
     const paymentRow = database.native.prepare(
@@ -175,7 +202,7 @@ describe("Factus Pay Caja collections", () => {
 
     const read = paymentStore.get(SCOPE, collected.paymentId);
     expect(read.kind).toBe("FOUND");
-    if (read.kind !== "FOUND") return;
+    if (read.kind !== "FOUND") throw new Error(`expected FOUND, got ${read.kind}`);
 
     const confirmed = await verify.execute(SCOPE, SESSION, auth(), {
       paymentId: collected.paymentId,
@@ -185,27 +212,11 @@ describe("Factus Pay Caja collections", () => {
       causationId: null,
     });
     expect(confirmed.kind).toBe("CONFIRMED");
-
-    await rm(dir, { recursive: true, force: true });
   });
 
   it("rejects verify when provider collection is not paid", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "factus-pay-collection-"));
-    const database = LocalDatabase.open({ dataDirectory: dir });
-    databases.push(database);
-    const sync = new DurableSyncStore(database);
-    const cashStore = new SqliteCashShiftStore(database, sync, () => NOW);
-    const inventoryStore = new SqliteInventoryStore(database, sync, () => NOW);
-    const paymentStore = new SqlitePaymentStore(database, sync, cashStore, inventoryStore, () => NOW);
+    const { database, paymentStore, credentialStore } = await openFixture();
     const saleId = seedSale(database, randomUUID(), "2000.000000");
-
-    const secrets = new EncryptedFileSecretStore(
-      dir,
-      new InsecureDerivedKeyProvider(dir),
-      `factus-pay-test:${INSTALL}:${DEVICE}:${COMPANY}`,
-    );
-    const credentialStore = new FactusPayCredentialStore(secrets, COMPANY);
-    credentialStore.deposit({ environment: "SANDBOX", email: "t@invalid", password: "pw" });
 
     const transport: typeof fetch = async (input, init) => {
       const url = String(input);
@@ -238,9 +249,10 @@ describe("Factus Pay Caja collections", () => {
       causationId: null,
     });
     expect(collected.kind).toBe("COLLECTED");
-    if (collected.kind !== "COLLECTED") return;
+    if (collected.kind !== "COLLECTED") throw new Error(`expected COLLECTED, got ${collected.kind}`);
     const read = paymentStore.get(SCOPE, collected.paymentId);
-    if (read.kind !== "FOUND") return;
+    expect(read.kind).toBe("FOUND");
+    if (read.kind !== "FOUND") throw new Error(`expected FOUND, got ${read.kind}`);
 
     const result = await verify.execute(SCOPE, SESSION, auth(), {
       paymentId: collected.paymentId,
@@ -250,7 +262,5 @@ describe("Factus Pay Caja collections", () => {
       causationId: null,
     });
     expect(result.kind).toBe("FACTUS_PAY_NOT_PAID");
-
-    await rm(dir, { recursive: true, force: true });
   });
 });
