@@ -539,19 +539,24 @@ implements
       await this.authenticator.accessToken(request.credential, signal);
     } catch (error) {
       if (error instanceof FactusAuthError && error.retryableByReauthentication) {
+        const parts = [error.code];
+        if (error.httpStatus !== null) parts.push(`http=${error.httpStatus}`);
+        if (error.oauthError !== null) parts.push(`oauth_error=${error.oauthError}`);
         return {
           kind: "INCOMPLETE",
           findings: [{
             code: "CREDENTIAL_REJECTED_BY_PROVIDER",
             fieldName: null,
-            diagnosticReference: error.code,
+            diagnosticReference: parts.join(";"),
           }],
         };
       }
       return {
         kind: "UNDETERMINED",
         reasonCode: error instanceof FactusAuthError ? error.code : "AUTHENTICATION_FAILURE",
-        diagnosticReference: "validateConfiguration",
+        diagnosticReference: error instanceof FactusAuthError && error.httpStatus !== null
+          ? `validateConfiguration;http=${error.httpStatus}`
+          : "validateConfiguration",
       };
     }
 

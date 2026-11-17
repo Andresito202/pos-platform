@@ -106,6 +106,20 @@ https://github.com/Andresito202/pos-platform/actions/workflows/target-foundation
 8. Esperar el job **FACTUS sandbox exceptional (owner authorized)**; descargar el artifact `factus-sandbox-exceptional-<sha>`.
 9. Si FACTUS queda `OBSERVED_FAIL kind=INCOMPLETE`, el JSON del artifact incluye `findings=` (código/campo/diag) sin secretos. Pay puede pasar aunque FACTUS falle.
 
+### Comparación OAuth vs colección Postman oficial (`api-factus-v2.json`)
+
+| Dimensión | Postman oficial | Adapter Camacho | Docs Node/PHP Factus |
+|---|---|---|---|
+| Endpoint | `{{url_api}}/oauth/token` | `https://api-sandbox.factus.com.co/oauth/token` | igual |
+| Método | POST | POST | POST |
+| Accept | `application/json` | `application/json` | `application/json` |
+| Cuerpo | `formdata` (multipart) | `application/x-www-form-urlencoded` | `urlencoded` / `asForm()` |
+| Params | `grant_type,client_id,client_secret,username,password` | mismos nombres | mismos |
+
+Probe sin secretos reales (2026-11-17): urlencoded y multipart responden igual (`401` / `invalid_client`) con credenciales inventadas → la codificación no explica el rechazo; hace falta el código OAuth del proveedor con los secretos reales (`invalid_client` vs `invalid_grant`).
+
+El gate exceptional ejecuta `oauth_encoding_probe` (ambos encodings) y registra sólo `http_status` + `oauth_error` allowlisted.
+
 ### Límites de claim
 
 - El gate emite `OBSERVED_PASS` / `OBSERVED_FAIL` / `BLOCKED` / `NOT_AVAILABLE` por paso.

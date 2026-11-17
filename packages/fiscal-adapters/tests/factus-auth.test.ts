@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { FactusAuthError, FactusAuthenticator, HttpTransportError } from "../src/index.js";
+import {
+  FactusAuthError,
+  FactusAuthenticator,
+  HttpTransportError,
+  extractSafeOAuthError,
+} from "../src/index.js";
 import {
   FAKE_REFERENCE,
   FakeCredentialResolver,
@@ -113,6 +118,15 @@ describe("ciclo de vida del token", () => {
   });
 });
 
+describe("extractSafeOAuthError", () => {
+  it("conserva códigos OAuth allowlisted y descarta el resto", () => {
+    expect(extractSafeOAuthError(JSON.stringify({ error: "invalid_client" }))).toBe("invalid_client");
+    expect(extractSafeOAuthError(JSON.stringify({ error: "invalid_grant" }))).toBe("invalid_grant");
+    expect(extractSafeOAuthError(JSON.stringify({ error: "weird", error_description: "secret" }))).toBeNull();
+    expect(extractSafeOAuthError("not-json")).toBeNull();
+  });
+});
+
 describe("el error de autenticación no filtra la credencial", () => {
   it("un rechazo no adjunta el cuerpo de la respuesta", async () => {
     const transport = new FakeTransport([
@@ -127,6 +141,18 @@ describe("el error de autenticación no filtra la credencial", () => {
 
     const error = await auth.accessToken(FAKE_REFERENCE, signal).catch((caught: unknown) => caught);
     expect(JSON.stringify(error instanceof Error ? error.message : "")).not.toContain("fake-client-secret");
+    expect(error).toBeInstanceOf(FactusAuthError);
+    expect((error as FactusAuthError).httpStatus).toBe(401);
+    expect((error as FactusAuthError).oauthError).toBe("invalid_client");
+    expect(JSON.stringify(error)).not.toContain("fake-client-secret");
+  });
+
+  it("envía application/x-www-form-urlencoded como el ejemplo Node oficial", async () => {
+    const transport = new FakeTransport([() => tokenResponse()]);
+    const auth = new FactusAuthenticator(transport, new FakeCredentialResolver(), "SANDBOX", clock());
+    await auth.accessToken(FAKE_REFERENCE, signal);
+    expect(transport.requests[0]?.headers["content-type"]).toBe("application/x-www-form-urlencoded");
+    expect(transport.requests[0]?.headers.accept).toBe("application/json");
   });
 
   it("una respuesta de token con forma inesperada no se acepta a medias", async () => {

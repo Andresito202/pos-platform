@@ -182,7 +182,90 @@ function buildCreditNotePayload(
   };
 }
 
+/**
+ * Compara la forma Postman oficial (multipart form-data) con la del adapter
+ * (application/x-www-form-urlencoded, alineada al ejemplo Node/Laravel asForm
+ * de developers.factus.com.co). Sólo registra HTTP status + oauth_error seguro.
+ */
+async function probeFactusOAuthEncodings(
+  credential: FactusCredential,
+  signal: AbortSignal,
+): Promise<void> {
+  const url = `${FACTUS_SANDBOX_ORIGIN}/oauth/token`;
+  const fields: ReadonlyArray<readonly [string, string]> = [
+    ["grant_type", "password"],
+    ["client_id", credential.clientId],
+    ["client_secret", credential.clientSecret],
+    ["username", credential.username],
+    ["password", credential.password],
+  ];
+
+  async function one(
+    encoding: "urlencoded_adapter" | "multipart_postman",
+  ): Promise<{ status: number; oauth_error: string | null }> {
+    let response: Response;
+    if (encoding === "urlencoded_adapter") {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams(fields).toString(),
+        signal,
+      });
+    } else {
+      const form = new FormData();
+      for (const [key, value] of fields) form.append(key, value);
+      response = await fetch(url, {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        body: form,
+        signal,
+      });
+    }
+    const text = await response.text();
+    let oauthError: string | null = null;
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed.error === "string") {
+        const normalized = parsed.error.trim().toLowerCase();
+        const safe = new Set([
+          "invalid_request",
+          "invalid_client",
+          "invalid_grant",
+          "unauthorized_client",
+          "unsupported_grant_type",
+          "invalid_scope",
+        ]);
+        oauthError = safe.has(normalized) ? normalized : null;
+      }
+    } catch {
+      oauthError = null;
+    }
+    return { status: response.status, oauth_error: oauthError };
+  }
+
+  const urlencoded = await one("urlencoded_adapter");
+  const multipart = await one("multipart_postman");
+  record(
+    "FACTUS",
+    "oauth_encoding_probe",
+    urlencoded.status === 200 || multipart.status === 200 ? "OBSERVED_PASS" : "OBSERVED_FAIL",
+    [
+      "postman_collection=formdata;adapter=urlencoded;docs_node_php=urlencoded",
+      `urlencoded_http=${urlencoded.status};urlencoded_oauth_error=${urlencoded.oauth_error ?? "none"}`,
+      `multipart_http=${multipart.status};multipart_oauth_error=${multipart.oauth_error ?? "none"}`,
+      `encodings_agree=${urlencoded.status === multipart.status && urlencoded.oauth_error === multipart.oauth_error}`,
+      "params=grant_type,client_id,client_secret,username,password",
+      "endpoint=/oauth/token",
+    ].join(";"),
+  );
+}
+
 async function runFactus(credential: FactusCredential, signal: AbortSignal): Promise<void> {
+  await probeFactusOAuthEncodings(credential, signal);
+
   const adapter = new FactusAdapter(
     new FetchHttpTransport(),
     new EnvCredentialResolver(credential),
