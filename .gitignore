@@ -42,3 +42,7 @@ playwright-report/
 .gradle/
 .kotlin/
 apps/pos-local-service/native/android-hardware/build/
+
+# NSIS service payload staged at pack time (WinSW/Node/Local Service)
+apps/pos-desktop/packaging/service-payload/
+apps/pos-desktop/packaging/.cache/

@@ -71,6 +71,16 @@ jobs:
           pnpm --filter @pos-platform/pos-desktop build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Build POS Local Service win32 artifact for NSIS payload
+        shell: pwsh
+        run: |
+          $env:POS_ARTIFACT_TARGET = 'win32-x64'
+          pnpm --filter @pos-platform/pos-local-service build:artifact
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path 'apps/pos-local-service/dist/pos-local-service-0.0.0-win32-x64.tar.gz')) {
+            throw 'LOCAL_SERVICE_WIN32_ARTIFACT_MISSING'
+          }
+
       - name: Verify brand icon for packager
         shell: pwsh
         run: |
@@ -78,7 +88,7 @@ jobs:
             throw "MISSING_BRAND_ICON: apps/pos-desktop/packaging/icon.png"
           }
 
-      - name: Generate NSIS installer (unsigned lab)
+      - name: Generate NSIS installer (unsigned lab, with WinSW service payload)
         shell: pwsh
         run: |
           pnpm --filter @pos-platform/pos-desktop pack:windows-nsis

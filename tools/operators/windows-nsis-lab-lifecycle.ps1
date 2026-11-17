@@ -7,8 +7,8 @@
   Local Service provisioning + installed EXE launch (no --no-sandbox), upgrade,
   uninstall. Always writes nsis-lifecycle-report.json (PASS/FAIL/SKIP explicit).
 
-  WinSW/SCM commercial registration is SKIP only because desktop NSIS does not
-  bundle WinSW — not because a failed launch was reclassified.
+  WinSW/SCM: PASS when bundled payload registers CamachoPOSLocalService.
+  Commercial Desktop↔NT SERVICE IPC remains NOT_PROVEN (no fake handoff).
 #>
 [CmdletBinding()]
 param(
@@ -21,7 +21,11 @@ param(
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force -Path $WorkRoot | Out-Null
 $reportPath = Join-Path $WorkRoot 'nsis-lifecycle-report.json'
-$installDir = Join-Path $env:LOCALAPPDATA "Programs\$ProductName"
+# perMachine NSIS → Program Files; keep LocalAppData as fallback for older artifacts.
+$installDir = Join-Path ${env:ProgramFiles} $ProductName
+if (-not (Test-Path -LiteralPath $installDir)) {
+  $installDir = Join-Path $env:LOCALAPPDATA "Programs\$ProductName"
+}
 $userDataDir = Join-Path $env:APPDATA $ProductName
 $dataDirectory = Join-Path $userDataDir 'lab-data'
 $sqlitePath = Join-Path $dataDirectory 'lab-preservation.sqlite'
@@ -149,12 +153,39 @@ try {
     installFileCount = $installFiles.Count
   }))
 
-  # --- Services / WinSW (honest: not bundled in desktop NSIS) ---
+  # --- Services / WinSW/SCM (bundled under resources/service-payload when staged) ---
+  $payloadDir = Join-Path $installDir 'resources\service-payload'
+  $winswHelper = Join-Path $payloadDir 'install-camacho-local-service.ps1'
   $svc = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
-  [void]$steps.Add((Write-Step 'winsw_scm_registration' 'SKIP' @{
-    reason = 'Desktop NSIS artifact does not bundle WinSW/SCM; commercial service registration out of installer scope'
+  if (-not (Test-Path -LiteralPath $winswHelper)) {
+    [void]$steps.Add((Write-Step 'winsw_scm_registration' 'FAIL' @{
+      reason = 'SERVICE_PAYLOAD_MISSING_FROM_INSTALLER'
+      payloadDir = $payloadDir
+      servicePresent = [bool]$svc
+    }))
+    throw 'SERVICE_PAYLOAD_MISSING_FROM_INSTALLER'
+  }
+  # NSIS customInstall should have registered; if not (silent race), install now elevated.
+  if (-not $svc) {
+    Write-Host 'PHASE=winsw_scm_install_fallback'
+    $installOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
+      -Action Install -PayloadDir $payloadDir -DataDirectory $dataDirectory -Json 2>&1 | Out-String
+    Write-Host $installOut
+    $svc = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+  }
+  $scmStatus = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
+    -Action Status -PayloadDir $payloadDir -Json 2>&1 | Out-String
+  Write-Host $scmStatus
+  $scmOk = $null -ne $svc -and ($svc.Status -eq 'Running' -or $svc.Status -eq 'StartPending')
+  [void]$steps.Add((Write-Step 'winsw_scm_registration' $(if ($scmOk) { 'PASS' } else { 'FAIL' }) @{
     servicePresent = [bool]$svc
+    status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
+    payloadDir = $payloadDir
+    commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+    authenticodeProduct = 'RT-009-B_BLOCKED'
+    statusJson = $scmStatus.Trim()
   }))
+  if (-not $scmOk) { throw 'WINSW_SCM_REGISTRATION_FAILED' }
 
   # --- Real SQLite preservation marker ---
   New-Item -ItemType Directory -Force -Path $dataDirectory | Out-Null
@@ -242,8 +273,15 @@ try {
   }
   if (-not $alive) { throw "LAUNCH_INSTALLED_EXE_PERSIST_FAILED:exit=$launchExit" }
 
+  # Interactive same-user IPC (CurrentUser DPAPI) — not NT SERVICE commercial handoff.
   [void]$steps.Add((Write-Step 'electron_local_service_ipc' 'PASS' @{
-    note = 'Installed EXE stayed alive against provisioned Local Service/DPAPI channel'
+    note = 'Installed EXE stayed alive against interactive Local Service/DPAPI channel'
+    scmCommercialIpc = 'NOT_PROVEN'
+    commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+  }))
+  [void]$steps.Add((Write-Step 'electron_winsw_scm_commercial_ipc' 'SKIP' @{
+    reason = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+    note = 'Desktop CurrentUser DPAPI cannot share secret with NT SERVICE\\CamachoPOSLocalService until audited handoff'
   }))
 
   # --- Silent upgrade ---
@@ -280,6 +318,13 @@ try {
     throw "SILENT_UNINSTALL_FAILED:exit=$($uninstall.ExitCode)"
   }
   [void]$steps.Add((Write-Step 'silent_uninstall' 'PASS' @{ exitCode = 0; installDirRemoved = $dirGone }))
+
+  $svcAfter = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+  [void]$steps.Add((Write-Step 'winsw_scm_removed_after_uninstall' $(if ($null -eq $svcAfter) { 'PASS' } else { 'FAIL' }) @{
+    servicePresent = [bool]$svcAfter
+    note = 'NSIS customUnInstall must remove CamachoPOSLocalService without wiping commercial data'
+  }))
+  if ($null -ne $svcAfter) { throw 'WINSW_SCM_STILL_REGISTERED_AFTER_UNINSTALL' }
 
   $sqliteAfterUninstall = Test-Path -LiteralPath $sqlitePath
   [void]$steps.Add((Write-Step 'residuals_after_uninstall' 'PASS' @{

@@ -11,7 +11,7 @@
  * - 2: electron-builder missing
  * - 3: desktop dist missing
  */
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,21 @@ if (!existsSync(distEntry) || !existsSync(renderer)) {
   console.error("PACK_WINDOWS_NSIS_DIST_MISSING: run pnpm --filter @pos-platform/pos-desktop build first");
   process.exit(3);
 }
+
+const stageScript = join(here, "stage-nsis-service-payload.mjs");
+const stage = spawnSync(process.execPath, [stageScript], { cwd: desktop, stdio: "inherit" });
+if (stage.status !== 0) {
+  console.error("PACK_WINDOWS_NSIS_SERVICE_PAYLOAD_STAGE_FAILED");
+  process.exit(stage.status === null ? 1 : stage.status);
+}
+
+const helperSrc = join(desktop, "packaging", "install-camacho-local-service.ps1");
+const helperDest = join(desktop, "packaging", "service-payload", "install-camacho-local-service.ps1");
+if (!existsSync(helperSrc)) {
+  console.error("PACK_WINDOWS_NSIS_SERVICE_HELPER_MISSING");
+  process.exit(4);
+}
+copyFileSync(helperSrc, helperDest);
 
 const require = createRequire(join(desktop, "package.json"));
 let builderBin;

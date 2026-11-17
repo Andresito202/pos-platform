@@ -1,6 +1,6 @@
 import { BrandMark } from "./components/BrandMark.js";
 import { CanonicalPermission } from "@pos-platform/contracts";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import "./commercial-precision.css";
 import "./workspace.css";
@@ -70,14 +70,19 @@ export function App(): React.JSX.Element {
     }
   }, [authorization.phase]);
 
-  // Reset workspace only when a settled local identity changes (login, role
-  // switch, logout). Transient probe blanks (ready=false) must not wipe the
-  // active screen — that raced SUPERVISOR navigation to transfer-review under CI.
+  // Reset workspace only when a settled local identity *changes* (login, role
+  // switch, logout). First settlement and transient probe blanks must not wipe
+  // a click that landed between first paint and this effect (TARGET #1480 /
+  // SUPERVISOR→transfer-review race under CI load).
   const settledIdentity = localSession.ready
     ? `${localSession.username ?? ""}:${localSession.role ?? ""}`
     : null;
+  const previousSettledIdentityRef = useRef<string | null>(null);
   useEffect(() => {
     if (settledIdentity === null) return;
+    const previous = previousSettledIdentityRef.current;
+    previousSettledIdentityRef.current = settledIdentity;
+    if (previous === null || previous === settledIdentity) return;
     setActiveScreen(null);
     setVisitedScreens(new Set());
   }, [settledIdentity]);
