@@ -116,7 +116,7 @@ export function depositFiscalCredential(
 /** Abre el almacen fiscal con el mismo criterio de plataforma que `main.ts`. */
 export function openFiscalCredentialStore(
   dataDirectory: string,
-  binding: { readonly installationId: string; readonly deviceId: string },
+  binding: { readonly installationId: string; readonly deviceId: string; readonly companyId: string },
 ): { store: FiscalCredentialStore; secrets: EncryptedFileSecretStore } {
   const directory = join(dataDirectory, "security");
   mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -128,7 +128,7 @@ export function openFiscalCredentialStore(
     keyProvider,
     fiscalCredentialContext(binding),
   );
-  return { store: new FiscalCredentialStore(secrets), secrets };
+  return { store: new FiscalCredentialStore(secrets, binding.companyId), secrets };
 }
 
 /**
@@ -160,6 +160,7 @@ export async function runDepositCli(
     const { store, secrets } = openFiscalCredentialStore(config.data_directory, {
       installationId: config.installation_id,
       deviceId: config.device_id,
+      companyId: config.company_id,
     });
     try {
       const reference = depositFiscalCredential(

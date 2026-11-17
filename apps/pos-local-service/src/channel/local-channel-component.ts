@@ -236,7 +236,6 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "customer.marketing.subscribe":
       case "customer.marketing.unsubscribe":
       case "customer.marketing.get":
-      case "fiscal.document.issue":
       case "catalog.product.register":
       case "catalog.presentation.register":
       case "catalog.food_policy.upsert":
@@ -271,6 +270,10 @@ export class LocalChannelComponent implements RuntimeComponent {
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
         return this.commercialHandler.handle(request, context.connectionId, signal);
+      case "fiscal.document.issue":
+      case "payment.factus_pay.collect":
+      case "payment.factus_pay.verify":
+        return await this.commercialHandler.handle(request, context.connectionId, signal);
       case "session.recover": {
         const response=await this.commercialHandler.handle(request,context.connectionId,signal);
         if(response&&typeof response==="object"&&"result_code" in response&&response.result_code==="ACTIVE")this.nativeCommercial?.recovered?.(context.connectionId);

@@ -12,42 +12,12 @@ import type { EncryptedFileSecretStore } from "../security/encrypted-secret-stor
 /**
  * Custodia local de credenciales fiscales (`DEC-021` F2, sobre `SEC-004`).
  *
- * `DEC-021` §2.3 dejó escrito el hueco entero: existía el almacén cifrado y
- * existía el puerto `FactusCredentialResolver`, y no existía **ni un resolutor
- * de produccion que leyera del almacen, ni una operacion por la que un operador
- * depositara la credencial ahi**. Sin la segunda, la primera es una isla mas.
+ * Alcance autorizado: `(proveedor, ambiente, companyId)`. Una caja/instalación
+ * no puede resolver ni depositar la credencial de otra empresa: el nombre del
+ * secreto y el AAD incluyen `companyId` del contexto de servicio (`POS_COMPANY_ID`).
  *
- * ## Lo que este modulo garantiza, y como
- *
- * **El valor no sale de aqui.** `resolve` devuelve los campos al llamador
- * —que es el adapter, y solo el adapter— y ninguna otra operacion los expone.
- * `reference` y `deposit` devuelven la referencia opaca: eso es lo unico que el
- * nucleo llega a ver, conforme a `credential.ts` §Referencia opaca.
- *
- * **No hay tabla ni fichero de indice.** El nombre del secreto se deriva de
- * `(proveedor, ambiente)`, de modo que localizarlo no exige persistir la
- * referencia en ninguna parte. Una tabla mas seria una copia mas del dato que
- * apunta al secreto, y no aporta nada que la derivacion no de gratis.
- *
- * **Los ambientes no se mezclan.** El nombre los separa, igual que
- * `device-licensing-schema.md:268` exige para las claves de firma: produccion y
- * sandbox nunca comparten registro.
- *
- * **Una referencia caduca falla cerrada.** La version viaja dentro del sobre
- * cifrado y `resolve` la compara. Tras una rotacion, quien conserve la
- * referencia anterior recibe un error, no la credencial nueva en silencio.
- *
- * **El contexto criptografico es propio.** El almacen usa su `context` como AAD,
- * asi que un secreto de identidad de dispositivo no se puede descifrar como
- * credencial fiscal ni al reves, aunque compartan directorio y clave maestra.
- *
- * ## Lo que NO garantiza, y conviene no fingir
- *
- * Los valores se devuelven como `string`, y una cadena de JavaScript no se puede
- * poner a cero: queda en el heap hasta que el recolector pase. El `Buffer` que
- * sale del almacen si se limpia. Reducir esa ventana exigiria mantener el
- * secreto en `Buffer` a lo largo de todo el adapter, lo que hoy contradice la
- * forma de `FactusCredential`. Queda dicho, no disimulado.
+ * No se duplica el almacén cifrado: se reutiliza `EncryptedFileSecretStore` con
+ * contexto AAD propio del dominio fiscal (v2 = company-scoped).
  */
 
 /** Prefijo del `secretRef`. Fijo porque el primer segmento no admite `_`. */
@@ -64,14 +34,15 @@ interface StoredEnvelope {
   readonly version: string;
   readonly provider: FiscalProvider;
   readonly environment: FiscalEnvironment;
+  readonly companyId: string;
   readonly fields: Readonly<Record<string, string>>;
   readonly depositedAt: string;
 }
 
 export class FiscalCredentialNotFoundError extends Error {
   readonly code = "FISCAL_CREDENTIAL_NOT_DEPOSITED";
-  constructor(provider: FiscalProvider, environment: FiscalEnvironment) {
-    super(`no fiscal credential deposited for ${provider} in ${environment}`);
+  constructor(provider: FiscalProvider, environment: FiscalEnvironment, companyId: string) {
+    super(`no fiscal credential deposited for ${provider} in ${environment} company ${companyId}`);
     this.name = "FiscalCredentialNotFoundError";
   }
 }
@@ -79,7 +50,6 @@ export class FiscalCredentialNotFoundError extends Error {
 export class FiscalCredentialVersionMismatchError extends Error {
   readonly code = "FISCAL_CREDENTIAL_VERSION_MISMATCH";
   constructor() {
-    // Sin versiones en el mensaje: identifican un secreto vigente.
     super("fiscal credential reference is stale; the credential was rotated");
     this.name = "FiscalCredentialVersionMismatchError";
   }
@@ -93,29 +63,44 @@ export class FiscalCredentialShapeError extends Error {
   }
 }
 
-/** Nombre del secreto en el almacen. Deriva de `(proveedor, ambiente)`. */
+export class FiscalCredentialCompanyMismatchError extends Error {
+  readonly code = "FISCAL_CREDENTIAL_COMPANY_MISMATCH";
+  constructor() {
+    super("fiscal credential does not belong to the authorized company");
+    this.name = "FiscalCredentialCompanyMismatchError";
+  }
+}
+
+/** Nombre del secreto: `(proveedor, ambiente, empresa)`. */
 export function fiscalSecretName(
   provider: FiscalProvider,
   environment: FiscalEnvironment,
+  companyId: string,
 ): string {
-  return `fc.${provider.toLowerCase()}.${environment.toLowerCase()}`;
+  return `fc.${provider.toLowerCase()}.${environment.toLowerCase()}.${companyId}`;
 }
 
-/** Contexto criptografico (AAD) propio del dominio fiscal. */
+/**
+ * AAD fiscal v2 — incluye empresa autorizada.
+ * Los depósitos v1 (sólo instalación/dispositivo) no se descifran aquí a propósito:
+ * el operador debe redepositar bajo el alcance de empresa.
+ */
 export function fiscalCredentialContext(binding: {
   readonly installationId: string;
   readonly deviceId: string;
+  readonly companyId: string;
 }): string {
-  return `pos-local-service.fiscal-credential.v1:${binding.installationId}:${binding.deviceId}`;
+  return `pos-local-service.fiscal-credential.v2:${binding.installationId}:${binding.deviceId}:${binding.companyId}`;
 }
 
 function referenceFor(
   provider: FiscalProvider,
   environment: FiscalEnvironment,
+  companyId: string,
   version: string,
 ): CredentialReference {
   return CredentialReferenceSchema.parse({
-    secretRef: `${SECRET_REF_PREFIX}:${provider}:${environment}`,
+    secretRef: `${SECRET_REF_PREFIX}:${provider}:${environment}:${companyId}`,
     version,
   });
 }
@@ -123,22 +108,18 @@ function referenceFor(
 export class FiscalCredentialStore {
   constructor(
     private readonly secrets: EncryptedFileSecretStore,
+    private readonly companyId: string,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) {
+    if (typeof companyId !== "string" || companyId.length < 1) {
+      throw new FiscalCredentialShapeError("fiscal credential store requires an authorized companyId");
+    }
+  }
 
-  /**
-   * Deposita o rota la credencial. Devuelve la referencia opaca resultante.
-   *
-   * Valida los nombres de campo contra lo que el adapter declara: depositar una
-   * credencial incompleta produciria un fallo de autenticacion mucho mas tarde y
-   * mucho mas dificil de leer. Tambien rechaza campos de mas, porque un campo
-   * que el adapter no conoce es un valor custodiado que nadie va a usar.
-   */
   deposit(input: FiscalCredentialDeposit, requirement: CredentialRequirement): CredentialReference {
     const expected = requirement.fields.map((field) => field.name).sort();
     const supplied = Object.keys(input.fields).sort();
     if (expected.length !== supplied.length || expected.some((name, index) => name !== supplied[index])) {
-      // Los nombres son publicos (`fiscal-adapter-gate.md` §12.2); los valores no.
       throw new FiscalCredentialShapeError(
         `fiscal credential fields must be exactly [${expected.join(", ")}]`,
       );
@@ -155,67 +136,59 @@ export class FiscalCredentialStore {
       version,
       provider: input.provider,
       environment: input.environment,
+      companyId: this.companyId,
       fields: { ...input.fields },
       depositedAt: this.now().toISOString(),
     };
     const plaintext = Buffer.from(JSON.stringify(envelope), "utf8");
     try {
-      this.secrets.write(fiscalSecretName(input.provider, input.environment), plaintext);
+      this.secrets.write(fiscalSecretName(input.provider, input.environment, this.companyId), plaintext);
     } finally {
       plaintext.fill(0);
     }
-    return referenceFor(input.provider, input.environment, version);
+    return referenceFor(input.provider, input.environment, this.companyId, version);
   }
 
-  /** `true` si hay credencial depositada para ese proveedor y ambiente. */
   has(provider: FiscalProvider, environment: FiscalEnvironment): boolean {
-    return this.secrets.has(fiscalSecretName(provider, environment));
+    return this.secrets.has(fiscalSecretName(provider, environment, this.companyId));
   }
 
-  /**
-   * Referencia vigente. Descifra para leer la version, y **no devuelve valores**.
-   *
-   * Es la operacion que permite cablear el adapter sin persistir la referencia
-   * en ninguna tabla.
-   */
   reference(provider: FiscalProvider, environment: FiscalEnvironment): CredentialReference {
-    return referenceFor(provider, environment, this.open(provider, environment).version);
+    return referenceFor(provider, environment, this.companyId, this.open(provider, environment).version);
   }
 
-  /**
-   * Resuelve los campos custodiados.
-   *
-   * Solo el adapter debe llamar aqui. La referencia se valida entera: proveedor,
-   * ambiente y version. Una version que no coincide es una rotacion ocurrida
-   * entre medias y falla cerrada.
-   */
   resolve(reference: CredentialReference): Readonly<Record<string, string>> {
     const parsed = CredentialReferenceSchema.parse(reference);
     const segments = parsed.secretRef.split(":");
-    if (segments.length !== 3 || segments[0] !== SECRET_REF_PREFIX) {
+    if (segments.length !== 4 || segments[0] !== SECRET_REF_PREFIX) {
       throw new FiscalCredentialShapeError("fiscal credential reference is not addressable");
     }
     const provider = segments[1] as FiscalProvider;
     const environment = segments[2] as FiscalEnvironment;
+    const companyId = segments[3]!;
+    if (companyId !== this.companyId) throw new FiscalCredentialCompanyMismatchError();
 
     const envelope = this.open(provider, environment);
     if (envelope.version !== parsed.version) throw new FiscalCredentialVersionMismatchError();
-    // El sobre guarda tambien proveedor y ambiente: si el fichero se moviera de
-    // sitio, la referencia dejaria de resolver en lugar de resolver a otra cosa.
-    if (envelope.provider !== provider || envelope.environment !== environment) {
+    if (
+      envelope.provider !== provider
+      || envelope.environment !== environment
+      || envelope.companyId !== this.companyId
+    ) {
       throw new FiscalCredentialShapeError("stored fiscal credential does not match its location");
     }
     return envelope.fields;
   }
 
-  /** Nombres de los campos secretos declarados, para redactar diagnosticos. */
   static redactableFieldNames(requirement: CredentialRequirement): readonly string[] {
     return secretFieldNames(requirement);
   }
 
   private open(provider: FiscalProvider, environment: FiscalEnvironment): StoredEnvelope {
-    const name = fiscalSecretName(provider, environment);
-    if (!this.secrets.has(name)) throw new FiscalCredentialNotFoundError(provider, environment);
+    const name = fiscalSecretName(provider, environment, this.companyId);
+    if (!this.secrets.has(name)) {
+      throw new FiscalCredentialNotFoundError(provider, environment, this.companyId);
+    }
     const plaintext = this.secrets.read(name);
     try {
       return JSON.parse(plaintext.toString("utf8")) as StoredEnvelope;

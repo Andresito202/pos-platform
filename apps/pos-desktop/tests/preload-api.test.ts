@@ -28,6 +28,8 @@ describe("preload-api", () => {
       "payment.register.cash",
       "payment.register.transfer",
       "payment.transfer.confirm",
+      "payment.factus_pay.collect",
+      "payment.factus_pay.verify",
       "payment.cancel",
       "payment.get",
       "payment.destination.get",

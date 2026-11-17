@@ -5,3 +5,8 @@ export * from "./register-transfer-payment-use-case.js";
 export * from "./confirm-transfer-payment-use-case.js";
 export * from "./cancel-payment-use-case.js";
 export * from "./get-payment-use-case.js";
+export * from "./factus-pay-amount.js";
+export * from "./factus-pay-client.js";
+export * from "./factus-pay-credential-store.js";
+export * from "./register-factus-pay-collection-use-case.js";
+export * from "./verify-factus-pay-collection-use-case.js";

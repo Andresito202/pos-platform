@@ -10,6 +10,8 @@ import type {
   CatalogItemResult,
   CatalogItemListItem,
   PaymentRegisterCashResult,
+  PaymentFactusPayCollectResult,
+  PaymentFactusPayVerifyResult,
   SaleCreateResult,
 } from "@pos-platform/contracts";
 import { buildEnvelope, callCommercial, getPosService, newIdempotencyKey, type CommercialEnvelope, type CommercialResponse } from "../pos-service.js";
@@ -57,6 +59,16 @@ export interface RegisteredTransfer {
   readonly expectedAmount: string | null;
 }
 
+export interface RegisteredFactusPay {
+  readonly paymentId: string;
+  readonly saleId: string | null;
+  readonly version: number | null;
+  readonly status: string | null;
+  readonly expectedAmount: string | null;
+  readonly referenceCode: string | null;
+  readonly qr: string | null;
+}
+
 export interface CommercialSaleState {
   readonly busy: boolean;
   readonly error: string | null;
@@ -75,6 +87,8 @@ export interface CommercialSaleState {
   readonly transfer: RegisteredTransfer | null;
   /** Resultado de confirmar la transferencia. Sólo aquí puede sonar el cha-ching. */
   readonly transferConfirmation: PaymentTransferConfirmResult | null;
+  readonly factusPay: RegisteredFactusPay | null;
+  readonly factusPayConfirmation: PaymentFactusPayVerifyResult | null;
 }
 
 /**
@@ -132,6 +146,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   confirmTransfer(): Promise<void>;
   loadTransfer(paymentId: string): Promise<void>;
   cancelTransfer(): Promise<void>;
+  collectFactusPay(paymentAmount?: string): Promise<void>;
+  verifyFactusPay(): Promise<void>;
+  loadFactusPay(paymentId: string): Promise<void>;
   unresolved: boolean;
   retryPending(): Promise<void>;
   closeShift(countedAmount: string): Promise<void>;
@@ -209,6 +226,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   const [transfer, setTransfer] = useState<RegisteredTransfer | null>(null);
   const [transferConfirmation, setTransferConfirmation] =
     useState<PaymentTransferConfirmResult | null>(null);
+  const [factusPay, setFactusPay] = useState<RegisteredFactusPay | null>(null);
+  const [factusPayConfirmation, setFactusPayConfirmation] =
+    useState<PaymentFactusPayVerifyResult | null>(null);
 
   /**
    * Un rechazo del servicio no es una excepción: el sobre lo trae como
@@ -564,6 +584,104 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     );
   }, [transfer, run, callMutation]);
 
+  const loadFactusPay = useCallback(async (paymentId: string): Promise<void> => {
+    if (!canReadPayment) return;
+    setFactusPay(null);
+    setFactusPayConfirmation(null);
+    await run<PaymentGetResult>(
+      () => callCommercial("payment.get", { payment_id: paymentId }),
+      (result) => {
+        if (result.outcome !== "FOUND" || result.payment_id === null || result.method !== "QR") {
+          setError(result.outcome === "FOUND" ? "PAYMENT_NOT_FACTUS_PAY" : result.outcome);
+          return;
+        }
+        setFactusPay({
+          paymentId: result.payment_id,
+          saleId: result.sale_id,
+          version: result.version,
+          status: result.status,
+          expectedAmount: result.expected_amount,
+          referenceCode: null,
+          qr: null,
+        });
+      },
+    );
+  }, [canReadPayment, run]);
+
+  const collectFactusPay = useCallback(async (paymentAmount?: string): Promise<void> => {
+    const current = sale;
+    if (current === null) return;
+    const priorCoverage = payment?.confirmed_coverage
+      ?? (transferConfirmation?.sale_completed === true ? null : transferConfirmation?.confirmed_coverage)
+      ?? (factusPayConfirmation?.sale_completed === true ? null : factusPayConfirmation?.confirmed_coverage);
+    const hasPriorCoverage = priorCoverage !== null && priorCoverage !== undefined
+      && priorCoverage !== "0.000000"
+      && payment?.sale_completed !== true
+      && transferConfirmation?.sale_completed !== true
+      && factusPayConfirmation?.sale_completed !== true;
+    if (hasPriorCoverage && (paymentAmount === undefined || paymentAmount.trim() === "")) {
+      setError("PAYMENT_AMOUNT_REQUIRED");
+      return;
+    }
+    const amount = toScale6(paymentAmount ?? current.payableAmount);
+    if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
+    setFactusPayConfirmation(null);
+
+    let registeredId: string | null = null;
+    let referenceCode: string | null = null;
+    let qr: string | null = null;
+    await run<PaymentFactusPayCollectResult>(
+      () => callMutation("payment.factus_pay.collect", {
+        sale_id: current.saleId,
+        amount,
+        expiration_seconds: 900,
+      }),
+      (result) => {
+        if (result.payment_id === null) {
+          setError(result.outcome);
+          return;
+        }
+        registeredId = result.payment_id;
+        referenceCode = result.reference_code;
+        qr = result.qr;
+        setFactusPay({
+          paymentId: result.payment_id,
+          saleId: current.saleId,
+          version: null,
+          status: null,
+          expectedAmount: null,
+          referenceCode: result.reference_code,
+          qr: result.qr,
+        });
+      },
+    );
+    if (registeredId === null) return;
+    await loadFactusPay(registeredId);
+    setFactusPay((value) => value?.paymentId === registeredId
+      ? { ...value, referenceCode, qr }
+      : value);
+  }, [sale, payment, transferConfirmation, factusPayConfirmation, run, loadFactusPay, callMutation]);
+
+  const verifyFactusPay = useCallback(async (): Promise<void> => {
+    const current = factusPay;
+    if (current === null || current.version === null) return;
+    await run<PaymentFactusPayVerifyResult>(
+      () => callMutation("payment.factus_pay.verify", {
+        payment_id: current.paymentId,
+        expected_version: current.version,
+      }),
+      (result) => {
+        setFactusPayConfirmation(result);
+        if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") {
+          setFactusPay((value) => value?.paymentId === current.paymentId
+            ? { ...value, status: "CONFIRMED", version: null }
+            : value);
+        }
+        if (shouldPlayChime(result)) playConfirmationChime();
+      },
+    );
+  }, [factusPay, run, callMutation]);
+
   const cancelTransfer = useCallback(async (): Promise<void> => {
     const current = transfer;
     if (current === null || current.version === null) return;
@@ -632,7 +750,9 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     // sale.cancel IPC is not materialized; abandoning READY_FOR_PAYMENT would
     // leave inventory SALE holds. Block until the sale is completed or cancelled
     // through an authorized path.
-    const saleCompleted = payment?.sale_completed === true || transferConfirmation?.sale_completed === true;
+    const saleCompleted = payment?.sale_completed === true
+      || transferConfirmation?.sale_completed === true
+      || factusPayConfirmation?.sale_completed === true;
     if (sale !== null && !saleCompleted) {
       setError("SALE_IN_PROGRESS_REQUIRES_COMPLETION");
       return false;
@@ -644,9 +764,11 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     setFoundItem(null);
     setTransfer(null);
     setTransferConfirmation(null);
+    setFactusPay(null);
+    setFactusPayConfirmation(null);
     setError(null);
     return true;
-  }, [sale, payment, transferConfirmation]);
+  }, [sale, payment, transferConfirmation, factusPayConfirmation]);
 
   return {
     customerId, selectCustomer: (id) => {
@@ -655,7 +777,10 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     waitingCarts, waitingLabel, setWaitingLabel, listWaiting, holdCart, resumeCart, discardWaiting,
     busy, error, shift, foundItem, catalogItems, catalogHasMore, catalogBusy, lines, sale, payment, closedShift,
     transfer, transferConfirmation,
+    factusPay, factusPayConfirmation,
     openShift, listCatalogItems, addCatalogItem, findItem, addFoundItem, removeLine, createSale, chargeCash,
-    registerTransfer, confirmTransfer, loadTransfer, cancelTransfer, unresolved, retryPending, closeShift, reset,
+    registerTransfer, confirmTransfer, loadTransfer, cancelTransfer,
+    collectFactusPay, verifyFactusPay, loadFactusPay,
+    unresolved, retryPending, closeShift, reset,
   };
 }

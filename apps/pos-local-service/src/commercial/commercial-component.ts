@@ -69,6 +69,10 @@ import { RegisterTransferPaymentUseCase } from "../payments/register-transfer-pa
 import { ConfirmTransferPaymentUseCase } from "../payments/confirm-transfer-payment-use-case.js";
 import { CancelPaymentUseCase } from "../payments/cancel-payment-use-case.js";
 import { GetPaymentUseCase } from "../payments/get-payment-use-case.js";
+import { RegisterFactusPayCollectionUseCase } from "../payments/register-factus-pay-collection-use-case.js";
+import { VerifyFactusPayCollectionUseCase } from "../payments/verify-factus-pay-collection-use-case.js";
+import { FactusPayClient } from "../payments/factus-pay-client.js";
+import { FactusPayCredentialStore } from "../payments/factus-pay-credential-store.js";
 import { SqliteCustomerStore } from "../customers/sqlite-customer-store.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
 import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
@@ -123,6 +127,8 @@ export class CommercialComponent implements RuntimeComponent {
         readonly confirmTransferPayment: ConfirmTransferPaymentUseCase;
         readonly cancelPayment: CancelPaymentUseCase;
         readonly getPayment: GetPaymentUseCase;
+        readonly registerFactusPayCollection: RegisterFactusPayCollectionUseCase;
+        readonly verifyFactusPayCollection: VerifyFactusPayCollectionUseCase;
         readonly registerCustomer: RegisterCustomerUseCase;
         readonly getCustomer: GetCustomerUseCase;
         readonly customerMarketing: CustomerMarketingSubscriptionStore;
@@ -198,6 +204,7 @@ export class CommercialComponent implements RuntimeComponent {
      * válido en pruebas que no ejercitan F4/F5.
      */
     private readonly fiscalSecretStore: EncryptedFileSecretStore | undefined = undefined,
+    private readonly factusPaySecretStore: EncryptedFileSecretStore | undefined = undefined,
     /** Inyección para pruebas: sin ella, producción construye `FactusAdapter` real. */
     private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
     /** Separately provisioned authorization trust. SSA keys never imply SAS trust. */
@@ -273,6 +280,12 @@ export class CommercialComponent implements RuntimeComponent {
   get confirmTransferPayment(): ConfirmTransferPaymentUseCase { return this.ready.confirmTransferPayment; }
   get cancelPayment(): CancelPaymentUseCase { return this.ready.cancelPayment; }
   get getPayment(): GetPaymentUseCase { return this.ready.getPayment; }
+  get registerFactusPayCollection(): RegisterFactusPayCollectionUseCase {
+    return this.ready.registerFactusPayCollection;
+  }
+  get verifyFactusPayCollection(): VerifyFactusPayCollectionUseCase {
+    return this.ready.verifyFactusPayCollection;
+  }
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get customerMarketing(): CustomerMarketingSubscriptionStore { return this.ready.customerMarketing; }
@@ -361,7 +374,7 @@ export class CommercialComponent implements RuntimeComponent {
     let issueElectronicDocument: IssueElectronicDocumentUseCase | null = null;
     if (this.fiscalSecretStore !== undefined && this.config.fiscal_environment !== undefined) {
       const environment = this.config.fiscal_environment;
-      const fiscalCredentialStore = new FiscalCredentialStore(this.fiscalSecretStore);
+      const fiscalCredentialStore = new FiscalCredentialStore(this.fiscalSecretStore, this.config.company_id);
       if (fiscalCredentialStore.has("FACTUS", environment)) {
         const credential = fiscalCredentialStore.reference("FACTUS", environment);
         const issuancePort = this.issuancePortOverride ?? new FactusAdapter(
@@ -380,6 +393,10 @@ export class CommercialComponent implements RuntimeComponent {
         );
       }
     }
+
+    const factusPayClient = this.factusPaySecretStore === undefined
+      ? null
+      : new FactusPayClient(new FactusPayCredentialStore(this.factusPaySecretStore, this.config.company_id), "SANDBOX", this.now);
 
     this.state = {
       fiscalSaleSource,
@@ -434,6 +451,8 @@ export class CommercialComponent implements RuntimeComponent {
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
       cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),
       getPayment: new GetPaymentUseCase(paymentStore, this.now),
+      registerFactusPayCollection: new RegisterFactusPayCollectionUseCase(paymentStore, factusPayClient, this.now),
+      verifyFactusPayCollection: new VerifyFactusPayCollectionUseCase(paymentStore, factusPayClient, this.now),
       registerCustomer: new RegisterCustomerUseCase(customerStore),
       getCustomer: new GetCustomerUseCase(customerStore),
       customerMarketing: new CustomerMarketingSubscriptionStore(database, this.now),

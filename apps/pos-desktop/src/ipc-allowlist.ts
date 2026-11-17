@@ -23,6 +23,8 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:payment.register.cash",
   "pos:payment.register.transfer",
   "pos:payment.transfer.confirm",
+  "pos:payment.factus_pay.collect",
+  "pos:payment.factus_pay.verify",
   "pos:payment.cancel",
   "pos:payment.get",
   "pos:payment.destination.get",

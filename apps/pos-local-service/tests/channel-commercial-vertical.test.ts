@@ -447,9 +447,9 @@ async function withRealFiscalChannel(
   const fiscalSecretStore = new EncryptedFileSecretStore(
     dir,
     new InsecureDerivedKeyProvider(dir),
-    fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE }),
+    fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE, companyId: COMPANY }),
   );
-  new FiscalCredentialStore(fiscalSecretStore).deposit(
+  new FiscalCredentialStore(fiscalSecretStore, COMPANY).deposit(
     {
       provider: "FACTUS", environment: "SANDBOX",
       fields: { client_id: "x", client_secret: "x", username: "x", password: "x" },

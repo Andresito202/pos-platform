@@ -334,9 +334,9 @@ async function main(): Promise<void> {
     const fiscalSecretStore = new EncryptedFileSecretStore(
       DATA_DIRECTORY,
       new InsecureDerivedKeyProvider(DATA_DIRECTORY),
-      fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE }),
+      fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE, companyId: COMPANY }),
     );
-    new FiscalCredentialStore(fiscalSecretStore).deposit(
+    new FiscalCredentialStore(fiscalSecretStore, COMPANY).deposit(
       {
         provider: "FACTUS", environment: "SANDBOX",
         fields: { client_id: "e2e", client_secret: "e2e", username: "e2e", password: "e2e" },

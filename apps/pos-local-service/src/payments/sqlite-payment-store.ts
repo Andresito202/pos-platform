@@ -28,7 +28,7 @@ const PAYMENT_PAYLOAD_SCHEMA_VERSION = "1.0.0";
 /** Estados de venta desde los que V1 admite recibir pago. */
 const PAYABLE_SALE_STATUSES = new Set(["READY_FOR_PAYMENT", "PAYMENT_IN_PROGRESS"]);
 
-export type PaymentMethod = "CASH" | "TRANSFER";
+export type PaymentMethod = "CASH" | "TRANSFER" | "QR";
 
 interface SaleRow {
   status: string;
@@ -133,6 +133,8 @@ export interface PaymentView {
   readonly confirmedAmount: string;
   readonly currencyCode: string;
   readonly version: number;
+  readonly providerCode: string | null;
+  readonly providerReference: string | null;
 }
 
 // ── Resultados ────────────────────────────────────────────────────────────────
@@ -290,7 +292,8 @@ export class SqlitePaymentStore {
   get(scope: SyncScope, paymentId: string): GetPaymentOutcome {
     const row = this.database.native.prepare(
       `SELECT p.id, p.payment_method, p.status, p.expected_amount, p.confirmed_amount,
-              p.currency_code, p.version, g.collection_subject_id
+              p.currency_code, p.version, p.provider_code, p.provider_reference,
+              g.collection_subject_id
        FROM payments_payments p
        JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
        WHERE p.tenant_id=? AND p.id=?`,
@@ -298,6 +301,7 @@ export class SqlitePaymentStore {
       | {
           id: string; payment_method: string; status: string; expected_amount: string;
           confirmed_amount: string; currency_code: string; version: number;
+          provider_code: string | null; provider_reference: string | null;
           collection_subject_id: string;
         }
       | undefined;
@@ -314,6 +318,8 @@ export class SqlitePaymentStore {
         confirmedAmount: row.confirmed_amount,
         currencyCode: row.currency_code,
         version: row.version,
+        providerCode: row.provider_code,
+        providerReference: row.provider_reference,
       },
     };
   }
@@ -631,6 +637,16 @@ export class SqlitePaymentStore {
       const amount = scale6ToBigInt(input.amount);
       const payable = scale6ToBigInt(sale.payable_amount);
       const confirming = input.method === "CASH";
+      const authorityType = confirming
+        ? "LOCAL_DEVICE"
+        : input.method === "QR"
+          ? "EXTERNAL_PROVIDER_AUTHORITATIVE"
+          : "MANUAL_ATTESTATION";
+      const providerReferenceType = input.providerReference === null
+        ? null
+        : input.method === "QR"
+          ? "FACTUS_PAY_REFERENCE"
+          : "MANUAL_REFERENCE";
       if (confirming && this.confirmedCoverage(input.scope.tenantId, input.saleId) + amount > payable) {
         return { kind: "OVERPAYMENT_NOT_ALLOWED" };
       }
@@ -679,7 +695,7 @@ export class SqlitePaymentStore {
         )`,
       ).run(
         input.paymentId, input.scope.tenantId, input.scope.companyId, input.scope.branchId, group,
-        input.method, confirming ? "LOCAL_DEVICE" : "MANUAL_ATTESTATION", status,
+        input.method, authorityType, status,
         input.amount, confirming ? input.amount : "0.000000",
         input.tenderedAmount, input.changeAmount, sale.currency_code,
         input.scope.deviceId, input.scope.installationId,
@@ -702,9 +718,9 @@ export class SqlitePaymentStore {
       ).run(
         input.attemptId, input.scope.tenantId, input.scope.companyId, input.scope.branchId,
         input.paymentId,
-        input.method, confirming ? "LOCAL_DEVICE" : "MANUAL_ATTESTATION", status,
+        input.method, authorityType, status,
         input.amount, sale.currency_code,
-        input.providerCode, input.providerReference === null ? null : "MANUAL_REFERENCE", input.providerReference,
+        input.providerCode, providerReferenceType, input.providerReference,
         confirming ? input.operatorUserId : null,
         `attempt:${input.idempotencyKey}`, input.requestChecksum, input.correlationId, input.causationId,
         nowIso, confirming ? nowIso : null,

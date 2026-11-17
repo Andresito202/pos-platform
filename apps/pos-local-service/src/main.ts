@@ -25,6 +25,7 @@ import {WindowsCommercialRuntime,readWindowsCommercialConfiguration} from "./sec
 import {assertWindowsCommercialInteractiveHost,assertWindowsScmCommercialCertification} from "./security/windows-commercial-host-identity.js";
 import {readWindowsScmProvision} from "@pos-platform/local-channel";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
+import { factusPayCredentialContext } from "./payments/factus-pay-credential-store.js";
 import {
   EncryptedFileSecretStore,
   DeviceIdentity,
@@ -169,7 +170,20 @@ try {
   const fiscalSecretStore = new EncryptedFileSecretStore(
     securityDirectory,
     keyProvider,
-    fiscalCredentialContext({ installationId: config.installation_id, deviceId: config.device_id }),
+    fiscalCredentialContext({
+      installationId: config.installation_id,
+      deviceId: config.device_id,
+      companyId: config.company_id,
+    }),
+  );
+  const factusPaySecretStore = new EncryptedFileSecretStore(
+    securityDirectory,
+    keyProvider,
+    factusPayCredentialContext({
+      installationId: config.installation_id,
+      deviceId: config.device_id,
+      companyId: config.company_id,
+    }),
   );
 
   const deviceTrustSecretStore = new EncryptedFileSecretStore(
@@ -253,6 +267,7 @@ try {
   const nativeConfiguration=commercialProvision===undefined?undefined:readWindowsCommercialConfiguration(commercialProvision,config.central_base_url);
   const commercial = new CommercialComponent(
     config, localDatabase, durableSync, liveSessionTrustKeys, () => new Date(), fiscalSecretStore,
+    factusPaySecretStore,
     undefined,authorizationTrust.keys,
     (scope, registerId) => {
       const path = config.license_capacity_provision_file;

@@ -21,6 +21,7 @@ const paymentButtons = [
   { id: "nequi", label: "Nequi", icon: "./payment-denominations/logos/nequi_original.png" },
   { id: "daviplata", label: "Daviplata", icon: "./payment-denominations/logos/daviplata_logo_manual_vigente.png" },
   { id: "transfer", label: "Reportar transferencia", icon: new URL("../assets/payment-icons/landmark.svg", import.meta.url).href },
+  { id: "factus_pay", label: "FACTUS Pay", icon: new URL("../assets/payment-icons/landmark.svg", import.meta.url).href },
 ] as const;
 
 
@@ -59,9 +60,11 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
     canReadPayment: permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ),
   });
   const completed = sale.payment?.sale_completed === true
-    || (sale.transfer?.saleId === sale.sale?.saleId && sale.transferConfirmation?.sale_completed === true);
+    || (sale.transfer?.saleId === sale.sale?.saleId && sale.transferConfirmation?.sale_completed === true)
+    || (sale.factusPay?.saleId === sale.sale?.saleId && sale.factusPayConfirmation?.sale_completed === true);
   const confirmedCoverage = sale.payment?.confirmed_coverage
     ?? (sale.transferConfirmation?.sale_completed === true ? null : sale.transferConfirmation?.confirmed_coverage)
+    ?? (sale.factusPayConfirmation?.sale_completed === true ? null : sale.factusPayConfirmation?.confirmed_coverage)
     ?? null;
   const remainingAmount = sale.sale === null
     ? null
@@ -73,7 +76,7 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
   const [customerDocument, setCustomerDocument] = useState("13");
   const [customerIdentification, setCustomerIdentification] = useState("");
   const [registerId, setRegisterId] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "nequi" | "daviplata">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "transfer" | "nequi" | "daviplata" | "factus_pay">("cash");
   const [showDenominations, setShowDenominations] = useState(false);
   const [opening, setOpening] = useState("0");
   const [barcode, setBarcode] = useState("");
@@ -329,7 +332,9 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                 {paymentButtons.map(method => <button key={method.id} type="button"
                   data-testid={`select-payment-${method.id}`} aria-pressed={paymentMethod === method.id}
                   onClick={() => setPaymentMethod(method.id)} disabled={sale.busy || sale.unresolved || completed}>
-                  <PaymentMethodContent icon={method.icon} label={method.id === "transfer" ? "Transferencia" : method.label} />
+                  <PaymentMethodContent icon={method.icon} label={
+                    method.id === "transfer" ? "Transferencia" : method.id === "factus_pay" ? "FACTUS Pay" : method.label
+                  } />
                 </button>)}
               </div>
 
@@ -406,12 +411,22 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
                   onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
                   disabled={sale.busy || sale.unresolved || completed || paymentAmountRequired || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER)}>
                   {sale.busy ? "Procesando…" : "Confirmar cobro en efectivo"}</button>
+                : paymentMethod === "factus_pay" ? <button type="button" className="pos-primary-action" data-testid="collect-factus-pay-button"
+                  onClick={() => { void sale.collectFactusPay(paymentAmount || undefined); }}
+                  disabled={sale.busy || sale.unresolved || completed || paymentAmountRequired || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER) || (sale.factusPay !== null && sale.factusPay.status !== "CANCELLED" && sale.factusPay.status !== "CONFIRMED")}>
+                  {sale.busy ? "Procesando…" : "Generar QR FACTUS Pay"}</button>
                 : <button type="button" className="pos-primary-action" data-testid="register-transfer-button"
                   onClick={() => { void sale.registerTransfer(paymentAmount || undefined, paymentMethod === "nequi" ? "NEQUI" : paymentMethod === "daviplata" ? "DAVIPLATA" : null); }}
                   disabled={sale.busy || sale.unresolved || completed || paymentAmountRequired || !permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) || (sale.transfer !== null && sale.transfer.status !== "CANCELLED" && sale.transfer.status !== "CONFIRMED")}>
                   {sale.busy ? "Procesando…" : paymentMethod === "nequi" ? "Reportar pago Nequi" : paymentMethod === "daviplata" ? "Reportar pago Daviplata" : "Reportar transferencia"}</button>}
               </div>
-              <p className="pos-payment-note">{paymentMethod === "cash" ? "Confirma después de contar el efectivo recibido." : "Reportar no confirma el ingreso. Un operador autorizado debe verificarlo."}</p>
+              <p className="pos-payment-note">{
+                paymentMethod === "cash"
+                  ? "Confirma después de contar el efectivo recibido."
+                  : paymentMethod === "factus_pay"
+                    ? "Generar el QR no cobra la venta. Verifica con FACTUS Pay cuando el cliente pague."
+                    : "Reportar no confirma el ingreso. Un operador autorizado debe verificarlo."
+              }</p>
             </div>
           )}
         </section>
@@ -434,6 +449,28 @@ export function SalePanel({ permissions, onReceipt, onInvoice }: {
           </div>
         ) : (
           !completed && <div data-testid="payment-partial">Pago registrado ({sale.payment.outcome}) · cobertura <span data-testid="confirmed-coverage" data-amount={sale.payment.confirmed_coverage ?? "0.000000"}>{formatScale6Display(sale.payment.confirmed_coverage ?? "0.000000")}</span> · la venta aún no está cobrada</div>
+        )
+      )}
+
+      {sale.factusPay !== null && (
+        <div data-testid="factus-pay-registered" className="pos-result-pending">
+          FACTUS Pay · pago <span data-testid="factus-pay-payment-id">{sale.factusPay.paymentId}</span>
+          {sale.factusPay.referenceCode !== null && <span data-testid="factus-pay-reference"> · ref {sale.factusPay.referenceCode}</span>}
+          {sale.factusPay.qr !== null && <img data-testid="factus-pay-qr" src={sale.factusPay.qr} alt="QR FACTUS Pay" width={320} height={320} />}
+          {sale.factusPay.status === "CREATED" && sale.factusPayConfirmation === null && (
+            <button data-testid="verify-factus-pay-button" onClick={() => { void sale.verifyFactusPay(); }}
+              disabled={sale.busy || completed || !permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_REGISTER) || sale.factusPay.version === null}>
+              Verificar pago FACTUS Pay
+            </button>
+          )}
+        </div>
+      )}
+
+      {sale.factusPayConfirmation !== null && (
+        sale.factusPayConfirmation.sale_completed ? (
+          <div data-testid="factus-pay-sale-completed" className="pos-result-success">Venta cobrada por FACTUS Pay · cobertura <span data-testid="factus-pay-confirmed-coverage" data-amount={sale.factusPayConfirmation.confirmed_coverage ?? ""}>{formatScale6Display(sale.factusPayConfirmation.confirmed_coverage)}</span></div>
+        ) : (
+          !completed && <div data-testid="factus-pay-partial">FACTUS Pay {sale.factusPayConfirmation.outcome} · la venta aún no está cobrada</div>
         )
       )}
 
