@@ -331,15 +331,19 @@ try {
   }))
   if ($missingPayload.Count -gt 0) { throw 'SERVICE_PAYLOAD_FILES_INCOMPLETE' }
 
-  # NSIS customInstall should have registered; if not (silent race), install now elevated.
+  # NSIS customInstall should have registered; if not (silent race / helper fault), install now elevated.
   # Use ProgramData for SCM service data (matches install-camacho-local-service.ps1 default),
   # distinct from interactive AppData lab-data used for Desktop DPAPI channel tests.
   $scmDataDirectory = Join-Path $env:ProgramData 'CamachoPOS\lab-data'
+  $installFallbackExit = $null
+  $installOut = ''
   if (-not $svc) {
     Write-Host 'PHASE=winsw_scm_install_fallback'
     $installOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
       -Action Install -PayloadDir $payloadDir -DataDirectory $scmDataDirectory -Json 2>&1 | Out-String
+    $installFallbackExit = $LASTEXITCODE
     Write-Host $installOut
+    Write-Host ("WINSW_INSTALL_FALLBACK_EXIT={0}" -f $installFallbackExit)
     $svc = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
   }
   $scmStatus = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $winswHelper `
@@ -352,6 +356,8 @@ try {
     payloadDir = $payloadDir
     installDir = $installDir
     scmDataDirectory = $scmDataDirectory
+    installFallbackExit = "$installFallbackExit"
+    installFallbackOutput = $installOut.Trim()
     commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
     authenticodeProduct = 'RT-009-B_BLOCKED'
     statusJson = $scmStatus.Trim()

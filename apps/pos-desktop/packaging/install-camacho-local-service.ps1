@@ -81,9 +81,20 @@ function Materialize-Xml {
   [IO.File]::WriteAllText($xmlPath, $xml, [Text.UTF8Encoding]::new($false))
 }
 
-function Invoke-WinSW([string[]]$args) {
-  $p = Start-Process -FilePath $winswExe -ArgumentList $args -Wait -PassThru -NoNewWindow
-  return $p.ExitCode
+function Invoke-WinSW {
+  # Never name a parameter $args — it collides with the automatic $args variable
+  # and Start-Process -ArgumentList receives $null ("Argument types"/null collection).
+  param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string[]]$WinSwArguments)
+  $clean = @($WinSwArguments | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+  if ($clean.Count -eq 0) {
+    throw 'WINSW_ARGUMENTS_EMPTY'
+  }
+  $p = Start-Process -FilePath $winswExe `
+    -ArgumentList $clean `
+    -WorkingDirectory $PayloadDir `
+    -Wait -PassThru -NoNewWindow
+  if ($null -eq $p) { return -1 }
+  return [int]$p.ExitCode
 }
 
 switch ($Action) {
@@ -105,18 +116,18 @@ switch ($Action) {
     $existing = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
     if ($existing) {
       try { Stop-Service -Name $serviceId -Force -ErrorAction SilentlyContinue } catch {}
-      [void](Invoke-WinSW @('uninstall'))
+      [void](Invoke-WinSW -WinSwArguments @('uninstall'))
       Start-Sleep -Seconds 2
     }
-    $installCode = Invoke-WinSW @('install')
+    $installCode = Invoke-WinSW -WinSwArguments @('install')
     if ($installCode -ne 0) {
-      Write-Result @{ ok = $false; error = 'WINSW_INSTALL_FAILED'; exitCode = $installCode } 5
+      Write-Result @{ ok = $false; error = 'WINSW_INSTALL_FAILED'; exitCode = $installCode; xml = $xmlPath; payloadDir = $PayloadDir } 5
     }
-    $startCode = Invoke-WinSW @('start')
+    $startCode = Invoke-WinSW -WinSwArguments @('start')
     $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
     $running = $null -ne $svc -and $svc.Status -eq 'Running'
     if (-not $running -and $startCode -ne 0) {
-      Write-Result @{ ok = $false; error = 'WINSW_START_FAILED'; exitCode = $startCode; status = $(if ($svc) { [string]$svc.Status } else { 'Absent' }) } 6
+      Write-Result @{ ok = $false; error = 'WINSW_START_FAILED'; exitCode = $startCode; status = $(if ($svc) { [string]$svc.Status } else { 'Absent' }); xml = $xmlPath } 6
     }
     # Give Node child time to bind pipe / open SQLite
     Start-Sleep -Seconds 5
@@ -139,7 +150,7 @@ switch ($Action) {
     if ($svc) {
       try { Stop-Service -Name $serviceId -Force -ErrorAction SilentlyContinue } catch {}
       Start-Sleep -Seconds 2
-      [void](Invoke-WinSW @('uninstall'))
+      [void](Invoke-WinSW -WinSwArguments @('uninstall'))
       Start-Sleep -Seconds 2
     }
     $after = Get-Service -Name $serviceId -ErrorAction SilentlyContinue

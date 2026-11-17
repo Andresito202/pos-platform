@@ -132,6 +132,32 @@ function Return-CommaArray {
 $got = Return-CommaArray
 Assert-True (($got -is [array]) -and ($got.Count -eq 2)) 'comma_return_count'
 
+# --- install-camacho-local-service.ps1: ban parameter named $args ---
+$helperPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'apps/pos-desktop/packaging/install-camacho-local-service.ps1'
+if (-not (Test-Path -LiteralPath $helperPath)) {
+  # Repo layout: tools/operators -> ../../apps/...
+  $helperPath = Join-Path $PSScriptRoot '..\..\apps\pos-desktop\packaging\install-camacho-local-service.ps1'
+}
+$helperPath = [IO.Path]::GetFullPath($helperPath)
+Assert-True (Test-Path -LiteralPath $helperPath) 'helper_present' $helperPath
+$helperSrc = Get-Content -LiteralPath $helperPath -Raw
+$helperTokens = $null
+$helperErrors = $null
+$null = [System.Management.Automation.Language.Parser]::ParseFile($helperPath, [ref]$helperTokens, [ref]$helperErrors)
+Assert-True ($helperErrors.Count -eq 0) 'helper_ast_errors' (($helperErrors | ForEach-Object { $_.ToString() }) -join ' | ')
+Assert-True ($helperSrc -notmatch 'function\s+Invoke-WinSW\s*\(\s*\[string\[\]\]\s*\$args\s*\)') 'ban_invoke_winsw_args_param'
+Assert-True ($helperSrc -match 'WinSwArguments') 'uses_winsw_arguments_param'
+Assert-True ($helperSrc -match 'WorkingDirectory\s+\$PayloadDir') 'winsw_workdir_payload'
+
+# Synthetic: parameter named $args feeds Start-Process null ArgumentList (Windows PowerShell / PS7).
+function Invoke-BadArgsParam {
+  param([string[]]$args)
+  return $args
+}
+$bound = Invoke-BadArgsParam -args @('install')
+# Even when bound, documenting the Start-Process failure mode from CI:
+Assert-True ($helperSrc -match 'ValidateNotNullOrEmpty') 'helper_validates_winsw_args'
+
 if ($failed -gt 0) {
   Write-Host "VALIDATE_SUMMARY=FAIL count=$failed"
   exit 1
