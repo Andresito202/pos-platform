@@ -171,6 +171,23 @@ export class SqliteFiscalDocumentStore {
    * intentar insertar, y así convertir la violación de índice en una decisión
    * legible en vez de una excepción de SQLite.
    */
+  /** Factura aceptada de la venta — prerrequisito de nota crédito con customization 20. */
+  findAcceptedInvoiceForSale(
+    scope: DocumentScope,
+    saleId: string,
+  ): StoredElectronicDocument | null {
+    const row = this.database.native.prepare(
+      `${SELECT_DOCUMENT}
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND sale_id=?
+          AND document_type='SALES_INVOICE'
+          AND transport_status='COMPLETED' AND normalized_result='ACCEPTED'
+          AND issued_number IS NOT NULL
+        ORDER BY resolved_at DESC
+        LIMIT 1`,
+    ).get(scope.tenantId, scope.companyId, scope.branchId, saleId) as DocumentRow | undefined;
+    return row === undefined ? null : toDocument(row);
+  }
+
   findOpenForSale(
     scope: DocumentScope,
     saleId: string,

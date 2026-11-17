@@ -115,39 +115,50 @@ export const PAYMENT_METHOD_CODES = table([
 /**
  * Correspondencia entre el código documental del proveedor y el tipo canónico.
  *
- * Sólo `"01"`. Los demás tipos —notas crédito y débito, documento soporte y su
- * nota de ajuste— **existen en el contrato canónico pero su código DIAN no está
- * verificado**, así que no se traducen. Inventar la correspondencia produciría
- * una factura emitida bajo el tipo equivocado, que es un error fiscal, no un
- * error de programa.
+ * Fuentes verificadas en tablas oficiales FACTUS (`tablas-de-referencia/tablas`):
+ * - `"01"` — tipo documental DIAN en cuerpo de factura (histórico sandbox).
+ * - `"21"` — código de rango de numeración «Factura de Venta».
+ * - `"22"` — código de rango de numeración «Nota Crédito».
  */
 const DOCUMENT_TYPE_BY_CODE: ReadonlyMap<string, FiscalDocumentType> = new Map([
   ["01", "SALES_INVOICE"],
+  ["21", "SALES_INVOICE"],
+  ["22", "CREDIT_NOTE"],
 ]);
 
 /**
- * Traduce el código del proveedor a tipo canónico.
+ * Traduce el código (o nombre observado) del proveedor a tipo canónico.
  *
- * Devuelve `null` para cualquier código no verificado. `null` es «no lo sé»:
- * el consumidor decide si eso lo lleva a revisión, nunca a un tipo por defecto.
+ * Algunos GET de `/v2/numbering-ranges` devuelven el nombre («Nota Crédito»)
+ * en `document`; se aceptan sólo esas etiquetas documentadas por FACTUS.
  */
 export function fiscalDocumentTypeForCode(code: string | null): FiscalDocumentType | null {
   if (code === null) return null;
-  return DOCUMENT_TYPE_BY_CODE.get(code) ?? null;
+  const normalized = code.trim();
+  const mapped = DOCUMENT_TYPE_BY_CODE.get(normalized);
+  if (mapped !== undefined) return mapped;
+  const lower = normalized.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
+  if (lower === "nota credito" || lower.startsWith("nota credito")) return "CREDIT_NOTE";
+  if (lower === "factura de venta" || lower.startsWith("factura de venta")) return "SALES_INVOICE";
+  return null;
 }
 
 /**
- * Dirección inversa: tipo canónico → código del proveedor.
- *
- * Deriva de la misma tabla verificada, no de una segunda: dos tablas para la
- * misma correspondencia podrían discreparse. `null` para cualquier tipo cuyo
- * código DIAN no está verificado (`DEC-021` F4): quien va a **emitir** con ese
- * tipo debe bloquear, no adivinar el código que va en el documento.
+ * Código DIAN para el cuerpo de emisión de **factura** (`document`).
+ * Las notas crédito usan `/v2/credit-notes/validate` y no este campo.
  */
 export function canonicalDocumentTypeCode(type: FiscalDocumentType): string | null {
-  for (const [code, canonical] of DOCUMENT_TYPE_BY_CODE) {
-    if (canonical === type) return code;
-  }
+  if (type === "SALES_INVOICE") return "01";
+  return null;
+}
+
+/**
+ * Código de documento para rangos de numeración FACTUS (`filter[document]`).
+ * Fuente: tablas oficiales — `21` factura, `22` nota crédito.
+ */
+export function numberingDocumentTypeCode(type: FiscalDocumentType): string | null {
+  if (type === "SALES_INVOICE") return "21";
+  if (type === "CREDIT_NOTE") return "22";
   return null;
 }
 

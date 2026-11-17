@@ -860,6 +860,25 @@ describe("IssueElectronicDocumentUseCase — bloqueos, sin crear ningún documen
     expect((database.native.prepare("SELECT count(*) AS n FROM fiscal_electronic_document").get() as { n: number }).n).toBe(0);
   });
 
+  it("nota crédito sin factura aceptada de la venta: BLOCKED RELATED_INVOICE_REQUIRED", async () => {
+    const port = new FakeIssuancePort();
+    const { database, useCase } = await buildEnv(port);
+    seedRange(database);
+    seedRange(database, {
+      range_id: "nc-range-1",
+      document_type: "CREDIT_NOTE",
+      prefix: "NC",
+      provider_document_code: "22",
+    });
+    const saleId = seedSale(database);
+    seedCatalogLine(database, saleId, 1);
+    seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
+
+    const result = await useCase.execute(auth(), baseInput(saleId, { documentType: "CREDIT_NOTE" }), SIGNAL);
+    expect(result).toEqual({ kind: "BLOCKED", code: "RELATED_INVOICE_REQUIRED" });
+    expect(port.callCount).toBe(0);
+  });
+
   it("tipo documental sin código DIAN verificado: BLOCKED DOCUMENT_TYPE_CODE_NOT_VERIFIED", async () => {
     const port = new FakeIssuancePort();
     const { database, useCase } = await buildEnv(port);
@@ -868,9 +887,7 @@ describe("IssueElectronicDocumentUseCase — bloqueos, sin crear ningún documen
     seedCatalogLine(database, saleId, 1);
     seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
 
-    // CREDIT_NOTE existe en el contrato canónico pero su código DIAN no está
-    // verificado (`dian/codes.ts`): F4 debe bloquear, no inventar el código.
-    const result = await useCase.execute(auth(), baseInput(saleId, { documentType: "CREDIT_NOTE" }), SIGNAL);
+    const result = await useCase.execute(auth(), baseInput(saleId, { documentType: "DEBIT_NOTE" }), SIGNAL);
     expect(result).toEqual({ kind: "BLOCKED", code: "DOCUMENT_TYPE_CODE_NOT_VERIFIED" });
     expect(port.callCount).toBe(0);
   });

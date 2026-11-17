@@ -267,8 +267,8 @@ try {
   const nativeConfiguration=commercialProvision===undefined?undefined:readWindowsCommercialConfiguration(commercialProvision,config.central_base_url);
   const commercial = new CommercialComponent(
     config, localDatabase, durableSync, liveSessionTrustKeys, () => new Date(), fiscalSecretStore,
-    factusPaySecretStore,
     undefined,authorizationTrust.keys,
+    factusPaySecretStore,
     (scope, registerId) => {
       const path = config.license_capacity_provision_file;
       if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";

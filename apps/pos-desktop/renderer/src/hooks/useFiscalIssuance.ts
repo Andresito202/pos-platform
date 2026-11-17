@@ -1,5 +1,10 @@
 import { useCallback, useRef, useState } from "react";
-import { FiscalDocumentIssueResultSchema, type FiscalDocumentIssueResult } from "@pos-platform/contracts";
+import {
+  FiscalDocumentIssueResultSchema,
+  FiscalNumberingSyncResultSchema,
+  type FiscalDocumentIssueResult,
+  type FiscalNumberingSyncResult,
+} from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 
 /**
@@ -31,11 +36,13 @@ export interface FiscalIssuanceState {
   readonly resultSaleId: string | null;
   isBlocked(saleId: string, documentType: string): boolean;
   readonly issued: FiscalDocumentIssueResult | null;
+  readonly numberingSync: FiscalNumberingSyncResult | null;
   readonly error: string | null;
 }
 
 export function useFiscalIssuance(): FiscalIssuanceState & {
   issue(saleId: string, documentType: string, customer: FiscalCustomerChoice): Promise<void>;
+  syncNumbering(): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
@@ -43,6 +50,7 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
   const [resultSaleId, setResultSaleId] = useState<string | null>(null);
   const isBlocked = useCallback((saleId: string, documentType: string) => blocked.current.has(JSON.stringify([saleId, documentType])), []);
   const [issued, setIssued] = useState<FiscalDocumentIssueResult | null>(null);
+  const [numberingSync, setNumberingSync] = useState<FiscalNumberingSyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const issue = useCallback(async (
@@ -97,5 +105,34 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
     }
   }, []);
 
-  return { busy, resultSaleId, isBlocked, issued, error, issue };
+  const syncNumbering = useCallback(async (): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    setNumberingSync(null);
+    try {
+      const response = await callCommercial<FiscalNumberingSyncResult>(
+        "fiscal.numbering.sync",
+        {},
+      );
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      const parsed = FiscalNumberingSyncResultSchema.safeParse(response.result);
+      if (!parsed.success) {
+        setError("Respuesta de sincronización de rangos no verificable.");
+        return;
+      }
+      setNumberingSync(parsed.data);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  }, []);
+
+  return { busy, resultSaleId, isBlocked, issued, numberingSync, error, issue, syncNumbering };
 }

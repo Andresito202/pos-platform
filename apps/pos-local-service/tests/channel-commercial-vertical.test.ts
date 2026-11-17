@@ -345,7 +345,7 @@ async function withRealChannel(
     { store: new DurableSyncStore(database) } as never,
     keys,
     serviceNow,
-    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),licenseGate,
+    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),undefined,licenseGate,
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);

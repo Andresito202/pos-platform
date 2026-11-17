@@ -82,6 +82,8 @@ import { SecretStoreFactusCredentialResolver } from "../fiscal/factus-credential
 import { SqliteFiscalDocumentStore } from "../fiscal/sqlite-fiscal-document-store.js";
 import { SqliteFiscalSaleSource } from "../fiscal/fiscal-sale-source.js";
 import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-document-use-case.js";
+import { SynchronizeNumberingRangesUseCase } from "../fiscal/synchronize-numbering-ranges-use-case.js";
+import type { CredentialReference, NumberingRangePort } from "@pos-platform/fiscal-adapters";
 import { SqliteAuditStore } from "../audit/sqlite-audit-store.js";
 import { ListAuditEventsUseCase } from "../audit/list-audit-events-use-case.js";
 import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js";
@@ -177,6 +179,9 @@ export class CommercialComponent implements RuntimeComponent {
          * significa «esta pieza no está lista», no un error de arranque.
          */
         readonly issueElectronicDocument: IssueElectronicDocumentUseCase | null;
+        readonly synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null;
+        readonly fiscalCredentialReference: CredentialReference | null;
+        readonly fiscalNumberingPort: NumberingRangePort | null;
       }
     | undefined;
 
@@ -204,11 +209,11 @@ export class CommercialComponent implements RuntimeComponent {
      * válido en pruebas que no ejercitan F4/F5.
      */
     private readonly fiscalSecretStore: EncryptedFileSecretStore | undefined = undefined,
-    private readonly factusPaySecretStore: EncryptedFileSecretStore | undefined = undefined,
     /** Inyección para pruebas: sin ella, producción construye `FactusAdapter` real. */
     private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
     /** Separately provisioned authorization trust. SSA keys never imply SAS trust. */
     private readonly authorizationSigningKeys:ReadonlyMap<string,TrustedSigningKey>=new Map(),
+    private readonly factusPaySecretStore: EncryptedFileSecretStore | undefined = undefined,
     private readonly licenseGate?: CashRegisterLicenseGate,
     private readonly publicLicenseCatalog?:()=>Promise<PublicLicenseCatalog>,
   ) {
@@ -331,6 +336,8 @@ export class CommercialComponent implements RuntimeComponent {
   get executeTransform():ExecuteTransformUseCase{return this.ready.executeTransform;}
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
+  get synchronizeNumberingRanges(): SynchronizeNumberingRangesUseCase | null { return this.ready.synchronizeNumberingRanges; }
+  get fiscalCredentialReference(): CredentialReference | null { return this.ready.fiscalCredentialReference; }
 
   async start(): Promise<void> {
     const database = this.localDatabase.database;
@@ -372,11 +379,15 @@ export class CommercialComponent implements RuntimeComponent {
     // el criterio es el mismo, «no está lista», no un fallo de arranque.
     const fiscalSaleSource = new SqliteFiscalSaleSource(database);
     let issueElectronicDocument: IssueElectronicDocumentUseCase | null = null;
+    let synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null = null;
+    let fiscalCredentialReference: CredentialReference | null = null;
+    let fiscalNumberingPort: NumberingRangePort | null = null;
     if (this.fiscalSecretStore !== undefined && this.config.fiscal_environment !== undefined) {
       const environment = this.config.fiscal_environment;
       const fiscalCredentialStore = new FiscalCredentialStore(this.fiscalSecretStore, this.config.company_id);
       if (fiscalCredentialStore.has("FACTUS", environment)) {
         const credential = fiscalCredentialStore.reference("FACTUS", environment);
+        const fiscalDocumentStore = new SqliteFiscalDocumentStore(database, this.now);
         const issuancePort = this.issuancePortOverride ?? new FactusAdapter(
           new FetchHttpTransport(),
           new SecretStoreFactusCredentialResolver(fiscalCredentialStore),
@@ -386,11 +397,21 @@ export class CommercialComponent implements RuntimeComponent {
         issueElectronicDocument = new IssueElectronicDocumentUseCase(
           fiscalSaleSource,
           catalogStore,
-          new SqliteFiscalDocumentStore(database, this.now),
+          fiscalDocumentStore,
           issuancePort,
           credential,
           this.now,
         );
+        // FactusAdapter implements NumberingRangePort; test overrides may not.
+        if ("synchronizeRanges" in issuancePort) {
+          fiscalNumberingPort = issuancePort as NumberingRangePort;
+          synchronizeNumberingRanges = new SynchronizeNumberingRangesUseCase(
+            fiscalNumberingPort,
+            fiscalDocumentStore,
+            this.now,
+          );
+          fiscalCredentialReference = credential;
+        }
       }
     }
 
@@ -401,6 +422,9 @@ export class CommercialComponent implements RuntimeComponent {
     this.state = {
       fiscalSaleSource,
       issueElectronicDocument,
+      synchronizeNumberingRanges,
+      fiscalCredentialReference,
+      fiscalNumberingPort,
       sessionStore,
       sessionActivation: new SessionActivationService(verifier, sessionStore),
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),

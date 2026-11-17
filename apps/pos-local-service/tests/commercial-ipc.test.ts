@@ -177,7 +177,7 @@ async function buildEnv(options: { trustKeys?: boolean;catalog?:()=>Promise<Publ
     { store: durableSync } as never,
     keys,
     options.clock ?? (() => NOW),
-    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),undefined,options.catalog,
+    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),undefined,undefined,options.catalog,
   );
   await commercial.start();
 

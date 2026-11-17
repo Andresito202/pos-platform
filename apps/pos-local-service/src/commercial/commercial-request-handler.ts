@@ -30,7 +30,7 @@ type CommercialRequest = Extract<
       | "payment.cancel" | "payment.get" | "payment.destination.get"
       | "customer.register" | "customer.get" | "customer.find"
       | "customer.marketing.subscribe" | "customer.marketing.unsubscribe" | "customer.marketing.get"
-      | "fiscal.document.issue"
+      | "fiscal.document.issue" | "fiscal.numbering.sync"
       | "catalog.product.register" | "catalog.presentation.register" | "catalog.food_policy.upsert" | "pharmacy.establishment.upsert" | "pharmacy.profile.upsert" | "pharmacy.prescription.register" | "pharmacy.technical_receipt.register" | "pharmacy.sanitary_alert.register"
       | "bakery.recipe.draft.create" | "bakery.recipe.approve" | "bakery.production.deviation.authorize" | "bakery.production.confirm" | "bakery.production.trace.get"
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
@@ -278,6 +278,7 @@ export class CommercialRequestHandler {
       case "customer.marketing.unsubscribe":
       case "customer.marketing.get": return this.marketingSubscription(request, connectionId);
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
+      case "fiscal.numbering.sync": return this.syncNumberingRanges(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.presentation.register": return this.registerPresentation(request, connectionId);
       case "catalog.food_policy.upsert": return this.upsertFoodPolicy(request, connectionId);
@@ -1019,6 +1020,51 @@ export class CommercialRequestHandler {
     // son desenlaces reales del protocolo de resultado incierto (`DEC-021`
     // §2.1) que el operador necesita ver, no un socket cerrado en silencio.
     return rejected(request, result.kind, { outcome: result.kind, ...documentFields });
+  }
+
+  /** `fiscal.numbering.sync` — persiste rangos vía `SynchronizeNumberingRangesUseCase`. */
+  private async syncNumberingRanges(
+    request: Extract<CommercialRequest, { message_type: "fiscal.numbering.sync" }>,
+    connectionId: string,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const empty = { count: null as number | null, reason_code: null as string | null };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const useCase = this.commercial.synchronizeNumberingRanges;
+    const credential = this.commercial.fiscalCredentialReference;
+    if (useCase === null || credential === null || this.config.fiscal_environment === undefined) {
+      return rejected(request, "FISCAL_NOT_CONFIGURED", { outcome: "FISCAL_NOT_CONFIGURED", ...empty });
+    }
+    const scope = this.scope();
+    const access = evaluatePermission({
+      actor: createActor("USER", authenticated.identity.userId),
+      permission: CanonicalPermission.FISCAL_DOCUMENT_ISSUE,
+      scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+      at: new Date(),
+      assignments: toRoleAssignments(authenticated.snapshot.claims),
+    });
+    if (!access.allowed) {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const result = await useCase.execute(
+      scope,
+      "FACTUS",
+      this.config.fiscal_environment as FiscalEnvironment,
+      ["SALES_INVOICE", "CREDIT_NOTE"],
+      credential,
+      signal,
+    );
+    if (result.kind === "SYNCHRONIZED") {
+      return succeeded(request, "SYNCHRONIZED", { outcome: "SYNCHRONIZED", count: result.count, reason_code: null });
+    }
+    return rejected(request, result.kind, {
+      outcome: result.kind,
+      count: null,
+      reason_code: result.reasonCode,
+    });
   }
 
   // ── catalog.product.register ───────────────────────────────────────────────

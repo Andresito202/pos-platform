@@ -7,6 +7,7 @@ import { factusPayAmountToScale6, scale6ToFactusPayAmount } from "./factus-pay-a
 
 const ORIGINS: Record<FactusPayEnvironment, string> = {
   SANDBOX: "https://pay-api-sandbox.factus.com.co",
+  PRODUCTION: "https://pay-api.factus.com.co",
 };
 
 export interface FactusPayCollectionDetail {
@@ -70,7 +71,7 @@ export class FactusPayClient {
         amount: providerAmount,
         expiration: String(input.expirationSeconds),
       }),
-      signal: input.signal,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
     });
     const body = await this.readJson(response, input.signal);
     return this.parseCollection(body, input.amountScale6, input.referenceCode);
@@ -87,7 +88,7 @@ export class FactusPayClient {
     const response = await this.request(url, {
       method: "GET",
       headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-      signal: input.signal,
+      ...(input.signal === undefined ? {} : { signal: input.signal }),
     });
     const body = await this.readJson(response, input.signal);
     const detail = this.parseCollection(body, input.expectedAmountScale6, input.referenceCode);
@@ -165,7 +166,7 @@ export class FactusPayClient {
         method: "POST",
         headers: { accept: "application/json", "content-type": "application/json" },
         body: JSON.stringify({ email: login.email, password: login.password }),
-        signal,
+        ...(signal === undefined ? {} : { signal }),
       });
       const body = await this.readJson(response, signal);
       const token = (body as { token?: unknown }).token;

@@ -271,6 +271,7 @@ export class LocalChannelComponent implements RuntimeComponent {
         // nunca viaja por el cable. La petición no puede aportarla.
         return this.commercialHandler.handle(request, context.connectionId, signal);
       case "fiscal.document.issue":
+      case "fiscal.numbering.sync":
       case "payment.factus_pay.collect":
       case "payment.factus_pay.verify":
         return await this.commercialHandler.handle(request, context.connectionId, signal);

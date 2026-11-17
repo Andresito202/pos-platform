@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { EncryptedFileSecretStore } from "../security/encrypted-secret-store.js";
 
-export type FactusPayEnvironment = "SANDBOX";
+export type FactusPayEnvironment = "SANDBOX" | "PRODUCTION";
 
 interface StoredEnvelope {
   readonly version: string;

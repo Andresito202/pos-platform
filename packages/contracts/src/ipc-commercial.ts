@@ -1001,6 +1001,28 @@ export const FiscalDocumentIssueResultSchema = z.strictObject({
 
 export const FiscalDocumentIssueResponseSchema = createResponseEnvelopeSchema(FiscalDocumentIssueResultSchema);
 
+// ── fiscal.numbering.sync ────────────────────────────────────────────────────
+
+/**
+ * Sincroniza rangos de numeración del proveedor fiscal hacia SQLite local.
+ * Usa `SynchronizeNumberingRangesUseCase` existente; no inventa endpoints.
+ * Requiere el mismo permiso de emisión fiscal: es configuración administrativa.
+ */
+export const FiscalNumberingSyncRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({ message_type: z.literal("fiscal.numbering.sync") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+  });
+
+export const FiscalNumberingSyncResultSchema = z.strictObject({
+  outcome: z.enum(["SYNCHRONIZED", "UNAUTHORIZED", "FISCAL_NOT_CONFIGURED", "UNSUPPORTED", "UNAVAILABLE"]),
+  count: z.number().int().nonnegative().nullable(),
+  reason_code: StableCodeSchema.nullable(),
+});
+
+export const FiscalNumberingSyncResponseSchema = createResponseEnvelopeSchema(FiscalNumberingSyncResultSchema);
+
 // ── catalog.product.register ─────────────────────────────────────────────────
 
 /**
@@ -2085,6 +2107,7 @@ export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;
 export type CustomerMarketingSubscriptionResult = z.infer<typeof CustomerMarketingSubscriptionResultSchema>;
 export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResultSchema>;
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
+export type FiscalNumberingSyncResult = z.infer<typeof FiscalNumberingSyncResultSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
 export type CatalogPresentationRegisterResult = z.infer<typeof CatalogPresentationRegisterResultSchema>;
 export type CatalogFoodPolicyUpsertResult = z.infer<typeof CatalogFoodPolicyUpsertResultSchema>;

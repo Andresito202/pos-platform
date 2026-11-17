@@ -129,6 +129,34 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
         </div>
       )}
 
+      <button
+        type="button"
+        data-testid="sync-numbering-button"
+        disabled={fiscal.busy}
+        onClick={() => { void fiscal.syncNumbering(); }}
+      >
+        Sincronizar rangos de numeración
+      </button>
+      {fiscal.numberingSync !== null && (
+        <div data-testid="fiscal-numbering-sync">
+          <span data-testid="fiscal-numbering-outcome">{fiscal.numberingSync.outcome}</span>
+          {fiscal.numberingSync.count !== null && (
+            <span data-testid="fiscal-numbering-count">{fiscal.numberingSync.count}</span>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        data-testid="issue-credit-note-button"
+        disabled={fiscal.busy || fiscal.isBlocked(saleId.trim(), "CREDIT_NOTE") || saleId.trim() === ""}
+        onClick={() => {
+          void fiscal.issue(saleId.trim(), "CREDIT_NOTE", { kind: "SALE_CUSTOMER" });
+        }}
+      >
+        Emitir nota crédito (factura aceptada de la venta)
+      </button>
+
       {blocked && <p role="alert">Esta venta no admite otra emisión desde esta pantalla. Revisa el resultado y resuelve el rechazo o la conciliación con el proveedor; no hay corrección ni conciliación automática.</p>}
       {fiscal.resultSaleId === saleId.trim() && fiscal.error !== null && <div data-testid="fiscal-error">{fiscal.error}</div>}
     </section>
