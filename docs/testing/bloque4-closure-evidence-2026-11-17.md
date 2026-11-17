@@ -61,7 +61,27 @@ vitest: local-operator-authorization                            → PASS
 vitest: pos-desktop session-recovery                            → PASS
 ```
 
-CI exact-head del commit publicado se certifica en el workflow remoto del HEAD tras el push (no inferir PASS aquí).
+### CI exact-head observado
+
+**HEAD verificado:** `dcd753054670bcd13036a79e685d01aaf4911e52`
+
+Notificación de rama: 11 checks completed without failures (subscription `github:ci:branch`).
+
+| Check | Conclusión |
+|---|---|
+| TypeScript, SQLite and PostgreSQL 16.14 | success |
+| Windows local runtime platform checks | success |
+| Windows real POS Local Service session bootstrap | success |
+| Repository policy, dependency inventory and vulnerability audit | success |
+| Provenance evidence | success |
+| Central Sync persistence and idempotency gate | success |
+| d3-live-security-e2e | success |
+| CodeQL JavaScript and TypeScript | success |
+| Strix AI penetration test | success |
+| Main push governance | skipped (esperado fuera de `main`) |
+| FACTUS sandbox exceptional | skipped (excluido) |
+
+No se declara merge ni `PRODUCTION`. Draft #106 permanece sin merge.
 
 ## Dependencias externas (fuera de este cierre)
 
