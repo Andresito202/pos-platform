@@ -79,7 +79,13 @@
 
 ## Veredicto
 
-Se declara tras CI exact-head del tip que incluye este empaquetado:
+**`WINDOWS_SCM_INTEGRACION_CERRADA`** (lab NSIS/WinSW/SCM) — CI exact-head `5e526641` run `44209778273` / job `134484871341`:
 
-- `WINDOWS_SCM_INTEGRACION_CERRADA` — sólo si SCM register/start/upgrade-persist/remove PASS **sin** fallback de lab, identidad virtual, Automatic start, **y** el alcance declarado no exige IPC comercial Session 0 (ese sigue NOT_PROVEN).
-- `WINDOWS_SCM_INTEGRACION_BLOQUEADA` — si falla payload/SCM/lifecycle, o si se pretendía cerrar handoff comercial sin evidencia.
+- Silent install/upgrade/uninstall PASS; `FAILED_COUNT=0`.
+- `identityOk=true`, `SERVICE_START_NAME=NT SERVICE\CamachoPOSLocalService`, `startType=Automatic`.
+- `labFallbackUsed=false`; marker `scm-install.ok` presente post-install y post-upgrade.
+- ACL virtual en payload verificada (`virtualAccountAclPresent=true`).
+- Datos comerciales AppData preservados tras upgrade/uninstall.
+- **No** cierra IPC comercial Desktop↔`NT SERVICE` (`SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` / SKIP).
+- **No** cierra Authenticode Camacho (`RT-009-B_BLOCKED`).
+- **No** merge a `main`; Draft; sin FACTUS.
