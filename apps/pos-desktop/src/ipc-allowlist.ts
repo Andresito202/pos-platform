@@ -11,6 +11,7 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:local.operator.login",
   "pos:local.operator.session",
   "pos:local.operator.logout",
+  "pos:hardware.command",
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",

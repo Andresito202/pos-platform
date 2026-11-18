@@ -107,6 +107,7 @@ import {
   LocalOperatorLogoutRequestSchema,
   LocalOperatorResponseSchema,
 } from "./ipc-local-operator.js";
+import { HardwareRequestSchema, HardwareResponseSchema } from "./hardware.js";
 
 export const IpcMessageTypeSchema = z.enum([
   "runtime.handshake",
@@ -121,6 +122,7 @@ export const IpcMessageTypeSchema = z.enum([
   "local.operator.login",
   "local.operator.session",
   "local.operator.logout",
+  "hardware.command",
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
@@ -248,6 +250,7 @@ export const IpcRequestSchema = z.union([
   LocalOperatorLoginRequestSchema,
   LocalOperatorSessionRequestSchema,
   LocalOperatorLogoutRequestSchema,
+  HardwareRequestSchema,
   CashShiftOpenRequestSchema,
   CashShiftCloseRequestSchema,
   SaleCreateRequestSchema,
@@ -304,6 +307,7 @@ export const IpcResponseSchema = z.union([
   SessionActivateResponseSchema,
   SessionRecoverResponseSchema,
   LocalOperatorResponseSchema,
+  HardwareResponseSchema,
   CashShiftOpenResponseSchema,
   CashShiftCloseResponseSchema,
   SaleCreateResponseSchema,

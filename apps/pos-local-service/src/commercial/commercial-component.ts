@@ -1,3 +1,7 @@
+import { HardwareService } from "../hardware/hardware-service.js";
+import { HardwareStore } from "../hardware/hardware-store.js";
+import { loadHardwareRegistry, loadAutomaticDrawerPolicy } from "../hardware/platform-transports.js";
+import { WindowsCh340Transport, loadWindowsScaleProfile } from "../hardware/windows-ch340-transport.js";
 import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
@@ -89,6 +93,16 @@ import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-docum
  * fabricar una confianza que nadie ha provisto.
  */
 export class CommercialComponent implements RuntimeComponent {
+  private hardwareInstance: HardwareService | null = null;
+  private scaleInstance: WindowsCh340Transport | null = null;
+  get scale(): WindowsCh340Transport | null { return this.scaleInstance; }
+  hasOpenScaleRegister(registerId: string): boolean {
+    return this.localDatabase.database.native.prepare("SELECT 1 FROM cash_shift WHERE tenant_id=? AND company_id=? AND branch_id=? AND cash_register_id=? AND status='OPEN'").get(this.config.tenant_id,this.config.company_id,this.config.branch_id,registerId) !== undefined;
+  }
+  get hardware(): HardwareService {
+    if (!this.hardwareInstance) throw new Error("HARDWARE_RUNTIME_NOT_STARTED");
+    return this.hardwareInstance;
+  }
   readonly name = "commercial";
 
   private state:
@@ -311,6 +325,11 @@ export class CommercialComponent implements RuntimeComponent {
       }
     }
 
+    const hardwareStore = new HardwareStore(database);
+    hardwareStore.recoverInterrupted();
+    this.hardwareInstance = new HardwareService(hardwareStore, new GetReceiptUseCase(new SqliteReceiptStore(database)), loadHardwareRegistry(this.config.hardware_profiles_file), undefined, loadAutomaticDrawerPolicy(this.config.hardware_automatic_drawer_policy_file));
+    const scaleProfile = loadWindowsScaleProfile(this.config.windows_scale_profile_file);
+    this.scaleInstance = scaleProfile ? new WindowsCh340Transport(scaleProfile) : null;
     this.state = {
       issueElectronicDocument,
       sessionStore,
@@ -363,13 +382,17 @@ export class CommercialComponent implements RuntimeComponent {
       registerCustomer: new RegisterCustomerUseCase(customerStore),
       getCustomer: new GetCustomerUseCase(customerStore),
     };
+    this.scaleInstance?.start();
   }
 
   async stop(): Promise<void> {
+    await this.scaleInstance?.stop();
+    this.scaleInstance = null;
     // Los vínculos mueren con el componente: no existe sesión vinculada a un
     // servicio detenido.
     this.bindings.clear();
     this.state = undefined;
+    this.hardwareInstance = null;
   }
 
   /** Binding de dispositivo derivado de la configuración local, nunca del llamador. */

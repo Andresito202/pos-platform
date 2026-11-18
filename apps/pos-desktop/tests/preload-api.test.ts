@@ -17,6 +17,7 @@ describe("preload-api", () => {
       "local.operator.login",
       "local.operator.session",
       "local.operator.logout",
+      "hardware.command",
       "cash.shift.open",
       "cash.shift.close",
       "sale.create",

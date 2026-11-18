@@ -93,6 +93,9 @@ export function SalePanel(): React.JSX.Element {
             onChange={(e) => { setQuantity(e.target.value); }}
             disabled={sale.busy}
           />
+          {sale.shift !== null && sale.sale === null && (sale.foundItem.unit_code === "KGM" || sale.foundItem.unit_code === "GRM") && (
+            <button type="button" data-testid="capture-weight-button" disabled={sale.busy || sale.foundItem.price_amount === null} onClick={() => { void sale.captureWeight(); }}>Pesar y agregar</button>
+          )}
           <button
             data-testid="add-item-button"
             onClick={() => { sale.addFoundItem(quantity.trim()); }}

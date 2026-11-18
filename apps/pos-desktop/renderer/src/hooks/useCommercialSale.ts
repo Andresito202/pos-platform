@@ -102,6 +102,7 @@ export function useCommercialSale(): CommercialSaleState & {
   openShift(cashRegisterId: string, openingAmount: string): Promise<void>;
   findItem(barcode: string): Promise<void>;
   addFoundItem(quantity: string): void;
+  captureWeight(): Promise<void>;
   createSale(): Promise<void>;
   chargeCash(): Promise<void>;
   registerTransfer(): Promise<void>;
@@ -211,6 +212,21 @@ export function useCommercialSale(): CommercialSaleState & {
       return null;
     });
   }, []);
+
+  const captureWeight = useCallback(async (): Promise<void> => {
+    const item = foundItem;
+    if (busy || sale !== null || !shift || !item?.presentation_id || !item.product_id ||
+        (item.unit_code !== "KGM" && item.unit_code !== "GRM")) return;
+    await run<{kind:string;data:{quantity:string;presentation_id:string}|null}>(
+      () => callCommercial("hardware.command",{action:"capture_weight",cash_register_id:shift.cashRegisterId,presentation_id:item.presentation_id}),
+      result => {
+        if(result.kind !== "WEIGHT_CAPTURED" || result.data?.presentation_id !== item.presentation_id) {
+          setError("SCALE_CAPTURE_INVALID"); return;
+        }
+        addFoundItem(result.data.quantity);
+      },
+    );
+  }, [busy, sale, shift, foundItem, run, addFoundItem]);
 
   const createSale = useCallback(async (): Promise<void> => {
     if (lines.length === 0) return;
@@ -394,7 +410,7 @@ export function useCommercialSale(): CommercialSaleState & {
   return {
     busy, error, shift, foundItem, lines, sale, payment, closedShift,
     transfer, transferConfirmation,
-    openShift, findItem, addFoundItem, createSale, chargeCash,
+    openShift, findItem, addFoundItem, captureWeight, createSale, chargeCash,
     registerTransfer, confirmTransfer, closeShift, reset,
   };
 }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { scaleQuantity } from "../hardware/scale-quantity.js";
 import {
   createActor,
   createOperationScope,
@@ -34,6 +35,7 @@ type CommercialRequest = Extract<
       | "inventory.reservation.create" | "inventory.reservation.release"
       | "cart.waiting.save" | "cart.waiting.list" | "cart.waiting.get" | "cart.waiting.discard"
       | "sales.receipt.get"
+      | "hardware.command"
       | "catalog.presentation.register" | "catalog.food_policy.upsert"
       | "pharmacy.establishment.upsert" | "pharmacy.profile.upsert" | "pharmacy.prescription.register"
       | "pharmacy.technical_receipt.register" | "pharmacy.sanitary_alert.register"
@@ -273,6 +275,7 @@ export class CommercialRequestHandler {
       case "bakery.production.trace.get": return this.getBakeryProductionTrace(request, connectionId);
       case "inventory.transform.execute": return this.executeTransform(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
+      case "hardware.command": return this.hardwareCommand(request, connectionId);
     }
   }
 
@@ -312,6 +315,10 @@ export class CommercialRequestHandler {
     );
 
     if (result.kind === "CONFIRMED") {
+      if (result.saleCompleted && this.config.hardware_automatic_drawer_policy_file !== undefined) {
+        void this.commercial.hardware.afterConfirmedCashPayment(this.scope(), authenticated.snapshot,
+          { userId: authenticated.identity.userId, sessionId: authenticated.identity.ssaSessionId }, result.paymentId);
+      }
       return succeeded(request, "CONFIRMED", {
         outcome: "CONFIRMED",
         payment_id: result.paymentId,
@@ -1081,6 +1088,33 @@ export class CommercialRequestHandler {
 
   // ── sale.create ────────────────────────────────────────────────────────────
 
+
+  private async hardwareCommand(request: Extract<CommercialRequest, { message_type: "hardware.command" }>, connectionId: string): Promise<unknown> {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) return rejected(request, authenticated.rejection, { kind: "UNAUTHORIZED", data: null, reason: authenticated.rejection });
+    if (request.payload.action === "capture_weight") {
+      const payload = request.payload;
+      const fail = (reason: string) => rejected(request, reason, {kind:"REJECTED",data:null,reason});
+      const scope = this.scope();
+      const permission = evaluatePermission({actor:createActor("USER",authenticated.identity.userId),permission:CanonicalPermission.SALES_SALE_CREATE,scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(authenticated.snapshot.claims)});
+      if (!permission.allowed) return fail("UNAUTHORIZED");
+      const scale = this.commercial.scale;
+      if (!scale || scale.profile.cash_register_id !== payload.cash_register_id) return fail("SCALE_NOT_CONFIGURED_FOR_REGISTER");
+      if (!this.commercial.hasOpenScaleRegister(payload.cash_register_id)) return fail("CASH_SHIFT_NOT_OPEN");
+      const catalog = this.commercial.findCatalogItem.execute(scope,authenticated.snapshot,{by:"PRESENTATION",presentationId:payload.presentation_id});
+      if (catalog.kind !== "FOUND" || !catalog.item.price) return fail("SCALE_PRESENTATION_NOT_SELLABLE");
+      const {unitCode,unitPrecision} = catalog.item.presentation;
+      if (unitCode !== "KGM" && unitCode !== "GRM") return fail("SCALE_PRESENTATION_NOT_MASS");
+      const measurement = scale.reader.consume();
+      if (!measurement) return fail("SCALE_NO_FRESH_STABLE_WEIGHT");
+      const quantity = scaleQuantity(measurement.grams,unitCode,unitPrecision);
+      if (quantity === null) return fail("QUANTITY_PRECISION_EXCEEDED");
+      return succeeded(request,"WEIGHT_CAPTURED",{kind:"WEIGHT_CAPTURED",data:{quantity,presentation_id:payload.presentation_id,unit_code:unitCode},reason:null});
+    }
+    const result = await this.commercial.hardware.execute(this.scope(), authenticated.snapshot,
+      { userId: authenticated.identity.userId, sessionId: authenticated.identity.ssaSessionId }, request.payload);
+    return result.kind === "UNAUTHORIZED" || result.kind === "REJECTED" ? rejected(request, result.reason ?? result.kind, result) : succeeded(request, result.kind, result);
+  }
 
   private getReceipt(
     request: Extract<CommercialRequest, { message_type: "sales.receipt.get" }>,
