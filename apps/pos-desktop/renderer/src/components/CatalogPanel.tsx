@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LicenseSectorEntitlement } from "@pos-platform/contracts";
+import { CanonicalPermission, LicenseSectorEntitlement } from "@pos-platform/contracts";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
 import { PharmacyPanel } from "./PharmacyPanel.js";
 import { BakeryPanel } from "./BakeryPanel.js";
@@ -141,7 +141,7 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
         <div data-testid="product-rejected">{catalog.outcome}</div>
       )}
 
-      {entitlements.has(LicenseSectorEntitlement.SALSAMENTARIA) && (
+      {permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) && entitlements.has(LicenseSectorEntitlement.SALSAMENTARIA) && (
         <>
           <h3>Política alimentaria</h3>
           <p>Registro operativo de conservación y control. No es certificación sanitaria. Requiere licencia Salsamentaria.</p>

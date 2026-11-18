@@ -1544,6 +1544,8 @@ export class CommercialRequestHandler {
     if ("rejection" in authenticated) {
       return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", version: null });
     }
+    const sector = this.sectorDenial(LicenseSectorEntitlement.SALSAMENTARIA);
+    if (sector) return rejected(request, sector, { outcome: "LICENSE_BLOCKED", version: null });
     const payload = request.payload;
     const result = this.commercial.upsertFoodPolicy.execute(
       this.scope(),
