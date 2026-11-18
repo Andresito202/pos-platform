@@ -231,7 +231,7 @@ describe("local operator backend authorization",()=>{
       expect(permissions).not.toContain(code);
     }
   });
-  it("administrator can register stock, but local credentials cannot issue fiscal invoices",async()=>{
+  it("administrator can register stock and issue fiscal documents locally (Wave 7 FACTUS panel)",async()=>{
     const {sessions,read}=setup("ADMINISTRADOR");
     await sessions.login("A","admin.local","valid");
     const permissions=read("A").result!.permissions;
@@ -239,7 +239,9 @@ describe("local operator backend authorization",()=>{
     expect(permissions).toContain(CanonicalPermission.INVENTORY_STOCK_RECEIVE);
     expect(permissions).toContain(CanonicalPermission.INVENTORY_STOCK_ADJUST);
     expect(permissions).toContain(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER);
-    expect(permissions).not.toContain(CanonicalPermission.FISCAL_DOCUMENT_ISSUE);
+    // Wave 7: local ADMINISTRADOR may open the fiscal issuance panel. Runtime still
+    // fail-closes without deposited FACTUS credential + POS_FISCAL_ENVIRONMENT.
+    expect(permissions).toContain(CanonicalPermission.FISCAL_DOCUMENT_ISSUE);
     expect(permissions).not.toContain(CanonicalPermission.LICENSE_PLAN_MANAGE);
   });
   it("superadmin local is not silently promoted to a cashier",async()=>{
