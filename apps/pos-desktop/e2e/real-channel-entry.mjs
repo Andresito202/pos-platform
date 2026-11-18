@@ -15,7 +15,7 @@
  * No se auto-ejecuta con `await` en el nivel superior: eso deja colgado a
  * cualquier supervisor que espere a que el proceso señale su arranque.
  */
-import { startPosDesktop } from "../dist/start.bundle.mjs";
+import { startPosDesktop } from "../dist/channel-start.bundle.mjs";
 
 function required(name) {
   const value = process.env[name];

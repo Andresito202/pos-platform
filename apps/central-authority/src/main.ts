@@ -2,9 +2,8 @@ import { readFileSync } from "node:fs";
 import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
-import { Pool } from "pg";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
-import { PostgresDeviceRegistryRepository } from "./postgres-device-registry-repository.js";
+import { createPostgresPool, PostgresDeviceRegistryRepository } from "@pos-platform/database-postgres";
 import { SessionTrustPublication } from "./session-trust-publication.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
@@ -91,7 +90,7 @@ const sessionTrustPublication = process.env.SESSION_TRUST_ARTIFACT_FILE === unde
 const sessionTrustTransportToken = process.env.SESSION_TRUST_TRANSPORT_TOKEN_FILE === undefined
   ? null
   : secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
-const pool = new Pool({ connectionString: databaseUrl, max: 10, application_name: "pos-platform-central-authority" });
+const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
 const handler = new DeviceEnrollmentHttpHandler(issuer, {

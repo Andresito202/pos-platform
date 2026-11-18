@@ -5,7 +5,7 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
-import { uuidV7 } from "@pos-platform/contracts";
+import { uuidV7, CanonicalPermission } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
@@ -15,7 +15,7 @@ import type {
   SqliteInventoryStore,
 } from "./sqlite-inventory-store.js";
 
-export const PERMISSION_INVENTORY_STOCK_RECEIVE = "INVENTORY_STOCK_RECEIVE";
+export const PERMISSION_INVENTORY_STOCK_RECEIVE = CanonicalPermission.INVENTORY_STOCK_RECEIVE;
 
 /**
  * Entradas de existencia que **no** son un ajuste.
@@ -31,6 +31,11 @@ export type ReceiveMovementType = Extract<
 
 export interface ReceiveStockRequest {
   readonly presentationId: string;
+  /** Optional for legacy businesses; mandatory once this presentation is batch-tracked. */
+  readonly batch?:{
+    readonly code:string;readonly manufactureDate:string|null;readonly expiryDate:string|null;
+    readonly supplierReference:string;readonly receiptDocument:string;
+  };
   readonly movementType: ReceiveMovementType;
   /** TEXT a escala 6, mayor que cero. */
   readonly quantity: string;
@@ -58,6 +63,7 @@ function requestChecksum(
       movement_type: request.movementType,
       operator_user_id: operatorUserId,
       presentation_id: request.presentationId,
+      ...(request.batch?{batch:request.batch}:{}),
       quantity: request.quantity,
       reason_code: request.reasonCode,
     }))
@@ -85,7 +91,7 @@ export class ReceiveStockUseCase {
     });
     if (!decision.allowed) return { kind: "UNAUTHORIZED", reason: decision.reason };
 
-    return this.inventoryStore.appendMovementInTransaction({
+    const movement={
       scope,
       sessionId,
       operatorUserId,
@@ -101,6 +107,9 @@ export class ReceiveStockUseCase {
       requestChecksum: requestChecksum(request, operatorUserId, scope.branchId),
       correlationId: request.correlationId,
       causationId: request.causationId,
-    });
+    };
+    return request.batch===undefined
+      ?this.inventoryStore.appendMovementInTransaction(movement)
+      :this.inventoryStore.receiveBatch(movement,request.batch);
   }
 }

@@ -1,9 +1,13 @@
-import type { OnboardingActor, OnboardingRecord, OnboardingRepository, OnboardingResult, OnboardingTransaction } from "@pos-platform/application";
-import type { SqlQueryExecutor, TransactionalSql } from "./sql.js";
-import { uuidV7 } from "./sql.js";
+import type { OnboardingActor, OnboardingRecord, OnboardingRepository, OnboardingResult, OnboardingTransaction } from "@pos-platform/contracts";
 
+import { uuidV7, type SqlQueryExecutor } from "./sql.js";
+
+interface NativePostgresPoolClient {
+  query(text: string, params?: unknown[]): Promise<unknown>;
+  release(): void;
+}
 export interface PostgresPoolClient extends SqlQueryExecutor { release(): void; }
-export interface PostgresPoolLike { connect(): Promise<PostgresPoolClient>; }
+export interface PostgresPoolLike { connect(): Promise<NativePostgresPoolClient>; }
 
 function normalize(value: string): string { return value.trim().toLowerCase(); }
 function normalizeOptional(value: string | undefined): string | null { const v = value?.trim(); return v ? v : null; }
@@ -50,9 +54,11 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
       const rows = await this.client.query<Record<string, string>>(
         "SELECT id::text,email_normalized FROM identity.users WHERE id=$1 FOR UPDATE", [input.userId],
       );
-      if (!rows[0]) throw new Error("ONBOARDING_OWNER_USER_NOT_FOUND");
-      if (rows[0].email_normalized !== emailNormalized) throw new Error("ONBOARDING_OWNER_IDENTITY_MISMATCH");
-      return { userId: rows[0].id, created: false };
+      const existingUser = rows[0];
+      if (!existingUser) throw new Error("ONBOARDING_OWNER_USER_NOT_FOUND");
+      if (existingUser.email_normalized !== emailNormalized) throw new Error("ONBOARDING_OWNER_IDENTITY_MISMATCH");
+      if (!existingUser.id) throw new Error("ONBOARDING_OWNER_USER_NOT_FOUND");
+      return { userId: existingUser.id, created: false };
     }
 
     const inserted = await this.client.query<Record<string, string>>(
@@ -63,12 +69,15 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
        RETURNING id::text`,
       [uuidV7(), email, emailNormalized, normalizeOptional(input.phone), normalizeOptional(input.phone)?.replace(/\D/g, "") ?? null, input.fullName.trim()],
     );
-    if (inserted[0]) return { userId: inserted[0].id, created: true };
+    const insertedOwner = inserted[0];
+    if (insertedOwner?.id) return { userId: insertedOwner.id, created: true };
     const existing = await this.client.query<Record<string, string>>(
       "SELECT id::text FROM identity.users WHERE email_normalized=$1 FOR UPDATE", [emailNormalized],
     );
-    if (!existing[0]) throw new Error("ONBOARDING_OWNER_CREATE_FAILED");
-    return { userId: existing[0].id, created: false };
+    const existingOwner = existing[0];
+    if (!existingOwner) throw new Error("ONBOARDING_OWNER_CREATE_FAILED");
+    if (!existingOwner.id) throw new Error("ONBOARDING_OWNER_CREATE_FAILED");
+    return { userId: existingOwner.id, created: false };
   }
 
   async createOnboarding(input: { id: string; actor: OnboardingActor; idempotencyKey: string; requestChecksum: string; correlationId: string; commercialReference?: string }): Promise<{ claimed: boolean }> {
@@ -81,7 +90,21 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
          RETURNING id::text`,
         [input.id,input.actor.type,input.actor.id,input.idempotencyKey,input.requestChecksum,input.correlationId,normalizeOptional(input.commercialReference)],
       );
-      return { claimed: rows.length === 1 };
+      const claimedRow = rows[0];
+      if (claimedRow?.id) return { claimed: claimedRow.id === input.id };
+
+      // A duplicate idempotency claim must not use a no-op UPDATE: once the
+      // original operation has a tenant, RLS correctly requires tenant context
+      // for UPDATE. Resolve the existing claim through the actor-scoped SELECT
+      // policy instead, without widening the UPDATE policy or bypassing RLS.
+      const existing = await this.client.query<Record<string, string>>(
+        `SELECT id::text FROM tenancy.onboarding_operations
+          WHERE actor_type=$1 AND actor_id=$2 AND idempotency_key=$3`,
+        [input.actor.type,input.actor.id,input.idempotencyKey],
+      );
+      const existingClaim = existing[0];
+      if (!existingClaim?.id) throw new Error("ONBOARDING_IDEMPOTENCY_RESULT_MISSING");
+      return { claimed: existingClaim.id === input.id };
     } catch (error) {
       const pgError = error as { code?: string; constraint?: string };
       if (pgError.code === "23505" && pgError.constraint === "onboarding_operations_commercial_reference_uq") {
@@ -137,17 +160,19 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
         WHERE code='OWNER' AND status='ACTIVE' AND scope_type='BUSINESS'
         ORDER BY version DESC LIMIT 1`,
     );
-    if (!role[0]) throw new Error("ONBOARDING_OWNER_ROLE_NOT_MATERIALIZED");
+    const ownerRole = role[0];
+    if (!ownerRole) throw new Error("ONBOARDING_OWNER_ROLE_NOT_MATERIALIZED");
     await this.client.query(
       `INSERT INTO "authorization".user_role_assignments
         (id,tenant_id,tenant_membership_id,role_id,company_id,branch_id,status,valid_from,valid_until,created_at,created_by_actor_type,created_by_actor_id,revoked_at,version)
        VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE',clock_timestamp(),NULL,clock_timestamp(),$7,$8,NULL,1)`,
-      [input.id,input.tenantId,input.membershipId,role[0].id,input.companyId,input.branchId,input.actor.type,input.actor.id],
+      [input.id,input.tenantId,input.membershipId,ownerRole.id,input.companyId,input.branchId,input.actor.type,input.actor.id],
     );
   }
 
   async applyInitialConfiguration(input: { onboardingId: string; tenantId: string; locale: string; timezone: string; currency: string; taxProfile?: unknown; configuration: Record<string, unknown> }): Promise<void> {
-    if (input.taxProfile !== undefined && typeof input.taxProfile !== "string") throw new Error("ONBOARDING_TAX_PROFILE_UNSUPPORTED");\n    const allowed = new Set(["pricingPolicyVersion","taxPolicyVersion","roundingPolicyVersion","authorizationPolicyVersionId"]);
+    if (input.taxProfile !== undefined && typeof input.taxProfile !== "string") throw new Error("ONBOARDING_TAX_PROFILE_UNSUPPORTED");
+    const allowed = new Set(["pricingPolicyVersion","taxPolicyVersion","roundingPolicyVersion","authorizationPolicyVersionId"]);
     for (const key of Object.keys(input.configuration)) if (!allowed.has(key)) throw new Error("ONBOARDING_CONFIGURATION_UNSUPPORTED_" + key);
     const pricing = typeof input.configuration.pricingPolicyVersion === "string" ? input.configuration.pricingPolicyVersion : null;
     const tax = typeof input.configuration.taxPolicyVersion === "string" ? input.configuration.taxPolicyVersion : typeof input.taxProfile === "string" ? input.taxProfile : null;
@@ -204,10 +229,24 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
   }
 }
 
-class PostgresTransactionalSql implements TransactionalSql {
+class PostgresTransactionalSql {
   constructor(private readonly pool: PostgresPoolLike) {}
-  async withTransaction<T>(run: (tx: SqlQueryExecutor) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
+  async withTransaction<T>(run: (tx: PostgresPoolClient) => Promise<T>): Promise<T> {
+    const nativeClient = await this.pool.connect();
+    // pg.PoolClient.query() returns QueryResult { rows }, while the onboarding
+    // repository contract intentionally exposes rows directly. Adapt at this
+    // boundary so repository methods cannot mistake QueryResult for a row array.
+    const client: PostgresPoolClient = {
+      query: async <R = Record<string, unknown>>(text: string, params?: readonly unknown[]): Promise<readonly R[]> => {
+        const result = await nativeClient.query(text, params ? [...params] : undefined);
+        if (Array.isArray(result)) return result as readonly R[];
+        if (result !== null && typeof result === "object" && Array.isArray((result as { rows?: unknown }).rows)) {
+          return (result as { rows: readonly R[] }).rows;
+        }
+        throw new Error("POSTGRES_QUERY_RESULT_INVALID");
+      },
+      release: () => nativeClient.release(),
+    };
     try {
       await client.query("BEGIN");
       const result = await run(client);
@@ -225,6 +264,6 @@ class PostgresTransactionalSql implements TransactionalSql {
 export class PostgresOnboardingRepository implements OnboardingRepository {
   constructor(private readonly pool: PostgresPoolLike) {}
   async transaction<T>(work: (tx: OnboardingTransaction) => Promise<T>): Promise<T> {
-    return new PostgresTransactionalSql(this.pool).withTransaction((client) => work(new PostgresOnboardingTransaction(client)));
+    return new PostgresTransactionalSql(this.pool).withTransaction(async (client) => work(new PostgresOnboardingTransaction(client)));
   }
 }

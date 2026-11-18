@@ -9,6 +9,7 @@ describe("preload-api", () => {
   it("exposes exactly the ratified methods", () => {
     expect(Array.from(RENDERER_API_METHODS)).toEqual([
       "runtime.status.get",
+      "authorization.capabilities.get",
       "operation.result.get",
       "operation.confirm",
       "session.activate",
@@ -31,6 +32,10 @@ describe("preload-api", () => {
       "inventory.stock.receive",
       "inventory.stock.adjust",
       "inventory.stock.get",
+      "inventory.batch.list",
+      "inventory.batch.status",
+      "inventory.conversion.rule.approve",
+      "inventory.conversion.execute",
       "sales.receipt.get",
     ]);
   });

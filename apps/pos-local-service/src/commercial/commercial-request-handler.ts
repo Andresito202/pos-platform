@@ -5,7 +5,7 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
-import type { ContractError, ErrorCategory, IpcRequest } from "@pos-platform/contracts";
+import { CanonicalPermission, type ContractError, type ErrorCategory, type IpcRequest } from "@pos-platform/contracts";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
@@ -28,6 +28,10 @@ type CommercialRequest = Extract<
       | "fiscal.document.issue"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
+      | "inventory.batch.list" | "inventory.batch.status"
+      | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
+      | "inventory.reservation.create" | "inventory.reservation.release"
+      | "cart.waiting.save" | "cart.waiting.list" | "cart.waiting.get" | "cart.waiting.discard"
       | "sales.receipt.get";
   }
 >;
@@ -197,6 +201,10 @@ export class CommercialRequestHandler {
       case "cash.shift.open": return this.openShift(request, connectionId);
       case "cash.shift.close": return this.closeShift(request, connectionId);
       case "sale.create": return this.createSale(request, connectionId);
+      case "cart.waiting.save":
+      case "cart.waiting.discard":
+      case "cart.waiting.get":
+      case "cart.waiting.list": return this.waitingCart(request, connectionId);
       case "payment.register.cash": return this.registerCashPayment(request, connectionId);
       case "payment.register.transfer": return this.registerTransferPayment(request, connectionId);
       case "payment.transfer.confirm": return this.confirmTransferPayment(request, connectionId);
@@ -212,6 +220,12 @@ export class CommercialRequestHandler {
       case "inventory.stock.receive":
       case "inventory.stock.adjust": return this.moveStock(request, connectionId);
       case "inventory.stock.get": return this.getStock(request, connectionId);
+      case "inventory.batch.list": return this.listBatches(request, connectionId);
+      case "inventory.batch.status": return this.changeBatchStatus(request, connectionId);
+      case "inventory.conversion.rule.approve": return this.approvePresentationConversion(request, connectionId);
+      case "inventory.conversion.execute": return this.convertPresentation(request, connectionId);
+      case "inventory.reservation.create": return this.createInventoryReservation(request, connectionId);
+      case "inventory.reservation.release": return this.releaseInventoryReservation(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
     }
   }
@@ -615,8 +629,10 @@ export class CommercialRequestHandler {
         return rejected(request, "CUSTOMER_NOT_FOUND", { outcome: "BLOCKED", ...empty, block_code: "CUSTOMER_NOT_FOUND" });
       }
       customer = { kind: "IDENTIFIED", customer: found.customer };
-    } else {
+    } else if (payload.customer.kind === "NOT_IDENTIFIED") {
       customer = { kind: "NOT_IDENTIFIED", reason: payload.customer.reason };
+    } else {
+      return rejected(request, "BLOCKED", { outcome: "BLOCKED", ...empty, block_code: "SALE_CUSTOMER_NOT_ASSIGNED" });
     }
 
     const result = await useCase.execute(
@@ -874,6 +890,152 @@ export class CommercialRequestHandler {
    * Ninguna cifra se calcula aquí. El caso de uso devuelve lo que la venta dejó
    * escrito, y este método sólo lo renombra al idioma del contrato.
    */
+  private listBatches(
+    request:Extract<CommercialRequest,{message_type:"inventory.batch.list"}>,
+    connectionId:string,
+  ):unknown{
+    const rejectedResult={outcome:"UNAUTHORIZED",tracked:false,batches:[]};
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,rejectedResult);
+    const result=this.commercial.listBatches.execute(
+      this.scope(),session.snapshot,request.payload.presentation_id);
+    if(result.kind==="UNAUTHORIZED")return rejected(request,"UNAUTHORIZED",rejectedResult);
+    return succeeded(request,"FOUND",{outcome:"FOUND",tracked:result.tracked,batches:result.batches.map(lot=>({
+      id:lot.id,batch_code:lot.batchCode,quantity_on_hand:lot.quantityOnHand,status:lot.status,
+      manufacture_date:lot.manufactureDate,expiry_date:lot.expiryDate,
+      supplier_reference:lot.supplierReference,receipt_document:lot.receiptDocument,
+    }))});
+  }
+
+  private changeBatchStatus(
+    request:Extract<CommercialRequest,{message_type:"inventory.batch.status"}>,
+    connectionId:string,
+  ):unknown{
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,{outcome:"UNAUTHORIZED"});
+    const result=this.commercial.changeBatchStatus.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        lotId:request.payload.lot_id,status:request.payload.status,
+        reasonCode:request.payload.reason_code,idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,causationId:request.causation_id??null,
+      });
+    if(result.kind==="UPDATED"||result.kind==="IDEMPOTENT")
+      return succeeded(request,result.kind,{outcome:result.kind});
+    return rejected(request,result.kind,{outcome:result.kind});
+  }
+
+  private approvePresentationConversion(
+    request:Extract<CommercialRequest,{message_type:"inventory.conversion.rule.approve"}>,
+    connectionId:string,
+  ):unknown{
+    const invalid={outcome:"UNAUTHORIZED",rule_id:null};
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,invalid);
+    const result=this.commercial.approvePresentationConversion.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        sourcePresentationId:request.payload.source_presentation_id,
+        targetPresentationId:request.payload.target_presentation_id,
+        numerator:request.payload.numerator,denominator:request.payload.denominator,
+        version:request.payload.version,idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,causationId:request.causation_id??null,
+      });
+    const response={outcome:result.kind,rule_id:result.ruleId??null};
+    return result.kind==="APPROVED"||result.kind==="IDEMPOTENT"
+      ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
+  }
+
+  private convertPresentation(
+    request:Extract<CommercialRequest,{message_type:"inventory.conversion.execute"}>,
+    connectionId:string,
+  ):unknown{
+    const empty={outcome:"UNAUTHORIZED",conversion_id:null,target_lot_id:null,target_quantity:null};
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,empty);
+    const result=this.commercial.convertPresentation.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        ruleId:request.payload.rule_id,sourceLotId:request.payload.source_lot_id,
+        quantity:request.payload.quantity,reasonCode:request.payload.reason_code,
+        businessDate:request.payload.business_date,idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,causationId:request.causation_id??null,
+      });
+    const response={outcome:result.kind,conversion_id:result.conversionId??null,
+      target_lot_id:result.targetLotId??null,target_quantity:result.targetQuantity??null};
+    return result.kind==="CONVERTED"||result.kind==="IDEMPOTENT"
+      ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
+  }
+
+  private createInventoryReservation(
+    request:Extract<CommercialRequest,{message_type:"inventory.reservation.create"}>,
+    connectionId:string,
+  ):unknown{
+    const empty={outcome:"UNAUTHORIZED",reservation_id:null,available:null};
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,empty);
+    const result=this.commercial.createInventoryReservation.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        presentationId:request.payload.presentation_id,
+        quantity:request.payload.quantity,
+        referenceId:request.payload.reference_id,
+        expiresAt:request.payload.expires_at,
+        idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,
+        causationId:request.causation_id??null,
+      });
+    const response={
+      outcome:result.kind,
+      reservation_id:"reservationId" in result?(result.reservationId??null):null,
+      available:"available" in result?(result.available??null):null,
+    };
+    return result.kind==="RESERVED"||result.kind==="IDEMPOTENT"
+      ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
+  }
+
+  private releaseInventoryReservation(
+    request:Extract<CommercialRequest,{message_type:"inventory.reservation.release"}>,
+    connectionId:string,
+  ):unknown{
+    const session=this.authenticate(connectionId);
+    if("rejection" in session)return rejected(request,session.rejection,{outcome:"UNAUTHORIZED"});
+    const result=this.commercial.releaseInventoryReservation.execute(
+      this.scope(),session.identity.ssaSessionId,session.snapshot,{
+        reservationId:request.payload.reservation_id,
+        reasonCode:request.payload.reason_code,
+        idempotencyKey:request.idempotency_key as string,
+        correlationId:request.correlation_id,
+        causationId:request.causation_id??null,
+      });
+    const response={outcome:result.kind};
+    return result.kind==="RELEASED"||result.kind==="IDEMPOTENT"
+      ?succeeded(request,result.kind,response):rejected(request,result.kind,response);
+  }
+
+  // ── sales.receipt.get — `DEC-019` ──────────────────────────────────────────
+
+  private waitingCart(request: Extract<CommercialRequest,{message_type:"cart.waiting.save"|"cart.waiting.list"|"cart.waiting.get"|"cart.waiting.discard"}>,connectionId:string):unknown {
+    const auth=this.authenticate(connectionId);
+    const denied={outcome:"UNAUTHORIZED",carts:[],has_more:false};
+    if("rejection" in auth) return rejected(request,auth.rejection,denied);
+    const scope=this.scope();
+    const decision=evaluatePermission({actor:createActor("USER",auth.identity.userId),permission:CanonicalPermission.SALES_SALE_CREATE,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(auth.snapshot.claims)});
+    if(!decision.allowed) return rejected(request,"UNAUTHORIZED",denied);
+    if (request.message_type === "cart.waiting.save" && request.payload.cart.customer_id) {
+      const customer = this.commercial.getCustomer.execute(scope, auth.snapshot,
+        { by: "ID", customerId: request.payload.cart.customer_id });
+      if (customer.kind !== "FOUND") return rejected(request, customer.kind,
+        { outcome: customer.kind, carts: [], has_more: false });
+    }
+    const owner={...scope,operatorId:auth.identity.userId};
+    const result=request.message_type==="cart.waiting.list" ? this.commercial.waitingCarts.list(owner)
+      : request.message_type==="cart.waiting.get" ? this.commercial.waitingCarts.get(owner,request.payload.cart_id)
+      : request.message_type==="cart.waiting.discard" ? this.commercial.waitingCarts.discard(owner,request.payload.cart_id,request.payload.expected_version)
+      :this.commercial.waitingCarts.save(owner,request.payload.cart_id,request.payload.expected_version,request.idempotency_key!,request.payload.cart);
+    return ["FOUND","SAVED","DISCARDED"].includes(result.outcome)?succeeded(request,result.outcome,result):rejected(request,result.outcome,result);
+  }
+
+  // ── sale.create ────────────────────────────────────────────────────────────
+
+
   private getReceipt(
     request: Extract<CommercialRequest, { message_type: "sales.receipt.get" }>,
     connectionId: string,
@@ -1216,11 +1378,13 @@ export class CommercialRequestHandler {
       });
     }
 
-    const result = this.commercial.createSale.execute(
+    const create = () => this.commercial.createSale.execute(
       this.scope(),
       authenticated.identity.ssaSessionId,
       authenticated.snapshot,
       {
+        customerId: request.payload.customer_id ?? null,
+        requireOpenCashShift: true,
         cashRegisterId: request.payload.cash_register_id,
         idempotencyKey: request.idempotency_key as string,
         channel: request.payload.channel,
@@ -1235,9 +1399,20 @@ export class CommercialRequestHandler {
           productId: line.product_id,
           presentationId: line.presentation_id,
           quantity: line.quantity,
+          ...(line.identifier === undefined ? {} : { identifier: line.identifier }),
         })),
       },
     );
+
+    // Recheck authorization even for a replay of a consumed waiting cart.
+    const scope=this.scope();
+    const allowed=evaluatePermission({actor:createActor("USER",authenticated.identity.userId),permission:CanonicalPermission.SALES_SALE_CREATE,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(authenticated.snapshot.claims)});
+    const waiting=request.payload.waiting_cart;
+    const result=!allowed.allowed ? {kind:"UNAUTHORIZED" as const} : waiting
+      ? this.commercial.waitingCarts.consume({...scope,operatorId:authenticated.identity.userId},waiting.id,waiting.version,
+        request.idempotency_key!,request.payload,request.payload.cash_register_id,create)
+      : create();
 
     if (result.kind === "CREATED" || result.kind === "IDEMPOTENT") {
       return succeeded(request, result.kind, {
@@ -1255,3 +1430,4 @@ export class CommercialRequestHandler {
     });
   }
 }
+

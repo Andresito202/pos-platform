@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { InitializeTenant, type OnboardingInput } from "@pos-platform/application";
-import { PostgresOnboardingRepository } from "../src/onboarding-repository.js";
-import { uuidV7 } from "../src/sql.js";
+import { InitializeTenant } from "../src/onboarding/initialize-tenant.js";
+import type { OnboardingInput } from "@pos-platform/contracts";
+import { PostgresOnboardingRepository, createPostgresPool } from "@pos-platform/database-postgres";
+import { uuidV7 } from "@pos-platform/database-postgres";
 
 const SERVER_URL = process.env.POSTGRES_TEST_URL ?? "postgres://postgres@127.0.0.1:55432/postgres";
 const DATABASE = "target_database_postgres_onboarding";
@@ -35,25 +35,39 @@ function request(suffix: string, actorId = "01890f5a-0000-7000-8000-000000000001
   };
 }
 
-describe("database-postgres ONB-002 integration", () => {
-  let admin: Pool;
-  let runtime: Pool;
-  let inspection: Pool;
+describe.runIf(Boolean(process.env.POSTGRES_TEST_URL))("database-postgres ONB-002 integration", () => {
+  let admin: ReturnType<typeof createPostgresPool>;
+  let runtime: ReturnType<typeof createPostgresPool>;
+  let inspection: ReturnType<typeof createPostgresPool>;
 
   beforeAll(async () => {
-    admin = new Pool({ connectionString: SERVER_URL, max: 2 });
+    admin = createPostgresPool(SERVER_URL, 2);
     await admin.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
     await admin.query('CREATE DATABASE "' + DATABASE + '"');
+
+    const roles = ["pos_schema_owner","pos_migrator","pos_app","pos_worker","pos_platform_app","pos_platform_admin"] as const;
+    for (const role of roles) {
+      const exists = await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [role]);
+      if (exists.rowCount === 0) await admin.query('CREATE ROLE "' + role + '" NOLOGIN');
+    }
+    await admin.query('ALTER ROLE pos_schema_owner NOLOGIN NOSUPERUSER NOBYPASSRLS INHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_migrator LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_worker LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_platform_app LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('ALTER ROLE pos_platform_admin LOGIN NOSUPERUSER BYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION');
+    await admin.query('GRANT pos_schema_owner TO pos_migrator WITH SET TRUE, INHERIT FALSE, ADMIN FALSE');
+    await admin.query('GRANT CREATE ON DATABASE \"' + DATABASE + '\" TO pos_schema_owner');
 
     const bootstrap = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "bootstrap.sql"), "utf8");
     const foundation = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "001_central_foundation.up.sql"), "utf8");
     const hardening = await readFile(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tools", "target-migrations", "sql", "postgres", "005_onboarding_bootstrap_hardening.up.sql"), "utf8");
 
-    const root = new Pool({ connectionString: dbUrl() });
+    const root = createPostgresPool(dbUrl());
     try {
       await root.query(bootstrap);
-      await root.query(foundation);
       await root.query("SET ROLE pos_schema_owner");
+      await root.query(foundation);
       await root.query(hardening);
       await root.query(
         `INSERT INTO "authorization".roles(id,code,name,scope_type,version,status,created_at)
@@ -63,14 +77,18 @@ describe("database-postgres ONB-002 integration", () => {
     } finally {
       await root.end();
     }
-    runtime = new Pool({ connectionString: roleUrl("pos_platform_app"), max: 4 });
-    inspection = new Pool({ connectionString: dbUrl(), max: 2 });
+    runtime = createPostgresPool(roleUrl("pos_platform_app"), 4);
+    inspection = createPostgresPool(dbUrl(), 2);
   }, 120_000);
 
   afterAll(async () => {
+    // Close application and inspection pools before dropping the disposable DB.
+    // Do not use DROP DATABASE ... WITH (FORCE) here: forcibly terminating a
+    // leftover backend can emit an uncaught pg client error after tests pass,
+    // hiding a resource-lifecycle defect as a green test run.
     await runtime?.end();
     await inspection?.end();
-    await admin?.query('DROP DATABASE IF EXISTS "' + DATABASE + '" WITH (FORCE)');
+    await admin?.query('DROP DATABASE IF EXISTS "' + DATABASE + '"');
     await admin?.end();
   });
 
@@ -114,7 +132,11 @@ describe("database-postgres ONB-002 integration", () => {
   it("uses physical idempotency under concurrent identical requests", async () => {
     const base = request("B");
     const [first, second] = await Promise.all([useCase().execute(base), useCase().execute(base)]);
-    expect([first.tenantId, second.tenantId].sort()).toEqual([first.tenantId, second.tenantId].sort());
+    expect(first.tenantId).toBe(second.tenantId);
+    expect(first.companyId).toBe(second.companyId);
+    expect(first.branchId).toBe(second.branchId);
+    expect(first.ownerUserId).toBe(second.ownerUserId);
+    expect(first.tenantMembershipId).toBe(second.tenantMembershipId);
     expect(new Set([first.onboardingId, second.onboardingId]).size).toBe(1);
     expect(new Set([first.status, second.status])).toEqual(new Set(["READY_FOR_LICENSE"]));
     expect((await inspection.query("SELECT count(*)::int AS n FROM tenancy.onboarding_operations WHERE idempotency_key=$1", [base.idempotencyKey])).rows[0].n).toBe(1);

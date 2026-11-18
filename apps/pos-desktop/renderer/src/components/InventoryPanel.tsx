@@ -1,4 +1,8 @@
-import { useState } from "react";
+import { InventoryBatchPanel } from "./InventoryBatchPanel.js";
+import { InventoryConversionPanel } from "./InventoryConversionPanel.js";
+import { InventoryCsvImport } from "./InventoryCsvImport.js";
+import { CanonicalPermission } from "@pos-platform/contracts";
+import { useEffect, useState } from "react";
 import {
   useInventoryAdmin,
   type AdjustMovement,
@@ -18,6 +22,16 @@ const ADJUST_MOVEMENTS: readonly AdjustMovement[] = [
   "TRANSFER_OUT",
 ];
 
+const movementLabels: Record<ReceiveMovement | AdjustMovement, string> = {
+  OPENING_COUNT: "Inventario inicial",
+  PURCHASE_RECEIPT: "Recepción de compra",
+  TRANSFER_IN: "Traslado recibido",
+  ADJUSTMENT_POSITIVE: "Ajuste de entrada",
+  ADJUSTMENT_NEGATIVE: "Ajuste de salida",
+  SHRINKAGE: "Merma o pérdida",
+  TRANSFER_OUT: "Traslado enviado",
+};
+
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -30,12 +44,21 @@ function today(): string {
  * permitiría registrar una merma eligiendo «compra», y el libro de movimientos
  * dejaría de servir para auditar.
  */
-export function InventoryPanel(): React.JSX.Element {
+export function InventoryPanel({ permissions, initialPresentationId = null }: { permissions: ReadonlySet<string>; initialPresentationId?: string | null }): React.JSX.Element {
   const inventory = useInventoryAdmin();
   const [presentationId, setPresentationId] = useState("");
+  const [batchPending,setBatchPending]=useState(false);
+  useEffect(() => { if (initialPresentationId !== null&&!batchPending) setPresentationId(initialPresentationId); }, [initialPresentationId,batchPending]);
   const [receiveType, setReceiveType] = useState<ReceiveMovement>("PURCHASE_RECEIPT");
   const [receiveQuantity, setReceiveQuantity] = useState("");
   const [receiveReason, setReceiveReason] = useState("PURCHASE");
+  const [batchEnabled,setBatchEnabled]=useState(false);
+  const [batchCode,setBatchCode]=useState("");
+  const [batchManufacture,setBatchManufacture]=useState("");
+  const [batchExpiry,setBatchExpiry]=useState("");
+  const [supplierReference,setSupplierReference]=useState("");
+  const [receiptDocument,setReceiptDocument]=useState("");
+  const [adjustLotId,setAdjustLotId]=useState("");
   const [adjustType, setAdjustType] = useState<AdjustMovement>("ADJUSTMENT_NEGATIVE");
   const [adjustQuantity, setAdjustQuantity] = useState("");
   const [adjustReason, setAdjustReason] = useState("COUNT_CORRECTION");
@@ -46,101 +69,175 @@ export function InventoryPanel(): React.JSX.Element {
   return (
     <section data-testid="inventory-panel">
       <h2>Existencia</h2>
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && <InventoryCsvImport enabled={permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && !inventory.busy && !inventory.pending} />}
+      {inventory.pending && <div role="status"><p>Hay un movimiento pendiente de confirmación. No cierres esta pantalla hasta resolverlo.</p>
+        <button type="button" disabled={inventory.busy} onClick={() => void inventory.retryPending()}>Reintentar el mismo movimiento</button></div>}
+      <div className="pos-form-grid">
 
+      <label className="pos-field">ID de presentación
       <input
         data-testid="inventory-presentation-input"
+        aria-label="ID de presentación"
         value={presentationId}
         onChange={(e) => { setPresentationId(e.target.value); }}
         placeholder="ID de presentación"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending || batchPending}
       />
+      </label>
+      {(permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)) && <label className="pos-field">Fecha de negocio
       <input
         data-testid="inventory-business-date-input"
+        aria-label="Fecha de negocio"
         value={businessDate}
         onChange={(e) => { setBusinessDate(e.target.value); }}
         placeholder="Fecha de negocio"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>}
 
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) && <>
       <h3>Entrada</h3>
+      <label className="pos-field">Tipo de entrada
       <select
         data-testid="receive-movement-select"
         value={receiveType}
         onChange={(e) => { setReceiveType(e.target.value as ReceiveMovement); }}
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       >
         {RECEIVE_MOVEMENTS.map((movement) => (
-          <option key={movement} value={movement}>{movement}</option>
+          <option key={movement} value={movement}>{movementLabels[movement]}</option>
         ))}
       </select>
+      </label>
+      <label className="pos-field">Cantidad de entrada
       <input
         data-testid="receive-quantity-input"
+        aria-label="Cantidad de entrada"
         value={receiveQuantity}
         onChange={(e) => { setReceiveQuantity(e.target.value); }}
         placeholder="Cantidad"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
+      <label className="pos-field">Motivo de entrada
       <input
         data-testid="receive-reason-input"
+        aria-label="Motivo de entrada"
         value={receiveReason}
         onChange={(e) => { setReceiveReason(e.target.value); }}
         placeholder="Motivo"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
+      {receiveType==="PURCHASE_RECEIPT"&&<label className="pos-field">
+        <input type="checkbox" checked={batchEnabled} onChange={e=>setBatchEnabled(e.target.checked)}
+          disabled={inventory.busy||inventory.pending}/> Recepción con lote trazable
+      </label>}
+      {batchEnabled&&receiveType==="PURCHASE_RECEIPT"&&<fieldset className="pos-form-grid" aria-label="Datos del lote">
+        <label className="pos-field">Código de lote
+          <input data-testid="batch-code-input" value={batchCode} onChange={e=>setBatchCode(e.target.value)}
+            disabled={inventory.busy||inventory.pending} required/>
+        </label>
+        <label className="pos-field">Fabricación (opcional)
+          <input type="date" value={batchManufacture} onChange={e=>setBatchManufacture(e.target.value)}
+            disabled={inventory.busy||inventory.pending}/>
+        </label>
+        <label className="pos-field">Vencimiento (opcional)
+          <input type="date" value={batchExpiry} onChange={e=>setBatchExpiry(e.target.value)}
+            disabled={inventory.busy||inventory.pending}/>
+        </label>
+        <label className="pos-field">Proveedor
+          <input value={supplierReference} onChange={e=>setSupplierReference(e.target.value)}
+            disabled={inventory.busy||inventory.pending} required/>
+        </label>
+        <label className="pos-field">Documento de recepción
+          <input value={receiptDocument} onChange={e=>setReceiptDocument(e.target.value)}
+            disabled={inventory.busy||inventory.pending} required/>
+        </label>
+      </fieldset>}
       <button
         data-testid="receive-stock-button"
         onClick={() => {
           void inventory.receive(
             target, receiveType, receiveQuantity, receiveReason.trim(), businessDate.trim(),
+            batchEnabled&&receiveType==="PURCHASE_RECEIPT"?{
+              code:batchCode.trim(),manufacture_date:batchManufacture||null,expiry_date:batchExpiry||null,
+              supplier_reference:supplierReference.trim(),receipt_document:receiptDocument.trim(),
+            }:undefined,
           );
         }}
-        disabled={inventory.busy || target === "" || receiveQuantity.trim() === ""}
+        disabled={inventory.busy || inventory.pending || !permissions.has(CanonicalPermission.INVENTORY_STOCK_RECEIVE) || target === "" || receiveQuantity.trim() === "" || (batchEnabled&&receiveType==="PURCHASE_RECEIPT"&&(!batchCode.trim()||!supplierReference.trim()||!receiptDocument.trim()))}
       >
         Recibir
       </button>
 
+      </>}
+
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) && <>
       <h3>Ajuste</h3>
+      <label className="pos-field">Tipo de ajuste
       <select
         data-testid="adjust-movement-select"
         value={adjustType}
         onChange={(e) => { setAdjustType(e.target.value as AdjustMovement); }}
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       >
         {ADJUST_MOVEMENTS.map((movement) => (
-          <option key={movement} value={movement}>{movement}</option>
+          <option key={movement} value={movement}>{movementLabels[movement]}</option>
         ))}
       </select>
+      </label>
+      <label className="pos-field">Cantidad de ajuste
       <input
         data-testid="adjust-quantity-input"
+        aria-label="Cantidad de ajuste"
         value={adjustQuantity}
         onChange={(e) => { setAdjustQuantity(e.target.value); }}
         placeholder="Cantidad"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
+      <label className="pos-field">Motivo del ajuste
       <input
         data-testid="adjust-reason-input"
+        aria-label="Motivo del ajuste"
         value={adjustReason}
         onChange={(e) => { setAdjustReason(e.target.value); }}
         placeholder="Motivo"
-        disabled={inventory.busy}
+        disabled={inventory.busy || inventory.pending}
       />
+      </label>
+      <label className="pos-field">ID de lote (solo si hay control por lotes)
+        <input data-testid="adjust-batch-id" value={adjustLotId} onChange={e=>setAdjustLotId(e.target.value)}
+          disabled={inventory.busy||inventory.pending} placeholder="UUID del lote"/>
+      </label>
       <button
         data-testid="adjust-stock-button"
         onClick={() => {
           void inventory.adjust(
             target, adjustType, adjustQuantity, adjustReason.trim(), businessDate.trim(),
+            adjustLotId.trim()||undefined,
           );
         }}
-        disabled={inventory.busy || target === "" || adjustQuantity.trim() === ""}
+        disabled={inventory.busy || inventory.pending || !permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST) || target === "" || adjustQuantity.trim() === ""}
       >
         Ajustar
       </button>
 
+      </>}
+
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)&&target!==""&&
+        <InventoryConversionPanel key={target} sourcePresentationId={target} businessDate={businessDate.trim()}
+          canApprove={permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER)} />}
+
       <h3>Consulta</h3>
+      {permissions.has(CanonicalPermission.INVENTORY_STOCK_READ)&&target!==""&&
+        <InventoryBatchPanel key={target} presentationId={target} canAdjust={permissions.has(CanonicalPermission.INVENTORY_STOCK_ADJUST)} onPendingChange={setBatchPending}/>}
+
       <button
         data-testid="get-stock-button"
         onClick={() => { void inventory.getStock(target); }}
-        disabled={inventory.busy || target === ""}
+        disabled={inventory.busy || !permissions.has(CanonicalPermission.INVENTORY_STOCK_READ) || target === ""}
       >
         Consultar
       </button>
@@ -171,6 +268,7 @@ export function InventoryPanel(): React.JSX.Element {
         <div data-testid="stock-unauthorized">{inventory.stock.outcome}</div>
       )}
       {inventory.error !== null && <div data-testid="inventory-error">{inventory.error}</div>}
+      </div>
     </section>
   );
 }

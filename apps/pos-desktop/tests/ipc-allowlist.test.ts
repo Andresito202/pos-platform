@@ -5,6 +5,7 @@ describe("ipc-allowlist", () => {
   it("contains exactly the ratified operational and commercial channels", () => {
     expect(Array.from(IPC_ALLOWED_CHANNELS)).toEqual([
       "pos:runtime.status.get",
+      "pos:authorization.capabilities.get",
       "pos:operation.result.get",
       "pos:operation.confirm",
       "pos:session.activate",
@@ -27,6 +28,10 @@ describe("ipc-allowlist", () => {
       "pos:inventory.stock.receive",
       "pos:inventory.stock.adjust",
       "pos:inventory.stock.get",
+      "pos:inventory.batch.list",
+      "pos:inventory.batch.status",
+      "pos:inventory.conversion.rule.approve",
+      "pos:inventory.conversion.execute",
       "pos:sales.receipt.get",
     ]);
   });
@@ -53,6 +58,10 @@ describe("ipc-allowlist", () => {
       "pos:inventory.stock.receive",
       "pos:inventory.stock.adjust",
       "pos:inventory.stock.get",
+      "pos:inventory.batch.list",
+      "pos:inventory.batch.status",
+      "pos:inventory.conversion.rule.approve",
+      "pos:inventory.conversion.execute",
       "pos:sales.receipt.get",
     ]) {
       expect(isAllowedChannel(channel)).toBe(true);

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LATEST_LOCAL_SCHEMA_VERSION, LocalDatabase } from "../src/local-database.js";
 
@@ -16,12 +16,18 @@ import { LATEST_LOCAL_SCHEMA_VERSION, LocalDatabase } from "../src/local-databas
  */
 
 const directories: string[] = [];
+const openDatabases: LocalDatabase[] = [];
 async function open(): Promise<LocalDatabase> {
   const dataDirectory = await mkdtemp(join(tmpdir(), "pos-fiscal-"));
   directories.push(dataDirectory);
-  return LocalDatabase.open({ dataDirectory });
+  const database = LocalDatabase.open({ dataDirectory });
+  openDatabases.push(database);
+  return database;
 }
 afterEach(() => {
+  for (const database of openDatabases.splice(0)) {
+    if (database.native.open) database.close();
+  }
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
 });
 
@@ -187,10 +193,13 @@ const ACCEPTED = {
 describe("MIGRATION_016 — esquema", () => {
   it("llega a la última versión y crea las dos tablas de DEC-021 F1", async () => {
     const database = await open();
-    expect(LATEST_LOCAL_SCHEMA_VERSION).toBe(16);
+    expect(LATEST_LOCAL_SCHEMA_VERSION).toBeGreaterThanOrEqual(16);
     expect((database.native
       .prepare("SELECT max(version) AS version FROM local_schema_migrations")
-      .get() as { version: number }).version).toBe(16);
+      .get() as { version: number }).version).toBe(LATEST_LOCAL_SCHEMA_VERSION);
+    expect((database.native
+      .prepare("SELECT COUNT(*) AS count FROM local_schema_migrations WHERE version = 16")
+      .get() as { count: number }).count).toBe(1);
 
     const tables = (database.native
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'fiscal_%' ORDER BY name")
@@ -492,4 +501,51 @@ describe("MIGRATION_016 — el rango debe existir antes que el documento", () =>
       .toThrow(/CHECK constraint failed/);
     database.close();
   });
+});
+
+
+it("upgrades v19 sales without assigning or changing historical customer identities",async()=>{
+  const database=await open();const saleId=randomUUID();seedSale(database,saleId);
+  const dataDirectory=dirname(database.native.name);
+  // Reconstruct the prior version in a disposable fixture, never an operational downgrade.
+  database.native.exec(`DROP TRIGGER sales_customer_scope_insert;
+    DROP TRIGGER sales_customer_identity_immutable;
+    DROP TRIGGER customers_linked_sale_no_delete;
+    DROP TRIGGER customers_linked_sale_no_rebind;
+    DROP INDEX sales_sales_customer_idx;
+    ALTER TABLE sales_sales DROP COLUMN customer_id;
+    DROP TRIGGER local_schema_migrations_no_delete;
+    -- Reconstruct an actual v19 fixture: remove the disposable v21 projection
+    -- as well as both later ledger entries, preserving immutable real history.
+      DROP TRIGGER IF EXISTS inventory_reservation_lot_no_update;
+      DROP TRIGGER IF EXISTS inventory_reservation_lot_no_delete;
+      DROP TABLE IF EXISTS inventory_reservation_lot;
+      DROP TRIGGER IF EXISTS inventory_reservation_no_delete;
+      DROP INDEX IF EXISTS inventory_reservation_availability_idx;
+      DROP INDEX IF EXISTS inventory_reservation_reference_idx;
+      DROP TABLE IF EXISTS inventory_reservation;
+      DROP TRIGGER inventory_conversion_event_no_update;
+      DROP TRIGGER inventory_conversion_event_no_delete;
+      DROP TABLE inventory_conversion_event;
+      DROP TRIGGER inventory_conversion_rule_same_product;
+      DROP TRIGGER inventory_conversion_rule_no_update;
+      DROP TRIGGER inventory_conversion_rule_no_delete;
+      DROP TABLE inventory_conversion_rule;
+    DROP TRIGGER inventory_lot_status_event_no_update;
+    DROP TRIGGER inventory_lot_status_event_no_delete;
+    DROP TABLE inventory_lot_status_event;
+    DROP TRIGGER inventory_lot_movement_no_update;
+    DROP TRIGGER inventory_lot_movement_no_delete;
+    DROP TABLE inventory_lot_movement;
+    DROP TRIGGER inventory_lot_no_delete;
+    DROP TABLE inventory_lot;
+    DROP TABLE inventory_lot_tracking;
+    DROP TABLE local_merchant_payment_destination_snapshot;
+    DELETE FROM local_schema_migrations WHERE version>=20;`);
+  const before=database.native.prepare("SELECT * FROM sales_sales WHERE id=?").get(saleId) as Record<string,unknown>;
+  database.close();
+  const upgraded=LocalDatabase.open({dataDirectory});openDatabases.push(upgraded);
+  expect(upgraded.native.prepare("SELECT * FROM sales_sales WHERE id=?").get(saleId)).toEqual({...before,customer_id:null});
+  expect(upgraded.native.prepare("SELECT max(version) AS version FROM local_schema_migrations").get()).toEqual({version:LATEST_LOCAL_SCHEMA_VERSION});
+  upgraded.assertIntegrity();
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { InitializeTenant, type OnboardingInput, type OnboardingTransaction } from "../src/onboarding/initialize-tenant.js";
+import { InitializeTenant } from "../src/onboarding/initialize-tenant.js";
+import type { OnboardingInput, OnboardingTransaction } from "@pos-platform/contracts";
 
 function input(): OnboardingInput {
   return {
@@ -79,13 +80,20 @@ describe("InitializeTenant", () => {
       ownerUserId: "01890f5a-0000-7000-8000-000000000014", tenantMembershipId: "01890f5a-0000-7000-8000-000000000015",
       status: "READY_FOR_LICENSE" as const, reasonCode: null, licenseReference: null, requestedPlan: null,
       correlationId: input().correlationId, idempotencyKey: input().idempotencyKey, createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z", requestChecksum: "unused", actor: input().actor,
+      updatedAt: "2026-01-01T00:00:00Z", requestChecksum: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actor: input().actor,
     };
     const replayTx = tx();
-    replayTx.createOnboarding = async () => ({ claimed: false });
-    replayTx.findOnboarding = async () => existing;
+    let replayChecksum = "";
+    let persisted: typeof existing | undefined;
+    replayTx.createOnboarding = async (record) => {
+      replayChecksum = record.requestChecksum;
+      persisted = { ...existing, requestChecksum: replayChecksum };
+      return { claimed: false };
+    };
+    replayTx.findOnboarding = async () => persisted ?? null;
     const result = await new InitializeTenant({ transaction: async (work) => work(replayTx) }, { authorize: async () => undefined }).execute(input());
-    expect(result).toBe(existing);
+    expect(result).toBe(persisted);
+    expect(persisted?.requestChecksum).toBe(replayChecksum);
   });
 
   it("rejects the same idempotency key with a different request", async () => {

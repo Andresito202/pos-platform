@@ -31,6 +31,9 @@ import { fileURLToPath } from "node:url";
  * plataforma.
  */
 
+// Shared Electron + signed channel + cash shift across cases (tip #106).
+test.describe.configure({ mode: "serial" });
+
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const executablePath = require("electron") as string;
@@ -108,11 +111,14 @@ test.beforeAll(async () => {
   const ready = await waitForService(service);
   sessionAssertion = ready.sessionAssertion;
 
+  const electronEnvironment = Object.fromEntries(Object.entries(process.env).filter(
+    (entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== "ELECTRON_RUN_AS_NODE",
+  ));
   app = await electron.launch({
-    args: ["--no-sandbox", join(here, "real-channel-entry.mjs")],
+    args: [...(process.platform === "linux" ? ["--no-sandbox"] : []), join(here, "real-channel-entry.mjs")],
     executablePath,
     env: {
-      ...process.env,
+      ...electronEnvironment,
       POS_E2E_CHANNEL_ENDPOINT: ready.endpoint,
       POS_E2E_CHANNEL_SECRET: channelSecret,
       POS_E2E_INSTALLATION_ID: INSTALLATION,
@@ -153,6 +159,10 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
     return (response as { status: string }).status;
   }, sessionAssertion);
   expect(activated).toBe("SUCCEEDED");
+  // Auth-gated App loads capabilities once on mount (SESSION_NOT_BOUND before
+  // activate). Tip #106 remounts after signed activation so screens appear.
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Caja y ventas", exact: true })).toBeVisible();
 
   // 2 · Preparación del mostrador: el producto y su existencia. Va por el canal
   //     real igual que todo lo demás; la interfaz aún no tiene pantalla propia
@@ -298,7 +308,9 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(truth["outcome"]).toBe("FOUND");
 
   // A partir de aquí, sólo la interfaz: es lo que hace el cajero cuando el
-  // cliente vuelve con una duda.
+  // cliente vuelve con una duda. Auth-gated App mounts one screen at a time
+  // (tip #106): receipt controls live under Comprobantes.
+  await page.getByRole("button", { name: "Comprobantes", exact: true }).click();
   await page.getByTestId("receipt-sale-id-input").fill(saleId);
   await page.getByTestId("receipt-load-button").click();
   await expect(page.getByTestId("receipt")).toBeVisible({ timeout: 15_000 });
@@ -347,6 +359,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
 
   // Una venta nueva y sin cobrar existe, y por eso no puede anunciarse como
   // inexistente: el cajero la tiene delante y lo que debe hacer es cobrarla.
+  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
   await page.getByTestId("reset-button").click();
   await page.getByTestId("barcode-input").fill(BARCODE);
   await page.getByTestId("find-item-button").click();
@@ -358,6 +371,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
 
   const pendingSale = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
   expect(pendingSale).not.toBe(saleId);
+  await page.getByRole("button", { name: "Comprobantes", exact: true }).click();
   await page.getByTestId("receipt-sale-id-input").fill(pendingSale);
   await page.getByTestId("receipt-load-button").click();
   await expect(page.getByTestId("receipt-not-completed")).toBeVisible({ timeout: 15_000 });
@@ -370,6 +384,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // la caja queda inservible al dia siguiente: es el bloqueo que este tramo
   // levanta, y se comprueba aqui desde la pantalla real.
 
+  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
   await page.getByTestId("counted-amount-input").fill("0");
   await page.getByTestId("close-shift-button").click();
   await expect(page.getByTestId("shift-close-result")).toBeVisible({ timeout: 15_000 });
@@ -400,6 +415,7 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
   const page = await app.firstWindow();
 
   // Turno nuevo sobre la misma caja, que el cierre anterior libero.
+  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
   await page.getByTestId("reset-button").click();
   await page.getByTestId("cash-register-input").fill(REGISTER);
   await page.getByTestId("opening-amount-input").fill("0");
@@ -458,6 +474,7 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   const barcode = `77012345${String(Date.now()).slice(-5)}`;
 
   // --- Alta de producto ----------------------------------------------------
+  await page.getByRole("button", { name: "Catálogo", exact: true }).click();
   await page.getByTestId("product-code-input").fill(code);
   await page.getByTestId("product-name-input").fill("Panela");
   await page.getByTestId("presentation-name-input").fill("Bloque 500g");
@@ -474,6 +491,7 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   expect(presentationId).toMatch(/^[0-9a-f-]{36}$/);
 
   // --- Existencia antes de recibir: no es cero, es «sin movimientos» --------
+  await page.getByRole("button", { name: "Inventario", exact: true }).click();
   await page.getByTestId("inventory-presentation-input").fill(presentationId!);
   await page.getByTestId("get-stock-button").click();
   await expect(page.getByTestId("stock-not-found")).toBeVisible({ timeout: 15_000 });
@@ -501,6 +519,7 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
 
   // --- Adquiriente: no esta, se registra, y entonces si esta ---------------
   const identification = `10${String(Date.now()).slice(-8)}`;
+  await page.getByRole("button", { name: "Clientes", exact: true }).click();
   await page.getByTestId("customer-document-code-input").fill("13");
   await page.getByTestId("customer-identification-input").fill(identification);
   await page.getByTestId("customer-legal-organization-input").fill("2");
@@ -561,6 +580,7 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
  */
 test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por qué no puede emitir", async () => {
   const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
 
   const code = `FISC-${randomUUID().slice(0, 8)}`;
   const barcode = `77055555${String(Date.now()).slice(-5)}`;
@@ -572,6 +592,7 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
 
   // Producto y existencia, tecleados en la pantalla.
+  await page.getByRole("button", { name: "Catálogo", exact: true }).click();
   await page.getByTestId("product-code-input").fill(code);
   await page.getByTestId("product-name-input").fill("Producto facturable");
   await page.getByTestId("presentation-name-input").fill("Unidad");
@@ -584,6 +605,7 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await expect(page.getByTestId("product-registered")).toBeVisible({ timeout: 15_000 });
   const presentationId = await page.getByTestId("presentation-id").textContent();
 
+  await page.getByRole("button", { name: "Inventario", exact: true }).click();
   await page.getByTestId("inventory-presentation-input").fill(presentationId!);
   await page.getByTestId("receive-quantity-input").fill("5");
   await page.getByTestId("receive-reason-input").fill("PURCHASE");
@@ -591,6 +613,7 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await expect(page.getByTestId("inventory-movement")).toBeVisible({ timeout: 15_000 });
 
   // Venta y cobro, tambien desde la pantalla.
+  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
   await page.getByTestId("barcode-input").fill(barcode);
   await page.getByTestId("find-item-button").click();
   await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
@@ -607,6 +630,7 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   // --- Y aqui empieza lo que esta prueba existe para comprobar ---------------
 
   // 1 · Venta de mostrador sin identificar: el caso mayoritario de un POS.
+  await page.getByRole("button", { name: "Facturación electrónica", exact: true }).click();
   await page.getByTestId("fiscal-sale-id-input").fill(saleId);
   await page.getByTestId("issue-anonymous-button").click();
   await expect(page.getByTestId("fiscal-blocked")).toBeVisible({ timeout: 15_000 });
@@ -626,6 +650,7 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   //     justamente lo que prueba que el adquiriente no es la unica pieza que
   //     falta para facturar.
   const identification = `10${String(Date.now()).slice(-8)}`;
+  await page.getByRole("button", { name: "Clientes", exact: true }).click();
   await page.getByTestId("customer-document-code-input").fill("13");
   await page.getByTestId("customer-identification-input").fill(identification);
   await page.getByTestId("customer-legal-organization-input").fill("2");
@@ -636,6 +661,7 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await expect(page.getByTestId("customer-registered")).toBeVisible({ timeout: 15_000 });
   const customerId = await page.getByTestId("customer-registered-id").textContent();
 
+  await page.getByRole("button", { name: "Facturación electrónica", exact: true }).click();
   await page.getByTestId("fiscal-customer-id-input").fill(customerId!);
   await page.getByTestId("issue-identified-button").click();
   await expect(page.getByTestId("fiscal-blocked")).toBeVisible({ timeout: 15_000 });
