@@ -1,3 +1,6 @@
+import { HardwareService } from "../hardware/hardware-service.js";
+import { HardwareStore } from "../hardware/hardware-store.js";
+import { loadHardwareRegistry } from "../hardware/platform-transports.js";
 import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
@@ -89,6 +92,11 @@ import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-docum
  * fabricar una confianza que nadie ha provisto.
  */
 export class CommercialComponent implements RuntimeComponent {
+  private hardwareInstance: HardwareService | null = null;
+  get hardware(): HardwareService {
+    if (!this.hardwareInstance) throw new Error("HARDWARE_RUNTIME_NOT_STARTED");
+    return this.hardwareInstance;
+  }
   readonly name = "commercial";
 
   private state:
@@ -311,6 +319,9 @@ export class CommercialComponent implements RuntimeComponent {
       }
     }
 
+    const hardwareStore = new HardwareStore(database);
+    hardwareStore.recoverInterrupted();
+    this.hardwareInstance = new HardwareService(hardwareStore, new GetReceiptUseCase(new SqliteReceiptStore(database)), loadHardwareRegistry(this.config.hardware_profiles_file));
     this.state = {
       issueElectronicDocument,
       sessionStore,
@@ -370,6 +381,7 @@ export class CommercialComponent implements RuntimeComponent {
     // servicio detenido.
     this.bindings.clear();
     this.state = undefined;
+    this.hardwareInstance = null;
   }
 
   /** Binding de dispositivo derivado de la configuración local, nunca del llamador. */

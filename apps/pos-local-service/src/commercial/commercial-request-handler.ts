@@ -34,6 +34,7 @@ type CommercialRequest = Extract<
       | "inventory.reservation.create" | "inventory.reservation.release"
       | "cart.waiting.save" | "cart.waiting.list" | "cart.waiting.get" | "cart.waiting.discard"
       | "sales.receipt.get"
+      | "hardware.command"
       | "catalog.presentation.register" | "catalog.food_policy.upsert"
       | "pharmacy.establishment.upsert" | "pharmacy.profile.upsert" | "pharmacy.prescription.register"
       | "pharmacy.technical_receipt.register" | "pharmacy.sanitary_alert.register"
@@ -273,6 +274,7 @@ export class CommercialRequestHandler {
       case "bakery.production.trace.get": return this.getBakeryProductionTrace(request, connectionId);
       case "inventory.transform.execute": return this.executeTransform(request, connectionId);
       case "sales.receipt.get": return this.getReceipt(request, connectionId);
+      case "hardware.command": return this.hardwareCommand(request, connectionId);
     }
   }
 
@@ -1081,6 +1083,14 @@ export class CommercialRequestHandler {
 
   // ── sale.create ────────────────────────────────────────────────────────────
 
+
+  private async hardwareCommand(request: Extract<CommercialRequest, { message_type: "hardware.command" }>, connectionId: string): Promise<unknown> {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) return rejected(request, authenticated.rejection, { kind: "UNAUTHORIZED", data: null, reason: authenticated.rejection });
+    const result = await this.commercial.hardware.execute(this.scope(), authenticated.snapshot,
+      { userId: authenticated.identity.userId, sessionId: authenticated.identity.ssaSessionId }, request.payload);
+    return result.kind === "UNAUTHORIZED" || result.kind === "REJECTED" ? rejected(request, result.reason ?? result.kind, result) : succeeded(request, result.kind, result);
+  }
 
   private getReceipt(
     request: Extract<CommercialRequest, { message_type: "sales.receipt.get" }>,

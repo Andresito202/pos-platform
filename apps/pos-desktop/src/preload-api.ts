@@ -10,6 +10,7 @@ export const RENDERER_API_METHODS = [
   "local.operator.login",
   "local.operator.session",
   "local.operator.logout",
+  "hardware.command",
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",

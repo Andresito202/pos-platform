@@ -48,6 +48,7 @@ import {
   BakeryProductionConfirmResponseSchema,
   BakeryProductionTraceGetResponseSchema,
   LocalOperatorResponseSchema,
+  HardwareResponseSchema,
 } from "@pos-platform/contracts";
 
 /**
@@ -83,6 +84,7 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "local.operator.login": LocalOperatorResponseSchema,
   "local.operator.session": LocalOperatorResponseSchema,
   "local.operator.logout": LocalOperatorResponseSchema,
+  "hardware.command": HardwareResponseSchema,
   "cash.shift.open": CashShiftOpenResponseSchema,
   "cash.shift.close": CashShiftCloseResponseSchema,
   "sale.create": SaleCreateResponseSchema,
