@@ -46,3 +46,10 @@ export type { Postgres004RunnerConfig, Postgres004ApplyResult } from "./postgres
 export { POSTGRES_005_DESCRIPTOR } from "./postgres-005-contract.js";
 export { applyPostgres005 } from "./postgres-005-runner.js";
 export type { Postgres005RunnerConfig, Postgres005ApplyResult } from "./postgres-005-runner.js";
+
+export {
+  DOMAIN_PROJECTIONS_028_TABLES,
+  POSTGRES_028_DESCRIPTOR,
+} from "./postgres-028-domain-projections-contract.js";
+export { applyPostgres028 } from "./postgres-028-runner.js";
+export type { Postgres028RunnerConfig, Postgres028ApplyResult } from "./postgres-028-runner.js";

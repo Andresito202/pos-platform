@@ -24,7 +24,8 @@ central-sync-server
 - The central sync service is not published directly to the host.
 - Certificate material is managed by Caddy; no private key is committed to the repository.
 - `CENTRAL_SYNC_DOMAIN` is supplied at deployment time. There is no hard-coded production hostname.
-- `DATABASE_URL` and `CENTRAL_SYNC_TOKEN` remain deployment secrets and are not stored here.
+- `DATABASE_URL` remains a deployment secret and is not stored here.
+- Sync requests authenticate with a centrally issued active device credential and a fresh Ed25519 proof bound to the HTTP method, route, request IDs and exact body. Static bearer tokens are not accepted as device authentication.
 
 ## Current status
 

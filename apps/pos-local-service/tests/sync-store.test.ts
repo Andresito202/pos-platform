@@ -126,13 +126,34 @@ describe("DurableSyncStore", () => {
     database.close();
   });
 
+  it("applies DEC-007 jitter on top of exponential backoff", async () => {
+    const dir = await directory();
+    const now = new Date("2026-08-28T20:00:00Z");
+    const database = LocalDatabase.open({ dataDirectory: dir });
+    const store = new DurableSyncStore(
+      database,
+      { maxAttempts: 5, baseDelayMs: 1_000, maxDelayMs: 4_000, jitterRatio: 0.5 },
+      () => now,
+      () => 1, // max jitter unit
+    );
+    const item = operation(1, "99");
+    store.enqueue(item);
+    const batch = store.claimBatch(scope, 1)!;
+    store.recordTransportFailure(batch, "NETWORK_UNAVAILABLE");
+    const row = store.outboxState(item.operation_id);
+    expect(row?.status).toBe("RETRY_WAIT");
+    // exponential for attempt 1 = 1000; + 50% jitter => 1500ms
+    expect(row?.next_attempt_at).toBe(new Date(now.getTime() + 1_500).toISOString());
+    database.close();
+  });
+
   it("recovers interrupted dispatches and applies bounded exponential retries", async () => {
     const dir = await directory();
     let now = new Date("2026-08-28T20:00:00Z");
     const database = LocalDatabase.open({ dataDirectory: dir });
     const store = new DurableSyncStore(
       database,
-      { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 4_000 },
+      { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 4_000, jitterRatio: 0 },
       () => now,
     );
     const item = operation(1, "01");
@@ -194,7 +215,7 @@ describe("DurableSyncStore", () => {
     const database = LocalDatabase.open({ dataDirectory: dir });
     const store = new DurableSyncStore(
       database,
-      { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 4_000 },
+      { maxAttempts: 3, baseDelayMs: 1_000, maxDelayMs: 4_000, jitterRatio: 0 },
       () => new Date("2026-08-28T20:00:00Z"),
     );
     const item = operation(1, "01");

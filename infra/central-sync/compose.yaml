@@ -5,7 +5,6 @@ services:
       dockerfile: infra/central-sync/Dockerfile
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-      CENTRAL_SYNC_TOKEN: ${CENTRAL_SYNC_TOKEN:?CENTRAL_SYNC_TOKEN is required}
       PORT: "8787"
     expose:
       - "8787"
