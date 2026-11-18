@@ -177,7 +177,6 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     await expect(page.getByRole("heading",{name:"Farmacia / Droguería",exact:true})).toBeVisible();
     await expect(page.getByRole("heading",{name:"Política alimentaria",exact:true})).toBeVisible();
     await captureReal(page,"real-sector-catalog-salsamentaria-farmacia-pasteleria");
-    console.log("REAL_LOCAL_SECTOR_SALSAMENTARIA=PASS");
     console.log("REAL_LOCAL_SECTOR_FARMACIA=PASS");
     console.log("REAL_LOCAL_SECTOR_PASTELERIA=PASS");
 
@@ -188,7 +187,7 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
           request_id:crypto.randomUUID(),correlation_id:crypto.randomUUID(),
           payload_schema_version:"1.0.0",...(mutation?{
             operation_id:crypto.randomUUID(),idempotency_key:crypto.randomUUID()}:{}),payload});
-      },{message_type,payload,mutation}) as Promise<{status:string;result_code:string;result?:{outcome?:string}}>;
+      },{message_type,payload,mutation}) as Promise<{status:string;result_code:string;result?:{outcome?:string;product_id?:string}}>;
     };
     const barcode="770"+String(Math.floor(Math.random()*1e10)).padStart(10,"0");
     const registered=await call("catalog.product.register",{
@@ -199,6 +198,13 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     expect(registered.status).toBe("SUCCEEDED");
     expect(registered.result?.outcome).toBe("REGISTERED");
     console.log("REAL_LOCAL_SQLITE_CATALOG_WRITE=PASS");
+    // Real write through the recovered UI and named-pipe service; a heading alone does not certify a feature.
+    expect(registered.result?.product_id).toMatch(/^[0-9a-f-]{36}$/);
+    await page.getByTestId("food-policy-product-id").fill(registered.result!.product_id!);
+    await page.getByTestId("upsert-food-policy-button").click();
+    await expect(page.getByTestId("food-policy-outcome")).toContainText("SAVED v1");
+    console.log("REAL_LOCAL_FOOD_POLICY_WRITE=PASS");
+    console.log("REAL_LOCAL_SECTOR_SALSAMENTARIA=PASS");
 
     await page.getByRole("button",{name:"Cerrar sesión",exact:true}).click();
     await expect(page.getByRole("textbox",{name:"Usuario",exact:true})).toBeVisible({timeout:20000});
@@ -218,6 +224,13 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     expect(restricted.status).toBe("REJECTED");
     expect(restricted.result_code).toBe("UNAUTHORIZED");
     console.log("REAL_LOCAL_CASHIER_BACKEND_DENIAL=PASS");
+    const deniedFoodPolicy = await call("catalog.food_policy.upsert", {
+      product_id: registered.result!.product_id!, conservation_code: "FROZEN",
+      requires_lot_tracking: true, requires_expiry: true, notes: null,
+    }, true);
+    expect(deniedFoodPolicy.status).toBe("REJECTED");
+    expect(deniedFoodPolicy.result_code).toBe("UNAUTHORIZED");
+    console.log("REAL_LOCAL_CASHIER_FOOD_POLICY_DENIAL=PASS");
     console.log("REAL_LOCAL_SALES_SURFACE=PASS");
     console.log("REAL_LOCAL_INVENTORY_RBAC=PASS");
     console.log("REAL_LOCAL_OFFLINE_CHANNEL=PASS note=named-pipe_local_service_no_central_required");

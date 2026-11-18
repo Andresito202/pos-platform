@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { CanonicalPermission, AuthorizationCapabilitiesGetResponseSchema, CatalogProductRegisterRequestSchema, CustomerRegisterRequestSchema, InventoryStockReceiveRequestSchema, InventoryStockAdjustRequestSchema, CashShiftOpenRequestSchema, CashShiftCloseRequestSchema, PaymentRegisterCashRequestSchema } from "@pos-platform/contracts";
+import { CanonicalPermission, CatalogFoodPolicyUpsertRequestSchema, CatalogFoodPolicyUpsertResponseSchema, LicenseSectorEntitlement, AuthorizationCapabilitiesGetResponseSchema, CatalogProductRegisterRequestSchema, CustomerRegisterRequestSchema, InventoryStockReceiveRequestSchema, InventoryStockAdjustRequestSchema, CashShiftOpenRequestSchema, CashShiftCloseRequestSchema, PaymentRegisterCashRequestSchema } from "@pos-platform/contracts";
 import type { ServiceConfig } from "../config.js";
 import type { CommercialComponent } from "./commercial-component.js";
 import { CommercialRequestHandler } from "./commercial-request-handler.js";
@@ -8,6 +8,7 @@ import { LocalOperatorSessionRegistry } from "../security/local-operator-session
 import type { LocalOperator } from "../security/local-operator-password.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 
+import { UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
@@ -17,7 +18,7 @@ import { OpenCashShiftUseCase } from "../cash/open-cash-shift-use-case.js";
 import { CloseCashShiftUseCase } from "../cash/close-cash-shift-use-case.js";
 import { RegisterCashPaymentUseCase } from "../payments/register-cash-payment-use-case.js";
 
-function setup(role: LocalOperator["role"], now: () => number = Date.now) {
+function setup(role: LocalOperator["role"], now: () => number = Date.now, foodLicenseDenial: string | null = null) {
   const config={
     local_operator_auth_store:"/home/operator/accounts.v1.json",
     tenant_id:randomUUID(),company_id:randomUUID(),branch_id:randomUUID(),
@@ -35,6 +36,8 @@ function setup(role: LocalOperator["role"], now: () => number = Date.now) {
     closeCashShift: new CloseCashShiftUseCase(null as never),
     registerCashPayment: new RegisterCashPaymentUseCase(null as never),
     registerProduct: new RegisterProductUseCase(null as never),
+    upsertFoodPolicy: new UpsertFoodPolicyUseCase(null as never),
+    requireSectorEntitlement: (entitlement: string) => entitlement === LicenseSectorEntitlement.SALSAMENTARIA ? foodLicenseDenial : null,
     registerCustomer: new RegisterCustomerUseCase(null as never),
     receiveStock: new ReceiveStockUseCase(null as never),
     adjustStock: new AdjustStockUseCase(null as never),
@@ -56,6 +59,35 @@ function setup(role: LocalOperator["role"], now: () => number = Date.now) {
   return {sessions,read,handler};
 }
 describe("local operator backend authorization",()=>{
+  it.each(["LICENSE_ENTITLEMENT_MISSING", "LICENSE_CAPACITY_NOT_PROVISIONED", "LICENSE_REVOKED"])(
+    "rejects food policy before accessing storage when %s", async code => {
+      const { sessions, handler } = setup("ADMINISTRADOR", Date.now, code);
+      await sessions.login("A", "admin.local", "valid");
+      const request = CatalogFoodPolicyUpsertRequestSchema.parse({
+        protocol_version: "1.0.0", message_type: "catalog.food_policy.upsert",
+        request_id: randomUUID(), correlation_id: randomUUID(), operation_id: randomUUID(),
+        idempotency_key: randomUUID(), payload_schema_version: "1.0.0",
+        payload: { product_id: randomUUID(), conservation_code: "CHILLED", requires_lot_tracking: true, requires_expiry: true, notes: null },
+      });
+      const response = CatalogFoodPolicyUpsertResponseSchema.parse(handler.handle(request, "A"));
+      expect(response).toMatchObject({ status: "REJECTED", result_code: code, result: { outcome: "LICENSE_BLOCKED", version: null } });
+    },
+  );
+  it.each(["CAJERO", "SUPERVISOR", "SUPERADMINISTRADOR"] as const)(
+    "rejects food policy write for %s even with a sector licence", async role => {
+      const { sessions, handler } = setup(role);
+      await sessions.login("A", "operator", "valid");
+      const request = CatalogFoodPolicyUpsertRequestSchema.parse({
+        protocol_version: "1.0.0", message_type: "catalog.food_policy.upsert",
+        request_id: randomUUID(), correlation_id: randomUUID(), operation_id: randomUUID(),
+        idempotency_key: randomUUID(), payload_schema_version: "1.0.0",
+        payload: { product_id: randomUUID(), conservation_code: "CHILLED", requires_lot_tracking: true, requires_expiry: true, notes: null },
+      });
+      const response = CatalogFoodPolicyUpsertResponseSchema.parse(handler.handle(request, "A"));
+      expect(response).toMatchObject({ status: "REJECTED", result_code: "UNAUTHORIZED" });
+    },
+  );
+
   it.each(["SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)(
     "rejects forged shift open/close and cash collection for %s", async role => {
       const {sessions,handler}=setup(role); await sessions.login("A","operator","valid");
