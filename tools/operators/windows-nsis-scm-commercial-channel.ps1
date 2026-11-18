@@ -327,7 +327,8 @@ try {
   [IO.File]::WriteAllText($xmlPath, $xml, [Text.UTF8Encoding]::new($false))
   $xmlSwapped = $false
 
-  # Prefer WinSW logpath from the product XML; also scan ProgramData + payload.
+  # Observe only WinSW service logs (ProgramData logpath + default next to exe).
+  # Do not scan the payload tree for PE/binaries as log sources.
   $logDirs = New-Object System.Collections.Generic.List[string]
   $logPathMatch = [regex]::Match($xml, '<logpath>([^<]+)</logpath>')
   if ($logPathMatch.Success) {
@@ -336,51 +337,84 @@ try {
   [void]$logDirs.Add((Join-Path $env:ProgramData 'CamachoPOS\logs'))
   [void]$logDirs.Add($payload)
 
-  # Watermark BEFORE Start-Service so stale pre-handoff runtime.started lines cannot PASS.
-  $startUtc = [DateTime]::UtcNow
-  Start-Service -Name $serviceName -ErrorAction Stop
+  # Force a clean stop before handoff-bound product start (enroll one-shot may leave
+  # WinSW SignalStopped noisy; product must re-read companion XML on a fresh start).
+  if ((Get-Service -Name $serviceName).Status -ne 'Stopped') {
+    try { Stop-Service -Name $serviceName -Force -ErrorAction Stop } catch {
+      & sc.exe stop $serviceName | Out-Null
+    }
+  }
+  Wait-ServiceStopped
+
+  # Byte-offset watermark: only NEW log bytes after Start-Service count.
+  # Avoids stale runtime.started and fragile DateTime.Parse on PS 5.1.
+  $logOffsets = @{}
+  foreach ($logDir in $logDirs) {
+    if (-not (Test-Path -LiteralPath $logDir)) { continue }
+    Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match '(?i)\.(out|err|wrapper)\.log$|CamachoPOSLocalService.*\.log$' } |
+      ForEach-Object { $logOffsets[$_.FullName] = [int64]$_.Length }
+  }
+
+  & sc.exe start $serviceName | Out-Null
+  $productStartExit = $LASTEXITCODE
+  Write-Host ('PRODUCT_SCM_START_EXIT=' + $productStartExit)
   $started = $false
   $startFailed = $false
-  $until = $startUtc.AddSeconds(90)
+  $until = [DateTime]::UtcNow.AddSeconds(90)
   while ([DateTime]::UtcNow -lt $until) {
     $svc = Get-Service -Name $serviceName
     $cimNow = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
-    if ($svc.Status -eq 'Stopped') {
-      $startFailed = $true
-      break
+    if ($svc.Status -eq 'Stopped' -and -not $started) {
+      # Allow a brief settle; if still stopped after we have no started line, fail below.
+      Start-Sleep -Milliseconds 500
+      if ((Get-Service -Name $serviceName).Status -eq 'Stopped') {
+        $startFailed = $true
+        break
+      }
     }
-    if ($svc.Status -eq 'Running' -and $cimNow.StartName -eq ('NT SERVICE\' + $serviceName)) {
-      foreach ($logDir in $logDirs) {
-        if (-not (Test-Path -LiteralPath $logDir)) { continue }
-        $files = @(Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
-          Where-Object { $_.LastWriteTimeUtc -ge $startUtc.AddSeconds(-2) })
-        foreach ($file in $files) {
+    if ($svc.Status -eq 'Running' -and $cimNow.StartName -ne ('NT SERVICE\' + $serviceName)) {
+      throw 'PRODUCT_SCM_IDENTITY_REJECTED'
+    }
+    foreach ($logDir in $logDirs) {
+      if (-not (Test-Path -LiteralPath $logDir)) { continue }
+      $files = @(Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '(?i)\.(out|err|wrapper)\.log$|CamachoPOSLocalService.*\.log$' })
+      foreach ($file in $files) {
+        $path = $file.FullName
+        $prior = [int64]0
+        if ($logOffsets.ContainsKey($path)) { $prior = [int64]$logOffsets[$path] }
+        if ($file.Length -le $prior) { continue }
+        try {
+          $fs = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
           try {
-            $lines = @(Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue)
-            foreach ($line in $lines) {
-              if ($line -notmatch '"timestamp"\s*:\s*"([^"]+)"') { continue }
-              $ts = [DateTime]::Parse([string]$Matches[1], $null, [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
-              if ($ts -lt $startUtc) { continue }
-              if ($line.Contains('runtime.start_failed') -or $line.Contains('SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED')) {
-                Write-Host ('PRODUCT_SCM_START_FAIL_LOG=' + $file.FullName)
-                Write-Host ('PRODUCT_SCM_START_FAIL_LINE=' + $line)
-                $startFailed = $true
-                break
+            [void]$fs.Seek($prior, [IO.SeekOrigin]::Begin)
+            $reader = New-Object IO.StreamReader($fs)
+            try {
+              while ($null -ne ($line = $reader.ReadLine())) {
+                if ($line.Contains('runtime.start_failed') -or $line.Contains('SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED')) {
+                  Write-Host ('PRODUCT_SCM_START_FAIL_LOG=' + $path)
+                  Write-Host ('PRODUCT_SCM_START_FAIL_LINE=' + $line)
+                  $startFailed = $true
+                  break
+                }
+                if ($line.Contains('"event":"runtime.started"') -and $line.Contains($installationId)) {
+                  Write-Host ('PRODUCT_SCM_RUNTIME_STARTED_LOG=' + $path)
+                  Write-Host ('PRODUCT_SCM_RUNTIME_STARTED_LINE=' + $line)
+                  $started = $true
+                  break
+                }
               }
-              if ($line.Contains('runtime.started') -and $line.Contains($installationId)) {
-                Write-Host ('PRODUCT_SCM_RUNTIME_STARTED_LOG=' + $file.FullName)
-                Write-Host ('PRODUCT_SCM_RUNTIME_STARTED_AT=' + $ts.ToString('o'))
-                $started = $true
-                break
-              }
-            }
-          } catch {}
-          if ($started -or $startFailed) { break }
+            } finally { $reader.Dispose() }
+          } finally { $fs.Dispose() }
+        } catch {
+          Write-Host ('PRODUCT_SCM_LOG_READ_ERROR=' + $path + ' :: ' + $_.Exception.Message)
         }
         if ($started -or $startFailed) { break }
       }
       if ($started -or $startFailed) { break }
     }
+    if ($started -or $startFailed) { break }
     Start-Sleep -Milliseconds 500
   }
   if ($startFailed -or -not $started) {
