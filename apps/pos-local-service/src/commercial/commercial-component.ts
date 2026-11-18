@@ -1,6 +1,6 @@
 import { HardwareService } from "../hardware/hardware-service.js";
 import { HardwareStore } from "../hardware/hardware-store.js";
-import { loadHardwareRegistry } from "../hardware/platform-transports.js";
+import { loadHardwareRegistry, loadAutomaticDrawerPolicy } from "../hardware/platform-transports.js";
 import { WindowsCh340Transport, loadWindowsScaleProfile } from "../hardware/windows-ch340-transport.js";
 import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
@@ -327,7 +327,7 @@ export class CommercialComponent implements RuntimeComponent {
 
     const hardwareStore = new HardwareStore(database);
     hardwareStore.recoverInterrupted();
-    this.hardwareInstance = new HardwareService(hardwareStore, new GetReceiptUseCase(new SqliteReceiptStore(database)), loadHardwareRegistry(this.config.hardware_profiles_file));
+    this.hardwareInstance = new HardwareService(hardwareStore, new GetReceiptUseCase(new SqliteReceiptStore(database)), loadHardwareRegistry(this.config.hardware_profiles_file), undefined, loadAutomaticDrawerPolicy(this.config.hardware_automatic_drawer_policy_file));
     const scaleProfile = loadWindowsScaleProfile(this.config.windows_scale_profile_file);
     this.scaleInstance = scaleProfile ? new WindowsCh340Transport(scaleProfile) : null;
     this.state = {

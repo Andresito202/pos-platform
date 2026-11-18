@@ -18,12 +18,12 @@ export class HardwareService {
     if(!this.automaticPolicy)return;
     try {
       if(actor.userId!==snapshot.claims.user_id)throw new Error("HARDWARE_ACTOR_CONTEXT_MISMATCH");
-      const decision=evaluatePermission({actor:createActor("USER",snapshot.claims.user_id),permission:CanonicalPermission.HARDWARE_DRAWER_OPEN,
+      const decision=evaluatePermission({actor:createActor("USER",snapshot.claims.user_id),permission:CanonicalPermission.PAYMENTS_PAYMENT_REGISTER,
         scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(snapshot.claims)});
       if(!decision.allowed){this.store.audit(null,actor,"AUTOMATIC_DRAWER_DENIED",decision.reason);return;}
       const job=this.store.enqueueConfirmedCashDrawer(scope,actor,paymentId,this.automaticPolicy.binding_id,this.automaticPolicy.policy_reference);
       if(job){
-        const outcome=await this.execute(scope,snapshot,actor,{action:"dispatch",job_id:job.id});
+        const outcome=await this.executeInternal(scope,snapshot,actor,{action:"dispatch",job_id:job.id},true);
         if(outcome.kind==="REJECTED"||outcome.kind==="UNAUTHORIZED")this.store.audit(job.id,actor,"AUTOMATIC_DRAWER_INCIDENT",outcome.reason??"RECONCILIATION_REQUIRED");
       }
     }catch{
@@ -31,11 +31,15 @@ export class HardwareService {
     }
   }
   async execute(scope:SyncScope,snapshot:StoredAuthorizationSnapshot,actor:HardwareActor,input:HardwareCommand):Promise<{kind:string;data:unknown;reason:string|null}> {
+    return this.executeInternal(scope,snapshot,actor,input,false);
+  }
+  private async executeInternal(scope:SyncScope,snapshot:StoredAuthorizationSnapshot,actor:HardwareActor,input:HardwareCommand,automaticCashDrawer:boolean):Promise<{kind:string;data:unknown;reason:string|null}> {
     const command=HardwareCommandSchema.parse(input);
     if(command.action==="capture_weight")return {kind:"REJECTED",data:null,reason:"SCALE_REQUIRES_COMMERCIAL_CONTEXT"};
     const job=command.action==="dispatch"?this.store.job(scope,command.job_id):null;
     const kind=command.action==="enqueue"?command.kind:job?.kind;
-    const permission=command.action==="associate" || kind==="PRINT_TEST" || kind==="CUT"?CanonicalPermission.HARDWARE_CONFIGURE:
+    if(automaticCashDrawer && (command.action!=="dispatch" || job?.kind!=="DRAWER_OPEN"))return {kind:"REJECTED",data:null,reason:"AUTOMATIC_DRAWER_CONTEXT_INVALID"};
+    const permission=automaticCashDrawer?CanonicalPermission.PAYMENTS_PAYMENT_REGISTER:command.action==="associate" || kind==="PRINT_TEST" || kind==="CUT"?CanonicalPermission.HARDWARE_CONFIGURE:
       command.action==="list"||command.action==="diagnose"?CanonicalPermission.HARDWARE_READ:
       kind==="DRAWER_OPEN"?CanonicalPermission.HARDWARE_DRAWER_OPEN:CanonicalPermission.HARDWARE_PRINT;
     const decision=evaluatePermission({actor:createActor("USER",snapshot.claims.user_id),permission,
