@@ -108,6 +108,14 @@ describe("App", () => {
 
     expect(screen.getByRole("button", { name: "Caja y ventas" }).getAttribute("aria-current")).toBe("page");
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
+
+    // Tip #106 keep-alive: visited sales screen stays mounted (hidden) after nav.
+    screen.getByRole("button", { name: "Catálogo" }).click();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");
+      expect(screen.getByTestId("catalog-panel")).toBeTruthy();
+    });
+    expect(screen.getByTestId("sale-panel")).toBeTruthy();
   });
 
   it("fails closed when effective authorization cannot be loaded", async () => {

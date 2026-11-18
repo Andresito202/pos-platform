@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import "./App.css";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
@@ -23,6 +23,14 @@ type Screen = {
 export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
+  // Tip #106: keep visited screens mounted (hidden) so SalePanel shift/cart
+  // state survives capability navigation. Unmounting on every nav wiped the open shift.
+  const [visitedScreens, setVisitedScreens] = useState<ReadonlySet<string>>(new Set());
+
+  const navigateTo = useCallback((id: string, from: string | null): void => {
+    setVisitedScreens((visited) => new Set([...visited, ...(from === null ? [] : [from]), id]));
+    setActiveScreen(id);
+  }, []);
 
   const screens = useMemo<Screen[]>(() => {
     if (authorization.phase !== "ready") return [];
@@ -132,7 +140,7 @@ export function App(): React.JSX.Element {
               type="button"
               className="pos-nav-button"
               aria-current={selectedScreen?.id === screen.id ? "page" : undefined}
-              onClick={() => { setActiveScreen(screen.id); }}
+              onClick={() => { navigateTo(screen.id, selectedScreen?.id ?? null); }}
             >
               {screen.label}
             </button>
@@ -155,7 +163,11 @@ export function App(): React.JSX.Element {
 
         <section className="pos-screen" aria-label="Pantalla activa">
           {selectedScreen ? (
-            selectedScreen.render()
+            screens.map((screen) => (
+              <div key={screen.id} hidden={screen.id !== selectedScreen.id}>
+                {(screen.id === selectedScreen.id || visitedScreens.has(screen.id)) && screen.render()}
+              </div>
+            ))
           ) : (
             <div data-testid="no-authorized-screens">
               No hay pantallas comerciales disponibles para los permisos de esta sesión.

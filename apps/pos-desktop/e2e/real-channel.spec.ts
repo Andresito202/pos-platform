@@ -31,6 +31,9 @@ import { fileURLToPath } from "node:url";
  * plataforma.
  */
 
+// Shared Electron + signed channel + cash shift across cases (tip #106).
+test.describe.configure({ mode: "serial" });
+
 const here = dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const executablePath = require("electron") as string;
