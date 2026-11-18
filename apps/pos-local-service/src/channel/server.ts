@@ -29,6 +29,8 @@ import {
 export interface ChannelRequestContext {
   readonly transportSessionId: string;
   readonly connectionId: string;
+  /** Recheck immediately before a cancelable effect after asynchronous work. */
+  readonly assertAuthorized?:()=>void;
 }
 
 export type ChannelHandler = (
@@ -40,18 +42,41 @@ export type ChannelHandler = (
 function requestWithTimeout<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
+  connectionSignal: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
   return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (error: Error | undefined, value?: T) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      connectionSignal.removeEventListener("abort", onDisconnect);
+      if (error) reject(error);
+      else resolve(value as T);
+    };
+    const onDisconnect = () => {
+      controller.abort();
+      finish(new Error("local channel connection closed"));
+    };
     const timer = setTimeout(() => {
       controller.abort();
-      reject(new Error(`local channel request timed out after ${timeoutMs}ms`));
+      finish(new Error(`local channel request timed out after ${timeoutMs}ms`));
     }, timeoutMs);
     timer.unref?.();
-    operation(controller.signal).then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (error) => { clearTimeout(timer); reject(error); },
-    );
+    connectionSignal.addEventListener("abort", onDisconnect, { once: true });
+    if (connectionSignal.aborted) {
+      onDisconnect();
+      return;
+    }
+    try {
+      operation(controller.signal).then(
+        (value) => finish(undefined, value),
+        (error: unknown) => finish(error instanceof Error ? error : new Error("local channel handler failed")),
+      );
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error("local channel handler failed"));
+    }
   });
 }
 
@@ -73,9 +98,39 @@ function validateResponse(request: IpcRequest, input: unknown): unknown {
   return responseSchemaFor(request.message_type).parse(input);
 }
 
+export interface ChannelConnectionSecurity {
+  readonly authenticator:LocalChannelAuthenticator;
+  authorize(context:ChannelRequestContext,close:()=>void,retire:()=>void):void;
+  closed(connectionId:string):void;
+}
+export interface ChannelServerTransport {
+  start(accept:(socket:Socket,security:ChannelConnectionSecurity)=>void):Promise<void>;
+  stop():Promise<void>;
+  revokeConnections?(ids:readonly string[],initiator:string):void;
+}
+
 export class LocalChannelServer {
+  private running=false;
+  private acceptingTraffic=false;
   private server: Server | undefined;
   private readonly sockets = new Set<Socket>();
+  private readonly connections = new Map<string, { close: () => void; retire: () => void }>();
+
+  /** Privileged Service API. IDs come from this server, never an IPC payload. */
+  disconnectConnection(connectionId: string): boolean {
+    const connection = this.connections.get(connectionId);
+    if (!connection) return false;
+    connection.close();
+    return true;
+  }
+
+  /** Deny queued/new work now; allow only the current logout response to drain. */
+  retireConnection(connectionId: string): boolean {
+    const connection = this.connections.get(connectionId);
+    if (!connection) return false;
+    connection.retire();
+    return true;
+  }
 
   constructor(
     private readonly endpoint: string,
@@ -91,6 +146,7 @@ export class LocalChannelServer {
      * identidad de una conexión que ya no existe.
      */
     private readonly onConnectionClosed?: (connectionId: string) => void,
+    private readonly transport?:ChannelServerTransport,
   ) {
     if (!Number.isSafeInteger(maxConnections) || maxConnections <= 0) throw new Error("maxConnections must be positive");
     if (!Number.isSafeInteger(maxQueuedRequestsPerConnection) || maxQueuedRequestsPerConnection <= 0) {
@@ -100,11 +156,74 @@ export class LocalChannelServer {
   }
 
   async start(): Promise<void> {
-    if (this.server) throw new Error("local channel server already started");
-    let acceptingTraffic = process.platform !== "win32";
+    if (this.running) throw new Error("local channel server already started");
+    this.running=true;
+    if(this.transport){
+      this.acceptingTraffic=true;
+      try{await this.transport.start((socket,security)=>this.acceptSocket(socket,security));if(!this.running)throw Error("LOCAL_CHANNEL_START_CANCELLED");}
+      catch(error){
+        this.running=false;this.acceptingTraffic=false;
+        for(const c of [...this.connections.values()])c.close();
+        try{await this.transport.stop();}catch(cleanupError){throw new AggregateError([error,cleanupError],"local channel transport start and cleanup failed");}
+        throw error;
+      }
+      return;
+    }
+    this.acceptingTraffic = process.platform !== "win32";
 
-    const server = createServer((socket) => {
-      if (!acceptingTraffic) {
+    const server = createServer(socket=>this.acceptSocket(socket));
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const onError = (error: Error) => {
+          server.off("error", onError);
+          reject(error);
+        };
+        server.once("error", onError);
+        server.listen(this.endpoint, () => {
+          server.off("error", onError);
+          try {
+            if(!this.running)throw Error("LOCAL_CHANNEL_START_CANCELLED");
+            if (process.platform === "win32") {
+              hardenWindowsNamedPipeSecurity(this.endpoint);
+              inspectWindowsNamedPipeSecurity(this.endpoint);
+              setTimeout(() => {
+                if(!this.running){reject(Error("LOCAL_CHANNEL_START_CANCELLED"));return;}
+                this.acceptingTraffic = true;
+                resolve();
+              }, 25);
+              return;
+            }
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+      this.server = server;
+    } catch (error) {
+      this.running=false;this.acceptingTraffic=false;
+      for (const connection of [...this.connections.values()]) connection.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      throw error;
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.running=false;this.acceptingTraffic=false;
+    if(this.transport){for(const c of [...this.connections.values()])c.close();await this.transport.stop();return;}
+    const server = this.server;
+    if (!server) return;
+    for (const connection of [...this.connections.values()]) connection.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+    this.server = undefined;
+  }
+
+  private acceptSocket(socket:Socket,security?:ChannelConnectionSecurity):void {
+    const authenticator=security?.authenticator??this.authenticator;
+      if (!this.acceptingTraffic) {
         socket.destroy();
         return;
       }
@@ -114,32 +233,68 @@ export class LocalChannelServer {
       }
 
       this.sockets.add(socket);
+      const connectionController = new AbortController();
       const decoder = new FrameDecoder();
       const negotiatedSessions = new Map<string, string>();
       // Identidad de conexión asignada por el servidor. Se crea aquí, vive
       // exactamente lo que vive el socket y no se transmite jamás.
       const connectionId = randomUUID();
+      let closed = false;
+      let retired = false;
+      let handling = false;
+      const close = (drain=false) => {
+        if (closed) return;
+        closed = true;
+        connectionController.abort();
+        negotiatedSessions.clear();
+        this.connections.delete(connectionId);
+        this.sockets.delete(socket);
+        // end() invokes libuv shutdown/pipe flushing. Immediate destruction
+        // after write() may discard a Windows pipe response still unread by
+        // the client. Authority is already removed; draining is bounded.
+        if(drain&&!socket.destroyed){
+          const timer=setTimeout(()=>socket.destroy(),this.requestTimeoutMs);timer.unref();
+          socket.once("close",()=>clearTimeout(timer));
+          try{socket.end();}catch{socket.destroy();}
+        }else socket.destroy();
+        // Cleanup failure must not keep this connection alive or prevent the
+        // remaining connections from being closed on stop/revocation.
+        try { security?.closed(connectionId); } catch { /* fail closed */ }
+        try { this.onConnectionClosed?.(connectionId); } catch { /* fail closed */ }
+      };
+      this.connections.set(connectionId, { close, retire: () => {
+        retired = true;
+        socket.pause();
+        if (!handling) close(true);
+      } });
       let queuedRequests = 0;
       let queue: Promise<void> = Promise.resolve();
 
       socket.on("data", (chunk) => {
+        if (closed || retired) return;
         try {
           for (const raw of decoder.push(chunk)) {
             queuedRequests += 1;
             if (queuedRequests > this.maxQueuedRequestsPerConnection) {
-              socket.destroy(new Error("local channel request queue capacity exceeded"));
+              close();
               return;
             }
 
             queue = queue
               .then(async () => {
-                if (socket.destroyed) return;
-                const frame = this.authenticator.verify(raw);
+                if (closed || retired || socket.destroyed) return;
+                handling = true;
+                const frame = authenticator.verify(raw);
                 const request = IpcRequestSchema.parse(frame.payload);
                 if (request.protocol_version !== frame.protocol_version) {
                   throw new Error("local channel transport/request protocol mismatch");
                 }
 
+                const context:ChannelRequestContext={transportSessionId:frame.session_id,connectionId,assertAuthorized:()=>{
+                  if(closed||retired||socket.destroyed||connectionController.signal.aborted)throw Error("LOCAL_CHANNEL_AUTHORIZATION_CLOSED");
+                  security?.authorize(context,close,()=>{this.retireConnection(connectionId);});
+                }};
+                context.assertAuthorized!();
                 const existingProtocol = negotiatedSessions.get(frame.session_id);
                 if (request.message_type === "runtime.handshake") {
                   if (existingProtocol !== undefined) throw new Error("local channel session already negotiated");
@@ -148,8 +303,9 @@ export class LocalChannelServer {
                     max: request.payload.protocol_max,
                   });
                   const rawResponse = await requestWithTimeout(
-                    (signal) => this.handler(request, signal, { transportSessionId: frame.session_id, connectionId }),
+                    (signal) => this.handler(request, signal, context),
                     this.requestTimeoutMs,
+                    connectionController.signal,
                   );
                   const response = RuntimeHandshakeResponseSchema.parse(rawResponse);
                   const outcome = response.result;
@@ -165,7 +321,7 @@ export class LocalChannelServer {
                     throw new Error("local channel incompatible handshake advertised a protocol");
                   }
                   await this.write(socket, encodeFrame(
-                    this.authenticator.sign(response, response.protocol_version, frame.session_id, frame.sequence + 1),
+                    authenticator.sign(response, response.protocol_version, frame.session_id, frame.sequence + 1),
                   ));
                   return;
                 }
@@ -176,78 +332,34 @@ export class LocalChannelServer {
                 }
 
                 const rawResponse = await requestWithTimeout(
-                  (signal) => this.handler(request, signal, { transportSessionId: frame.session_id, connectionId }),
+                  (signal) => this.handler(request, signal, context),
                   this.requestTimeoutMs,
+                  connectionController.signal,
                 );
                 const response = validateResponse(request, rawResponse) as { protocol_version: string };
                 if (response.protocol_version !== existingProtocol) {
                   throw new Error("local channel response protocol mismatch");
                 }
                 await this.write(socket, encodeFrame(
-                  this.authenticator.sign(response, existingProtocol, frame.session_id, frame.sequence + 1),
+                  authenticator.sign(response, existingProtocol, frame.session_id, frame.sequence + 1),
                 ));
               })
               .catch(() => {
-                socket.destroy();
+                close();
               })
               .finally(() => {
+                handling = false;
                 queuedRequests -= 1;
+                if (retired) close(true);
               });
           }
         } catch {
-          socket.destroy();
+          close();
         }
       });
 
-      socket.once("close", () => {
-        negotiatedSessions.clear();
-        this.sockets.delete(socket);
-        this.onConnectionClosed?.(connectionId);
-      });
-      socket.once("error", () => socket.destroy());
-    });
-
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const onError = (error: Error) => {
-          server.off("error", onError);
-          reject(error);
-        };
-        server.once("error", onError);
-        server.listen(this.endpoint, () => {
-          server.off("error", onError);
-          try {
-            if (process.platform === "win32") {
-              hardenWindowsNamedPipeSecurity(this.endpoint);
-              inspectWindowsNamedPipeSecurity(this.endpoint);
-              setTimeout(() => {
-                acceptingTraffic = true;
-                resolve();
-              }, 25);
-              return;
-            }
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        });
-      });
-      this.server = server;
-    } catch (error) {
-      for (const socket of this.sockets) socket.destroy();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      throw error;
-    }
-  }
-
-  async stop(): Promise<void> {
-    const server = this.server;
-    if (!server) return;
-    for (const socket of this.sockets) socket.destroy();
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
-    });
-    this.server = undefined;
+      socket.once("close",()=>close());
+      socket.once("error",()=>close());
   }
 
   private write(socket: Socket, buffer: Buffer): Promise<void> {

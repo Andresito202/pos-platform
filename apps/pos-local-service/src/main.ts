@@ -15,6 +15,8 @@ import { OperationConfirmationComponent } from "./operations/operation-confirmat
 import { LicenseCapacityGate, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
+import { LocalOperatorPasswordGate } from "./security/local-operator-password-gate.js";
+import { LocalOperatorSessionRegistry } from "./security/local-operator-session-registry.js";
 import {
   EncryptedFileSecretStore,
   InsecureDerivedKeyProvider,
@@ -25,6 +27,7 @@ import {
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
+import { assertWindowsScmCommercialCertification } from "./security/windows-commercial-host-identity.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -98,6 +101,11 @@ try {
   const config = parseServiceConfig(process.env);
   if (process.platform !== "win32" && process.env.NODE_ENV !== "test") {
     throw new Error("POS Local Service production runtime requires Windows");
+  }
+  // Baseline 76253bb6 gate: SCM commercial handoff remains NOT_PROVEN.
+  // Reject before opening SQLite or loading DPAPI when an SCM provision is advertised.
+  if (config.windows_scm_handoff_file !== undefined) {
+    assertWindowsScmCommercialCertification();
   }
 
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
@@ -212,6 +220,12 @@ try {
       () => lifecycle?.state ?? "STARTING",
       operationConfirmation,
       commercial,
+      config.local_operator_auth_store === undefined
+        ? undefined
+        : () => new LocalOperatorSessionRegistry(new LocalOperatorPasswordGate(
+          localDatabase.database,
+          config.local_operator_auth_store!,
+        )),
     );
     components.push(localChannel);
   }

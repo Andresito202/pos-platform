@@ -11,7 +11,8 @@
     "MIT": ["preserve-license-text"],
     "MIT-0": [],
     "MPL-2.0": ["preserve-license-text", "preserve-MPL-covered-source-obligations-if-covered-files-are-modified"],
-    "Python-2.0": ["preserve-license-text"]
+    "Python-2.0": ["preserve-license-text"],
+    "WTFPL": ["preserve-license-text"]
   },
   "review": [
     "CDDL-1.0",

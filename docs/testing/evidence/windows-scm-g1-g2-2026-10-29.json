@@ -1,0 +1,2556 @@
+{
+  "schema": "CAMACHO_G1_G2_OBSERVED_EVIDENCE_V1",
+  "source_commit": "033373e1ce8de8ba5188dea22bb736cc79011a70",
+  "initial_remote_commit": "a30ee66cdec533ceef73bf181078fba046dfa53d",
+  "repository": "Andresito202/pos-platform",
+  "branch": "feat/p0-windows-login-install-readiness",
+  "recorded_at_utc": "2026-10-29T21:18:32.029963+00:00",
+  "environment": {
+    "platform": "linux",
+    "architecture": "x64",
+    "node": "v24.22.1",
+    "libuv": "1.52.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11",
+    "workspace": "remote source snapshot; not owner Windows PC; changed blobs verified against published Git data"
+  },
+  "classification": {
+    "G1": "IMPLEMENTED_CANDIDATE_PARTIALLY_TESTED_NOT_WINDOWS_CERTIFIED",
+    "G2": "IMPLEMENTED_PARTIALLY_TESTED_NOT_WINDOWS_CERTIFIED",
+    "commercial_scm_gate": "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN",
+    "production_approved": false
+  },
+  "source_blobs": [
+    {
+      "path": "apps/pos-desktop/src/production-entry.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "93f180031bb37bdbb4dca140c7b9c22a7a024e8a"
+    },
+    {
+      "path": "apps/pos-desktop/src/start.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "417a3845698423e2a439178341f87c661a7cef8b"
+    },
+    {
+      "path": "apps/pos-desktop/tests/scm-channel-start.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0f11716a7ce449410592c4dab90d6109a2d33dd6"
+    },
+    {
+      "path": "apps/pos-desktop/tests/desktop-commercial-startup-secrecy.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bc8380a702913b7387e2e4ef9a713712bc719833"
+    },
+    {
+      "path": "apps/pos-local-service/src/main.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3de4a178ce836cc4c40ae9f10e4ee64e58d4de87"
+    },
+    {
+      "path": "apps/pos-local-service/src/security/windows-commercial-host-identity.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c30abd26b5787f23ce72f99b137e4ac70ec6f83f"
+    },
+    {
+      "path": "apps/pos-local-service/src/security/native-commercial-coordinator.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a73b2f2ab6a7d50fc9a5b6cf704737c48ec723bf"
+    },
+    {
+      "path": "apps/pos-local-service/src/channel/server.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4a56904781bf6ef78135e94f847157cbcdf7dd47"
+    },
+    {
+      "path": "apps/pos-local-service/src/channel/windows-scm-transport.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9f8e144ecc267564efe6060e8c1a829ff6b4c872"
+    },
+    {
+      "path": "apps/pos-local-service/src/channel/sqlite-replay-state.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bb5cfdef0e96a52e09227cfb737d64258bea1f34"
+    },
+    {
+      "path": "apps/pos-local-service/src/channel/local-channel-component.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8a21a0e0f7b47fd1a50c3d98597cdb8224568c5d"
+    },
+    {
+      "path": "apps/pos-local-service/tests/windows-scm-physical.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "793da7d5177907f90223586104fd705a601471d4"
+    },
+    {
+      "path": "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b27318bcbb3ec68104058ce4f41223c38ad6bd82"
+    },
+    {
+      "path": "apps/pos-local-service/tests/windows-scm-runtime.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1dff32e156f19cd9201bf0b740990cf277bbc9a0"
+    },
+    {
+      "path": "apps/pos-local-service/tests/windows-commercial-host-identity.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d45872863af169674ca0da3429fbb36e25e5305a"
+    },
+    {
+      "path": "packages/contracts/src/windows-channel-handoff.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "02b9dce129790e5a6f0d591d53cc282d3cba547b"
+    },
+    {
+      "path": "packages/local-channel/native/binding.gyp",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "eecc965c3a510a19c24ff8a138d727372afe76b7"
+    },
+    {
+      "path": "packages/local-channel/native/windows-pipe.cc",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "83c2e0e2eb6aa3119632af590721efdf906b8249"
+    },
+    {
+      "path": "packages/local-channel/src/index.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "15a157313ab825cc815b5222ef310240bf0d619b"
+    },
+    {
+      "path": "packages/local-channel/src/windows-service-signer.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ea87300fa0a3b9170e10abfb64a78b42fce860c8"
+    },
+    {
+      "path": "packages/local-channel/src/windows-handoff-native.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e0e2a1fb37d7b2a5acdafe285afae3fc6a84acb8"
+    },
+    {
+      "path": "packages/local-channel/src/windows-scm-client.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ef14932a0b00ea687036c7435c1add0982675995"
+    },
+    {
+      "path": "packages/local-channel/src/windows-native-pipe.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "66e532d85b4ac838eca0b53db5ed8ca44137c474"
+    },
+    {
+      "path": "packages/local-channel/src/client.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "0fa5c921656e97b0204119d5abd44fca93284490"
+    },
+    {
+      "path": "packages/local-channel/tests/windows-native-pipe.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6d0ea9ad7430dd16aa2470200cf4d02f3649c5a0"
+    },
+    {
+      "path": "packages/local-channel/tests/windows-service-signer.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3ccb2247afa047428e4b0b6a4e0384c6009911ed"
+    },
+    {
+      "path": "tools/operators/windows-login-final-checks.ps1",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "208c2151059f2dfb9fb6a929189f9644f2773596"
+    },
+    {
+      "path": "tools/operators/windows-channel-receiver.mts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "38f65843fb9f64abf83b4bcf5074bd59148eace6"
+    },
+    {
+      "path": "apps/pos-desktop/src/commercial-account.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "507a2b7e22742e7ca61a53a5e469af2b736dc32b"
+    },
+    {
+      "path": "apps/pos-desktop/tests/commercial-account.test.ts",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "635cd5e43cddc3ea0358c9118165d94009a56d5d"
+    }
+  ],
+  "vitest": {
+    "invocation": {
+      "source_commit": "033373e1ce8de8ba5188dea22bb736cc79011a70",
+      "command": [
+        "node_modules/.bin/vitest",
+        "run",
+        "apps/pos-desktop/tests/commercial-account.test.ts",
+        "apps/pos-desktop/tests/desktop-commercial-startup-secrecy.test.ts",
+        "apps/pos-desktop/tests/native-business-assertion-delivery.test.ts",
+        "apps/pos-desktop/tests/native-business-code-transport.test.ts",
+        "apps/pos-desktop/tests/native-business-login.test.ts",
+        "apps/pos-desktop/tests/native-commercial-service-login.test.ts",
+        "apps/pos-desktop/tests/scm-channel-start.test.ts",
+        "apps/pos-local-service/tests/authorization-snapshot.test.ts",
+        "apps/pos-local-service/tests/authorization-trust-deployment.test.ts",
+        "apps/pos-local-service/tests/authorization-trust-lifecycle.test.ts",
+        "apps/pos-local-service/tests/channel-cancellation-lifecycle.test.ts",
+        "apps/pos-local-service/tests/channel-commercial-transport.test.ts",
+        "apps/pos-local-service/tests/commercial-ipc.test.ts",
+        "apps/pos-local-service/tests/native-session-close-lifecycle.test.ts",
+        "apps/pos-local-service/tests/service-descriptor.test.ts",
+        "apps/pos-local-service/tests/session-assertion-verifier.test.ts",
+        "apps/pos-local-service/tests/session-trust-key-resolver.test.ts",
+        "apps/pos-local-service/tests/windows-commercial-host-identity.test.ts",
+        "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+        "apps/pos-local-service/tests/windows-scm-physical.test.ts",
+        "apps/pos-local-service/tests/windows-scm-runtime.test.ts",
+        "apps/pos-local-service/tests/windows-winsw-readiness.test.ts",
+        "packages/local-channel/tests/windows-handoff.test.ts",
+        "packages/local-channel/tests/windows-native-pipe.test.ts",
+        "packages/local-channel/tests/windows-production.test.ts",
+        "packages/local-channel/tests/windows-service-signer.test.ts",
+        "--no-file-parallelism",
+        "--reporter=json",
+        "--outputFile=../g1-g2-vitest-final-head.json"
+      ],
+      "cwd": "/workspace/scratch/c3fc053cbd4d/snapshot",
+      "started_at": "2026-10-29T21:14:27.799984+00:00",
+      "finished_at": "2026-10-29T21:14:50.935177+00:00",
+      "exit_code": 0,
+      "output": "JSON report written to /workspace/scratch/c3fc053cbd4d/g1-g2-vitest-final-head.json\n"
+    },
+    "summary": {
+      "numTotalTests": 319,
+      "numPassedTests": 289,
+      "numFailedTests": 0,
+      "numPendingTests": 30
+    },
+    "scope": "actual TCP, canonical framing/MAC, crypto and disposable SQLite; explicit simulated kernel/DPAPI/Electron ports; no Windows inference",
+    "files": [
+      {
+        "path": "apps/pos-desktop/tests/commercial-account.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308486662,
+        "end_time_ms": 1793308486726.5784,
+        "cases": [
+          {
+            "name": "account entry reuses the callback and consumes activation only, then closes its channel",
+            "status": "passed",
+            "duration_ms": 37.787914,
+            "failure_messages": []
+          },
+          {
+            "name": "change user closes the recovered session first, remote failure=false",
+            "status": "passed",
+            "duration_ms": 10.605569000000003,
+            "failure_messages": []
+          },
+          {
+            "name": "change user closes the recovered session first, remote failure=true",
+            "status": "passed",
+            "duration_ms": 5.5028879999999845,
+            "failure_messages": []
+          },
+          {
+            "name": "native logout preserves local-only status instead of claiming central revocation",
+            "status": "passed",
+            "duration_ms": 0.5763869999999542,
+            "failure_messages": []
+          },
+          {
+            "name": "recovery correlation failure prevents login and browser navigation",
+            "status": "passed",
+            "duration_ms": 1.7987439999999992,
+            "failure_messages": []
+          },
+          {
+            "name": "public desktop deployment metadata rejects relative paths, missing timeout and unapproved origin",
+            "status": "passed",
+            "duration_ms": 7.578418999999997,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-desktop/tests/desktop-commercial-startup-secrecy.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308489886,
+        "end_time_ms": 1793308489889.487,
+        "cases": [
+          {
+            "name": "Windows commercial Electron startup custody regressions keeps the main authenticated Service connection and account channel distinct",
+            "status": "passed",
+            "duration_ms": 2.4169629999999813,
+            "failure_messages": []
+          },
+          {
+            "name": "Windows commercial Electron startup custody regressions closes the authenticated channel on any startup failure after handshake",
+            "status": "passed",
+            "duration_ms": 0.35943799999998305,
+            "failure_messages": []
+          },
+          {
+            "name": "Windows commercial Electron startup custody regressions zeroizes both the channel authenticator and launcher secret when Electron quits",
+            "status": "passed",
+            "duration_ms": 0.487086000000005,
+            "failure_messages": []
+          },
+          {
+            "name": "Windows commercial Electron startup custody regressions fails closed before Electron startup if DPAPI provisioning cannot be loaded",
+            "status": "passed",
+            "duration_ms": 0.3673400000000129,
+            "failure_messages": []
+          },
+          {
+            "name": "Windows commercial Electron startup custody regressions does not substitute unauthenticated IPC or persist the shared secret in renderer state",
+            "status": "passed",
+            "duration_ms": 0.33126699999999687,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-desktop/tests/native-business-assertion-delivery.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308488119,
+        "end_time_ms": 1793308488131.7534,
+        "cases": [
+          {
+            "name": "native SSA delivery response boundary rejects an identifier in place of an assertion before invoking the channel",
+            "status": "passed",
+            "duration_ms": 3.909245999999996,
+            "failure_messages": []
+          },
+          {
+            "name": "native SSA delivery response boundary rejects an activation response for another request",
+            "status": "passed",
+            "duration_ms": 6.354100000000017,
+            "failure_messages": []
+          },
+          {
+            "name": "native SSA delivery response boundary does not report activation for a different sequence",
+            "status": "passed",
+            "duration_ms": 1.0224729999999909,
+            "failure_messages": []
+          },
+          {
+            "name": "native SSA delivery response boundary propagates a channel failure without manufacturing activation",
+            "status": "passed",
+            "duration_ms": 0.753338000000042,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-desktop/tests/native-business-code-transport.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308482942,
+        "end_time_ms": 1793308483053.5227,
+        "cases": [
+          {
+            "name": "native token back-channel over real laboratory TLS sends exact PKCE fields without cookie Origin or a secret client credential",
+            "status": "passed",
+            "duration_ms": 24.751170999999886,
+            "failure_messages": []
+          },
+          {
+            "name": "native token back-channel over real laboratory TLS rejects redirects without following a new origin",
+            "status": "passed",
+            "duration_ms": 8.129819999999881,
+            "failure_messages": []
+          },
+          {
+            "name": "native token back-channel over real laboratory TLS rejects uncacheable-contract violations extra response fields and oversized responses",
+            "status": "passed",
+            "duration_ms": 26.113128999999844,
+            "failure_messages": []
+          },
+          {
+            "name": "native token back-channel over real laboratory TLS rejects an untrusted TLS certificate and an exchange timeout",
+            "status": "passed",
+            "duration_ms": 52.1753520000002,
+            "failure_messages": []
+          },
+          {
+            "name": "native token back-channel over real laboratory TLS rejects malformed code or verifier before network activity",
+            "status": "passed",
+            "duration_ms": 0.5225989999999001,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-desktop/tests/native-business-login.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308485064,
+        "end_time_ms": 1793308485222.0408,
+        "cases": [
+          {
+            "name": "privileged native BUSINESS callback transport rejects an unsafe prepared authorization URL: https://other.example.test/v1/commercial/login?request=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "status": "passed",
+            "duration_ms": 10.199141999999995,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport rejects an unsafe prepared authorization URL: https://business.example.test/v1/commercial/login?request=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&tenant=untrusted",
+            "status": "passed",
+            "duration_ms": 3.947281999999973,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport rejects an unsafe prepared authorization URL: https://business.example.test/v1/commercial/login?request=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#fragment",
+            "status": "passed",
+            "duration_ms": 0.8345459999999889,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport returns cancellation during pending signed registration and never opens a late browser",
+            "status": "passed",
+            "duration_ms": 1.1856129999999894,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport returns its cancellation handle even when the OS browser launcher never resolves",
+            "status": "passed",
+            "duration_ms": 41.79126400000001,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport receives an exact loopback return once and exchanges with the original S256 verifier",
+            "status": "passed",
+            "duration_ms": 35.54338999999999,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport rejects wrong duplicate state extra parameters and paths without redeeming a code",
+            "status": "passed",
+            "duration_ms": 9.959720000000004,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport clears prior user credentials and rejects a late exchange after logout or user change",
+            "status": "passed",
+            "duration_ms": 4.280922000000032,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport times out safely and requires new authentication after process-state loss",
+            "status": "passed",
+            "duration_ms": 42.36354,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport cannot overwrite a new user's credentials when an older exchange completes late",
+            "status": "passed",
+            "duration_ms": 6.024454999999989,
+            "failure_messages": []
+          },
+          {
+            "name": "privileged native BUSINESS callback transport fails closed when callback port is occupied or browser launch fails",
+            "status": "passed",
+            "duration_ms": 1.04070999999999,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-desktop/tests/native-commercial-service-login.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308486189,
+        "end_time_ms": 1793308486263.5967,
+        "cases": [
+          {
+            "name": "main reuses the actual loopback/PKCE flow and receives activation only, never credentials",
+            "status": "passed",
+            "duration_ms": 37.47493400000002,
+            "failure_messages": []
+          },
+          {
+            "name": "cancelling during redemption closes the dedicated channel and cannot issue commit",
+            "status": "passed",
+            "duration_ms": 24.930350000000033,
+            "failure_messages": []
+          },
+          {
+            "name": "a mismatched service correlation closes the attempt without opening a browser",
+            "status": "passed",
+            "duration_ms": 1.8167510000000107,
+            "failure_messages": []
+          },
+          {
+            "name": "a response for another attempt cannot commit local activation",
+            "status": "passed",
+            "duration_ms": 6.637135000000001,
+            "failure_messages": []
+          },
+          {
+            "name": "renderer cannot invoke privileged native begin",
+            "status": "passed",
+            "duration_ms": 1.8232300000000237,
+            "failure_messages": []
+          },
+          {
+            "name": "renderer cannot invoke privileged native complete",
+            "status": "passed",
+            "duration_ms": 0.4187060000000429,
+            "failure_messages": []
+          },
+          {
+            "name": "renderer cannot invoke privileged native commit",
+            "status": "passed",
+            "duration_ms": 0.4797149999999988,
+            "failure_messages": []
+          },
+          {
+            "name": "renderer cannot invoke privileged native cancel",
+            "status": "passed",
+            "duration_ms": 0.4093520000000126,
+            "failure_messages": []
+          },
+          {
+            "name": "renderer cannot invoke privileged native logout",
+            "status": "passed",
+            "duration_ms": 0.5966070000000059,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-desktop/tests/scm-channel-start.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308488918,
+        "end_time_ms": 1793308488927.4614,
+        "cases": [
+          {
+            "name": "Electron main SCM channel custody (mocked Electron, no Windows certification) starts using the authenticated factory without loading a master secret",
+            "status": "passed",
+            "duration_ms": 4.674961999999994,
+            "failure_messages": []
+          },
+          {
+            "name": "Electron main SCM channel custody (mocked Electron, no Windows certification) closes the supplied channel when readiness fails",
+            "status": "passed",
+            "duration_ms": 1.679729000000009,
+            "failure_messages": []
+          },
+          {
+            "name": "Electron main SCM channel custody (mocked Electron, no Windows certification) does not open the panel when native channel admission fails",
+            "status": "passed",
+            "duration_ms": 0.4963290000000029,
+            "failure_messages": []
+          },
+          {
+            "name": "Electron main SCM channel custody (mocked Electron, no Windows certification) rejects ambiguous custody and missing custody",
+            "status": "passed",
+            "duration_ms": 0.45511899999996785,
+            "failure_messages": []
+          },
+          {
+            "name": "Electron main SCM channel custody (mocked Electron, no Windows certification) replaces the panel channel after explicit login without replaying operations",
+            "status": "passed",
+            "duration_ms": 1.2288760000000138,
+            "failure_messages": []
+          },
+          {
+            "name": "Electron main SCM channel custody (mocked Electron, no Windows certification) replaces the panel channel after explicit logout without replaying operations",
+            "status": "passed",
+            "duration_ms": 0.46138799999999947,
+            "failure_messages": []
+          },
+          {
+            "name": "Electron main SCM channel custody (mocked Electron, no Windows certification) does not open another panel connection during Electron shutdown",
+            "status": "passed",
+            "duration_ms": 0.3309370000000058,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/authorization-snapshot.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308479845,
+        "end_time_ms": 1793308480776.0112,
+        "cases": [
+          {
+            "name": "AuthorizationSnapshotVerifier — firma accepts a snapshot signed by an active trusted key",
+            "status": "passed",
+            "duration_ms": 42.43867800000004,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — firma rejects a tampered signature",
+            "status": "passed",
+            "duration_ms": 29.70035800000005,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — firma rejects claims modified after signing",
+            "status": "passed",
+            "duration_ms": 34.78006800000003,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — firma rejects a permission escalated after signing",
+            "status": "passed",
+            "duration_ms": 30.492039999999974,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — firma never returns claims when the signature is not proven",
+            "status": "passed",
+            "duration_ms": 30.67556000000002,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — firma verifies independently of key order in the claims payload",
+            "status": "passed",
+            "duration_ms": 32.16396600000007,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — firma rejects a snapshot signed by a key the device does not trust",
+            "status": "passed",
+            "duration_ms": 30.206690999999978,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — firma reports an unknown key id as an invalid signature and not as its own cause",
+            "status": "passed",
+            "duration_ms": 30.65723300000002,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — estado de la clave rejects a snapshot signed by a revoked key",
+            "status": "passed",
+            "duration_ms": 32.49660400000005,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — estado de la clave still verifies with a VERIFY_ONLY key so rotation needs no cutover window",
+            "status": "passed",
+            "duration_ms": 31.717730999999958,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — estado de la clave prefers revocation over signature verification",
+            "status": "passed",
+            "duration_ms": 35.24466099999995,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — binding rejects a snapshot issued for another installation",
+            "status": "passed",
+            "duration_ms": 33.702506000000085,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — binding rejects a snapshot issued for another device",
+            "status": "passed",
+            "duration_ms": 29.150390000000016,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — binding rejects a snapshot issued for another user",
+            "status": "passed",
+            "duration_ms": 31.047825999999986,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — binding returns claims on a binding mismatch because the signature was already proven",
+            "status": "passed",
+            "duration_ms": 34.642426,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — vigencia rejects a snapshot whose window already closed",
+            "status": "passed",
+            "duration_ms": 32.64581399999997,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — vigencia treats the exact expiry instant as expired",
+            "status": "passed",
+            "duration_ms": 29.728168000000096,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — vigencia accepts the exact issuing instant",
+            "status": "passed",
+            "duration_ms": 29.013498000000027,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — vigencia rejects a future dated snapshot",
+            "status": "passed",
+            "duration_ms": 33.59383600000001,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — vigencia does not grant offline grace, unlike a license",
+            "status": "passed",
+            "duration_ms": 30.273738999999978,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — vigencia rejects a clock rolled back beyond the trusted tolerance",
+            "status": "passed",
+            "duration_ms": 31.797562999999855,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — validación estructural rejects a payload that is not a signed snapshot",
+            "status": "passed",
+            "duration_ms": 32.190700000000106,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — validación estructural rejects an incomplete payload",
+            "status": "passed",
+            "duration_ms": 25.303765000000112,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — validación estructural rejects unexpected fields in the envelope",
+            "status": "passed",
+            "duration_ms": 35.0807749999999,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — validación estructural rejects an invalid assignment scope before verifying anything",
+            "status": "passed",
+            "duration_ms": 31.23791099999994,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — validación estructural rejects an inverted validity window",
+            "status": "passed",
+            "duration_ms": 73.99210300000004,
+            "failure_messages": []
+          },
+          {
+            "name": "AuthorizationSnapshotVerifier — validación estructural rejects an invalid permission code",
+            "status": "passed",
+            "duration_ms": 27.583617999999888,
+            "failure_messages": []
+          },
+          {
+            "name": "tamperSignature always changes the decoded signature bytes",
+            "status": "passed",
+            "duration_ms": 0.4084900000000289,
+            "failure_messages": []
+          },
+          {
+            "name": "unsignedAuthorizationSnapshotBytes produces the exact bytes covered by the signature",
+            "status": "passed",
+            "duration_ms": 25.874186999999893,
+            "failure_messages": []
+          },
+          {
+            "name": "unsignedAuthorizationSnapshotBytes is stable regardless of property order",
+            "status": "passed",
+            "duration_ms": 0.5603630000000521,
+            "failure_messages": []
+          },
+          {
+            "name": "unsignedAuthorizationSnapshotBytes changes when any claim changes",
+            "status": "passed",
+            "duration_ms": 1.0112449999999171,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/authorization-trust-deployment.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308468048,
+        "end_time_ms": 1793308468048,
+        "cases": [
+          {
+            "name": "SAS deployment: approved profile is disjoint from LAB and authenticates recipient",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: DPAPI bootstrap rotation restart and expiry use the existing lifecycle",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: root-signed wrong tenant_id is denied",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: root-signed wrong company_id is denied",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: root-signed wrong branch_id is denied",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: root-signed wrong installation_id is denied",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: root-signed wrong device_id is denied",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: manipulated envelope and rollback preserve protected generation",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: root replacement cannot silently reset history",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: cancellation closure and bad pin cannot install trust",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS deployment: raised bootstrap floor preserves old history while allowing authenticated renewal",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS rollover: dual-root update is atomic idempotent and survives restart from original pin",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS rollover: rejects old signature without replacing trusted state",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS rollover: rejects new signature without replacing trusted state",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS rollover: rejects recipient without replacing trusted state",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS rollover: rejects floor without replacing trusted state",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS rollover: rejects expired without replacing trusted state",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS rollover: rejects history without replacing trusted state",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS rollover: failed atomic replace retains old root and accepts retry",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/authorization-trust-lifecycle.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308489319,
+        "end_time_ms": 1793308489323.2566,
+        "cases": [
+          {
+            "name": "SAS lifecycle: boot and refresh use DPAPI live verification; revoked and offline-expired keys disappear",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS lifecycle: coalesces privileged refresh and cancellation joins it before destroying custody",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS lifecycle: refuses a provisioning adapter bound to another device and destroys it",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "SAS lifecycle: no provisioned adapter or missing refresh policy cannot create authority",
+            "status": "passed",
+            "duration_ms": 4.256547000000012,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/channel-cancellation-lifecycle.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308478168,
+        "end_time_ms": 1793308479380.637,
+        "cases": [
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) performs the canonical MAC handshake and status response",
+            "status": "passed",
+            "duration_ms": 35.36427699999996,
+            "failure_messages": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) disconnect aborts in-flight work synchronously and releases identity exactly once",
+            "status": "passed",
+            "duration_ms": 9.428129000000013,
+            "failure_messages": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) stopping closes every active connection even if one cleanup callback throws",
+            "status": "passed",
+            "duration_ms": 13.417449999999974,
+            "failure_messages": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) retirement denies queued requests but drains the current response before closure",
+            "status": "passed",
+            "duration_ms": 1007.1681100000001,
+            "failure_messages": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) timeout aborts a handler and does not resurrect a connection on a late result",
+            "status": "passed",
+            "duration_ms": 45.379639,
+            "failure_messages": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) a synchronous handler throw closes the channel without leaking an unhandled rejection",
+            "status": "passed",
+            "duration_ms": 6.5836709999998675,
+            "failure_messages": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) cancellation before the synchronous commit boundary leaves no operation or audit",
+            "status": "passed",
+            "duration_ms": 50.61476400000015,
+            "failure_messages": []
+          },
+          {
+            "name": "real TCP transport: connection cancellation and closure (NOT Windows SCM) a lost response after commit retains the canonical idempotent result and audit across reopen",
+            "status": "passed",
+            "duration_ms": 44.636948000000075,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/channel-commercial-transport.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308484540,
+        "end_time_ms": 1793308484685.789,
+        "cases": [
+          {
+            "name": "transporte de las operaciones comerciales cash.shift.open viaja y su respuesta se parsea con su propio esquema",
+            "status": "passed",
+            "duration_ms": 45.13985100000002,
+            "failure_messages": []
+          },
+          {
+            "name": "transporte de las operaciones comerciales catalog.item.find viaja y su respuesta se parsea con su propio esquema",
+            "status": "passed",
+            "duration_ms": 21.081827999999973,
+            "failure_messages": []
+          },
+          {
+            "name": "transporte de las operaciones comerciales sale.create viaja y su respuesta se parsea con su propio esquema",
+            "status": "passed",
+            "duration_ms": 8.894134000000008,
+            "failure_messages": []
+          },
+          {
+            "name": "transporte de las operaciones comerciales payment.register.cash viaja y su respuesta se parsea con su propio esquema",
+            "status": "passed",
+            "duration_ms": 7.024835000000053,
+            "failure_messages": []
+          },
+          {
+            "name": "transporte de las operaciones comerciales license.offers.list viaja y su respuesta se parsea con su propio esquema",
+            "status": "passed",
+            "duration_ms": 12.047788999999966,
+            "failure_messages": []
+          },
+          {
+            "name": "transporte de las operaciones comerciales la vertical completa recorre el canal en una sola conexión",
+            "status": "passed",
+            "duration_ms": 20.720085999999924,
+            "failure_messages": []
+          },
+          {
+            "name": "transporte de las operaciones comerciales las nueve operaciones antes sin enrutar ya no matan la conexión",
+            "status": "passed",
+            "duration_ms": 25.78234699999996,
+            "failure_messages": []
+          },
+          {
+            "name": "transporte de las operaciones comerciales el cobro que completa la venta llega con sale_completed intacto",
+            "status": "passed",
+            "duration_ms": 4.788980000000038,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/commercial-ipc.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308473518,
+        "end_time_ms": 1793308475587.4631,
+        "cases": [
+          {
+            "name": "license catalog: authenticated read only, no GLOBAL authority, rechecks channel after asynchronous response",
+            "status": "passed",
+            "duration_ms": 79.35248000000001,
+            "failure_messages": []
+          },
+          {
+            "name": "session.activate — establecimiento del vínculo una SSA válida activa la sesión y vincula la conexión",
+            "status": "passed",
+            "duration_ms": 38.93141400000013,
+            "failure_messages": []
+          },
+          {
+            "name": "session.activate — establecimiento del vínculo una firma no confiable no vincula nada",
+            "status": "passed",
+            "duration_ms": 38.83698600000025,
+            "failure_messages": []
+          },
+          {
+            "name": "session.activate — establecimiento del vínculo una SSA emitida para otro dispositivo se rechaza",
+            "status": "passed",
+            "duration_ms": 39.36076000000003,
+            "failure_messages": []
+          },
+          {
+            "name": "session.activate — establecimiento del vínculo reenviar la misma secuencia no desplaza la sesión activa ni vincula",
+            "status": "passed",
+            "duration_ms": 36.87793599999986,
+            "failure_messages": []
+          },
+          {
+            "name": "frontera de confianza — el llamador no afirma identidad el contrato rechaza tenant_id, actor_id y device_id en el sobre",
+            "status": "passed",
+            "duration_ms": 3.388952999999674,
+            "failure_messages": []
+          },
+          {
+            "name": "frontera de confianza — el llamador no afirma identidad el contrato rechaza user_id o actor_type dentro del payload",
+            "status": "passed",
+            "duration_ms": 2.481648000000405,
+            "failure_messages": []
+          },
+          {
+            "name": "frontera de confianza — el llamador no afirma identidad una operación mutante exige operation_id e idempotency_key",
+            "status": "passed",
+            "duration_ms": 0.5369399999999587,
+            "failure_messages": []
+          },
+          {
+            "name": "frontera de confianza — el llamador no afirma identidad el contrato rechaza un importe de apertura negativo en la frontera",
+            "status": "passed",
+            "duration_ms": 0.8641199999997298,
+            "failure_messages": []
+          },
+          {
+            "name": "operaciones comerciales — la conexión debe estar vinculada una conexión sin vínculo no obtiene identidad",
+            "status": "passed",
+            "duration_ms": 41.462594999999965,
+            "failure_messages": []
+          },
+          {
+            "name": "operaciones comerciales — la conexión debe estar vinculada un connectionId inventado no hereda el vínculo de otra conexión",
+            "status": "passed",
+            "duration_ms": 45.82501900000034,
+            "failure_messages": []
+          },
+          {
+            "name": "operaciones comerciales — la conexión debe estar vinculada sin snapshot de autorización activo no hay operación",
+            "status": "passed",
+            "duration_ms": 41.94065899999987,
+            "failure_messages": []
+          },
+          {
+            "name": "operaciones comerciales — la conexión debe estar vinculada el permiso se evalúa contra el snapshot del usuario vinculado",
+            "status": "passed",
+            "duration_ms": 42.320010999999795,
+            "failure_messages": []
+          },
+          {
+            "name": "authorization.capabilities.get — proyección de permisos efectivos devuelve sólo los permisos activos y efectivos del usuario vinculado",
+            "status": "passed",
+            "duration_ms": 46.10685400000011,
+            "failure_messages": []
+          },
+          {
+            "name": "authorization.capabilities.get — proyección de permisos efectivos falla cerrado cuando la conexión no está vinculada",
+            "status": "passed",
+            "duration_ms": 33.29700600000024,
+            "failure_messages": []
+          },
+          {
+            "name": "ciclo de vida del vínculo la desconexión invalida el vínculo",
+            "status": "passed",
+            "duration_ms": 37.45228499999985,
+            "failure_messages": []
+          },
+          {
+            "name": "ciclo de vida del vínculo dos conexiones mantienen vínculos independientes",
+            "status": "passed",
+            "duration_ms": 37.44079899999997,
+            "failure_messages": []
+          },
+          {
+            "name": "ciclo de vida del vínculo una sesión expirada deja de resolver aunque la conexión siga viva",
+            "status": "passed",
+            "duration_ms": 36.56592300000011,
+            "failure_messages": []
+          },
+          {
+            "name": "ciclo de vida del vínculo detener el componente invalida todos los vínculos",
+            "status": "passed",
+            "duration_ms": 33.899155000000064,
+            "failure_messages": []
+          },
+          {
+            "name": "session.recover — rehidratación desde la SSA durable sin sesión persistida devuelve NONE",
+            "status": "passed",
+            "duration_ms": 29.63106199999993,
+            "failure_messages": []
+          },
+          {
+            "name": "session.recover — rehidratación desde la SSA durable restablece el vínculo en una conexión nueva sin recibir user_id",
+            "status": "passed",
+            "duration_ms": 30.636250000000018,
+            "failure_messages": []
+          },
+          {
+            "name": "session.recover — rehidratación desde la SSA durable con dos sesiones vigentes en el dispositivo no elige ninguna",
+            "status": "passed",
+            "duration_ms": 48.25253299999986,
+            "failure_messages": []
+          },
+          {
+            "name": "flujo comercial sobre el handler real — sin transporte activate → cash.shift.open → sale.create sobre la misma conexión",
+            "status": "passed",
+            "duration_ms": 43.641859999999724,
+            "failure_messages": []
+          },
+          {
+            "name": "flujo comercial sobre el handler real — sin transporte el cierre idempotente no reconstruye importes (M3 de 4D)",
+            "status": "passed",
+            "duration_ms": 43.17204899999979,
+            "failure_messages": []
+          },
+          {
+            "name": "customer.* — el adquiriente es alcanzable por el canal registra un adquiriente y lo devuelve por identidad fiscal",
+            "status": "passed",
+            "duration_ms": 46.53873999999996,
+            "failure_messages": []
+          },
+          {
+            "name": "customer.* — el adquiriente es alcanzable por el canal y también por identificador interno",
+            "status": "passed",
+            "duration_ms": 45.07308299999977,
+            "failure_messages": []
+          },
+          {
+            "name": "customer.* — el adquiriente es alcanzable por el canal un adquiriente inválido devuelve hallazgos sin filtrar datos personales",
+            "status": "passed",
+            "duration_ms": 35.57971700000007,
+            "failure_messages": []
+          },
+          {
+            "name": "customer.* — el adquiriente es alcanzable por el canal sin vínculo de sesión no se registra nada",
+            "status": "passed",
+            "duration_ms": 39.820381,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: cashier-without-grant",
+            "status": "passed",
+            "duration_ms": 41.98938099999987,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: other-tenant",
+            "status": "passed",
+            "duration_ms": 52.4341059999997,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: other-company",
+            "status": "passed",
+            "duration_ms": 75.60286700000006,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: other-branch",
+            "status": "passed",
+            "duration_ms": 39.91278800000009,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: inactive-role",
+            "status": "passed",
+            "duration_ms": 62.238312999999835,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: expired-assignment",
+            "status": "passed",
+            "duration_ms": 43.509219999999914,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: expired-snapshot",
+            "status": "passed",
+            "duration_ms": 45.31677599999966,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal role boundary rejects catalog mutation: missing-snapshot",
+            "status": "passed",
+            "duration_ms": 44.79628700000012,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal role boundary: mutation payload cannot self-assert a grant, actor or supervisor approval",
+            "status": "passed",
+            "duration_ms": 1.3965009999997164,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal registra un producto y lo devuelve al escanear su código de barras",
+            "status": "passed",
+            "duration_ms": 41.000560999999834,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal un código de barras repetido se rechaza por el canal y dice cuál lo tiene",
+            "status": "passed",
+            "duration_ms": 35.54857799999991,
+            "failure_messages": []
+          },
+          {
+            "name": "catalog.* — el catálogo es alcanzable por el canal sin vínculo de sesión no se registra nada",
+            "status": "passed",
+            "duration_ms": 32.66382099999964,
+            "failure_messages": []
+          },
+          {
+            "name": "inventory.* — el inventario es alcanzable por el canal role boundary: receive denies absent, cross-branch, retired and expired grants",
+            "status": "passed",
+            "duration_ms": 155.13407700000016,
+            "failure_messages": []
+          },
+          {
+            "name": "inventory.* — el inventario es alcanzable por el canal role boundary: adjust denies absent, cross-branch, retired and expired grants",
+            "status": "passed",
+            "duration_ms": 169.2418849999999,
+            "failure_messages": []
+          },
+          {
+            "name": "inventory.* — el inventario es alcanzable por el canal recibe, ajusta y consulta la existencia por el canal",
+            "status": "passed",
+            "duration_ms": 70.43133699999998,
+            "failure_messages": []
+          },
+          {
+            "name": "inventory.* — el inventario es alcanzable por el canal el canal rechaza el ajuste que dejaría la existencia negativa y dice cuánto hay",
+            "status": "passed",
+            "duration_ms": 43.44711499999994,
+            "failure_messages": []
+          },
+          {
+            "name": "inventory.* — el inventario es alcanzable por el canal sin vínculo de sesión no se mueve existencia",
+            "status": "passed",
+            "duration_ms": 35.49481900000046,
+            "failure_messages": []
+          },
+          {
+            "name": "customer.marketing.get — autorización backend 'UNAUTHORIZED' con permisos []",
+            "status": "passed",
+            "duration_ms": 40.934298000000126,
+            "failure_messages": []
+          },
+          {
+            "name": "customer.marketing.get — autorización backend 'NOT_SUBSCRIBED' con permisos [ 'CUSTOMERS_CUSTOMER_READ' ]",
+            "status": "passed",
+            "duration_ms": 35.46312200000011,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/native-session-close-lifecycle.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308485695,
+        "end_time_ms": 1793308485828.0103,
+        "cases": [
+          {
+            "name": "native session close: durable tombstone before transport notification notifies all server connections only after the tombstone and binding removal",
+            "status": "passed",
+            "duration_ms": 45.015308000000005,
+            "failure_messages": []
+          },
+          {
+            "name": "native session close: durable tombstone before transport notification a failed durable audit leaves bindings intact and does not report closure",
+            "status": "passed",
+            "duration_ms": 30.21714099999997,
+            "failure_messages": []
+          },
+          {
+            "name": "native session close: durable tombstone before transport notification a new store instance sees the durable close without an in-memory registry",
+            "status": "passed",
+            "duration_ms": 27.979422,
+            "failure_messages": []
+          },
+          {
+            "name": "native session close: durable tombstone before transport notification registers one closer and safely releases its registration on lifecycle stop",
+            "status": "passed",
+            "duration_ms": 30.010351000000014,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/service-descriptor.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308488527,
+        "end_time_ms": 1793308488535.5444,
+        "cases": [
+          {
+            "name": "descriptor de servicio WinSW el entorno que declara lo acepta la configuración real del servicio",
+            "status": "passed",
+            "duration_ms": 3.9693849999999884,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW si falta una variable, el descriptor se niega a generarse",
+            "status": "passed",
+            "duration_ms": 0.4111450000000332,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW una variable POS_ de más se rechaza al generar, no en el arranque",
+            "status": "passed",
+            "duration_ms": 0.34848199999998997,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW rechaza anunciar login comercial desde la cuenta virtual: DPAPI/logon SID incompatibles",
+            "status": "passed",
+            "duration_ms": 0.209116999999992,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW rechaza el modo comercial SCM aunque el perfil base tenga solo las nueve variables",
+            "status": "passed",
+            "duration_ms": 0.17796199999997953,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW corre bajo la cuenta virtual, no bajo LocalSystem ni un usuario",
+            "status": "passed",
+            "duration_ms": 0.4014699999999607,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW no contiene credencial alguna: la cuenta virtual no tiene contraseña",
+            "status": "passed",
+            "duration_ms": 0.2741630000000441,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW arranca solo, sin sesión iniciada",
+            "status": "passed",
+            "duration_ms": 0.17803200000003017,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW deja margen a la parada ordenada y señala al proceso Node",
+            "status": "passed",
+            "duration_ms": 0.16658499999999776,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW la recuperación replica el retroceso exponencial que el repositorio ya usa",
+            "status": "passed",
+            "duration_ms": 1.0314859999999726,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW escapa los valores: una ruta con comillas no rompe el XML",
+            "status": "passed",
+            "duration_ms": 0.2894059999999854,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW declara exactamente las nueve variables que el servicio exige",
+            "status": "passed",
+            "duration_ms": 0.5444200000000023,
+            "failure_messages": []
+          },
+          {
+            "name": "descriptor de servicio WinSW apunta a un runtime de la instalación, no del repositorio",
+            "status": "passed",
+            "duration_ms": 0.13360599999998612,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/session-assertion-verifier.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308476130,
+        "end_time_ms": 1793308477789.3347,
+        "cases": [
+          {
+            "name": "SessionAssertionVerifier — firma accepts a session assertion signed by an active trusted key",
+            "status": "passed",
+            "duration_ms": 44.79952700000001,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — firma rejects a tampered signature",
+            "status": "passed",
+            "duration_ms": 34.848869000000036,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — firma rejects claims modified after signing",
+            "status": "passed",
+            "duration_ms": 31.456115999999952,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — firma rejects a user swapped after signing",
+            "status": "passed",
+            "duration_ms": 31.797853000000032,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — firma verifies against the canonical form, not the serialisation order received",
+            "status": "passed",
+            "duration_ms": 45.895937,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — firma rejects a signature produced over non-canonical JSON",
+            "status": "passed",
+            "duration_ms": 34.43872799999997,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — firma never returns claims when the signature is not proven",
+            "status": "passed",
+            "duration_ms": 42.97006299999998,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — firma rejects an assertion signed by a key the device does not trust",
+            "status": "passed",
+            "duration_ms": 37.762924999999996,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — firma reports an unknown key id as an invalid signature and not as its own cause",
+            "status": "passed",
+            "duration_ms": 36.53130599999997,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — firma never trusts a key carried inside the assertion itself",
+            "status": "passed",
+            "duration_ms": 40.125815999999986,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — estado de la clave rejects an assertion signed by a revoked key",
+            "status": "passed",
+            "duration_ms": 34.852634999999964,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — estado de la clave still verifies with a VERIFY_ONLY key so rotation needs no cutover window",
+            "status": "passed",
+            "duration_ms": 34.26480199999992,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — estado de la clave prefers revocation over signature verification",
+            "status": "passed",
+            "duration_ms": 32.902330000000006,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — ventana temporal rejects an assertion before issued_at",
+            "status": "passed",
+            "duration_ms": 32.62135799999987,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — ventana temporal accepts the exact issuing instant",
+            "status": "passed",
+            "duration_ms": 30.50927999999999,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — ventana temporal accepts the instant immediately before expiry",
+            "status": "passed",
+            "duration_ms": 39.30282800000009,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — ventana temporal treats the exact expiry instant as expired",
+            "status": "passed",
+            "duration_ms": 34.50885500000004,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — ventana temporal rejects an assertion after expiry",
+            "status": "passed",
+            "duration_ms": 30.604744999999866,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — ventana temporal grants no grace after expiry",
+            "status": "passed",
+            "duration_ms": 37.77268400000003,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — ventana temporal rejects a clock rolled back beyond the trusted tolerance",
+            "status": "passed",
+            "duration_ms": 35.517602000000124,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — ventana temporal does not let a rollback revive an assertion that already expired",
+            "status": "passed",
+            "duration_ms": 37.91326100000015,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — binding accepts the expected binding",
+            "status": "passed",
+            "duration_ms": 35.348558999999796,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — binding rejects an assertion issued for another user",
+            "status": "passed",
+            "duration_ms": 36.12344699999994,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — binding rejects an assertion issued for another installation",
+            "status": "passed",
+            "duration_ms": 33.920230000000174,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — binding rejects an assertion issued for another device",
+            "status": "passed",
+            "duration_ms": 37.474958000000015,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — binding rejects an incomplete expected context instead of comparing against a blank",
+            "status": "passed",
+            "duration_ms": 32.17965900000013,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — binding rejects an expected context whose field is only whitespace",
+            "status": "passed",
+            "duration_ms": 30.97797300000002,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — binding returns claims on a binding mismatch because the signature was already proven",
+            "status": "passed",
+            "duration_ms": 35.26399000000015,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — sequence accepts a valid sequence when no baseline is supplied",
+            "status": "passed",
+            "duration_ms": 27.53120100000001,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — sequence rejects a sequence equal to the highest accepted one",
+            "status": "passed",
+            "duration_ms": 28.9062899999999,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — sequence rejects a lower sequence",
+            "status": "passed",
+            "duration_ms": 31.614810000000034,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — sequence accepts a strictly greater sequence",
+            "status": "passed",
+            "duration_ms": 40.95022199999994,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — sequence evaluates the sequence only after signature, binding and window",
+            "status": "passed",
+            "duration_ms": 37.66410599999995,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — sequence persists no state: repeated verification of the same assertion is stable",
+            "status": "passed",
+            "duration_ms": 35.91540700000019,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — identidad no es autorización a valid assertion yields no permissions",
+            "status": "passed",
+            "duration_ms": 29.48834499999998,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — identidad no es autorización a valid assertion carries no tenant, company or branch authorization",
+            "status": "passed",
+            "duration_ms": 26.911550000000034,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — identidad no es autorización the result exposes only a decision, claims and the evaluation instant",
+            "status": "passed",
+            "duration_ms": 33.9258940000002,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — identidad no es autorización exposes no key material in the result",
+            "status": "passed",
+            "duration_ms": 31.46296499999994,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — identidad no es autorización does not import the authorization engine, a store, or anything about cash",
+            "status": "passed",
+            "duration_ms": 6.621246000000156,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — fail closed rejects a payload that is not a signed session assertion",
+            "status": "passed",
+            "duration_ms": 34.8789240000001,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — fail closed rejects a missing signature",
+            "status": "passed",
+            "duration_ms": 28.55913099999998,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — fail closed rejects a malformed signature",
+            "status": "passed",
+            "duration_ms": 27.663054000000102,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — fail closed rejects missing claims",
+            "status": "passed",
+            "duration_ms": 28.796679999999924,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — fail closed rejects incomplete claims",
+            "status": "passed",
+            "duration_ms": 29.560762000000068,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — fail closed rejects unexpected fields in the envelope",
+            "status": "passed",
+            "duration_ms": 48.74884199999974,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — fail closed rejects an inverted validity window before verifying anything",
+            "status": "passed",
+            "duration_ms": 31.732923000000028,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — fail closed turns an unusable key into a denial instead of a crash",
+            "status": "passed",
+            "duration_ms": 32.06333799999993,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionAssertionVerifier — fail closed denies with an empty trust store",
+            "status": "passed",
+            "duration_ms": 29.922492999999577,
+            "failure_messages": []
+          },
+          {
+            "name": "unsignedSessionAssertionBytes produces the exact bytes covered by the signature",
+            "status": "passed",
+            "duration_ms": 31.206438000000162,
+            "failure_messages": []
+          },
+          {
+            "name": "unsignedSessionAssertionBytes is stable regardless of property order",
+            "status": "passed",
+            "duration_ms": 0.5015269999998964,
+            "failure_messages": []
+          },
+          {
+            "name": "unsignedSessionAssertionBytes changes when any claim changes",
+            "status": "passed",
+            "duration_ms": 0.3348209999999199,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/session-trust-key-resolver.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308487130,
+        "end_time_ms": 1793308487161.3274,
+        "cases": [
+          {
+            "name": "SessionTrustKeyResolver keeps ACTIVE and VERIFY_ONLY keys during rotation and removes REVOKED keys",
+            "status": "passed",
+            "duration_ms": 11.882615999999985,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionTrustKeyResolver does not read the ambient artifact environment when the validated config path is absent",
+            "status": "passed",
+            "duration_ms": 0.5838590000000181,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionTrustKeyResolver installs a valid centrally fetched bundle into protected local persistence",
+            "status": "passed",
+            "duration_ms": 8.676703999999972,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionTrustKeyResolver rejects an invalid remote update and keeps a previously trusted bundle",
+            "status": "passed",
+            "duration_ms": 3.5193530000000237,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionTrustKeyResolver fails closed when the first remote bundle is not signed by the configured root",
+            "status": "passed",
+            "duration_ms": 1.519674000000009,
+            "failure_messages": []
+          },
+          {
+            "name": "SessionTrustKeyResolver falls back to a valid installer artifact when the first central bundle is not trusted",
+            "status": "passed",
+            "duration_ms": 4.32734099999999,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/windows-commercial-host-identity.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308489498,
+        "end_time_ms": 1793308489502.53,
+        "cases": [
+          {
+            "name": "Windows commercial process identity real Windows token: verifies the current interactive host without an injected runner",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "Windows commercial process identity rejects non-Windows runtime before invoking the host",
+            "status": "passed",
+            "duration_ms": 2.012178000000006,
+            "failure_messages": []
+          },
+          {
+            "name": "Windows commercial process identity accepts only the exact successful operating-system attestation",
+            "status": "passed",
+            "duration_ms": 0.435590000000019,
+            "failure_messages": []
+          },
+          {
+            "name": "Windows commercial process identity denies SCM, non-interactive or missing identity without exposing native details",
+            "status": "passed",
+            "duration_ms": 0.5754359999999963,
+            "failure_messages": []
+          },
+          {
+            "name": "Windows commercial process identity rejects success exit without the exact attestation and rejects arbitrary nonzero codes",
+            "status": "passed",
+            "duration_ms": 0.6388790000000029,
+            "failure_messages": []
+          },
+          {
+            "name": "Windows commercial process identity fails closed when inspection itself fails",
+            "status": "passed",
+            "duration_ms": 0.30146300000001247,
+            "failure_messages": []
+          },
+          {
+            "name": "retains the unconditional commercial SCM release gate despite an implemented adapter",
+            "status": "passed",
+            "duration_ms": 0.5300289999999848,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/windows-handoff-lease-state.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308483461,
+        "end_time_ms": 1793308484047.3792,
+        "cases": [
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60000 ms even with an old receipt timestamp",
+            "status": "passed",
+            "duration_ms": 45.83599399999997,
+            "failure_messages": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rejects a pending consumption after 60001 ms even with an old receipt timestamp",
+            "status": "passed",
+            "duration_ms": 27.967880000000036,
+            "failure_messages": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rejects clock rollback between authorization and consumption",
+            "status": "passed",
+            "duration_ms": 34.89973900000001,
+            "failure_messages": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rejects an invalid host clock at consumption",
+            "status": "passed",
+            "duration_ms": 32.305594999999926,
+            "failure_messages": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger uses the Service clock rather than the receipt timestamp to prune replay records",
+            "status": "passed",
+            "duration_ms": 31.70740699999999,
+            "failure_messages": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger rechecks revocation made by another authority between authorization and consumption",
+            "status": "passed",
+            "duration_ms": 30.83843999999999,
+            "failure_messages": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger persists one-use receipt across a real SQLite close and reopen",
+            "status": "passed",
+            "duration_ms": 38.9379439999999,
+            "failure_messages": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger revokes before first use, persists across restart, and accepts idempotent revocation",
+            "status": "passed",
+            "duration_ms": 33.041818000000035,
+            "failure_messages": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger revocation after consumption blocks future lease checks",
+            "status": "passed",
+            "duration_ms": 27.869431000000077,
+            "failure_messages": []
+          },
+          {
+            "name": "Service-owned SQLite candidate handoff lease ledger refuses unauthorised policy, identity, revision and unregistered receipts",
+            "status": "passed",
+            "duration_ms": 27.42497800000001,
+            "failure_messages": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) consumes once for several live connections; revocation commits before closing all and survives restart",
+            "status": "passed",
+            "duration_ms": 35.87487199999998,
+            "failure_messages": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) does not restore a consumed lease on authority restart, even without revocation",
+            "status": "passed",
+            "duration_ms": 35.35803199999998,
+            "failure_messages": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) rejects each operation and closes on expiry",
+            "status": "passed",
+            "duration_ms": 29.49811999999997,
+            "failure_messages": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) rejects each operation and closes on rollback",
+            "status": "passed",
+            "duration_ms": 29.37420700000007,
+            "failure_messages": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) rejects each operation and closes on invalid",
+            "status": "passed",
+            "duration_ms": 31.835304000000065,
+            "failure_messages": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) fails closed on durable write failure without reporting successful revocation",
+            "status": "passed",
+            "duration_ms": 32.884686999999985,
+            "failure_messages": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) drains only the initiating response and removes its authority immediately",
+            "status": "passed",
+            "duration_ms": 28.636412999999948,
+            "failure_messages": []
+          },
+          {
+            "name": "runtime lease connection authorization (real disposable SQLite) does not let MAC replay cleanup delete lease tombstones after a host clock jump",
+            "status": "passed",
+            "duration_ms": 30.37909400000001,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/windows-scm-physical.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308468048,
+        "end_time_ms": 1793308468048,
+        "cases": [
+          {
+            "name": "physical Windows SCM transport (not BUSINESS/human certification) authenticates real SCM and recipient, consumes one lease and closes both sockets on revoke",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/windows-scm-runtime.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308468950,
+        "end_time_ms": 1793308471198.1125,
+        "cases": [
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports admits multiple real sockets with one durable lease consumption and revokes every member",
+            "status": "passed",
+            "duration_ms": 494.83305000000007,
+            "failure_messages": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports rechecks adapter peer evidence on each operation",
+            "status": "passed",
+            "duration_ms": 314.1571530000001,
+            "failure_messages": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports rejects an independently pinned signer mismatch before the first MAC request",
+            "status": "passed",
+            "duration_ms": 196.1145899999999,
+            "failure_messages": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports aborts an in-flight operation before its persistent effect when the lease is revoked",
+            "status": "passed",
+            "duration_ms": 115.48469100000011,
+            "failure_messages": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports preserves an already committed effect on response loss; cancellation does not undo commit",
+            "status": "passed",
+            "duration_ms": 123.89473599999997,
+            "failure_messages": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports rechecks expiry at the commit fence after asynchronous work without waiting for polling",
+            "status": "passed",
+            "duration_ms": 299.7912470000001,
+            "failure_messages": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports quarantines the transport on SQLite revocation failure and rejects fresh negotiation",
+            "status": "passed",
+            "duration_ms": 394.6780869999998,
+            "failure_messages": []
+          },
+          {
+            "name": "SCM runtime integration with simulated kernel/DPAPI ports drains exactly the initiating signed response while closing every other lease member",
+            "status": "passed",
+            "duration_ms": 308.1125240000001,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "apps/pos-local-service/tests/windows-winsw-readiness.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308490077,
+        "end_time_ms": 1793308490079.0027,
+        "cases": [
+          {
+            "name": "operator WinSW readiness is inspection, not commercial activation reports missing binary and retains all certification gates",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "operator WinSW readiness is inspection, not commercial activation a matching SHA alone never approves an unsigned or mutable executable",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "operator WinSW readiness is inspection, not commercial activation keeps the existing SCM commercial rejection until native interoperability is proven",
+            "status": "passed",
+            "duration_ms": 2.002773999999988,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "packages/local-channel/tests/windows-handoff.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308481393,
+        "end_time_ms": 1793308481739.8865,
+        "cases": [
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) validates the exact installation, device, pinned RSA key and explicit policy",
+            "status": "passed",
+            "duration_ms": 7.036805999999956,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"device_id\":\"018f0000-0000-7000-8000-000000000001\"}",
+            "status": "passed",
+            "duration_ms": 1.262083999999959,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"installation_id\":\"018f0000-0000-7000-8000-000000000002\"}",
+            "status": "passed",
+            "duration_ms": 0.4598349999999982,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_key_sha256\":\"0000000000000000000000000000000000000000000000000000000000000000\"}",
+            "status": "passed",
+            "duration_ms": 0.6879509999999982,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"expires_at\":\"2026-10-29T12:00:00.000Z\"}",
+            "status": "passed",
+            "duration_ms": 0.35781599999995706,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"not_before\":\"2026-10-29T12:00:01Z\"}",
+            "status": "passed",
+            "duration_ms": 0.45618000000001757,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"capsule_file\":\"\\\\\\\\remote\\\\capsule\"}",
+            "status": "passed",
+            "duration_ms": 0.3927169999999478,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_sid\":\"S-1-1-0\"}",
+            "status": "passed",
+            "duration_ms": 0.5237489999999525,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_logon_sid\":\"S-1-5-32-545\"}",
+            "status": "passed",
+            "duration_ms": 0.5123029999999744,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects altered or unauthorized profile {\"recipient_session_id\":0}",
+            "status": "passed",
+            "duration_ms": 1.1877450000000636,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) denies an otherwise valid capsule recipient from a different Windows account, logon, session, or host kind",
+            "status": "passed",
+            "duration_ms": 4.79215899999997,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects RSA below the candidate strength even with a matching pin",
+            "status": "passed",
+            "duration_ms": 30.34098800000004,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) seals only a derived key, binding all claims to OAEP-SHA256",
+            "status": "passed",
+            "duration_ms": 5.284952999999973,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another recipient_logon_sid",
+            "status": "passed",
+            "duration_ms": 0.9364060000000336,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another device_id",
+            "status": "passed",
+            "duration_ms": 0.7063479999999345,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another revision",
+            "status": "passed",
+            "duration_ms": 1.0997959999999694,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects capsule replay under another expires_at",
+            "status": "passed",
+            "duration_ms": 0.7397270000000162,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rejects ciphertext and nonce tampering and a different receiver key",
+            "status": "passed",
+            "duration_ms": 270.1531739999999,
+            "failure_messages": []
+          },
+          {
+            "name": "candidate handoff cryptography (not SCM interoperability) rotates lease keys without changing the master and rejects old frames",
+            "status": "passed",
+            "duration_ms": 5.092780999999945,
+            "failure_messages": []
+          },
+          {
+            "name": "handoff lease SQLite replay compatibility uses deterministic collision-resistant UUID IDs without changing the canonical SQLite schema",
+            "status": "passed",
+            "duration_ms": 0.9812309999999798,
+            "failure_messages": []
+          },
+          {
+            "name": "service-signed handoff capsule (NOT SCM certified) requires the real Service identity constraints and the authorized signing key",
+            "status": "passed",
+            "duration_ms": 3.3606770000000097,
+            "failure_messages": []
+          },
+          {
+            "name": "service-signed handoff capsule (NOT SCM certified) verifies service signature without trusting a public key in the payload",
+            "status": "passed",
+            "duration_ms": 8.886492999999973,
+            "failure_messages": []
+          },
+          {
+            "name": "real Windows receiver: owner-only ACL, DPAPI CurrentUser, no overwrite, wrong context and tampering denied",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "real Windows receiver rejects inherited directory ACL before writing",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "packages/local-channel/tests/windows-native-pipe.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308487746,
+        "end_time_ms": 1793308487761.214,
+        "cases": [
+          {
+            "name": "native adapter fail-closed boundary (injected native results) rejects a mismatched peer {\"sid\":\"S-1-5-21-1-2-3-9999\"} before socket adoption",
+            "status": "passed",
+            "duration_ms": 6.7878880000000095,
+            "failure_messages": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) rejects a mismatched peer {\"logonSid\":\"S-1-5-5-8-9\"} before socket adoption",
+            "status": "passed",
+            "duration_ms": 0.8844009999999685,
+            "failure_messages": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) rejects a mismatched peer {\"sessionId\":2} before socket adoption",
+            "status": "passed",
+            "duration_ms": 0.6869599999999991,
+            "failure_messages": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) rejects a kernel re-attestation failure before adopting a descriptor",
+            "status": "passed",
+            "duration_ms": 0.8937139999999886,
+            "failure_messages": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) releases even malformed native records",
+            "status": "passed",
+            "duration_ms": 1.1242320000000063,
+            "failure_messages": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) forbids role confusion",
+            "status": "passed",
+            "duration_ms": 0.6352740000000381,
+            "failure_messages": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) does not fall back to simulated Windows identity on Linux",
+            "status": "passed",
+            "duration_ms": 0.43305700000001934,
+            "failure_messages": []
+          },
+          {
+            "name": "native adapter fail-closed boundary (injected native results) does not accept an enabling boolean or an incomplete provisioning document",
+            "status": "passed",
+            "duration_ms": 3.214155000000005,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "packages/local-channel/tests/windows-production.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308489688,
+        "end_time_ms": 1793308489692.2737,
+        "cases": [
+          {
+            "name": "production Windows channel provisioning fails closed when production identity is incomplete",
+            "status": "passed",
+            "duration_ms": 1.9497760000000142,
+            "failure_messages": []
+          },
+          {
+            "name": "production Windows channel provisioning never creates a channel secret or DPAPI key from Desktop on first run",
+            "status": "passed",
+            "duration_ms": 0.8317429999999888,
+            "failure_messages": []
+          },
+          {
+            "name": "production Windows channel provisioning service-only creation refuses invalid installation id before touching files",
+            "status": "passed",
+            "duration_ms": 0.3890920000000051,
+            "failure_messages": []
+          },
+          {
+            "name": "production Windows channel provisioning Service provisions the channel; Desktop consumes the same key without rotating it",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "production Windows channel provisioning rejects a relative Desktop storage directory before any DPAPI call",
+            "status": "passed",
+            "duration_ms": 0.27379300000001194,
+            "failure_messages": []
+          },
+          {
+            "name": "production Windows channel provisioning rejects tampered or malformed encrypted channel envelopes without rewriting",
+            "status": "skipped",
+            "duration_ms": null,
+            "failure_messages": []
+          },
+          {
+            "name": "production Windows channel provisioning fails closed outside Windows production transport",
+            "status": "passed",
+            "duration_ms": 0.18482199999999693,
+            "failure_messages": []
+          }
+        ]
+      },
+      {
+        "path": "packages/local-channel/tests/windows-service-signer.test.ts",
+        "status": "passed",
+        "start_time_ms": 1793308487379,
+        "end_time_ms": 1793308487397.4011,
+        "cases": [
+          {
+            "name": "service signer custody with an explicit DPAPI test port recovers only the independently pinned key and clears its temporary DER",
+            "status": "passed",
+            "duration_ms": 11.93986000000001,
+            "failure_messages": []
+          },
+          {
+            "name": "service signer custody with an explicit DPAPI test port clears DER if the consumer throws and does not overwrite an existing signer",
+            "status": "passed",
+            "duration_ms": 3.4267169999999965,
+            "failure_messages": []
+          },
+          {
+            "name": "service signer custody with an explicit DPAPI test port rejects a wrong signer pin, installation and actual Service identity",
+            "status": "passed",
+            "duration_ms": 1.843779999999981,
+            "failure_messages": []
+          },
+          {
+            "name": "service signer custody with an explicit DPAPI test port refuses a non-SCM token {\"sessionId\":1}",
+            "status": "passed",
+            "duration_ms": 0.4880980000000079,
+            "failure_messages": []
+          },
+          {
+            "name": "service signer custody with an explicit DPAPI test port refuses a non-SCM token {\"interactive\":true}",
+            "status": "passed",
+            "duration_ms": 0.40101900000001933,
+            "failure_messages": []
+          }
+        ]
+      }
+    ]
+  },
+  "typecheck_and_architecture": [
+    {
+      "command": [
+        "node_modules/.bin/tsc",
+        "-p",
+        "packages/contracts/tsconfig.json",
+        "--noEmit"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "node_modules/.bin/tsc",
+        "-p",
+        "packages/local-channel/tsconfig.json",
+        "--noEmit"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "node_modules/.bin/tsc",
+        "-p",
+        "apps/pos-local-service/tsconfig.json",
+        "--noEmit"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "node_modules/.bin/tsc",
+        "-p",
+        "apps/pos-desktop/tsconfig.json",
+        "--noEmit"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "node_modules/.bin/tsc",
+        "-p",
+        "apps/pos-desktop/tsconfig.renderer.json",
+        "--noEmit"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "node_modules/.bin/tsc",
+        "--ignoreConfig",
+        "--noEmit",
+        "--strict",
+        "--skipLibCheck",
+        "--target",
+        "ES2022",
+        "--module",
+        "NodeNext",
+        "--moduleResolution",
+        "NodeNext",
+        "--types",
+        "node",
+        "tools/operators/windows-channel-receiver.mts"
+      ],
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "node",
+        "--test",
+        "tools/architecture/validate-boundaries.test.mjs"
+      ],
+      "exit_code": 0,
+      "output": "✔ accepts the declared layer graph (23.687115ms)\n✔ rejects domain dependencies on concrete adapters (11.783973ms)\n✔ rejects forbidden framework and driver imports in pure layers (7.946472ms)\n✔ does not treat comments or ordinary strings as imports (9.094386ms)\n✔ rejects undeclared and artificially split sub-capability packages (9.423253ms)\n✔ requires internal workspace imports to be declared (6.641314ms)\n✔ requires the workspace protocol for internal dependencies (9.850466ms)\n✔ validates duplicate internal dependency declarations independently (9.146597ms)\n✔ rejects forbidden manifest-only internal layer dependencies (7.270634ms)\n✔ rejects forbidden manifest-only external dependencies (6.215448ms)\n✔ requires workspace protocol for internal declarations even before imports exist (8.371437ms)\n✔ rejects relative imports that cross governed project roots (8.560615ms)\n✔ rejects undeclared external imports to prevent phantom dependencies (8.376645ms)\n✔ accepts the frozen source areas a project already declares (10.807959ms)\n✔ rejects a new area added to a frozen project (DEC-017 4.2) (7.705067ms)\n✔ rejects a frozen area declared for a project that does not exist (4.775241ms)\nℹ tests 16\nℹ suites 0\nℹ pass 16\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 455.047471\n"
+    },
+    {
+      "command": [
+        "node",
+        "tools/architecture/validate-boundaries.mjs"
+      ],
+      "exit_code": 0,
+      "output": "ARCH-003 boundary validation PASS\n"
+    }
+  ],
+  "build": [
+    {
+      "command": [
+        "node",
+        "apps/pos-local-service/build-artifact.mjs"
+      ],
+      "cwd": ".",
+      "exit_code": 0,
+      "output": "{\n  \"component\": \"LOCAL_SERVICE\",\n  \"version\": \"0.0.0\",\n  \"filename\": \"pos-local-service-0.0.0-win32-x64.tar.gz\",\n  \"sha256\": \"4ba1de0654b40788fc8187ada8baa3f3d000b6108540cf73f82e0970d359d0db\",\n  \"size_bytes\": 1268319,\n  \"target\": \"win32-x64\",\n  \"node_target\": \"node22\"\n}\n"
+    },
+    {
+      "command": [
+        "../../node_modules/.bin/tsc",
+        "-p",
+        "tsconfig.build.json"
+      ],
+      "cwd": "apps/pos-desktop",
+      "exit_code": 0,
+      "output": ""
+    },
+    {
+      "command": [
+        "../../node_modules/.bin/esbuild",
+        "src/production-entry.ts",
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--external:electron",
+        "--outfile=dist/start.bundle.mjs"
+      ],
+      "cwd": "apps/pos-desktop",
+      "exit_code": 0,
+      "output": "\n  dist/start.bundle.mjs  298.8kb\n\n⚡ Done in 33ms\n"
+    },
+    {
+      "command": [
+        "../../node_modules/.bin/esbuild",
+        "src/start.ts",
+        "--bundle",
+        "--platform=node",
+        "--format=esm",
+        "--external:electron",
+        "--outfile=dist/channel-start.bundle.mjs"
+      ],
+      "cwd": "apps/pos-desktop",
+      "exit_code": 0,
+      "output": "\n  dist/channel-start.bundle.mjs  261.5kb\n\n⚡ Done in 36ms\n"
+    },
+    {
+      "command": [
+        "../../node_modules/.bin/vite",
+        "build",
+        "--config",
+        "vite.preload.config.ts"
+      ],
+      "cwd": "apps/pos-desktop",
+      "exit_code": 0,
+      "output": "vite v6.4.3 building for production...\ntransforming...\n✓ 2 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/preload.cjs  1.15 kB │ gzip: 0.51 kB\n✓ built in 75ms\n"
+    },
+    {
+      "command": [
+        "../../node_modules/.bin/vite",
+        "build"
+      ],
+      "cwd": "apps/pos-desktop",
+      "exit_code": 0,
+      "output": "vite v6.4.3 building for production...\ntransforming...\n✓ 187 modules transformed.\nrendering chunks...\ncomputing gzip size...\n../dist/renderer/pricing.html                                     0.67 kB │ gzip:  0.40 kB\n../dist/renderer/index.html                                       0.75 kB │ gzip:  0.41 kB\n../dist/renderer/platform.html                                    0.77 kB │ gzip:  0.44 kB\n../dist/renderer/assets/PublicLicenseOffers-Buyv6KNs.css         35.33 kB │ gzip:  6.83 kB\n../dist/renderer/assets/pricing-CJS5vKUn.js                       1.16 kB │ gzip:  0.67 kB\n../dist/renderer/assets/AdministrativeControlPanel-DBQ1Q9zJ.js   13.91 kB │ gzip:  4.06 kB\n../dist/renderer/assets/platform-CWAUzAw6.js                     14.17 kB │ gzip:  4.97 kB\n../dist/renderer/assets/pos-DvYvT_M6.js                         103.16 kB │ gzip: 27.15 kB\n../dist/renderer/assets/PublicLicenseOffers-BKbN95Ia.js         269.78 kB │ gzip: 81.76 kB\n✓ built in 1.99s\n\n../../../../docs/brand/camacho-pos-colombia-logo-960.png referenced in ../../../../docs/brand/camacho-pos-colombia-logo-960.png didn't resolve at build time, it will remain unchanged to be resolved at runtime\n"
+    }
+  ],
+  "native_addon": {
+    "windows_branch_compiled": false,
+    "windows_branch_executed": false,
+    "linux_stub_compile_command": "g++ -std=c++17 -shared -fPIC -DNAPI_VERSION=8 -I native-headers snapshot/packages/local-channel/native/windows-pipe.cc -o native-pipe-linux-verification.node",
+    "linux_stub_compile_exit_code": 0,
+    "linux_load_assertion": "For listen, accept, connect, stop, adopt, release, recheck: assert.throws(addon[name](), /WINDOWS_NATIVE_PIPE_REQUIRED/)",
+    "linux_platform_rejections_passed": 7,
+    "linux_stub_sha256": "a6ae796920b39e10a157ea447914c4282f859f56ecaf86a22f88e3149611f8b4",
+    "meaning": "Only the non-Windows rejection branch was compiled/loaded. Native Windows peer attestation remains unverified."
+  },
+  "omissions": {
+    "count": 30,
+    "reason": "Windows/PowerShell/DPAPI/SCM integration guards; physical test additionally requires approved real SCM/DESKTOP provision. See each omitted case and source guard.",
+    "postgres_executed": false,
+    "human_MFA_executed": false,
+    "windows_service_installed": false,
+    "commercial_credentials_or_persistent_databases_modified": false,
+    "github_actions_activated": false
+  }
+}

@@ -165,3 +165,82 @@ button {
     padding: 16px;
   }
 }
+
+/* Entry + local operator login recovered from baseline 76253bb6 for NSIS live auth. */
+.pos-entry {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--camacho-surface);
+}
+.pos-entry-card {
+  max-width: 540px;
+  width: 100%;
+  padding: clamp(28px, 4vw, 54px);
+  border: 1px solid var(--camacho-border);
+  border-radius: 16px;
+  background: var(--camacho-card);
+  box-shadow: 0 12px 32px #00000014;
+}
+.pos-entry-eyebrow {
+  color: var(--camacho-blue);
+  letter-spacing: .12em;
+  font-size: .76rem;
+  font-weight: 750;
+}
+.pos-entry-card h1 { margin: 12px 0 16px; font-size: 1rem; color: var(--camacho-muted); }
+.pos-entry-card h2 { margin: 0 0 10px; font-size: clamp(1.6rem, 3vw, 2.2rem); color: var(--camacho-ink); }
+.pos-entry-card p { color: var(--camacho-muted); line-height: 1.5; }
+.pos-entry-card [data-testid="authorization-loading"],
+.pos-entry-card [data-testid="authorization-error"],
+.pos-entry-card [data-testid="authorization-unauthenticated"],
+.pos-entry-card [data-testid="authorization-denied"],
+.pos-entry-card [data-testid="authorization-expired"] {
+  margin: 20px 0;
+  padding: 13px 16px;
+  border-radius: 12px;
+  background: var(--camacho-surface);
+  border: 1px solid var(--camacho-border);
+  color: var(--camacho-ink);
+  overflow-wrap: anywhere;
+}
+.pos-entry-card [role="status"] { border-left: 3px solid var(--camacho-blue); }
+.pos-entry-card [role="alert"] { border-left: 3px solid #e99c7f; }
+
+.pos-local-login{margin:18px 0;padding:18px;border:1px solid var(--camacho-border);border-radius:12px;background:var(--camacho-card)}
+.pos-local-login form{display:grid;gap:10px}
+.pos-local-login label{font-size:13px;font-weight:700;color:var(--camacho-ink)}
+.pos-local-login input,.pos-local-login select{width:100%;min-height:44px;border:1px solid var(--camacho-border);background:var(--camacho-surface);color:var(--camacho-ink);border-radius:8px;padding:8px 12px}
+.pos-local-login button{min-height:46px;border:0;border-radius:8px;background:var(--camacho-navy);color:white;font-weight:700;padding:10px 16px}
+.pos-local-login button:disabled{opacity:.65;cursor:not-allowed}
+.pos-local-login small{display:block;margin-top:12px;font-size:12px;color:var(--camacho-muted)}
+.pos-local-login-message{color:var(--camacho-ink);font-size:13px}
+.pos-password-field{display:flex;align-items:center;gap:6px}
+.pos-password-field input{min-width:0}
+.pos-password-field button{flex:0 0 46px;height:50px;padding:10px}
+.pos-password-field img{width:22px;height:22px}
+
+.pos-local-session-control{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:16px}
+.pos-local-session-control span{font-size:13px;color:var(--camacho-on-dark);font-weight:700}
+.pos-local-session-control button{background:var(--camacho-navy-hover);color:white;border:0;padding:10px 14px;border-radius:8px;min-height:44px}
+.pos-local-session-control button:disabled{opacity:.55;cursor:not-allowed}
+
+/* Local audit panel (SUPERADMINISTRADOR) — no commercial admin.metrics/FACTUS. */
+.pos-admin-panel{min-width:0}
+.pos-admin-header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;padding-bottom:18px;border-bottom:1px solid var(--camacho-border);margin-bottom:16px}
+.pos-admin-header h2{margin:4px 0 6px;font-size:25px}
+.pos-admin-header p{margin:0;color:var(--camacho-muted);max-width:760px}
+.pos-admin-eyebrow{color:var(--camacho-blue);font-size:11px;font-weight:800;letter-spacing:.08em}
+.pos-scope-chip{display:inline-block;max-width:280px;padding:8px 10px;border-radius:10px;background:var(--camacho-surface);border:1px solid var(--camacho-border);color:var(--camacho-muted);font-size:12px;line-height:1.35}
+.pos-admin-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.pos-admin-card{min-width:0;min-height:132px;padding:16px;border:1px solid var(--camacho-border);border-radius:14px;background:var(--camacho-card);box-shadow:0 2px 8px rgb(23 32 51 / 4%)}
+.pos-admin-card span{display:block;color:var(--camacho-muted);font-size:12px;font-weight:700}
+.pos-admin-card strong{display:block;margin:12px 0 8px;font-size:28px;line-height:1}
+.pos-admin-card small{display:block;color:var(--camacho-muted);line-height:1.35}
+.pos-admin-empty{display:grid;gap:5px;margin-top:16px;padding:18px;border:1px dashed var(--camacho-border);border-radius:12px;background:var(--camacho-surface)}
+.pos-admin-empty span{color:var(--camacho-muted);font-size:13px}
+@media (max-width: 900px) {
+  .pos-admin-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .pos-admin-header{flex-direction:column}
+}

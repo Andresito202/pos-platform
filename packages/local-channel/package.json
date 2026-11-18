@@ -10,7 +10,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "native:build:win": "pnpm dlx node-gyp@11.5.0 rebuild --directory native --arch=x64"
   },
   "dependencies": {
     "@pos-platform/contracts": "workspace:*",

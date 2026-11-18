@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LicenseSectorEntitlement } from "@pos-platform/contracts";
+import { CanonicalPermission, LicenseSectorEntitlement } from "@pos-platform/contracts";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
 import { PharmacyPanel } from "./PharmacyPanel.js";
 import { BakeryPanel } from "./BakeryPanel.js";
@@ -26,6 +26,11 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("COP");
   const [stockControlled, setStockControlled] = useState(true);
+  const [foodProductId, setFoodProductId] = useState("");
+  const [conservation, setConservation] = useState<"AMBIENT" | "CHILLED" | "FROZEN" | "CONTROLLED">("CHILLED");
+  const [requiresLot, setRequiresLot] = useState(true);
+  const [requiresExpiry, setRequiresExpiry] = useState(true);
+  const [foodNotes, setFoodNotes] = useState("");
 
   const incomplete = code.trim() === ""
     || name.trim() === ""
@@ -135,6 +140,89 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
       {catalog.product === null && catalog.outcome !== null && (
         <div data-testid="product-rejected">{catalog.outcome}</div>
       )}
+
+      {permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) && entitlements.has(LicenseSectorEntitlement.SALSAMENTARIA) && (
+        <>
+          <h3>Política alimentaria</h3>
+          <p>Registro operativo de conservación y control. No es certificación sanitaria. Requiere licencia Salsamentaria.</p>
+          <div className="pos-form-grid">
+            <label className="pos-field">ID de producto
+              <input
+                data-testid="food-policy-product-id"
+                aria-label="ID de producto para política alimentaria"
+                value={foodProductId}
+                disabled={catalog.busy}
+                onChange={(event) => setFoodProductId(event.target.value)}
+              />
+            </label>
+            <label className="pos-field">Conservación
+              <select
+                data-testid="food-policy-conservation"
+                aria-label="Conservación"
+                value={conservation}
+                disabled={catalog.busy}
+                onChange={(event) => setConservation(event.target.value as typeof conservation)}
+              >
+                <option value="AMBIENT">Ambiente</option>
+                <option value="CHILLED">Refrigerado</option>
+                <option value="FROZEN">Congelado</option>
+                <option value="CONTROLLED">Controlado</option>
+              </select>
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                data-testid="food-policy-lot"
+                checked={requiresLot}
+                disabled={catalog.busy}
+                onChange={(event) => setRequiresLot(event.target.checked)}
+              />
+              Exige lote
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                data-testid="food-policy-expiry"
+                checked={requiresExpiry}
+                disabled={catalog.busy}
+                onChange={(event) => setRequiresExpiry(event.target.checked)}
+              />
+              Exige vencimiento
+            </label>
+            <label className="pos-field">Notas
+              <input
+                data-testid="food-policy-notes"
+                aria-label="Notas de política alimentaria"
+                value={foodNotes}
+                disabled={catalog.busy}
+                onChange={(event) => setFoodNotes(event.target.value)}
+              />
+            </label>
+            <button
+              data-testid="upsert-food-policy-button"
+              disabled={catalog.busy || foodProductId.trim() === ""}
+              onClick={() => {
+                void catalog.upsertFoodPolicy({
+                  productId: foodProductId.trim(),
+                  conservationCode: conservation,
+                  requiresLotTracking: requiresLot,
+                  requiresExpiry,
+                  notes: foodNotes,
+                });
+              }}
+            >
+              Guardar política
+            </button>
+          </div>
+          {catalog.foodPolicyOutcome !== null && (
+            <div data-testid="food-policy-outcome">
+              {catalog.foodPolicyOutcome}
+              {catalog.foodPolicyVersion !== null ? ` v${catalog.foodPolicyVersion}` : ""}
+            </div>
+          )}
+        </>
+      )}
+
       {catalog.error !== null && <div data-testid="catalog-error">{catalog.error}</div>}
 
       {entitlements.has(LicenseSectorEntitlement.FARMACIA) && (

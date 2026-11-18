@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectDirectDependencies } from "./generate-dependency-inventory.mjs";
+import { collectDirectDependencies, generateDependencyInventory } from "./generate-dependency-inventory.mjs";
 import { discoverWorkspaceManifestPaths } from "./workspace-manifests.mjs";
 
 function writeManifest(root, relativePath, manifest) {
@@ -57,6 +57,31 @@ test("fails closed when a discovered workspace manifest is invalid JSON", () => 
     mkdirSync(path.join(root, "packages/broken"), { recursive: true });
     writeFileSync(path.join(root, "packages/broken/package.json"), "{");
     assert.throws(() => collectDirectDependencies(root), SyntaxError);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ignores nested package.json fixtures under an installed package tree", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "pos-dependency-inventory-nested-"));
+  try {
+    writeManifest(root, "package.json", { name: "root" });
+    writeManifest(root, "node_modules/.pnpm/fast-uri@3.1.9/node_modules/fast-uri/package.json", {
+      name: "fast-uri",
+      version: "3.1.9",
+      license: "BSD-3-Clause",
+    });
+    writeManifest(root, "node_modules/.pnpm/fast-uri@3.1.9/node_modules/fast-uri/benchmark/package.json", {
+      name: "benchmark",
+      version: "1.0.0",
+      license: "ISC",
+      private: true,
+    });
+
+    const inventory = generateDependencyInventory(root, {});
+    const names = inventory.packages.map((item) => `${item.name}@${item.version}`);
+    assert.deepEqual(names, ["fast-uri@3.1.9"]);
+    assert.equal(names.includes("benchmark@1.0.0"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -6,7 +6,8 @@
  * `dist/` con `node_modules` al lado no satisface ese contrato: por eso la
  * salida es un único `.tar.gz`, y no una carpeta.
  *
- * Dentro viajan dos cosas, y sólo dos:
+ * El perfil interactivo conserva dos piezas. SCM_CANDIDATE añade el addon
+ * Windows aprobado y su checksum en native/, dentro del mismo archivo:
  *
  * 1. `pos-local-service.mjs` — todo el servicio y sus paquetes de workspace
  *    resueltos por esbuild. Fuera del monorepo los `workspace:*` no resuelven
@@ -29,8 +30,8 @@ import { build } from "esbuild";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { gzipSync } from "node:zlib";
-import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, posix, relative, sep } from "node:path";
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, lstatSync, openSync, fstatSync, closeSync, readSync } from "node:fs";
+import { dirname, join, posix, relative, sep, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -43,7 +44,11 @@ const here = dirname(fileURLToPath(import.meta.url));
  * artefacto, no del código.
  */
 const outputDirectory = join(here, "dist");
-const staging = join(outputDirectory, "staging");
+// Build selection only. This never authorizes SCM or changes its runtime gate.
+const CHANNEL_PROFILE=process.env.POS_ARTIFACT_CHANNEL_PROFILE??"INTERACTIVE";
+if(!["INTERACTIVE","SCM_CANDIDATE"].includes(CHANNEL_PROFILE))throw Error("ARTIFACT_CHANNEL_PROFILE_REJECTED");
+const suffix=CHANNEL_PROFILE==="SCM_CANDIDATE"?"-scm-candidate":"";
+const staging = join(outputDirectory, "staging"+suffix);
 
 /**
  * Plataforma objetivo. La release es `win32-x64` —`main.ts` rehúsa arrancar en
@@ -133,7 +138,46 @@ function resolveBetterSqlite3() {
   return dirname(requireFromDeclarant.resolve("better-sqlite3/package.json"));
 }
 
+/** Package the exact approved bytes, never a second read of a mutable input.
+ * PE checks establish format/architecture only, not authenticity, ABI or Windows
+ * execution. The independent build hash and existing signed outer artifact bind
+ * integrity; runtime provisioning and the commercial SCM gate remain mandatory.
+ */
+function readWindowsPipeAddon(){
+  const supplied=process.env.POS_ARTIFACT_WINDOWS_PIPE_FILE;
+  const expected=process.env.POS_ARTIFACT_WINDOWS_PIPE_SHA256;
+  if(CHANNEL_PROFILE!=="SCM_CANDIDATE"){
+    if(supplied||expected)throw Error("WINDOWS_PIPE_REQUIRES_SCM_ARTIFACT_PROFILE");
+    return undefined;
+  }
+  if(TARGET_PLATFORM!=="win32"||TARGET_ARCH!=="x64")throw Error("WINDOWS_PIPE_ARTIFACT_TARGET_REJECTED");
+  if(!/^[a-f0-9]{64}$/.test(expected??""))throw Error("WINDOWS_PIPE_SHA256_REQUIRED");
+  const file=supplied??join(here,"../../packages/local-channel/native/build/Release/camacho_windows_pipe.node");
+  if(!isAbsolute(file)||!file.toLowerCase().endsWith(".node"))throw Error("WINDOWS_PIPE_INPUT_PATH_REJECTED");
+  let fd;
+  try{
+    const leaf=lstatSync(file);if(!leaf.isFile()||leaf.isSymbolicLink())throw Error("WINDOWS_PIPE_INPUT_FILE_REJECTED");
+    fd=openSync(file,"r");const stat=fstatSync(fd);
+    if(!stat.isFile()||stat.size<256||stat.size>8388608)throw Error("WINDOWS_PIPE_INPUT_SIZE_REJECTED");
+    const bytes=Buffer.alloc(stat.size);let offset=0;
+    while(offset<bytes.length){
+      const count=readSync(fd,bytes,offset,bytes.length-offset,offset);
+      if(count===0)throw Error("WINDOWS_PIPE_INPUT_SIZE_REJECTED");offset+=count;
+    }
+    if(readSync(fd,Buffer.alloc(1),0,1,bytes.length)!==0)throw Error("WINDOWS_PIPE_INPUT_SIZE_REJECTED");
+    if(createHash("sha256").update(bytes).digest("hex")!==expected)throw Error("WINDOWS_PIPE_CHECKSUM_MISMATCH");
+    const pe=bytes.readUInt32LE(0x3c);
+    if(bytes.readUInt16LE(0)!==0x5a4d||pe<64||pe>bytes.length-26||bytes.readUInt32LE(pe)!==0x00004550)throw Error("WINDOWS_PIPE_PE_REJECTED");
+    if(bytes.readUInt16LE(pe+4)!==0x8664||bytes.readUInt16LE(pe+24)!==0x20b)throw Error("WINDOWS_PIPE_ARCHITECTURE_REJECTED");
+    if((bytes.readUInt16LE(pe+22)&0x2002)!==0x2002)throw Error("WINDOWS_PIPE_DLL_REJECTED");
+    const optionalSize=bytes.readUInt16LE(pe+20);
+    if(optionalSize<112||pe+24+optionalSize>bytes.length)throw Error("WINDOWS_PIPE_PE_REJECTED");
+    return {bytes,sha256:expected,size_bytes:bytes.length,relative_file:"native/camacho_windows_pipe.node",target:"win32-x64"};
+  }finally{if(fd!==undefined)closeSync(fd);}
+}
+
 async function main() {
+  const nativeAdapter=readWindowsPipeAddon();
   // Sólo se limpia el `staging`, no todo `dist/`: la prueba construye la
   // variante de la plataforma anfitriona para poder ejecutarla, y borrar el
   // directorio entero destruiría el artefacto de release recién construido.
@@ -169,8 +213,17 @@ async function main() {
   const prebuild = `${TARGET_PLATFORM}-${TARGET_ARCH}.node`;
   cpSync(join(source, "prebuilds", prebuild), join(destination, "prebuilds", prebuild));
 
+  // The candidate remains one LOCAL_SERVICE artifact under ReleaseArtifactSchema.
+  // Desktop references this same installer-owned binary; no private enrollment
+  // or identity enters either the build inputs or the archive.
+  if(nativeAdapter){
+    mkdirSync(join(staging,"native"),{recursive:true});
+    writeFileSync(join(staging,nativeAdapter.relative_file),nativeAdapter.bytes);
+    writeFileSync(join(staging,"native/camacho_windows_pipe.sha256"),nativeAdapter.sha256+"\n");
+  }
+
   // 3. Un solo fichero, reproducible.
-  const name = `pos-local-service-${version}-${TARGET_PLATFORM}-${TARGET_ARCH}.tar.gz`;
+  const name = `pos-local-service-${version}-${TARGET_PLATFORM}-${TARGET_ARCH}${suffix}.tar.gz`;
   const artifact = join(outputDirectory, name);
   writeFileSync(artifact, gzipSync(buildTar(staging), { level: 9 }));
 
@@ -183,11 +236,13 @@ async function main() {
     size_bytes: statSync(artifact).size,
     target: `${TARGET_PLATFORM}-${TARGET_ARCH}`,
     node_target: NODE_TARGET,
+    channel_profile:CHANNEL_PROFILE,
+    ...(nativeAdapter?{native_adapter:{relative_file:nativeAdapter.relative_file,sha256:nativeAdapter.sha256,size_bytes:nativeAdapter.size_bytes,target:nativeAdapter.target},commercial_scm_gate:"SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN"}:{}),
   };
   // El informe lleva el objetivo en el nombre: release y verificación conviven
   // sin que una sobrescriba el hash de la otra.
   writeFileSync(
-    join(outputDirectory, `local-service-artifact-${TARGET_PLATFORM}-${TARGET_ARCH}.json`),
+    join(outputDirectory, `local-service-artifact-${TARGET_PLATFORM}-${TARGET_ARCH}${suffix}.json`),
     `${JSON.stringify(report, null, 2)}\n`,
   );
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);

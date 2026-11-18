@@ -48,7 +48,9 @@ test("el proceso principal compilado arranca y abre una ventana", async () => {
 
 test("el renderer compilado monta la aplicación", async () => {
   const window = await app.firstWindow();
-  await expect(window.getByRole("heading", { name: "Camacho POS Colombia" })).toBeVisible();
+  // Auth entry gate recovered from baseline: brand eyebrow + login heading.
+  await expect(window.getByText("CAMACHO POS COLOMBIA")).toBeVisible();
+  await expect(window.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
 });
 
 test("sin autorización válida no monta la superficie comercial", async () => {

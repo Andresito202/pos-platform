@@ -1520,13 +1520,15 @@ export const CatalogFoodPolicyUpsertRequestSchema = createRequestEnvelopeSchema(
 
 export const CatalogFoodPolicyUpsertResultSchema = z.strictObject({
   outcome: z.enum([
-    "SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "PRODUCT_NOT_FOUND",
+    "SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "PRODUCT_NOT_FOUND", "LICENSE_BLOCKED",
   ]),
   version: z.number().int().nonnegative().nullable(),
 });
 
 export const CatalogFoodPolicyUpsertResponseSchema =
   createResponseEnvelopeSchema(CatalogFoodPolicyUpsertResultSchema);
+
+export type CatalogFoodPolicyUpsertResult = z.infer<typeof CatalogFoodPolicyUpsertResultSchema>;
 
 // ── inventory.transform.execute ──────────────────────────────────────────────
 
