@@ -105,6 +105,22 @@ function header(headers: Readonly<Record<string, string>>, name: string): string
   return undefined;
 }
 
+/**
+ * HTTP Content-Type may include a charset parameter. The wire contract uses
+ * the normalized media type, while the response body is decoded as UTF-8.
+ * Reject unsupported charsets and unexpected parameters fail-closed.
+ */
+function normalizedJsonContentType(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const parts = raw.split(";").map((part) => part.trim());
+  if (parts[0]?.toLowerCase() !== "application/json") return raw;
+  if (parts.length === 1) return "application/json";
+  if (parts.length === 2 && /^charset=(?:"utf-8"|utf-8)$/i.test(parts[1] ?? "")) {
+    return "application/json";
+  }
+  return raw;
+}
+
 export class SyncDispatcher {
   private readonly baseUrl: string;
   private readonly maxOperations: number;
@@ -141,23 +157,16 @@ export class SyncDispatcher {
    * red no es una excepción del runtime, es un estado del outbox.
    */
   async dispatchOnce(scope: SyncScope): Promise<DispatchOutcome> {
-    let authorization: string;
-    try {
-      authorization = await this.credentials.authorization();
-    } catch (error) {
-      // Antes de reclamar nada. Reclamar y luego descubrir que no hay credencial
-      // dejaría el lote `IN_FLIGHT` y gastaría un intento por cada tic.
-      const code = error instanceof CentralCredentialUnavailableError
-        ? error.code
-        : DEVICE_CREDENTIAL_UNPROVISIONED;
-      return { kind: "NOT_AUTHENTICATED", code };
+    // Preflight local: never claim work while the device is known to be unenrolled.
+    if (this.credentials.isProvisioned !== undefined && !this.credentials.isProvisioned()) {
+      return { kind: "NOT_AUTHENTICATED", code: DEVICE_CREDENTIAL_UNPROVISIONED };
     }
 
     const batch = this.store.claimBatch(scope, this.maxOperations);
     if (batch === null) return { kind: "IDLE" };
 
     try {
-      return await this.deliver(batch, authorization);
+      return await this.deliver(batch);
     } catch (error) {
       // Red de seguridad del invariante: ninguna excepción imprevista puede
       // dejar el lote inmovilizado en `IN_FLIGHT`.
@@ -167,7 +176,7 @@ export class SyncDispatcher {
     }
   }
 
-  private async deliver(batch: SyncBatchRequest, authorization: string): Promise<DispatchOutcome> {
+  private async deliver(batch: SyncBatchRequest): Promise<DispatchOutcome> {
     const requestId = randomUUID();
     const correlationId = randomUUID();
 
@@ -187,6 +196,26 @@ export class SyncDispatcher {
     // `batch_id` es nuevo en cada reclamación, así que una idempotencia de lote
     // sería falsa. La real es por operación (`SyncOperation.idempotency_key`) y
     // ya viaja dentro del payload.
+    const serialized = JSON.stringify(body);
+    const requestBytes = Buffer.byteLength(serialized, "utf8");
+
+    let authorization: string;
+    try {
+      authorization = await this.credentials.authorization({
+        method: "POST",
+        path: SYNC_BATCH_PATH,
+        requestId,
+        correlationId,
+        body: serialized,
+      });
+    } catch (error) {
+      const code = error instanceof CentralCredentialUnavailableError
+        ? error.code
+        : DEVICE_CREDENTIAL_UNPROVISIONED;
+      this.store.recordTransportFailure(batch, code);
+      return { kind: "NOT_AUTHENTICATED", code };
+    }
+
     const contractHeaders = {
       authorization,
       "content-type": "application/json",
@@ -197,9 +226,6 @@ export class SyncDispatcher {
       "x-pos-device-id": batch.device_id,
       "x-pos-installation-id": batch.installation_id,
     } as const;
-
-    const serialized = JSON.stringify(body);
-    const requestBytes = Buffer.byteLength(serialized, "utf8");
 
     // Se valida contra el mismo esquema con que la autoridad validará. Enviar
     // algo que el servidor va a rechazar por forma gasta un intento y ensucia el
@@ -270,7 +296,7 @@ export class SyncDispatcher {
     const validation = responseSchema.safeParse({
       status_code: response.status,
       contract_headers: {
-        "content-type": header(response.headers, "content-type"),
+        "content-type": normalizedJsonContentType(header(response.headers, "content-type")),
         "x-pos-api-version": header(response.headers, "x-pos-api-version"),
         "x-request-id": header(response.headers, "x-request-id"),
         "x-correlation-id": header(response.headers, "x-correlation-id"),
