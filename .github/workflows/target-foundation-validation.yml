@@ -332,10 +332,14 @@ jobs:
         run: pnpm --filter @pos-platform/database-sqlite typecheck && pnpm --filter @pos-platform/pos-local-service typecheck
 
       - name: Validate Windows SQLite backup, restore and recovery
-        run: pnpm --filter @pos-platform/database-sqlite test
+        # Cold LocalDatabase.open() migrates through the full SQLite chain on
+        # windows-2022; the default Vitest 5s limit flakes under file load.
+        run: pnpm --filter @pos-platform/database-sqlite exec vitest run --maxWorkers 1 --testTimeout 30000
 
       - name: Validate Windows POS Local Service runtime
-        run: pnpm --filter @pos-platform/pos-local-service test
+        # A single physical Windows runner shares named-pipe and SQLite resources across this suite.
+        # Keep the original per-test 30s limit; serialize test files rather than hiding a deadlock.
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run --maxWorkers 1 --testTimeout 30000
 
   provenance:
     name: Provenance evidence

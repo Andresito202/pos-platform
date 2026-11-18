@@ -135,6 +135,9 @@ importers:
       '@pos-platform/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@pos-platform/database-postgres':
+        specifier: workspace:*
+        version: link:../../packages/database-postgres
       '@pos-platform/database-sqlite':
         specifier: workspace:*
         version: link:../../packages/database-sqlite
