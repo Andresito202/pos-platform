@@ -156,6 +156,10 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
     return (response as { status: string }).status;
   }, sessionAssertion);
   expect(activated).toBe("SUCCEEDED");
+  // Auth-gated App loads capabilities once on mount (SESSION_NOT_BOUND before
+  // activate). Tip #106 remounts after signed activation so screens appear.
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Caja y ventas", exact: true })).toBeVisible();
 
   // 2 · Preparación del mostrador: el producto y su existencia. Va por el canal
   //     real igual que todo lo demás; la interfaz aún no tiene pantalla propia
