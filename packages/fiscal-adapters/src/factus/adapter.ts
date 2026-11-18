@@ -21,6 +21,7 @@ import type {
   PayloadValidationResult,
 } from "../ports/index.js";
 import type { DocumentIssuanceOutcome, ProviderStatusEcho } from "../outcome.js";
+import { fiscalDocumentTypeForCode } from "../dian/codes.js";
 import { FactusAuthError, FactusAuthenticator } from "./auth.js";
 import { FACTUS_ADAPTER_DECLARATION } from "./declaration.js";
 import { FACTUS_PATH, factusBaseUrl } from "./environment.js";
@@ -212,11 +213,15 @@ implements
       );
     }
 
+    const issuancePath = request.document.documentType === "CREDIT_NOTE"
+      ? FACTUS_PATH.validateCreditNote
+      : FACTUS_PATH.validateBill;
+
     let response: HttpResponse;
     try {
       response = await this.transport.send({
         method: "POST",
-        url: `${factusBaseUrl(this.environment)}${FACTUS_PATH.validateBill}`,
+        url: `${factusBaseUrl(this.environment)}${issuancePath}`,
         headers: {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
@@ -466,34 +471,35 @@ implements
 
     return {
       kind: "SYNCHRONIZED",
-      ranges: rangeItemsOf(parsed.data.data).map((range) => ({
+      ranges: rangeItemsOf(parsed.data.data).map((range) => {
         // Se prefiere el `id` de FACTUS cuando existe: es el
         // `numbering_range_id` que exige la emisión. El recurso DIAN no lo
         // trae, y ahí la identidad se **deriva** de resolución y prefijo,
         // marcada con prefijo `derived:` para que nadie la envíe como
         // `numbering_range_id` creyendo que es del proveedor.
-        rangeId: toNullableString(range.id)
-          ?? `derived:${toNullableString(range.resolution_number) ?? "sin-resolucion"}:${range.prefix ?? ""}`,
-        documentType: query.documentType,
-        prefix: range.prefix ?? "",
-        // La autoridad es siempre del proveedor: los rangos los asocia FACTUS
-        // al software ante la DIAN. Nunca `LOCAL`.
-        authority: "PROVIDER" as const,
-        resolutionNumber: toNullableString(range.resolution_number),
-        rangeFrom: toInteger(range.from),
-        rangeTo: toInteger(range.to),
-        currentNumber: range.current === null || range.current === undefined
-          ? null
-          : toInteger(range.current),
-        validFrom: range.start_date ?? null,
-        validUntil: range.end_date ?? null,
-        // La vigencia que declara el proveedor manda sobre nuestra aritmética
-        // de fechas: él conoce su calendario y sus reglas, nosotros sólo dos
-        // cadenas.
-        providerActive: toBoolean(range.is_active),
-        providerExpired: toBoolean(range.is_expired),
-        providerDocumentCode: toNullableString(range.document),
-      })),
+        const providerDocumentCode = toNullableString(range.document);
+        // Clasificar por código/nombre del proveedor cuando está verificado;
+        // si no, conservar el tipo de la consulta (comportamiento histórico).
+        const documentType = fiscalDocumentTypeForCode(providerDocumentCode) ?? query.documentType;
+        return {
+          rangeId: toNullableString(range.id)
+            ?? `derived:${toNullableString(range.resolution_number) ?? "sin-resolucion"}:${range.prefix ?? ""}`,
+          documentType,
+          prefix: range.prefix ?? "",
+          authority: "PROVIDER" as const,
+          resolutionNumber: toNullableString(range.resolution_number),
+          rangeFrom: toInteger(range.from),
+          rangeTo: toInteger(range.to),
+          currentNumber: range.current === null || range.current === undefined
+            ? null
+            : toInteger(range.current),
+          validFrom: range.start_date ?? null,
+          validUntil: range.end_date ?? null,
+          providerActive: toBoolean(range.is_active),
+          providerExpired: toBoolean(range.is_expired),
+          providerDocumentCode,
+        };
+      }),
     };
   }
 
@@ -533,19 +539,24 @@ implements
       await this.authenticator.accessToken(request.credential, signal);
     } catch (error) {
       if (error instanceof FactusAuthError && error.retryableByReauthentication) {
+        const parts = [error.code];
+        if (error.httpStatus !== null) parts.push(`http=${error.httpStatus}`);
+        if (error.oauthError !== null) parts.push(`oauth_error=${error.oauthError}`);
         return {
           kind: "INCOMPLETE",
           findings: [{
             code: "CREDENTIAL_REJECTED_BY_PROVIDER",
             fieldName: null,
-            diagnosticReference: error.code,
+            diagnosticReference: parts.join(";"),
           }],
         };
       }
       return {
         kind: "UNDETERMINED",
         reasonCode: error instanceof FactusAuthError ? error.code : "AUTHENTICATION_FAILURE",
-        diagnosticReference: "validateConfiguration",
+        diagnosticReference: error instanceof FactusAuthError && error.httpStatus !== null
+          ? `validateConfiguration;http=${error.httpStatus}`
+          : "validateConfiguration",
       };
     }
 

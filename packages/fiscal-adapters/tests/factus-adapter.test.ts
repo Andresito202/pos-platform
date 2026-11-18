@@ -657,6 +657,9 @@ describe("validación de configuración", () => {
     expect(outcome.kind).toBe("INCOMPLETE");
     if (outcome.kind !== "INCOMPLETE") throw new Error("rama imposible");
     expect(outcome.findings[0]?.code).toBe("CREDENTIAL_REJECTED_BY_PROVIDER");
+    expect(outcome.findings[0]?.diagnosticReference).toContain("http=401");
+    expect(outcome.findings[0]?.diagnosticReference).toContain("oauth_error=invalid_client");
+    expect(JSON.stringify(outcome)).not.toContain("fake-client-secret");
   });
 
   it("un fallo de transporte deja la configuración UNDETERMINED, ni válida ni inválida", async () => {

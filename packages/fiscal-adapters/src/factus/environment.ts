@@ -31,6 +31,8 @@ export function factusBaseUrl(environment: FiscalEnvironment): string {
 export const FACTUS_PATH = {
   token: "/oauth/token",
   validateBill: "/v2/bills/validate",
+  /** Crear y validar nota crédito — documentación oficial FACTUS v2. */
+  validateCreditNote: "/v2/credit-notes/validate",
   numberingRanges: "/v2/numbering-ranges",
   dianNumberingRanges: "/v2/numbering-ranges/dian",
 } as const;
