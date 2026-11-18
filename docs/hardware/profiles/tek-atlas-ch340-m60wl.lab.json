@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "profile_id": "lab.android.m60wl.tek-atlas-ch340.v1",
+  "applicability": "DOCUMENTATION_ONLY_NOT_ENABLED",
+  "camacho_pos_support_status": "UNTESTED",
+  "external_lab_observation": "PRINT_MINI_PLUS_FIREFOX_MASCONTROL",
+  "device": {
+    "reported_scale_name": "TEK ATLAS",
+    "vendor_id": 6790,
+    "product_id": 29987,
+    "vendor_id_hex": "0x1A86",
+    "product_id_hex": "0x7523",
+    "terminal_model": "M60WL",
+    "operating_system": "Android 9",
+    "note": "CH340 VID/PID are generic; must select physical device explicitly"
+  },
+  "serial": {
+    "baud_rate": 9600,
+    "data_bits": 8,
+    "stop_bits": 1,
+    "parity": "NONE",
+    "encoding": "US-ASCII",
+    "terminator": "CRLF",
+    "observed_positive_sample": "000.455",
+    "observed_zero_sample": "000.000",
+    "unit": "kg"
+  },
+  "lab_validation_only": {
+    "accepted_weight_min_kg": "0.100",
+    "accepted_weight_max_kg": "40.000",
+    "increment_kg": "0.005",
+    "minimum_samples": 5,
+    "minimum_window_ms": 750,
+    "max_sample_spread_kg": "0.010",
+    "service_max_event_age_ms": 2000,
+    "previous_consumer_max_event_age_ms": 1800,
+    "require_stable_zero_to_rearm": true
+  },
+  "external_bridge": {
+    "android_package": "co.camachopos.printmini",
+    "endpoint": "http://127.0.0.1:18766/v1/weight",
+    "method": "GET",
+    "schema_version": 1,
+    "headers_no_cache": true,
+    "source_authenticated": false,
+    "production_trust": false
+  },
+  "expected_states": [
+    "starting",
+    "waiting_zero",
+    "waiting_weight",
+    "changing",
+    "ready",
+    "stale",
+    "usb_not_found",
+    "usb_permission_missing",
+    "usb_error",
+    "usb_detached",
+    "usb_ambiguous",
+    "usb_busy",
+    "http_error"
+  ],
+  "hard_requirements": [
+    "android_usb_permission",
+    "unique_authorized_device_binding",
+    "fresh_nonreplayed_event",
+    "native_trust_boundary",
+    "catalog_mass_unit_precision",
+    "server_authoritative_prices",
+    "physical_certification"
+  ],
+  "no_printer_or_drawer_access": true
+}
