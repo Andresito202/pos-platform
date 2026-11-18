@@ -6,21 +6,21 @@ import {
   validateSyncBatchCorrespondence,
 } from "../src/index.js";
 
-const tenant = "550e8400-e29b-41d4-a716-446655440020";
-const company = "550e8400-e29b-41d4-a716-446655440021";
-const branch = "550e8400-e29b-41d4-a716-446655440022";
-const device = "550e8400-e29b-41d4-a716-446655440023";
-const installation = "550e8400-e29b-41d4-a716-446655440030";
+const tenant = "01890f5a-0000-7000-8000-000000000020";
+const company = "01890f5a-0000-7000-8000-000000000021";
+const branch = "01890f5a-0000-7000-8000-000000000022";
+const device = "01890f5a-0000-7000-8000-000000000023";
+const installation = "01890f5a-0000-7000-8000-000000000030";
 const operation = {
-  operation_id: "550e8400-e29b-41d4-a716-446655440024", tenant_id: tenant, company_id: company, branch_id: branch, device_id: device, installation_id: installation,
-  session_id: "550e8400-e29b-41d4-a716-446655440025", actor_id: "550e8400-e29b-41d4-a716-446655440026",
-  aggregate_type: "SALE", aggregate_id: "550e8400-e29b-41d4-a716-446655440027", operation_type: "SALE.COMPLETE",
+  operation_id: "01890f5a-0000-7000-8000-000000000024", tenant_id: tenant, company_id: company, branch_id: branch, device_id: device, installation_id: installation,
+  session_id: "01890f5a-0000-7000-8000-000000000025", actor_id: "01890f5a-0000-7000-8000-000000000026",
+  aggregate_type: "SALE", aggregate_id: "01890f5a-0000-7000-8000-000000000027", operation_type: "SALE.COMPLETE",
   authority_policy: "APPEND_ONLY_SHARED", local_sequence: 1, idempotency_key: "sale:complete:1", expected_version: 0,
   payload_schema_version: "1.0.0", payload: { total_minor: 1500 }, payload_checksum: "a".repeat(64),
-  causation_id: null, correlation_id: "550e8400-e29b-41d4-a716-446655440028",
+  causation_id: null, correlation_id: "01890f5a-0000-7000-8000-000000000028",
   occurred_at_local: "2026-08-28T10:00:00Z", recorded_at_local: "2026-08-28T10:00:01Z",
 };
-const batch = { batch_id: "550e8400-e29b-41d4-a716-446655440029", tenant_id: tenant, company_id: company, branch_id: branch, device_id: device, installation_id: installation, checkpoint_local_sequence: 0, operations: [operation] };
+const batch = { batch_id: "01890f5a-0000-7000-8000-000000000029", tenant_id: tenant, company_id: company, branch_id: branch, device_id: device, installation_id: installation, checkpoint_local_sequence: 0, operations: [operation] };
 const result = {
   operation_id: operation.operation_id, correlation_id: operation.correlation_id, server_status: "SERVER_ACCEPTED",
   server_result_code: "SYNC.ACCEPTED", aggregate_id: operation.aggregate_id, previous_version: 0, new_version: 1,
@@ -41,7 +41,7 @@ describe("TECH-003 local-central sync contracts", () => {
   it("preserves installation identity in the batch and each operation", () => {
     expect(SyncBatchRequestSchema.safeParse({
       ...batch,
-      operations: [{ ...operation, installation_id: "550e8400-e29b-41d4-a716-446655440031" }],
+      operations: [{ ...operation, installation_id: "01890f5a-0000-7000-8000-000000000031" }],
     }).success).toBe(false);
   });
   it("enforces configured batch quantity", () => expect(createSyncBatchRequestSchema(1).safeParse({ ...batch, operations: [operation, { ...operation, operation_id: company, local_sequence: 2, idempotency_key: "sale:2" }] }).success).toBe(false));
@@ -55,9 +55,9 @@ describe("TECH-003 local-central sync contracts", () => {
 
     const secondOperation = {
       ...operation,
-      operation_id: "550e8400-e29b-41d4-a716-446655440032",
-      aggregate_id: "550e8400-e29b-41d4-a716-446655440033",
-      correlation_id: "550e8400-e29b-41d4-a716-446655440034",
+      operation_id: "01890f5a-0000-7000-8000-000000000032",
+      aggregate_id: "01890f5a-0000-7000-8000-000000000033",
+      correlation_id: "01890f5a-0000-7000-8000-000000000034",
       local_sequence: 2,
       idempotency_key: "sale:complete:2",
     };
