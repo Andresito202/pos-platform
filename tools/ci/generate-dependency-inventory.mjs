@@ -28,12 +28,28 @@ export function collectDirectDependencies(root, manifestPaths = discoverWorkspac
   return direct;
 }
 
+/**
+ * Only pnpm package roots under `.pnpm/<id>/node_modules/<name>/package.json`
+ * (or scoped `@scope/name`). Nested source trees such as
+ * `fast-uri/benchmark/package.json` are fixtures, not installed packages, and
+ * must not enter the inventory or they fail the SBOM coverage gate.
+ */
+function isPnpmPackageRootManifest(packageJsonPath) {
+  const parts = packageJsonPath.split(path.sep);
+  const nodeModulesIndex = parts.lastIndexOf("node_modules");
+  if (nodeModulesIndex < 0) return false;
+  const after = parts.slice(nodeModulesIndex + 1);
+  if (after.length === 2 && after[1] === "package.json") return true;
+  if (after.length === 3 && after[0].startsWith("@") && after[2] === "package.json") return true;
+  return false;
+}
+
 function walkForPackageJson(directory, results) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       walkForPackageJson(fullPath, results);
-    } else if (entry.isFile() && entry.name === "package.json") {
+    } else if (entry.isFile() && entry.name === "package.json" && isPnpmPackageRootManifest(fullPath)) {
       results.push(fullPath);
     }
   }
