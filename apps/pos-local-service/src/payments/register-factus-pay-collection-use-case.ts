@@ -6,7 +6,7 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
-import { FactusPayClient, FactusPayClientError } from "./factus-pay-client.js";
+import { FactusPayClient, FactusPayClientError, type FactusPayCollectionDetail } from "./factus-pay-client.js";
 
 export const PERMISSION_FACTUS_PAY_COLLECT = CanonicalPermission.PAYMENTS_PAYMENT_REGISTER;
 
@@ -142,29 +142,50 @@ export class RegisterFactusPayCollectionUseCase {
       }
     }
 
+    const toSuccess = (collection: FactusPayCollectionDetail): RegisterFactusPayCollectionResult => ({
+      kind: outcome.kind === "IDEMPOTENT" ? "IDEMPOTENT" : "COLLECTED",
+      paymentId: resolvedPaymentId,
+      referenceCode: collection.referenceCode,
+      qr: collection.qr,
+      providerStatus: collection.status,
+    });
+
+    const providerFailed = (): RegisterFactusPayCollectionResult => ({
+      kind: "REGISTERED_PROVIDER_FAILED",
+      paymentId: resolvedPaymentId,
+      referenceCode: resolvedReference,
+    });
+
+    const mapClientError = (error: unknown): RegisterFactusPayCollectionResult | null => {
+      if (error instanceof FactusPayClientError) {
+        if (error.code === "FACTUS_PAY_NOT_CONFIGURED") return { kind: "FACTUS_PAY_NOT_CONFIGURED" };
+        if (error.code === "FACTUS_PAY_AMOUNT_INVALID") return { kind: "FACTUS_PAY_AMOUNT_INVALID" };
+      }
+      return null;
+    };
+
     try {
+      if (outcome.kind === "IDEMPOTENT") {
+        // Persisted reference + uncertain prior outcome: GET before any create POST.
+        // POST only when the provider confirms the collection does not exist.
+        const collection = await this.factusPay.recoverOrCreateCollection({
+          referenceCode: resolvedReference,
+          amountScale6: request.amount,
+          expirationSeconds: request.expirationSeconds,
+        });
+        return toSuccess(collection);
+      }
+
       const collection = await this.factusPay.createCollection({
         referenceCode: resolvedReference,
         amountScale6: request.amount,
         expirationSeconds: request.expirationSeconds,
       });
-      return {
-        kind: outcome.kind === "IDEMPOTENT" ? "IDEMPOTENT" : "COLLECTED",
-        paymentId: resolvedPaymentId,
-        referenceCode: collection.referenceCode,
-        qr: collection.qr,
-        providerStatus: collection.status,
-      };
+      return toSuccess(collection);
     } catch (error) {
-      if (error instanceof FactusPayClientError) {
-        if (error.code === "FACTUS_PAY_NOT_CONFIGURED") return { kind: "FACTUS_PAY_NOT_CONFIGURED" };
-        if (error.code === "FACTUS_PAY_AMOUNT_INVALID") return { kind: "FACTUS_PAY_AMOUNT_INVALID" };
-      }
-      return {
-        kind: "REGISTERED_PROVIDER_FAILED",
-        paymentId: resolvedPaymentId,
-        referenceCode: resolvedReference,
-      };
+      const mapped = mapClientError(error);
+      if (mapped !== null) return mapped;
+      return providerFailed();
     }
   }
 }

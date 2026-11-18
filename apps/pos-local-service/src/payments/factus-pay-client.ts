@@ -28,6 +28,8 @@ export class FactusPayClientError extends Error {
 export class FactusPayClient {
   private authChain: Promise<void> = Promise.resolve();
   private cachedToken: string | null = null;
+  /** Serializes create/recover for the same reference to avoid concurrent duplicate POSTs. */
+  private readonly referenceGates = new Map<string, Promise<void>>();
 
   constructor(
     private readonly credentials: FactusPayCredentialStore,
@@ -38,7 +40,49 @@ export class FactusPayClient {
     private readonly maximumResponseBytes = 1_048_576,
   ) {}
 
+  /** Clears in-memory and durable cached tokens. Used on HTTP 401 recovery. */
+  invalidateCachedToken(): void {
+    this.cachedToken = null;
+    this.credentials.clearCachedToken(this.environment);
+  }
+
+  /**
+   * Idempotent recovery for a persisted reference with uncertain prior outcome:
+   * GET first; POST create only when the provider returns 404.
+   * Never auto-POSTs while the prior result is still uncertain (transport/5xx).
+   */
+  async recoverOrCreateCollection(input: {
+    readonly referenceCode: string;
+    readonly amountScale6: string;
+    readonly expirationSeconds: number;
+    readonly signal?: AbortSignal;
+  }): Promise<FactusPayCollectionDetail> {
+    return this.withReferenceGate(input.referenceCode, async () => {
+      try {
+        return await this.getCollectionUnlocked({
+          referenceCode: input.referenceCode,
+          expectedAmountScale6: input.amountScale6,
+          ...(input.signal === undefined ? {} : { signal: input.signal }),
+        });
+      } catch (error) {
+        if (error instanceof FactusPayClientError && error.code === "FACTUS_PAY_COLLECTION_NOT_FOUND") {
+          return this.createCollectionUnlocked(input);
+        }
+        throw error;
+      }
+    });
+  }
+
   async createCollection(input: {
+    readonly referenceCode: string;
+    readonly amountScale6: string;
+    readonly expirationSeconds: number;
+    readonly signal?: AbortSignal;
+  }): Promise<FactusPayCollectionDetail> {
+    return this.withReferenceGate(input.referenceCode, () => this.createCollectionUnlocked(input));
+  }
+
+  private async createCollectionUnlocked(input: {
     readonly referenceCode: string;
     readonly amountScale6: string;
     readonly expirationSeconds: number;
@@ -50,19 +94,29 @@ export class FactusPayClient {
     if (!Number.isInteger(input.expirationSeconds) || input.expirationSeconds <= 0) {
       throw new FactusPayClientError("FACTUS_PAY_EXPIRATION_INVALID");
     }
+    // Under the reference gate: if a concurrent caller already created it, reuse.
+    try {
+      return await this.getCollectionUnlocked({
+        referenceCode: input.referenceCode,
+        expectedAmountScale6: input.amountScale6,
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+      });
+    } catch (error) {
+      if (!(error instanceof FactusPayClientError) || error.code !== "FACTUS_PAY_COLLECTION_NOT_FOUND") {
+        throw error;
+      }
+    }
     let providerAmount: string;
     try {
       providerAmount = scale6ToFactusPayAmount(input.amountScale6);
     } catch {
       throw new FactusPayClientError("FACTUS_PAY_AMOUNT_INVALID");
     }
-    const token = await this.authenticate(input.signal);
     const origin = ORIGINS[this.environment];
     const url = `${origin}/v1/collections`;
-    const response = await this.request(url, {
+    const response = await this.authorizedRequest(url, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${token}`,
         accept: "application/json",
         "content-type": "application/json",
       },
@@ -72,9 +126,22 @@ export class FactusPayClient {
         expiration: String(input.expirationSeconds),
       }),
       ...(input.signal === undefined ? {} : { signal: input.signal }),
-    });
+    }, input.signal);
     const body = await this.readJson(response, input.signal);
     return this.parseCollection(body, input.amountScale6, input.referenceCode);
+  }
+
+  private async withReferenceGate<T>(referenceCode: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.referenceGates.get(referenceCode) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    this.referenceGates.set(referenceCode, previous.then(() => gate));
+    await previous;
+    try {
+      return await run();
+    } finally {
+      release();
+    }
   }
 
   async getCollection(input: {
@@ -82,14 +149,21 @@ export class FactusPayClient {
     readonly expectedAmountScale6: string;
     readonly signal?: AbortSignal;
   }): Promise<FactusPayCollectionDetail> {
-    const token = await this.authenticate(input.signal);
+    return this.getCollectionUnlocked(input);
+  }
+
+  private async getCollectionUnlocked(input: {
+    readonly referenceCode: string;
+    readonly expectedAmountScale6: string;
+    readonly signal?: AbortSignal;
+  }): Promise<FactusPayCollectionDetail> {
     const origin = ORIGINS[this.environment];
     const url = `${origin}/v1/collections/${encodeURIComponent(input.referenceCode)}`;
-    const response = await this.request(url, {
+    const response = await this.authorizedRequest(url, {
       method: "GET",
-      headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+      headers: { accept: "application/json" },
       ...(input.signal === undefined ? {} : { signal: input.signal }),
-    });
+    }, input.signal);
     const body = await this.readJson(response, input.signal);
     const detail = this.parseCollection(body, input.expectedAmountScale6, input.referenceCode);
     if (detail.referenceCode !== input.referenceCode) throw new FactusPayClientError("FACTUS_PAY_REFERENCE_MISMATCH");
@@ -139,6 +213,45 @@ export class FactusPayClient {
     };
   }
 
+  /**
+   * One controlled auth recovery on HTTP 401: invalidate cached token, re-auth once,
+   * retry the request once. Never loops. Does not invent a second payment.
+   */
+  private async authorizedRequest(
+    url: string,
+    init: RequestInit,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    const withAuth = async (token: string): Promise<Response> => {
+      const headers = new Headers(init.headers);
+      headers.set("authorization", `Bearer ${token}`);
+      return this.request(url, { ...init, headers }, { treatUnauthorizedAsError: false });
+    };
+
+    const firstToken = await this.authenticate(signal);
+    const first = await withAuth(firstToken);
+    if (first.status !== 401) {
+      this.assertSuccessStatus(first);
+      return first;
+    }
+
+    this.invalidateCachedToken();
+    const secondToken = await this.authenticate(signal);
+    const second = await withAuth(secondToken);
+    if (second.status === 401) {
+      this.invalidateCachedToken();
+      throw new FactusPayClientError("FACTUS_PAY_UNAUTHORIZED");
+    }
+    this.assertSuccessStatus(second);
+    return second;
+  }
+
+  private assertSuccessStatus(response: Response): void {
+    if (response.status === 404) throw new FactusPayClientError("FACTUS_PAY_COLLECTION_NOT_FOUND");
+    if (response.status === 401) throw new FactusPayClientError("FACTUS_PAY_UNAUTHORIZED");
+    if (![200, 201].includes(response.status)) throw new FactusPayClientError("FACTUS_PAY_RESPONSE_REJECTED");
+  }
+
   private async authenticate(signal?: AbortSignal): Promise<string> {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
@@ -167,7 +280,7 @@ export class FactusPayClient {
         headers: { accept: "application/json", "content-type": "application/json" },
         body: JSON.stringify({ email: login.email, password: login.password }),
         ...(signal === undefined ? {} : { signal }),
-      });
+      }, { treatUnauthorizedAsError: true });
       const body = await this.readJson(response, signal);
       const token = (body as { token?: unknown }).token;
       if (typeof token !== "string" || token.length < 1 || token.length > 8192 || /[\r\n]/.test(token)) {
@@ -186,13 +299,17 @@ export class FactusPayClient {
     }
   }
 
-  private async request(url: string, init: RequestInit): Promise<Response> {
+  private async request(
+    url: string,
+    init: RequestInit,
+    options: { readonly treatUnauthorizedAsError: boolean },
+  ): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
     const parent = init.signal;
     const onAbort = (): void => controller.abort();
     parent?.addEventListener("abort", onAbort, { once: true });
-  try {
+    try {
       const response = await this.transport(url, {
         ...init,
         redirect: "error",
@@ -200,12 +317,19 @@ export class FactusPayClient {
         signal: controller.signal,
       });
       if (response.redirected) throw new FactusPayClientError("FACTUS_PAY_RESPONSE_REJECTED");
-      const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
-      if (contentType !== undefined && contentType !== "" && contentType !== "application/json") {
-        throw new FactusPayClientError("FACTUS_PAY_CONTENT_TYPE_REJECTED");
+      // Error statuses (401/404/5xx) may arrive without JSON; enforce content-type only on success.
+      if (response.status === 200 || response.status === 201) {
+        const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+        if (contentType !== undefined && contentType !== "" && contentType !== "application/json") {
+          throw new FactusPayClientError("FACTUS_PAY_CONTENT_TYPE_REJECTED");
+        }
       }
-      if (response.status === 401) throw new FactusPayClientError("FACTUS_PAY_UNAUTHORIZED");
-      if (![200, 201].includes(response.status)) throw new FactusPayClientError("FACTUS_PAY_RESPONSE_REJECTED");
+      if (options.treatUnauthorizedAsError && response.status === 401) {
+        throw new FactusPayClientError("FACTUS_PAY_UNAUTHORIZED");
+      }
+      if (options.treatUnauthorizedAsError) {
+        this.assertSuccessStatus(response);
+      }
       return response;
     } catch (error) {
       if (controller.signal.aborted) throw new FactusPayClientError("FACTUS_PAY_CANCELLED_OR_TIMEOUT");

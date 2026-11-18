@@ -7,6 +7,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
 import { FactusPayClient, FactusPayClientError } from "./factus-pay-client.js";
+
 export const PERMISSION_FACTUS_PAY_VERIFY = CanonicalPermission.PAYMENTS_PAYMENT_REGISTER;
 
 const PROVIDER_CODE = "FACTUS_PAY";
@@ -86,9 +87,29 @@ export class VerifyFactusPayCollectionUseCase {
     if (payment.method !== "QR" || payment.providerCode !== PROVIDER_CODE) {
       return { kind: "PAYMENT_NOT_FACTUS_PAY" };
     }
+    if (payment.providerReference === null) return { kind: "PAYMENT_NOT_CONFIRMABLE" };
+
+    // Confirmed retransmission: resolve via existing idempotency before status gates.
+    // Never duplicates movements / coverage / inventory / sale completion.
+    if (payment.status === "CONFIRMED") {
+      return this.paymentStore.confirmTransfer({
+        scope,
+        sessionId,
+        operatorUserId,
+        paymentId: request.paymentId,
+        expectedVersion: request.expectedVersion,
+        allocationId: randomUUID(),
+        operationId: uuidV7(),
+        saleCompletionOperationId: uuidV7(),
+        idempotencyKey: request.idempotencyKey,
+        requestChecksum: requestChecksum(request, operatorUserId),
+        correlationId: request.correlationId,
+        causationId: request.causationId,
+      });
+    }
+
     if (payment.status !== "CREATED") return { kind: "PAYMENT_NOT_CONFIRMABLE" };
     if (payment.version !== request.expectedVersion) return { kind: "VERSION_CONFLICT" };
-    if (payment.providerReference === null) return { kind: "PAYMENT_NOT_CONFIRMABLE" };
 
     try {
       const detail = await this.factusPay.getCollection({
