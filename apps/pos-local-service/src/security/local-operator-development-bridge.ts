@@ -52,11 +52,13 @@ const ADMINISTRATOR = [
   CanonicalPermission.BAKERY_PRODUCTION_EXECUTE,
   // Explicit — not implied by BAKERY_PRODUCTION_EXECUTE (see permission-codes).
   CanonicalPermission.BAKERY_PRODUCTION_DEVIATE,
+  // Wave 7 — fiscal issuance/sync panel (FACTUS). Still fail-closed without
+  // deposited credential + POS_FISCAL_ENVIRONMENT; does not open production DIAN.
+  CanonicalPermission.FISCAL_DOCUMENT_ISSUE,
 ] as const;
 
-// No local permission to provision commercial BUSINESS licences, issue fiscal
-// documents against FACTUS, or open a drawer. Physical printing remains gated
-// by the verified device profile and persisted completed sale.
+// No local permission to provision commercial BUSINESS licences.
+// Physical printing remains gated by the verified device profile and persisted completed sale.
 export const LOCAL_OPERATOR_PERMISSIONS: Readonly<Record<LocalOperator["role"], readonly string[]>> = Object.freeze({
   CAJERO: CASHIER,
   SUPERVISOR,

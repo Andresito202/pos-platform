@@ -187,6 +187,9 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "payment.register.cash":
       case "payment.register.transfer":
       case "payment.transfer.confirm":
+      case "payment.factus_pay.collect":
+      case "payment.factus_pay.verify":
+      case "payment.factus_pay.resume":
       case "payment.cancel":
       case "payment.get":
       case "customer.register":

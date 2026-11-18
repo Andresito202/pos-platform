@@ -62,6 +62,11 @@ import { CreateInventoryReservationUseCase,ReleaseInventoryReservationUseCase } 
 import { GetReceiptUseCase } from "../receipts/get-receipt-use-case.js";
 import { SqliteReceiptStore } from "../receipts/sqlite-receipt-store.js";
 import { SqlitePaymentStore } from "../payments/sqlite-payment-store.js";
+import { RegisterFactusPayCollectionUseCase } from "../payments/register-factus-pay-collection-use-case.js";
+import { VerifyFactusPayCollectionUseCase } from "../payments/verify-factus-pay-collection-use-case.js";
+import { ResumeFactusPayCollectionUseCase } from "../payments/resume-factus-pay-collection-use-case.js";
+import { FactusPayClient } from "../payments/factus-pay-client.js";
+import { FactusPayCredentialStore } from "../payments/factus-pay-credential-store.js";
 import { RegisterCashPaymentUseCase } from "../payments/register-cash-payment-use-case.js";
 import { RegisterTransferPaymentUseCase } from "../payments/register-transfer-payment-use-case.js";
 import { ConfirmTransferPaymentUseCase } from "../payments/confirm-transfer-payment-use-case.js";
@@ -118,6 +123,9 @@ export class CommercialComponent implements RuntimeComponent {
         readonly registerCashPayment: RegisterCashPaymentUseCase;
         readonly registerTransferPayment: RegisterTransferPaymentUseCase;
         readonly confirmTransferPayment: ConfirmTransferPaymentUseCase;
+        readonly registerFactusPayCollection: RegisterFactusPayCollectionUseCase;
+        readonly verifyFactusPayCollection: VerifyFactusPayCollectionUseCase;
+        readonly resumeFactusPayCollection: ResumeFactusPayCollectionUseCase;
         readonly cancelPayment: CancelPaymentUseCase;
         readonly getPayment: GetPaymentUseCase;
         readonly registerCustomer: RegisterCustomerUseCase;
@@ -193,6 +201,11 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly licenseGate?: CashRegisterLicenseGate,
     private readonly sectorLicenseGate?: SectorLicenseGate,
     private readonly licenseEntitlementsReader?: (scope: SyncScope) => readonly string[],
+    /**
+     * Almacén abierto con `factusPayCredentialContext` (AAD distinto del fiscal).
+     * `undefined` → Caja responde `FACTUS_PAY_NOT_CONFIGURED` sin inventar cliente.
+     */
+    private readonly factusPaySecretStore: EncryptedFileSecretStore | undefined = undefined,
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -235,6 +248,9 @@ export class CommercialComponent implements RuntimeComponent {
   get registerCashPayment(): RegisterCashPaymentUseCase { return this.ready.registerCashPayment; }
   get registerTransferPayment(): RegisterTransferPaymentUseCase { return this.ready.registerTransferPayment; }
   get confirmTransferPayment(): ConfirmTransferPaymentUseCase { return this.ready.confirmTransferPayment; }
+  get registerFactusPayCollection(): RegisterFactusPayCollectionUseCase { return this.ready.registerFactusPayCollection; }
+  get verifyFactusPayCollection(): VerifyFactusPayCollectionUseCase { return this.ready.verifyFactusPayCollection; }
+  get resumeFactusPayCollection(): ResumeFactusPayCollectionUseCase { return this.ready.resumeFactusPayCollection; }
   get cancelPayment(): CancelPaymentUseCase { return this.ready.cancelPayment; }
   get getPayment(): GetPaymentUseCase { return this.ready.getPayment; }
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
@@ -345,6 +361,14 @@ export class CommercialComponent implements RuntimeComponent {
     this.hardwareInstance = new HardwareService(hardwareStore, new GetReceiptUseCase(new SqliteReceiptStore(database)), loadHardwareRegistry(this.config.hardware_profiles_file), undefined, loadAutomaticDrawerPolicy(this.config.hardware_automatic_drawer_policy_file));
     const scaleProfile = loadWindowsScaleProfile(this.config.windows_scale_profile_file);
     this.scaleInstance = scaleProfile ? new WindowsCh340Transport(scaleProfile) : null;
+    const factusPayClient = this.factusPaySecretStore === undefined
+      ? null
+      : new FactusPayClient(
+        new FactusPayCredentialStore(this.factusPaySecretStore, this.config.company_id),
+        "SANDBOX",
+        this.now,
+      );
+
     this.state = {
       issueElectronicDocument,
       fiscalSaleSource,
@@ -395,6 +419,9 @@ export class CommercialComponent implements RuntimeComponent {
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
+      registerFactusPayCollection: new RegisterFactusPayCollectionUseCase(paymentStore, factusPayClient, this.now),
+      verifyFactusPayCollection: new VerifyFactusPayCollectionUseCase(paymentStore, factusPayClient, this.now),
+      resumeFactusPayCollection: new ResumeFactusPayCollectionUseCase(paymentStore, factusPayClient, this.now),
       cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),
       getPayment: new GetPaymentUseCase(paymentStore, this.now),
       registerCustomer: new RegisterCustomerUseCase(customerStore),

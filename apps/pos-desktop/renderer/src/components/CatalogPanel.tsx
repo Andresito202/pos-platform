@@ -26,6 +26,11 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("COP");
   const [stockControlled, setStockControlled] = useState(true);
+  const [fiscalCodeReference, setFiscalCodeReference] = useState("");
+  const [fiscalUnitMeasure, setFiscalUnitMeasure] = useState("");
+  const [fiscalStandardCode, setFiscalStandardCode] = useState("");
+  const [fiscalTaxCode, setFiscalTaxCode] = useState("");
+  const [fiscalTaxRate, setFiscalTaxRate] = useState("");
   const [foodProductId, setFoodProductId] = useState("");
   const [conservation, setConservation] = useState<"AMBIENT" | "CHILLED" | "FROZEN" | "CONTROLLED">("CHILLED");
   const [requiresLot, setRequiresLot] = useState(true);
@@ -110,9 +115,54 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
         Controla existencia
       </label>
 
+      <h3>Atributos fiscales (opcional)</h3>
+      <p>Necesarios para emisión electrónica. Vacío = producto no facturable electrónicamente.</p>
+      <input
+        data-testid="fiscal-code-reference-input"
+        value={fiscalCodeReference}
+        onChange={(e) => { setFiscalCodeReference(e.target.value); }}
+        placeholder="Referencia código DIAN"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="fiscal-unit-measure-input"
+        value={fiscalUnitMeasure}
+        onChange={(e) => { setFiscalUnitMeasure(e.target.value); }}
+        placeholder="Unidad de medida DIAN"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="fiscal-standard-code-input"
+        value={fiscalStandardCode}
+        onChange={(e) => { setFiscalStandardCode(e.target.value); }}
+        placeholder="Código estándar"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="fiscal-tax-code-input"
+        value={fiscalTaxCode}
+        onChange={(e) => { setFiscalTaxCode(e.target.value); }}
+        placeholder="Código impuesto"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="fiscal-tax-rate-input"
+        value={fiscalTaxRate}
+        onChange={(e) => { setFiscalTaxRate(e.target.value); }}
+        placeholder="Tarifa (ej. 19)"
+        disabled={catalog.busy}
+      />
+
       <button
         data-testid="register-product-button"
         onClick={() => {
+          const fiscalFilled = [
+            fiscalCodeReference,
+            fiscalUnitMeasure,
+            fiscalStandardCode,
+            fiscalTaxCode,
+            fiscalTaxRate,
+          ].some((value) => value.trim() !== "");
           void catalog.registerProduct({
             code: code.trim(),
             name: name.trim(),
@@ -123,6 +173,17 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
             barcode,
             price,
             currencyCode: currency.trim(),
+            ...(fiscalFilled
+              ? {
+                fiscalAttributes: {
+                  codeReference: fiscalCodeReference.trim(),
+                  unitMeasureCode: fiscalUnitMeasure.trim(),
+                  standardCode: fiscalStandardCode.trim(),
+                  taxCode: fiscalTaxCode.trim(),
+                  taxRate: fiscalTaxRate.trim(),
+                },
+              }
+              : {}),
           });
         }}
         disabled={catalog.busy || incomplete}

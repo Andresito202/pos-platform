@@ -983,4 +983,46 @@ export class SqlitePaymentStore {
       return { kind: "CANCELLED", paymentId: input.paymentId };
     })();
   }
+
+  /**
+   * Pending FACTUS Pay (QR) for a sale — used after POS restart so the cashier
+   * can verify without inventing a new collection. Never confirms.
+   */
+  findPendingFactusPayBySale(
+    scope: SyncScope,
+    saleId: string,
+    providerCode: string,
+  ): {
+    readonly paymentId: string;
+    readonly version: number;
+    readonly status: string;
+    readonly expectedAmount: string;
+    readonly providerReference: string | null;
+  } | null {
+    const row = this.database.native.prepare(
+      `SELECT p.id, p.status, p.expected_amount, p.version, p.provider_reference
+       FROM payments_payments p
+       JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+       WHERE p.tenant_id=? AND g.collection_subject_id=? AND p.payment_method='QR'
+         AND p.provider_code=? AND p.status='CREATED'
+       ORDER BY p.created_at DESC
+       LIMIT 1`,
+    ).get(scope.tenantId, saleId, providerCode) as
+      | {
+        id: string;
+        status: string;
+        expected_amount: string;
+        version: number;
+        provider_reference: string | null;
+      }
+      | undefined;
+    if (row === undefined) return null;
+    return {
+      paymentId: row.id,
+      version: row.version,
+      status: row.status,
+      expectedAmount: row.expected_amount,
+      providerReference: row.provider_reference,
+    };
+  }
 }

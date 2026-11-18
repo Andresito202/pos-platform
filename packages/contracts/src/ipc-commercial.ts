@@ -605,6 +605,120 @@ export const PaymentTransferConfirmResultSchema = z.strictObject({
 
 export const PaymentTransferConfirmResponseSchema = createResponseEnvelopeSchema(PaymentTransferConfirmResultSchema);
 
+// ── payment.factus_pay.collect ───────────────────────────────────────────────
+
+export const PaymentFactusPayCollectRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    amount: PositiveScale6Schema,
+    expiration_seconds: z.number().int().min(1).max(86_400).default(900),
+  }),
+).safeExtend({ message_type: z.literal("payment.factus_pay.collect") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PaymentFactusPayCollectOutcomeSchema = z.enum([
+  "COLLECTED",
+  "IDEMPOTENT",
+  "REGISTERED_PROVIDER_FAILED",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "SALE_NOT_FOUND",
+  "SALE_NOT_PAYABLE",
+  "SALE_ALREADY_COMPLETED",
+  "CURRENCY_MISMATCH",
+  "FACTUS_PAY_NOT_CONFIGURED",
+  "FACTUS_PAY_AMOUNT_INVALID",
+  "INSUFFICIENT_STOCK",
+  "PHARMACY_ELIGIBILITY_LOST",
+]);
+
+export const PaymentFactusPayCollectResultSchema = z.strictObject({
+  outcome: PaymentFactusPayCollectOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+  reference_code: z.string().min(1).max(100).nullable(),
+  qr: z.string().max(1_048_576).nullable(),
+  provider_status: z.string().min(1).max(32).nullable(),
+});
+
+export const PaymentFactusPayCollectResponseSchema = createResponseEnvelopeSchema(PaymentFactusPayCollectResultSchema);
+
+// ── payment.factus_pay.verify ──────────────────────────────────────────────────
+
+export const PaymentFactusPayVerifyRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    payment_id: UuidSchema,
+    expected_version: ExpectedVersionSchema,
+  }),
+).safeExtend({ message_type: z.literal("payment.factus_pay.verify") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PaymentFactusPayVerifyOutcomeSchema = z.enum([
+  "CONFIRMED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "PAYMENT_NOT_FOUND",
+  "PAYMENT_NOT_CONFIRMABLE",
+  "VERSION_CONFLICT",
+  "OVERPAYMENT_NOT_ALLOWED",
+  "SALE_ALREADY_COMPLETED",
+  "INSUFFICIENT_STOCK",
+  "PHARMACY_ELIGIBILITY_LOST",
+  "FACTUS_PAY_NOT_CONFIGURED",
+  "FACTUS_PAY_NOT_PAID",
+  "FACTUS_PAY_VERIFICATION_FAILED",
+  "PAYMENT_NOT_FACTUS_PAY",
+]);
+
+export const PaymentFactusPayVerifyResultSchema = z.strictObject({
+  outcome: PaymentFactusPayVerifyOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+  sale_completed: z.boolean(),
+  confirmed_coverage: NonNegativeScale6Schema.nullable(),
+  payable_amount: NonNegativeScale6Schema.nullable(),
+});
+
+export const PaymentFactusPayVerifyResponseSchema = createResponseEnvelopeSchema(PaymentFactusPayVerifyResultSchema);
+
+
+// ── payment.factus_pay.resume ────────────────────────────────────────────────
+
+export const PaymentFactusPayResumeRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+  }),
+).safeExtend({ message_type: z.literal("payment.factus_pay.resume") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+  });
+
+export const PaymentFactusPayResumeOutcomeSchema = z.enum([
+  "FOUND",
+  "NOT_FOUND",
+  "UNAUTHORIZED",
+  "FACTUS_PAY_NOT_CONFIGURED",
+]);
+
+export const PaymentFactusPayResumeResultSchema = z.strictObject({
+  outcome: PaymentFactusPayResumeOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+  version: ExpectedVersionSchema.nullable(),
+  status: StableCodeSchema.nullable(),
+  expected_amount: NonNegativeScale6Schema.nullable(),
+  reference_code: z.string().min(1).max(100).nullable(),
+  qr: z.string().max(1_048_576).nullable(),
+  provider_status: z.string().min(1).max(32).nullable(),
+});
+
+export const PaymentFactusPayResumeResponseSchema = createResponseEnvelopeSchema(PaymentFactusPayResumeResultSchema);
+
+
 // ── payment.cancel ───────────────────────────────────────────────────────────
 
 /** Cancela un pago no confirmado. Un pago confirmado es inmutable (`DEC-002`). */
@@ -1997,6 +2111,9 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "payment.register.cash",
   "payment.register.transfer",
   "payment.transfer.confirm",
+  "payment.factus_pay.collect",
+  "payment.factus_pay.verify",
+  "payment.factus_pay.resume",
   "payment.cancel",
   "payment.get",
   "payment.destination.get",
@@ -2059,6 +2176,9 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:payment.register.cash",
   "pos:payment.register.transfer",
   "pos:payment.transfer.confirm",
+  "pos:payment.factus_pay.collect",
+  "pos:payment.factus_pay.verify",
+  "pos:payment.factus_pay.resume",
   "pos:payment.cancel",
   "pos:payment.get",
   "pos:payment.destination.get",
@@ -2111,6 +2231,9 @@ export type SaleCreateResult = z.infer<typeof SaleCreateResultSchema>;
 export type PaymentRegisterCashResult = z.infer<typeof PaymentRegisterCashResultSchema>;
 export type PaymentRegisterTransferResult = z.infer<typeof PaymentRegisterTransferResultSchema>;
 export type PaymentTransferConfirmResult = z.infer<typeof PaymentTransferConfirmResultSchema>;
+export type PaymentFactusPayCollectResult = z.infer<typeof PaymentFactusPayCollectResultSchema>;
+export type PaymentFactusPayVerifyResult = z.infer<typeof PaymentFactusPayVerifyResultSchema>;
+export type PaymentFactusPayResumeResult = z.infer<typeof PaymentFactusPayResumeResultSchema>;
 export type PaymentCancelResult = z.infer<typeof PaymentCancelResultSchema>;
 export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;
 export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema>;
