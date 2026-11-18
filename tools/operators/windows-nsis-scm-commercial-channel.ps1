@@ -202,12 +202,21 @@ try {
   finally { Pop-Location }
   Must (-not [string]::IsNullOrWhiteSpace($tsx) -and (Test-Path -LiteralPath $tsx -PathType Leaf)) 'TSX_MISSING'
 
-  # Generate UUID v7 ids via Node for schema compliance.
-  $idJson = & $node --input-type=module -e "import{randomBytes}from'node:crypto';const u=()=>{const b=randomBytes(16);const ms=BigInt(Date.now());b[0]=Number((ms>>40n)&0xffn);b[1]=Number((ms>>32n)&0xffn);b[2]=Number((ms>>24n)&0xffn);b[3]=Number((ms>>16n)&0xffn);b[4]=Number((ms>>8n)&0xffn);b[5]=Number(ms&0xffn);b[6]=(b[6]&0x0f)|0x70;b[8]=(b[8]&0x3f)|0x80;const h=Buffer.from(b).toString('hex');return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20)};process.stdout.write(JSON.stringify({i:u(),d:u()}));"
-  $ids = $idJson | ConvertFrom-Json
-  $installationId = [string]$ids.i
-  $deviceId = [string]$ids.d
-  Must ($installationId[14] -eq '7' -and $deviceId[14] -eq '7') 'UUID_V7_REQUIRED'
+  # Bind the commercial channel to the ALREADY-SEALED product installation/device.
+  # Fresh UUID v7s patched into WinSW rebind DPAPI/device-identity context over
+  # ProgramData\CamachoPOS\lab-data secrets sealed at install →
+  # "device identity secret could not be opened" (observed on 534721b9).
+  $instMatch = [regex]::Match($xmlOriginalText, 'name="POS_INSTALLATION_ID" value="([^"]+)"')
+  $devMatch = [regex]::Match($xmlOriginalText, 'name="POS_DEVICE_ID" value="([^"]+)"')
+  Must ($instMatch.Success -and $devMatch.Success) 'PRODUCT_IDS_MISSING_FROM_WINSW_XML'
+  $installationId = [System.Net.WebUtility]::HtmlDecode($instMatch.Groups[1].Value)
+  $deviceId = [System.Net.WebUtility]::HtmlDecode($devMatch.Groups[1].Value)
+  Must (
+    $installationId -match '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' -and
+    $deviceId -match '^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+  ) 'UUID_V7_REQUIRED'
+  Write-Host ('PRODUCT_INSTALLATION_ID=' + $installationId)
+  Write-Host ('PRODUCT_DEVICE_ID=' + $deviceId)
 
   # Stage a short-path CJS enroll bundle as admin (plain ESM — no tsx).
   # Root cause on c107382d: icacls /T over pnpm trees → MAX_PATH; NT SERVICE could
@@ -302,10 +311,9 @@ try {
   Seal-InstallerManagedFile $adapterPath
   Write-Host 'SCM_COMMERCIAL_PAIR=PASS'
 
-  # Restore product WinSW XML from backup, then bind IDs + SCM handoff for PRODUCT.
+  # Restore product WinSW XML from backup; keep sealed installation/device IDs.
+  # Only bind POS_WINDOWS_SCM_HANDOFF_FILE for the authenticated SCM channel.
   $xml = $xmlOriginalText
-  $xml = [regex]::Replace($xml, 'name="POS_INSTALLATION_ID" value="[^"]*"', ('name="POS_INSTALLATION_ID" value="' + (Esc $installationId) + '"'))
-  $xml = [regex]::Replace($xml, 'name="POS_DEVICE_ID" value="[^"]*"', ('name="POS_DEVICE_ID" value="' + (Esc $deviceId) + '"'))
   if ($xml -notmatch 'POS_WINDOWS_SCM_HANDOFF_FILE') {
     $xml = $xml.Replace('</service>', ('  <env name="POS_WINDOWS_SCM_HANDOFF_FILE" value="' + (Esc $serviceManifest) + '"/>' + "`r`n</service>"))
   }
@@ -314,10 +322,11 @@ try {
   }
   # Keep commercialLogin false path: never inject POS_WINDOWS_COMMERCIAL_PROVISION_FILE.
   Must ($xml -notmatch 'POS_WINDOWS_COMMERCIAL_PROVISION_FILE') 'COMMERCIAL_PROVISION_MUST_STAY_ABSENT'
+  Must ($xml -match [regex]::Escape('name="POS_INSTALLATION_ID" value="' + $installationId + '"')) 'PRODUCT_INSTALLATION_ID_DRIFT'
+  Must ($xml -match [regex]::Escape('name="POS_DEVICE_ID" value="' + $deviceId + '"')) 'PRODUCT_DEVICE_ID_DRIFT'
   [IO.File]::WriteAllText($xmlPath, $xml, [Text.UTF8Encoding]::new($false))
   $xmlSwapped = $false
 
-  Start-Service -Name $serviceName -ErrorAction Stop
   # Prefer WinSW logpath from the product XML; also scan ProgramData + payload.
   $logDirs = New-Object System.Collections.Generic.List[string]
   $logPathMatch = [regex]::Match($xml, '<logpath>([^<]+)</logpath>')
@@ -326,9 +335,13 @@ try {
   }
   [void]$logDirs.Add((Join-Path $env:ProgramData 'CamachoPOS\logs'))
   [void]$logDirs.Add($payload)
+
+  # Watermark BEFORE Start-Service so stale pre-handoff runtime.started lines cannot PASS.
+  $startUtc = [DateTime]::UtcNow
+  Start-Service -Name $serviceName -ErrorAction Stop
   $started = $false
   $startFailed = $false
-  $until = [DateTime]::UtcNow.AddSeconds(90)
+  $until = $startUtc.AddSeconds(90)
   while ([DateTime]::UtcNow -lt $until) {
     $svc = Get-Service -Name $serviceName
     $cimNow = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
@@ -340,22 +353,29 @@ try {
       foreach ($logDir in $logDirs) {
         if (-not (Test-Path -LiteralPath $logDir)) { continue }
         $files = @(Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
-          Where-Object { $_.LastWriteTimeUtc -gt (Get-Date).ToUniversalTime().AddMinutes(-10) })
+          Where-Object { $_.LastWriteTimeUtc -ge $startUtc.AddSeconds(-2) })
         foreach ($file in $files) {
           try {
-            $content = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
-            if ([string]::IsNullOrWhiteSpace($content)) { continue }
-            if ($content.Contains('runtime.start_failed') -or $content.Contains('SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED')) {
-              Write-Host ('PRODUCT_SCM_START_FAIL_LOG=' + $file.FullName)
-              $startFailed = $true
-              break
-            }
-            if ($content.Contains('runtime.started')) {
-              Write-Host ('PRODUCT_SCM_RUNTIME_STARTED_LOG=' + $file.FullName)
-              $started = $true
-              break
+            $lines = @(Get-Content -LiteralPath $file.FullName -ErrorAction SilentlyContinue)
+            foreach ($line in $lines) {
+              if ($line -notmatch '"timestamp"\s*:\s*"([^"]+)"') { continue }
+              $ts = [DateTime]::Parse([string]$Matches[1], $null, [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
+              if ($ts -lt $startUtc) { continue }
+              if ($line.Contains('runtime.start_failed') -or $line.Contains('SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED')) {
+                Write-Host ('PRODUCT_SCM_START_FAIL_LOG=' + $file.FullName)
+                Write-Host ('PRODUCT_SCM_START_FAIL_LINE=' + $line)
+                $startFailed = $true
+                break
+              }
+              if ($line.Contains('runtime.started') -and $line.Contains($installationId)) {
+                Write-Host ('PRODUCT_SCM_RUNTIME_STARTED_LOG=' + $file.FullName)
+                Write-Host ('PRODUCT_SCM_RUNTIME_STARTED_AT=' + $ts.ToString('o'))
+                $started = $true
+                break
+              }
             }
           } catch {}
+          if ($started -or $startFailed) { break }
         }
         if ($started -or $startFailed) { break }
       }
