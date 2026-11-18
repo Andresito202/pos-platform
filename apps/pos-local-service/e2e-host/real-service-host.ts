@@ -287,6 +287,33 @@ async function main(): Promise<void> {
           result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
         };
       }
+      // Local-operator IPC is owned by LocalChannelComponent in production.
+      // This e2e host bypasses that component, so it must still return a schema-
+      // valid envelope: undefined/invalid responses destroy the channel socket
+      // before session.activate can run (real-channel Linux e2e).
+      if (
+        envelope.message_type === "local.operator.session"
+        || envelope.message_type === "local.operator.login"
+        || envelope.message_type === "local.operator.logout"
+      ) {
+        const outcome = envelope.message_type === "local.operator.logout"
+          ? "SIGNED_OUT"
+          : envelope.message_type === "local.operator.login"
+            ? "UNAVAILABLE"
+            : "NO_SESSION";
+        return {
+          protocol_version: "1.0.0",
+          request_id: envelope.request_id,
+          correlation_id: envelope.correlation_id,
+          operation_id: null,
+          status: "SUCCEEDED",
+          result_code: outcome,
+          result_schema_version: "1.0.0",
+          error: null,
+          server_time: new Date().toISOString(),
+          result: { outcome, username: null, role: null, expires_at: null },
+        };
+      }
       // El servidor ya validó el sobre; el handshake quedó atendido arriba.
       return await handler.handle(request as Parameters<typeof handler.handle>[0], context.connectionId);
     },
