@@ -8,6 +8,7 @@ export * from "./versioning.js";
 export * from "./ipc.js";
 export * from "./ipc-commercial.js";
 export * from "./ipc-local-operator.js";
+export * from "./hardware.js";
 export * from "./license-offer.js";
 export * from "./license-sector.js";
 export * from "./native-client-registration.js";
