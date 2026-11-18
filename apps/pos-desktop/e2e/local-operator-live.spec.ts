@@ -1,0 +1,262 @@
+import { test, expect } from "@playwright/test";
+import { _electron } from "playwright";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { randomBytes, randomUUID, scryptSync } from "node:crypto";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import type { Page } from "@playwright/test";
+
+const root=resolve(fileURLToPath(new URL("../../..",import.meta.url)));
+const desktop=join(root,"apps","pos-desktop");
+const serviceRoot=join(root,"apps","pos-local-service");
+const requireDesktop=createRequire(join(desktop,"package.json"));
+const requireService=createRequire(join(serviceRoot,"package.json"));
+const auditDirectory=process.env.POS_E2E_AUDIT_DIRECTORY;
+
+async function captureReal(page:Page,name:string):Promise<void>{
+  if(!auditDirectory)return;
+  mkdirSync(auditDirectory,{recursive:true});
+  await page.screenshot({path:join(auditDirectory,`${name}.png`),fullPage:true});
+}
+
+test.skip(process.platform!=="win32","Physical Windows DPAPI/named-pipe login required");
+test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashier isolation", async()=>{
+  test.setTimeout(240_000);
+  const dir=mkdtempSync(join(tmpdir(),"camacho-real-operator-"));
+  const dataDirectory=join(dir,"data");
+  mkdirSync(dataDirectory,{recursive:true});
+  const usernames=[
+    ["admin.local","ADMINISTRADOR"],
+    ["supervisor.local","SUPERVISOR"],
+    ["cajero.local","CAJERO"],
+    ["superadmin.local","SUPERADMINISTRADOR"],
+  ] as const;
+  const passwords=new Map<string,string>();
+  const accounts=usernames.map(([username,role])=>{
+    const password=randomBytes(24).toString("base64url");
+    passwords.set(username,password);
+    const salt=randomBytes(16).toString("hex");
+    const hash=scryptSync(password,Buffer.from(salt,"hex"),64,
+      {N:32768,r:8,p:1,maxmem:64*1024*1024}).toString("hex");
+    return {username,role,scheme:"scrypt-N32768-r8-p1-v1",salt,hash};
+  });
+  const store=join(dir,"accounts.v1.json");
+  writeFileSync(store,JSON.stringify({format:"CAMACHO_DEV_ACCOUNTS_V1",accounts}),"utf8");
+  const ids={installation:randomUUID(),device:randomUUID(),tenant:randomUUID(),
+    company:randomUUID(),branch:randomUUID()};
+  // Signed sector capacity via LicenseCapacityGate (Bloque 4 mechanism) — no bypass.
+  const provision = spawnSync(process.execPath, [
+    requireService.resolve("tsx/cli"),
+    join(serviceRoot, "scripts", "provision-lab-sector-license.ts"),
+    "--data-directory", dataDirectory,
+    "--tenant-id", ids.tenant,
+    "--company-id", ids.company,
+    "--branch-id", ids.branch,
+    "--installation-id", ids.installation,
+    "--device-id", ids.device,
+  ], { cwd: serviceRoot, encoding: "utf8" });
+  if (provision.status !== 0) {
+    throw new Error(`SECTOR_LICENSE_PROVISION_FAILED:${provision.stderr || provision.stdout}`);
+  }
+  const provisionSummary = JSON.parse(provision.stdout.trim().split("\n").at(-1)!) as {
+    provisionPath: string;
+    entitlements: string[];
+  };
+  expect(provisionSummary.entitlements).toEqual(expect.arrayContaining([
+    "CASH_REGISTER", "SECTOR_SALSAMENTARIA", "SECTOR_FARMACIA", "SECTOR_PASTELERIA",
+  ]));
+  console.log("REAL_LOCAL_LICENSES_SIGNED=PASS entitlements="+provisionSummary.entitlements.join(","));
+
+  const cleanEnv=Object.fromEntries(Object.entries(process.env)
+    .filter((entry):entry is [string,string]=>entry[1]!==undefined &&
+      !entry[0].startsWith("POS_")&&entry[0]!=="ELECTRON_RUN_AS_NODE"));
+  const env={...cleanEnv,NODE_ENV:"development",POS_DATA_DIRECTORY:dataDirectory,
+    POS_INSTALLATION_ID:ids.installation,POS_DEVICE_ID:ids.device,
+    POS_TENANT_ID:ids.tenant,POS_COMPANY_ID:ids.company,POS_BRANCH_ID:ids.branch,
+    POS_PROTOCOL_MIN:"1.0.0",POS_PROTOCOL_MAX:"1.0.0",POS_SERVICE_VERSION:"1.0.0",
+    POS_LOCAL_OPERATOR_AUTH_STORE:store,
+    POS_LICENSE_CAPACITY_PROVISION_FILE:provisionSummary.provisionPath};
+  let service:ChildProcessWithoutNullStreams|undefined;
+  let electron:Awaited<ReturnType<typeof _electron.launch>>|undefined;
+  const startService=async():Promise<ChildProcessWithoutNullStreams>=>{
+    const child=spawn(process.execPath,[requireService.resolve("tsx/cli"),join(serviceRoot,"src","main.ts")],
+      {cwd:serviceRoot,env,stdio:["pipe","pipe","pipe"]});
+    await new Promise<void>((resolveReady,reject)=>{
+      let buffer="";
+      let stderr="";
+      let settled=false;
+      const done=(error?:Error)=>{
+        if(settled)return;
+        settled=true;
+        clearTimeout(timeout);
+        error?reject(error):resolveReady();
+      };
+      const timeout=setTimeout(()=>done(new Error("LOCAL_SERVICE_BOOT_TIMEOUT:stdout="+buffer.slice(-800)+";stderr="+stderr.slice(-800))),30000);
+      child.stdout.on("data",(chunk:Buffer)=>{
+        buffer+=chunk.toString("utf8");
+        if(buffer.includes('"event":"runtime.started"'))done();
+      });
+      child.stderr.on("data",(chunk:Buffer)=>{stderr+=chunk.toString("utf8");});
+      child.once("exit",code=>done(new Error("LOCAL_SERVICE_EARLY_EXIT_"+code+":stdout="+buffer.slice(-800)+";stderr="+stderr.slice(-800))));
+    });
+    return child;
+  };
+  const stopService=async(child:ChildProcessWithoutNullStreams)=>{
+    const exited=new Promise<void>((resolveExit,reject)=>{
+      const timeout=setTimeout(()=>reject(Error("LOCAL_SERVICE_STOP_TIMEOUT")),15000);
+      child.once("exit",()=>{clearTimeout(timeout);resolveExit();});
+    });
+    child.kill();
+    await exited;
+  };
+  try{
+    // Boot once so LocalSecurityComponent registers the real device identity,
+    // then activate the signed capacity against that DB (no parallel device key).
+    service=await startService();
+    await stopService(service);
+    service=undefined;
+    const activated=spawnSync(process.execPath,[
+      requireService.resolve("tsx/cli"),
+      join(serviceRoot,"scripts","provision-lab-sector-license.ts"),
+      "--activate",
+      "--data-directory",dataDirectory,
+      "--tenant-id",ids.tenant,
+      "--company-id",ids.company,
+      "--branch-id",ids.branch,
+      "--installation-id",ids.installation,
+      "--device-id",ids.device,
+    ],{cwd:serviceRoot,encoding:"utf8"});
+    if(activated.status!==0){
+      throw new Error(`SECTOR_LICENSE_ACTIVATE_FAILED:${activated.stderr||activated.stdout}`);
+    }
+    const activatedSummary=JSON.parse(activated.stdout.trim().split("\n").at(-1)!) as {entitlements:string[]};
+    expect(activatedSummary.entitlements.length).toBeGreaterThanOrEqual(4);
+    console.log("REAL_LOCAL_LICENSES=PASS activated="+activatedSummary.entitlements.join(","));
+    service=await startService();
+    electron=await _electron.launch({executablePath:requireDesktop("electron") as string,
+      args:[join(desktop,"dist","start.bundle.mjs")],env});
+    const page=await electron.firstWindow();
+    await expect(page.getByRole("textbox",{name:"Usuario",exact:true})).toBeVisible({timeout:20000});
+    await page.locator("#pos-local-username").fill("admin.local");
+    await page.locator("#pos-local-password").fill(passwords.get("admin.local")!);
+    await page.getByRole("button",{name:"Ingresar",exact:true}).click();
+    await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
+    await expect(page.getByRole("button",{name:"Catálogo",exact:true})).toBeVisible();
+    await expect(page.getByRole("button",{name:"Inventario",exact:true})).toBeVisible();
+    await captureReal(page,"real-auth-administrador");
+    console.log("REAL_LOCAL_ADMIN_PANEL=PASS");
+
+    // Role homes via real password auth (not role-preview).
+    for(const [username,roleLabel] of [
+      ["supervisor.local","supervisor"],
+      ["superadmin.local","superadministrador"],
+    ] as const){
+      await page.getByRole("button",{name:"Cerrar sesión",exact:true}).click();
+      await expect(page.getByRole("textbox",{name:"Usuario",exact:true})).toBeVisible({timeout:20000});
+      await page.locator("#pos-local-username").fill(username);
+      await page.locator("#pos-local-password").fill(passwords.get(username)!);
+      await page.getByRole("button",{name:"Ingresar",exact:true}).click();
+      await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
+      await captureReal(page,`real-auth-${roleLabel}`);
+      console.log(`REAL_LOCAL_${roleLabel.toUpperCase()}_PANEL=PASS`);
+    }
+    await page.getByRole("button",{name:"Cerrar sesión",exact:true}).click();
+    await expect(page.getByRole("textbox",{name:"Usuario",exact:true})).toBeVisible({timeout:20000});
+    await page.locator("#pos-local-username").fill("admin.local");
+    await page.locator("#pos-local-password").fill(passwords.get("admin.local")!);
+    await page.getByRole("button",{name:"Ingresar",exact:true}).click();
+    await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
+
+    // Sector surfaces live under Catálogo when signed entitlements are projected.
+    await page.getByRole("button",{name:"Catálogo",exact:true}).click();
+    await expect(page.getByRole("heading",{name:"Pastelería / producción",exact:true})).toBeVisible({timeout:20000});
+    await expect(page.getByRole("heading",{name:"Farmacia / Droguería",exact:true})).toBeVisible();
+    await expect(page.getByRole("heading",{name:"Política alimentaria",exact:true})).toBeVisible();
+    await captureReal(page,"real-sector-catalog-salsamentaria-farmacia-pasteleria");
+    console.log("REAL_LOCAL_SECTOR_SALSAMENTARIA=PASS");
+    console.log("REAL_LOCAL_SECTOR_FARMACIA=PASS");
+    console.log("REAL_LOCAL_SECTOR_PASTELERIA=PASS");
+
+    const call=async(message_type:string,payload:Record<string,unknown>,mutation=false)=>{
+      return page.evaluate(async({message_type,payload,mutation})=>{
+        const api=(window as unknown as {posService:Record<string,(x:unknown)=>Promise<unknown>>}).posService;
+        return api[message_type]!({protocol_version:"1.0.0",message_type,
+          request_id:crypto.randomUUID(),correlation_id:crypto.randomUUID(),
+          payload_schema_version:"1.0.0",...(mutation?{
+            operation_id:crypto.randomUUID(),idempotency_key:crypto.randomUUID()}:{}),payload});
+      },{message_type,payload,mutation}) as Promise<{status:string;result_code:string;result?:{outcome?:string}}>;
+    };
+    const barcode="770"+String(Math.floor(Math.random()*1e10)).padStart(10,"0");
+    const registered=await call("catalog.product.register",{
+      code:"LOCAL-WINDOWS-TEST",name:"Producto verificado en SQLite real",
+      stock_controlled:false,presentation_name:"Unidad",unit_code:"UND",
+      unit_precision:0,barcode,price_amount:"2500.000000",currency_code:"COP",
+    },true);
+    expect(registered.status).toBe("SUCCEEDED");
+    expect(registered.result?.outcome).toBe("REGISTERED");
+    console.log("REAL_LOCAL_SQLITE_CATALOG_WRITE=PASS");
+
+    await page.getByRole("button",{name:"Cerrar sesión",exact:true}).click();
+    await expect(page.getByRole("textbox",{name:"Usuario",exact:true})).toBeVisible({timeout:20000});
+    const denied=await call("inventory.stock.get",{presentation_id:randomUUID()});
+    expect(denied.status).toBe("REJECTED");
+    expect(denied.result_code).toBe("SESSION_NOT_BOUND");
+    console.log("REAL_LOCAL_LOGOUT_DENIAL=PASS");
+
+    await page.locator("#pos-local-username").fill("cajero.local");
+    await page.locator("#pos-local-password").fill(passwords.get("cajero.local")!);
+    await page.getByRole("button",{name:"Ingresar",exact:true}).click();
+    await expect(page.locator(".pos-nav")).toBeVisible({timeout:20000});
+    await expect(page.getByRole("button",{name:"Caja y ventas",exact:true})).toBeVisible();
+    await expect(page.getByRole("button",{name:"Inventario",exact:true})).toHaveCount(0);
+    await captureReal(page,"real-auth-cajero");
+    const restricted=await call("inventory.stock.get",{presentation_id:randomUUID()});
+    expect(restricted.status).toBe("REJECTED");
+    expect(restricted.result_code).toBe("UNAUTHORIZED");
+    console.log("REAL_LOCAL_CASHIER_BACKEND_DENIAL=PASS");
+    console.log("REAL_LOCAL_SALES_SURFACE=PASS");
+    console.log("REAL_LOCAL_INVENTORY_RBAC=PASS");
+    console.log("REAL_LOCAL_OFFLINE_CHANNEL=PASS note=named-pipe_local_service_no_central_required");
+
+    // Restart both production processes against the EXACT SAME SQLite folder.
+    // No local identity is auto-restored; the product written above survives.
+    await electron.close();
+    electron=undefined;
+    const priorService=service;
+    const exited=new Promise<void>((resolveExit,reject)=>{
+      const timeout=setTimeout(()=>reject(Error("LOCAL_SERVICE_RESTART_SHUTDOWN_TIMEOUT")),15000);
+      priorService.once("exit",()=>{clearTimeout(timeout);resolveExit();});
+    });
+    priorService.kill();
+    await exited;
+    service=await startService();
+    electron=await _electron.launch({executablePath:requireDesktop("electron") as string,
+      args:[join(desktop,"dist","start.bundle.mjs")],env});
+    const afterRestart=await electron.firstWindow();
+    await expect(afterRestart.getByRole("textbox",{name:"Usuario",exact:true}))
+      .toBeVisible({timeout:20000});
+    await expect(afterRestart.locator(".pos-nav")).toHaveCount(0);
+    await afterRestart.locator("#pos-local-username").fill("admin.local");
+    await afterRestart.locator("#pos-local-password").fill(passwords.get("admin.local")!);
+    await afterRestart.getByRole("button",{name:"Ingresar",exact:true}).click();
+    await expect(afterRestart.locator(".pos-nav")).toBeVisible({timeout:20000});
+    const found=await afterRestart.evaluate(async value=>{
+      const api=(window as unknown as {posService:Record<string,(x:unknown)=>Promise<unknown>>}).posService;
+      return api["catalog.item.find"]!({protocol_version:"1.0.0",message_type:"catalog.item.find",
+        request_id:crypto.randomUUID(),correlation_id:crypto.randomUUID(),payload_schema_version:"1.0.0",
+        payload:{barcode:value}});
+    },barcode) as {status:string;result_code:string;result?:{presentation_id:string}};
+    expect(found.status).toBe("SUCCEEDED");
+    expect(found.result?.presentation_id).toMatch(/^[0-9a-f-]{36}$/);
+    console.log("REAL_LOCAL_SQLITE_PERSISTENCE_AFTER_RESTART=PASS");
+    console.log("REAL_LOCAL_RELOGIN_REQUIRED_AFTER_RESTART=PASS");
+  } finally {
+    await electron?.close().catch(()=>undefined);
+    service?.kill();
+    try{rmSync(dir,{force:true,recursive:true,maxRetries:10,retryDelay:250});}catch{/* Windows file locks may linger */}
+  }
+});
