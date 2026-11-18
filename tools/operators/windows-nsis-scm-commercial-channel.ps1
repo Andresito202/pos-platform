@@ -105,6 +105,47 @@ function Wait-ServiceStopped([int]$Seconds = 45) {
 function Esc([string]$v) {
   return $v.Replace('&', '&amp;').Replace('<', '&lt;').Replace('>', '&gt;').Replace('"', '&quot;')
 }
+# Match NSIS lifecycle: invoke tsx as the Node entry script (absolute path).
+# Never use `--import D:\...` — Node ESM on Windows requires file:// URLs.
+function Invoke-RepoTsx {
+  param(
+    [Parameter(Mandatory = $true)][string]$NodeExe,
+    [Parameter(Mandatory = $true)][string]$TsxCli,
+    [Parameter(Mandatory = $true)][string]$Script,
+    [Parameter(Mandatory = $true)][string[]]$ScriptArgs
+  )
+  & $NodeExe $TsxCli $Script @ScriptArgs
+  return $LASTEXITCODE
+}
+function Write-ServiceEnrollDiagnostics {
+  param(
+    [string]$PayloadDirectory,
+    [string]$LabResults,
+    [string]$Publication,
+    [int]$StartExit
+  )
+  Write-Host ('SERVICE_ENROLL_START_EXIT=' + $StartExit)
+  Write-Host ('SERVICE_ENROLL_STATUS=' + (Get-Service -Name $serviceName).Status)
+  foreach ($dir in @($PayloadDirectory, (Join-Path $env:ProgramData 'CamachoPOS\logs'), $LabResults)) {
+    if (-not (Test-Path -LiteralPath $dir)) { continue }
+    Get-ChildItem -LiteralPath $dir -File -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name -match '(?i)\.(out|err|wrapper|log|json)$' } |
+      Sort-Object LastWriteTimeUtc -Descending |
+      Select-Object -First 8 |
+      ForEach-Object {
+        Write-Host ('SERVICE_ENROLL_LOG=' + $_.FullName)
+        try {
+          Get-Content -LiteralPath $_.FullName -Tail 50 -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host ('SERVICE_ENROLL_LOG_LINE=' + $_) }
+        } catch {}
+      }
+  }
+  $failure = Join-Path $LabResults ('commercial-service-failure-' + $Publication + '.json')
+  if (Test-Path -LiteralPath $failure -PathType Leaf) {
+    Write-Host ('SERVICE_ENROLL_FAILURE_RECEIPT=' + $failure)
+    Get-Content -LiteralPath $failure -Raw -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ('SERVICE_ENROLL_FAILURE_BODY=' + $_) }
+  }
+}
 
 try {
   Must (Test-Path -LiteralPath $repo -PathType Container) 'REPO_MISSING'
@@ -156,21 +197,28 @@ try {
   $deviceId = [string]$ids.d
   Must ($installationId[14] -eq '7' -and $deviceId[14] -eq '7') 'UUID_V7_REQUIRED'
 
-  # Stage a short-path CJS enroll bundle (admin). Avoid icacls /T on pnpm trees —
-  # MAX_PATH leaves NT SERVICE unable to load tsx/workspace modules from the repo.
+  # Stage a short-path CJS enroll bundle as admin (plain ESM — no tsx).
+  # Root cause on c107382d: icacls /T over pnpm trees → MAX_PATH; NT SERVICE could
+  # not load long-path tsx/workspace modules. Bundle closes that dependency surface.
   $stage = Join-Path $repo 'tools\operators\windows-nsis-scm-commercial-stage-enroll.mjs'
   Must (Test-Path -LiteralPath $stage -PathType Leaf) 'ENROLL_STAGE_MISSING'
-  $bundleOut = & $node --import $tsx $stage $labRoot
-  Must ($LASTEXITCODE -eq 0) 'ENROLL_STAGE_FAILED'
-  $enrollBundle = ([string]$bundleOut).Trim()
+  $bundleLines = @(& $node $stage $labRoot 2>&1)
+  $stageExit = $LASTEXITCODE
+  $bundleText = ($bundleLines | ForEach-Object { [string]$_ }) -join "`n"
+  if ($stageExit -ne 0) {
+    Write-Host ('ENROLL_STAGE_STDERR=' + $bundleText.Trim())
+    throw 'ENROLL_STAGE_FAILED'
+  }
+  $enrollBundle = @($bundleLines | ForEach-Object { [string]$_ } | Where-Object { $_ -match '(?i)\\enroll-service\.cjs$' } | Select-Object -Last 1)
+  if ($enrollBundle.Count -eq 1) { $enrollBundle = [string]$enrollBundle[0] } else { $enrollBundle = $bundleText.Trim() }
   Must ($enrollBundle -match '(?i)\\enroll-service\.cjs$' -and (Test-Path -LiteralPath $enrollBundle -PathType Leaf)) 'ENROLL_BUNDLE_MISSING'
   Seal-InstallerManagedFile $enrollBundle
-  # WinSW keeps the payload <executable>; grant RX on that Node (not only PATH node).
+  # WinSW keeps the payload <executable>; grant RX on that Node + short-path bin only.
   $execMatch = [regex]::Match($xmlOriginalText, '<executable>([^<]+)</executable>')
   Must $execMatch.Success 'WINSW_EXECUTABLE_MISSING'
   $winswNode = [System.Net.WebUtility]::HtmlDecode($execMatch.Groups[1].Value)
   Must (Test-Path -LiteralPath $winswNode -PathType Leaf) 'WINSW_NODE_MISSING'
-  foreach ($p in @($winswNode, $node, (Join-Path $labRoot 'bin'))) {
+  foreach ($p in @($winswNode, (Join-Path $labRoot 'bin'))) {
     & icacls.exe $p /grant ('*' + $serviceSid + ':(OI)(CI)RX') /T /C /Q | Out-Null
   }
   # powershell.exe is required by windows-handoff-native under the service token.
@@ -192,6 +240,12 @@ try {
   $enrollXml = [regex]::Replace($enrollXml, '<arguments>[^<]*</arguments>', ('<arguments>' + (Esc $enrollArgument) + '</arguments>'))
   # Disable onfailure restarts during one-shot enrollment.
   $enrollXml = [regex]::Replace($enrollXml, '<onfailure[^/]*/>', '')
+  # Route WinSW child logs into the lab results tree for real-service evidence.
+  if ($enrollXml -match '<logpath>') {
+    $enrollXml = [regex]::Replace($enrollXml, '<logpath>[^<]*</logpath>', ('<logpath>' + (Esc (Join-Path $labRoot 'results')) + '</logpath>'))
+  } else {
+    $enrollXml = $enrollXml.Replace('</service>', ('  <logpath>' + (Esc (Join-Path $labRoot 'results')) + '</logpath>' + "`r`n</service>"))
+  }
   # UTF-8 without BOM — WinSW 2.x rejects BOM'd companion XML on some hosts.
   [IO.File]::WriteAllText($xmlPath, $enrollXml, [Text.UTF8Encoding]::new($false))
   $xmlSwapped = $true
@@ -199,44 +253,33 @@ try {
   & sc.exe start $serviceName | Out-Null
   $startExit = $LASTEXITCODE
   $serviceOut = Join-Path $labRoot ('results\commercial-service-' + $publication + '.json')
+  $failureOut = Join-Path $labRoot ('results\commercial-service-failure-' + $publication + '.json')
   $until = [DateTime]::UtcNow.AddSeconds(90)
-  while (-not (Test-Path -LiteralPath $serviceOut -PathType Leaf) -and [DateTime]::UtcNow -lt $until) {
+  while (
+    -not (Test-Path -LiteralPath $serviceOut -PathType Leaf) -and
+    -not (Test-Path -LiteralPath $failureOut -PathType Leaf) -and
+    [DateTime]::UtcNow -lt $until
+  ) {
     Start-Sleep -Milliseconds 250
   }
   if (-not (Test-Path -LiteralPath $serviceOut -PathType Leaf)) {
-    Write-Host ('SERVICE_ENROLL_START_EXIT=' + $startExit)
-    Write-Host ('SERVICE_ENROLL_STATUS=' + (Get-Service -Name $serviceName).Status)
-    $logDir = Join-Path $env:ProgramData 'CamachoPOS\logs'
-    if (Test-Path -LiteralPath $logDir) {
-      Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTimeUtc -Descending |
-        Select-Object -First 4 |
-        ForEach-Object {
-          Write-Host ('SERVICE_ENROLL_LOG=' + $_.Name)
-          try {
-            Get-Content -LiteralPath $_.FullName -Tail 40 -ErrorAction SilentlyContinue |
-              ForEach-Object { Write-Host ('SERVICE_ENROLL_LOG_LINE=' + $_) }
-          } catch {}
-        }
-    }
-    $resultsDir = Join-Path $labRoot 'results'
-    if (Test-Path -LiteralPath $resultsDir) {
-      Write-Host ('SERVICE_ENROLL_RESULTS=' + ((Get-ChildItem -LiteralPath $resultsDir -Force | Select-Object -ExpandProperty Name) -join ','))
-    }
+    Write-ServiceEnrollDiagnostics -PayloadDirectory $payload -LabResults (Join-Path $labRoot 'results') -Publication $publication -StartExit $startExit
+    if (Test-Path -LiteralPath $failureOut -PathType Leaf) { throw 'SERVICE_ENROLLMENT_FAILED' }
     throw 'SERVICE_ENROLLMENT_MISSING'
   }
   try { Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue } catch {}
   Wait-ServiceStopped
   Write-Host 'SERVICE_CHANNEL_ENROLLMENT=PASS'
 
-  # Desktop enrollment under interactive operator token.
-  & $node --import $tsx $enroll DESKTOP $labRoot $publication $installationId $deviceId
-  Must ($LASTEXITCODE -eq 0) 'DESKTOP_ENROLLMENT_FAILED'
+  # Desktop enrollment under interactive operator token (tsx entry, not --import path).
+  $deskExit = Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $enroll -ScriptArgs @('DESKTOP', $labRoot, $publication, $installationId, $deviceId)
+  Must ($deskExit -eq 0) 'DESKTOP_ENROLLMENT_FAILED'
   $desktopOut = Join-Path $labRoot ('desktop\commercial-desktop-' + $publication + '.json')
   Must (Test-Path -LiteralPath $desktopOut -PathType Leaf) 'DESKTOP_ENROLLMENT_MISSING'
+  Write-Host 'DESKTOP_CHANNEL_ENROLLMENT=PASS'
 
-  & $node --import $tsx $enroll PAIR $labRoot $publication $installationId $deviceId
-  Must ($LASTEXITCODE -eq 0) 'PAIR_FAILED'
+  $pairExit = Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $enroll -ScriptArgs @('PAIR', $labRoot, $publication, $installationId, $deviceId)
+  Must ($pairExit -eq 0) 'PAIR_FAILED'
   $serviceManifest = Join-Path $labRoot ('service\commercial-provision-' + $publication + '.json')
   $desktopManifest = Join-Path $labRoot ('desktop\commercial-provision-' + $publication + '.json')
   Must ((Test-Path -LiteralPath $serviceManifest) -and (Test-Path -LiteralPath $desktopManifest)) 'MANIFESTS_MISSING'
@@ -245,6 +288,7 @@ try {
   $adapterPath = Join-Path $labRoot 'service\camacho_windows_pipe.node'
   Must (Test-Path -LiteralPath $adapterPath -PathType Leaf) 'ADAPTER_MISSING'
   Seal-InstallerManagedFile $adapterPath
+  Write-Host 'SCM_COMMERCIAL_PAIR=PASS'
 
   # Restore product WinSW XML from backup, then bind IDs + SCM handoff for PRODUCT.
   $xml = $xmlOriginalText
@@ -293,12 +337,13 @@ try {
   # Authenticated ops via production connectWindowsScmClient (not interactive LS).
   $env:POS_WINDOWS_SCM_HANDOFF_FILE = $desktopManifest
   try {
-    & $node --import $tsx $ops
-    Must ($LASTEXITCODE -eq 0) 'COMMERCIAL_OPS_FAILED'
+    $opsExit = Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $ops -ScriptArgs @()
+    Must ($opsExit -eq 0) 'COMMERCIAL_OPS_FAILED'
   }
   finally {
     Remove-Item Env:POS_WINDOWS_SCM_HANDOFF_FILE -ErrorAction SilentlyContinue
   }
+  Write-Host 'SCM_COMMERCIAL_OPS=PASS'
 
   # Installed Electron production-entry path with SCM handoff (spawn + persist).
   $prevScm = [Environment]::GetEnvironmentVariable('POS_WINDOWS_SCM_HANDOFF_FILE', 'Process')
