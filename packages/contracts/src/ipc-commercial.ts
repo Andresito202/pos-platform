@@ -1573,6 +1573,8 @@ export const InventoryTransformExecuteResultSchema = z.strictObject({
   available: NonNegativeScale6Schema.nullable(),
 });
 
+export type InventoryTransformExecuteResult = z.infer<typeof InventoryTransformExecuteResultSchema>;
+
 export const InventoryTransformExecuteResponseSchema =
   createResponseEnvelopeSchema(InventoryTransformExecuteResultSchema);
 
