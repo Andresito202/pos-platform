@@ -156,22 +156,27 @@ try {
   $deviceId = [string]$ids.d
   Must ($installationId[14] -eq '7' -and $deviceId[14] -eq '7') 'UUID_V7_REQUIRED'
 
-  # Grant service RX on the enrollment closure (avoid full-repo /T).
-  $tsxPackageRoot = Split-Path -Parent (Split-Path -Parent $tsx)
-  foreach ($p in @(
-      (Join-Path $repo 'tools\operators'),
-      (Join-Path $repo 'packages\local-channel'),
-      (Join-Path $repo 'packages\contracts'),
-      (Join-Path $repo 'apps\pos-local-service'),
-      (Join-Path $repo 'node_modules'),
-      $tsxPackageRoot
-    )) {
-    if (-not [string]::IsNullOrWhiteSpace($p) -and (Test-Path -LiteralPath $p)) {
-      & icacls.exe $p /grant ('*' + $serviceSid + ':(OI)(CI)RX') /T /C /Q | Out-Null
-    }
+  # Stage a short-path CJS enroll bundle (admin). Avoid icacls /T on pnpm trees —
+  # MAX_PATH leaves NT SERVICE unable to load tsx/workspace modules from the repo.
+  $stage = Join-Path $repo 'tools\operators\windows-nsis-scm-commercial-stage-enroll.mjs'
+  Must (Test-Path -LiteralPath $stage -PathType Leaf) 'ENROLL_STAGE_MISSING'
+  $bundleOut = & $node --import $tsx $stage $labRoot
+  Must ($LASTEXITCODE -eq 0) 'ENROLL_STAGE_FAILED'
+  $enrollBundle = ([string]$bundleOut).Trim()
+  Must ($enrollBundle -match '(?i)\\enroll-service\.cjs$' -and (Test-Path -LiteralPath $enrollBundle -PathType Leaf)) 'ENROLL_BUNDLE_MISSING'
+  Seal-InstallerManagedFile $enrollBundle
+  # WinSW keeps the payload <executable>; grant RX on that Node (not only PATH node).
+  $execMatch = [regex]::Match($xmlOriginalText, '<executable>([^<]+)</executable>')
+  Must $execMatch.Success 'WINSW_EXECUTABLE_MISSING'
+  $winswNode = [System.Net.WebUtility]::HtmlDecode($execMatch.Groups[1].Value)
+  Must (Test-Path -LiteralPath $winswNode -PathType Leaf) 'WINSW_NODE_MISSING'
+  foreach ($p in @($winswNode, $node, (Join-Path $labRoot 'bin'))) {
+    & icacls.exe $p /grant ('*' + $serviceSid + ':(OI)(CI)RX') /T /C /Q | Out-Null
   }
-  # Node.exe itself must be executable by the virtual account.
-  & icacls.exe $node /grant ('*' + $serviceSid + ':RX') /C /Q | Out-Null
+  # powershell.exe is required by windows-handoff-native under the service token.
+  $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  Must (Test-Path -LiteralPath $psExe -PathType Leaf) 'POWERSHELL_MISSING'
+  & icacls.exe $psExe /grant ('*' + $serviceSid + ':RX') /C /Q | Out-Null
 
   # Prior lifecycle phases leave CamachoPOSLocalService Running; stop before enrollment swap.
   if ((Get-Service -Name $serviceName).Status -ne 'Stopped') {
@@ -180,23 +185,46 @@ try {
     }
   }
   Wait-ServiceStopped
-  # Keep WinSW as the SCM host; temporarily point its Node arguments at enrollment.
+  # Keep WinSW as the SCM host; temporarily point its Node arguments at the staged CJS.
   # (Plain node.exe as binPath is not a service and would be rejected by SCM.)
-  $enrollArgument = '--import "' + $tsx + '" "' + $enroll + '" SERVICE "' + $labRoot + '" ' + $publication + ' ' + $installationId + ' ' + $deviceId
+  $enrollArgument = '"' + $enrollBundle + '" "' + $labRoot + '" ' + $publication + ' ' + $installationId + ' ' + $deviceId
   $enrollXml = $xmlOriginalText
   $enrollXml = [regex]::Replace($enrollXml, '<arguments>[^<]*</arguments>', ('<arguments>' + (Esc $enrollArgument) + '</arguments>'))
   # Disable onfailure restarts during one-shot enrollment.
   $enrollXml = [regex]::Replace($enrollXml, '<onfailure[^/]*/>', '')
-  Set-Content -LiteralPath $xmlPath -Value $enrollXml -Encoding UTF8
+  # UTF-8 without BOM — WinSW 2.x rejects BOM'd companion XML on some hosts.
+  [IO.File]::WriteAllText($xmlPath, $enrollXml, [Text.UTF8Encoding]::new($false))
   $xmlSwapped = $true
 
-  Start-Service -Name $serviceName -ErrorAction SilentlyContinue
+  & sc.exe start $serviceName | Out-Null
+  $startExit = $LASTEXITCODE
   $serviceOut = Join-Path $labRoot ('results\commercial-service-' + $publication + '.json')
   $until = [DateTime]::UtcNow.AddSeconds(90)
   while (-not (Test-Path -LiteralPath $serviceOut -PathType Leaf) -and [DateTime]::UtcNow -lt $until) {
     Start-Sleep -Milliseconds 250
   }
-  Must (Test-Path -LiteralPath $serviceOut -PathType Leaf) 'SERVICE_ENROLLMENT_MISSING'
+  if (-not (Test-Path -LiteralPath $serviceOut -PathType Leaf)) {
+    Write-Host ('SERVICE_ENROLL_START_EXIT=' + $startExit)
+    Write-Host ('SERVICE_ENROLL_STATUS=' + (Get-Service -Name $serviceName).Status)
+    $logDir = Join-Path $env:ProgramData 'CamachoPOS\logs'
+    if (Test-Path -LiteralPath $logDir) {
+      Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 4 |
+        ForEach-Object {
+          Write-Host ('SERVICE_ENROLL_LOG=' + $_.Name)
+          try {
+            Get-Content -LiteralPath $_.FullName -Tail 40 -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host ('SERVICE_ENROLL_LOG_LINE=' + $_) }
+          } catch {}
+        }
+    }
+    $resultsDir = Join-Path $labRoot 'results'
+    if (Test-Path -LiteralPath $resultsDir) {
+      Write-Host ('SERVICE_ENROLL_RESULTS=' + ((Get-ChildItem -LiteralPath $resultsDir -Force | Select-Object -ExpandProperty Name) -join ','))
+    }
+    throw 'SERVICE_ENROLLMENT_MISSING'
+  }
   try { Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue } catch {}
   Wait-ServiceStopped
   Write-Host 'SERVICE_CHANNEL_ENROLLMENT=PASS'
@@ -230,7 +258,7 @@ try {
   }
   # Keep commercialLogin false path: never inject POS_WINDOWS_COMMERCIAL_PROVISION_FILE.
   Must ($xml -notmatch 'POS_WINDOWS_COMMERCIAL_PROVISION_FILE') 'COMMERCIAL_PROVISION_MUST_STAY_ABSENT'
-  Set-Content -LiteralPath $xmlPath -Value $xml -Encoding UTF8
+  [IO.File]::WriteAllText($xmlPath, $xml, [Text.UTF8Encoding]::new($false))
   $xmlSwapped = $false
 
   Start-Service -Name $serviceName -ErrorAction Stop
@@ -319,7 +347,7 @@ finally {
     try {
       try { Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue } catch {}
       Start-Sleep -Milliseconds 500
-      Set-Content -LiteralPath $xmlPath -Value $xmlOriginalText -Encoding UTF8
+      [IO.File]::WriteAllText($xmlPath, $xmlOriginalText, [Text.UTF8Encoding]::new($false))
     }
     catch {}
   }
