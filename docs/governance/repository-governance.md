@@ -6,6 +6,12 @@ Este documento es la fuente normativa para ramas, pull requests, integración en
 
 No sustituye el backlog ni las decisiones de arquitectura. Su función es impedir cambios huérfanos, merges ambiguos, estados Git inventados y ramas abiertas sin objetivo vigente.
 
+## Línea de ejecución vigente — 2026-11-09
+
+Por orden del propietario de unificar el trabajo, se continúa únicamente `cursor/commercial-design-review-0d11`, rama existente cuya base inspeccionada es `6a02c858`. El destino de entrega sigue siendo main. No se crea una rama de consolidación adicional ni se trabaja en paralelo sobre sus predecesoras.
+
+El cambio de dirección no autoriza merges sin revisar ni acredita producción. El retiro de ramas requiere comprobar contenido exclusivo y dependencias de PR; el inventario actual está al inicio del backlog. Las referencias históricas a otras líneas activas conservan solamente su alcance fechado.
+
 ## Rama canónica
 
 `main` es la única rama canónica del producto.

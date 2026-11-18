@@ -6,6 +6,10 @@
 
 # Camacho POS Colombia
 
+
+> **Línea activa:** `cursor/commercial-design-review-0d11` → entrega canónica `main` vía PR #106 (Draft).
+> Integración selectiva por olas (docs/governance/selective-integration-waves-2026-11-18.md).
+> No merge masivo. Ola 5 SCM comercial congelada. FACTUS al final.
 Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first para operación comercial real en Colombia.
 
 `Camacho POS Colombia` es la identidad comercial. `POS Platform`, `pos-platform` y `@pos-platform/*` son identificadores técnicos internos.
@@ -16,7 +20,7 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 La rama canónica del producto es `main`. La única línea activa de desarrollo es:
 
-`claude/pos-camacho-bloque-4c-ld43py`
+`cursor/commercial-design-review-0d11`
 
 Claude Code y cualquier otra IA/agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
 
