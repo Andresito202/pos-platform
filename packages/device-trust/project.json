@@ -1,0 +1,7 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "@pos-platform/device-trust",
+  "root": "packages/device-trust",
+  "projectType": "library",
+  "tags": ["layer:security","type:library","scope:shared"]
+}

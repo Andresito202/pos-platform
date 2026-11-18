@@ -103,6 +103,21 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TRIGGER local_schema_migrations_no_delete;
       DROP TABLE fiscal_electronic_document;
       DROP TABLE fiscal_numbering_range;
+      DROP TABLE customer_marketing_subscriptions;
+      DROP TRIGGER IF EXISTS inventory_reservation_lot_no_update;
+      DROP TRIGGER IF EXISTS inventory_reservation_lot_no_delete;
+      DROP TABLE IF EXISTS inventory_reservation_lot;
+      DROP TRIGGER IF EXISTS inventory_reservation_no_delete;
+      DROP INDEX IF EXISTS inventory_reservation_availability_idx;
+      DROP INDEX IF EXISTS inventory_reservation_reference_idx;
+      DROP TABLE IF EXISTS inventory_reservation;
+      DROP TRIGGER inventory_conversion_event_no_update;
+      DROP TRIGGER inventory_conversion_event_no_delete;
+      DROP TABLE inventory_conversion_event;
+      DROP TRIGGER inventory_conversion_rule_same_product;
+      DROP TRIGGER inventory_conversion_rule_no_update;
+      DROP TRIGGER inventory_conversion_rule_no_delete;
+      DROP TABLE inventory_conversion_rule;
       DROP TABLE inventory_movement;
       DROP TABLE inventory_stock;
       DROP TABLE catalog_price;
@@ -126,6 +141,25 @@ async function databaseAtVersionSeven(): Promise<string> {
       DROP TRIGGER local_master_snapshot_artifact_no_update;
       DROP TRIGGER local_master_snapshot_artifact_no_delete;
       DROP TABLE local_master_snapshot_artifact;
+      -- v18 objects must not survive in the reconstructed v7 fixture.
+      -- This is a temporary test DB, not a downgrade of an operational DB.
+      DROP TABLE hardware_events;
+      DROP TABLE hardware_jobs;
+      DROP TABLE hardware_bindings;
+      -- v19 editable carts must also be absent in this reconstructed v7 fixture.
+      DROP TABLE sales_waiting_carts;
+      -- v21 merchant QR projection is later than this historical v7 fixture.
+      -- Remove only the disposable fixture's future schema before replay.
+      DROP TRIGGER inventory_lot_status_event_no_update;
+      DROP TRIGGER inventory_lot_status_event_no_delete;
+      DROP TABLE inventory_lot_status_event;
+      DROP TRIGGER inventory_lot_movement_no_update;
+      DROP TRIGGER inventory_lot_movement_no_delete;
+      DROP TABLE inventory_lot_movement;
+      DROP TRIGGER inventory_lot_no_delete;
+      DROP TABLE inventory_lot;
+      DROP TABLE inventory_lot_tracking;
+      DROP TABLE local_merchant_payment_destination_snapshot;
       DELETE FROM local_schema_migrations WHERE version > 7;
       CREATE TRIGGER local_schema_migrations_no_delete
         BEFORE DELETE ON local_schema_migrations

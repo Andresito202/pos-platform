@@ -110,6 +110,10 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "cash.shift.open":
       case "cash.shift.close":
       case "sale.create":
+      case "cart.waiting.save":
+      case "cart.waiting.list":
+      case "cart.waiting.get":
+      case "cart.waiting.discard":
       case "payment.register.cash":
       case "payment.register.transfer":
       case "payment.transfer.confirm":
@@ -125,6 +129,12 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "inventory.stock.receive":
       case "inventory.stock.adjust":
       case "inventory.stock.get":
+      case "inventory.batch.list":
+      case "inventory.batch.status":
+      case "inventory.conversion.rule.approve":
+      case "inventory.conversion.execute":
+      case "inventory.reservation.create":
+      case "inventory.reservation.release":
       case "sales.receipt.get":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.

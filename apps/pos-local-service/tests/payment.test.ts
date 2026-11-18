@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { uuidV7 } from "@pos-platform/contracts";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -144,7 +145,7 @@ function seedSale(
   const saleId = options.saleId ?? randomUUID();
   const payable = options.payable ?? "10000.000000";
   const shiftId = options.shiftId === undefined ? null : options.shiftId;
-  const operationId = randomUUID();
+  const operationId = uuidV7(NOW.getTime());
   const at = NOW.toISOString();
   const zero = "0.000000";
   // `sales_sales_document_idx` es UNIQUE por (tenant, branch, serie, número):
@@ -1063,7 +1064,7 @@ describe("salida de existencia al completar la venta", () => {
       sessionId: SESSION,
       operatorUserId: USER,
       movementId: randomUUID(),
-      operationId: randomUUID(),
+      operationId: uuidV7(NOW.getTime()),
       presentationId,
       movementType: "OPENING_COUNT",
       quantity,
@@ -1169,5 +1170,115 @@ describe("salida de existencia al completar la venta", () => {
       "SELECT COUNT(*) AS total FROM inventory_movement WHERE tenant_id=?",
     ).get(TENANT) as { total: number };
     expect(movements.total).toBe(0);
+  });
+});
+
+describe("Block 2 — mixed tender, transfer overpay, pending restart", () => {
+  it("cash + transfer remainder completes the sale when the transfer is confirmed", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { shiftId, payable: "10000.000000" });
+
+    const cash = env.registerCash.execute(SCOPE, SESSION, auth(), cashRequest(saleId, "4000.000000", "mix:cash"));
+    expect(cash.kind).toBe("CONFIRMED");
+    if (cash.kind !== "CONFIRMED") return;
+    expect(cash.saleCompleted).toBe(false);
+
+    const registered = env.registerTransfer.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "6000.000000", providerCode: "NEQUI", providerReference: null,
+      idempotencyKey: "mix:xfer", correlationId: randomUUID(), causationId: null,
+    });
+    expect(registered.kind).toBe("REGISTERED");
+    if (registered.kind !== "REGISTERED") return;
+
+    const confirmed = env.confirmTransfer.execute(SCOPE, SESSION, auth(), {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      idempotencyKey: "mix:xfer:confirm", correlationId: randomUUID(), causationId: null,
+    });
+    expect(confirmed.kind).toBe("CONFIRMED");
+    if (confirmed.kind !== "CONFIRMED") return;
+    expect(confirmed.saleCompleted).toBe(true);
+    expect(saleStatus(env.database, saleId).status).toBe("COMPLETED");
+  });
+
+  it("confirming a transfer that would overpay is rejected without completing the sale", async () => {
+    const env = await buildEnv();
+    seedRegister(env.database);
+    const shiftId = openShift(env);
+    const saleId = seedSale(env.database, { shiftId, payable: "10000.000000" });
+
+    env.registerCash.execute(SCOPE, SESSION, auth(), cashRequest(saleId, "4000.000000", "over:cash"));
+    const registered = env.registerTransfer.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "7000.000000", providerCode: null, providerReference: null,
+      idempotencyKey: "over:xfer", correlationId: randomUUID(), causationId: null,
+    });
+    expect(registered.kind).toBe("REGISTERED");
+    if (registered.kind !== "REGISTERED") return;
+
+    const confirmed = env.confirmTransfer.execute(SCOPE, SESSION, auth(), {
+      paymentId: registered.paymentId, expectedVersion: 1,
+      idempotencyKey: "over:xfer:confirm", correlationId: randomUUID(), causationId: null,
+    });
+    expect(confirmed.kind).toBe("OVERPAYMENT_NOT_ALLOWED");
+    expect(saleStatus(env.database, saleId).status).toBe("PAYMENT_IN_PROGRESS");
+  });
+
+  it("a CREATED transfer remains confirmable after reopening the local SQLite database", async () => {
+    const dir = await directory();
+    let database = LocalDatabase.open({ dataDirectory: dir });
+    databases.push(database);
+    const sync = new DurableSyncStore(database);
+    const cashStore = new SqliteCashShiftStore(database, sync, () => NOW);
+    const masterStore = new SqliteMasterSnapshotStore(database, () => NOW);
+    const inventoryStore = new SqliteInventoryStore(database, sync, () => NOW);
+    let paymentStore = new SqlitePaymentStore(database, sync, cashStore, inventoryStore, () => NOW);
+    const open = new OpenCashShiftUseCase(masterStore, cashStore, () => NOW);
+    const registerTransfer = new RegisterTransferPaymentUseCase(paymentStore, () => NOW);
+
+    seedRegister(database);
+    const opened = open.execute(SCOPE, SESSION, auth(), {
+      cashRegisterId: REGISTER, openingAmount: "0.000000",
+      businessDate: "2026-09-06", timezoneId: "America/Bogota", utcOffsetMinutes: -300,
+      idempotencyKey: "restart:shift", correlationId: randomUUID(), causationId: null,
+    });
+    expect(opened.kind).toBe("OPENED");
+    if (opened.kind !== "OPENED") return;
+    const saleId = seedSale(database, {
+      shiftId: opened.shiftId,
+      payable: "10000.000000",
+    });
+    const registered = registerTransfer.execute(SCOPE, SESSION, auth(), {
+      saleId, amount: "10000.000000", providerCode: null, providerReference: null,
+      idempotencyKey: "restart:xfer", correlationId: randomUUID(), causationId: null,
+    });
+    expect(registered.kind).toBe("REGISTERED");
+    if (registered.kind !== "REGISTERED") return;
+    const paymentId = registered.paymentId;
+
+    database.close();
+    database = LocalDatabase.open({ dataDirectory: dir });
+    databases.push(database);
+    const sync2 = new DurableSyncStore(database);
+    const cashStore2 = new SqliteCashShiftStore(database, sync2, () => NOW);
+    const inventoryStore2 = new SqliteInventoryStore(database, sync2, () => NOW);
+    paymentStore = new SqlitePaymentStore(database, sync2, cashStore2, inventoryStore2, () => NOW);
+    const get = new GetPaymentUseCase(paymentStore, () => NOW);
+    const confirm = new ConfirmTransferPaymentUseCase(paymentStore, () => NOW);
+
+    const found = get.execute(SCOPE, auth(), { paymentId });
+    expect(found.kind).toBe("FOUND");
+    if (found.kind !== "FOUND") return;
+    expect(found.payment.status).toBe("CREATED");
+    expect(found.payment.version).toBe(1);
+
+    const confirmed = confirm.execute(SCOPE, SESSION, auth(), {
+      paymentId, expectedVersion: found.payment.version,
+      idempotencyKey: "restart:xfer:confirm", correlationId: randomUUID(), causationId: null,
+    });
+    expect(confirmed.kind).toBe("CONFIRMED");
+    if (confirmed.kind !== "CONFIRMED") return;
+    expect(confirmed.saleCompleted).toBe(true);
+    expect(saleStatus(database, saleId).status).toBe("COMPLETED");
   });
 });

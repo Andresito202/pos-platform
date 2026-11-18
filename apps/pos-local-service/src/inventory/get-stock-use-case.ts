@@ -1,3 +1,4 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
 import {
   createActor,
   createOperationScope,
@@ -8,7 +9,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { InventoryStock, SqliteInventoryStore } from "./sqlite-inventory-store.js";
 
-export const PERMISSION_INVENTORY_STOCK_READ = "INVENTORY_STOCK_READ";
+export const PERMISSION_INVENTORY_STOCK_READ = CanonicalPermission.INVENTORY_STOCK_READ;
 
 export type GetStockResult =
   | { readonly kind: "FOUND"; readonly stock: InventoryStock }
@@ -42,5 +43,21 @@ export class GetStockUseCase {
 
     const stock = this.inventoryStore.getStock(scope, presentationId);
     return stock === null ? { kind: "NOT_FOUND" } : { kind: "FOUND", stock };
+  }
+}
+
+export class ListBatchesUseCase {
+  constructor(private readonly inventoryStore:SqliteInventoryStore){}
+  execute(scope:SyncScope,authSnapshot:StoredAuthorizationSnapshot,presentationId:string,at:Date=new Date()){
+    const allowed=evaluatePermission({
+      actor:createActor("USER",authSnapshot.claims.user_id),
+      permission:CanonicalPermission.INVENTORY_STOCK_READ,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),
+      at,assignments:toRoleAssignments(authSnapshot.claims),
+    }).allowed;
+    if(!allowed)return {kind:"UNAUTHORIZED" as const,batches:[],tracked:false};
+    return {kind:"FOUND" as const,
+      tracked:this.inventoryStore.isLotTracked(scope,presentationId),
+      batches:this.inventoryStore.listBatches(scope,presentationId)};
   }
 }

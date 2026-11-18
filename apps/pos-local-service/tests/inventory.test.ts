@@ -114,6 +114,41 @@ const receipt = (presentationId: string, overrides: Record<string, unknown> = {}
 });
 
 describe("entrada de existencia", () => {
+  it.each(["0.000000", "-1.000000", "1.5", "10000000000000.000000"])("rejects invalid quantity %s without a movement", async quantity => {
+    const { receive, database, presentationId } = await buildEnv();
+    expect(receive.execute(SCOPE, SESSION, auth(), receipt(presentationId, { quantity })).kind).toBe("INVALID_QUANTITY");
+    expect(database.native.prepare("SELECT COUNT(*) n FROM inventory_movement").get()).toEqual({ n: 0 });
+  });
+
+  it("rejects fractional units, preserves weighted precision and rejects excess precision in shrinkage", async () => {
+    const { receive, adjust, store, database, presentationId } = await buildEnv();
+    database.native.prepare("UPDATE catalog_presentation SET unit_precision=0 WHERE id=?").run(presentationId);
+    expect(receive.execute(SCOPE, SESSION, auth(), receipt(presentationId, { quantity: "1.500000" })).kind).toBe("QUANTITY_PRECISION_EXCEEDED");
+    database.native.prepare("UPDATE catalog_presentation SET unit_precision=3 WHERE id=?").run(presentationId);
+    const request = receipt(presentationId, { quantity: "1.235000" });
+    expect(receive.execute(SCOPE, SESSION, auth(), request).kind).toBe("POSTED");
+    expect(receive.execute(SCOPE, SESSION, auth(), request).kind).toBe("IDEMPOTENT");
+    expect(adjust.execute(SCOPE, SESSION, auth(), { ...receipt(presentationId), movementType: "SHRINKAGE", quantity: "0.000100" }).kind).toBe("QUANTITY_PRECISION_EXCEEDED");
+    expect(store.getStock(SCOPE, presentationId)?.quantityOnHand).toBe("1.235000");
+    expect(database.native.prepare("SELECT COUNT(*) n FROM inventory_movement").get()).toEqual({ n: 1 });
+  });
+
+  it("does not write inventory for a presentation owned by another company", async () => {
+    const { receive, database, presentationId } = await buildEnv();
+    database.native.prepare("UPDATE catalog_product SET company_id=?").run(OTHER_BRANCH);
+    expect(receive.execute(SCOPE, SESSION, auth(), receipt(presentationId)).kind).toBe("PRESENTATION_NOT_FOUND");
+    expect(database.native.prepare("SELECT COUNT(*) n FROM inventory_movement").get()).toEqual({ n: 0 });
+  });
+
+  it("rejects balance overflow atomically", async () => {
+    const { receive, store, presentationId, database } = await buildEnv();
+    database.native.prepare("UPDATE catalog_presentation SET unit_precision=6 WHERE id=?").run(presentationId);
+    expect(receive.execute(SCOPE, SESSION, auth(), receipt(presentationId, { quantity: "9999999999999.999999" })).kind).toBe("POSTED");
+    expect(receive.execute(SCOPE, SESSION, auth(), receipt(presentationId, { quantity: "0.000001" })).kind).toBe("STOCK_QUANTITY_OVERFLOW");
+    expect(store.getStock(SCOPE, presentationId)?.quantityOnHand).toBe("9999999999999.999999");
+    expect(database.native.prepare("SELECT COUNT(*) n FROM inventory_movement").get()).toEqual({ n: 1 });
+  });
+
   it("crea la fila de existencia y deja el libro cuadrado con ella", async () => {
     const { receive, get, database, presentationId } = await buildEnv();
 
