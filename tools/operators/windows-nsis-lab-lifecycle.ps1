@@ -41,6 +41,7 @@ $tenantId = [guid]::NewGuid().ToString()
 $companyId = [guid]::NewGuid().ToString()
 $branchId = [guid]::NewGuid().ToString()
 $serviceProc = $null
+$g1Status = 'SKIP'
 
 function Write-Step([string]$Name, [string]$Status, [hashtable]$Detail = @{}) {
   $detailText = @($Detail.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ' '
@@ -432,6 +433,102 @@ try {
     throw 'WINSW_SCM_REGISTRATION_FAILED_NSIS_DID_NOT_REGISTER'
   }
 
+  # --- Unexpected interruption recovery: stop/start must restore Running + virtual identity ---
+  Write-Host "PHASE=scm_restart_recovery"
+  try {
+    Restart-Service -Name 'CamachoPOSLocalService' -Force -ErrorAction Stop
+  }
+  catch {
+    # Restart-Service can race with WinSW onfailure; fall back to stop/start.
+    try { Stop-Service -Name 'CamachoPOSLocalService' -Force -ErrorAction SilentlyContinue } catch {}
+    Start-Sleep -Seconds 2
+    Start-Service -Name 'CamachoPOSLocalService' -ErrorAction Stop
+  }
+  $recoverDeadline = [DateTime]::UtcNow.AddSeconds(45)
+  $svcRecover = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+  while ($null -ne $svcRecover -and $svcRecover.Status -ne 'Running' -and [DateTime]::UtcNow -lt $recoverDeadline) {
+    Start-Sleep -Milliseconds 500
+    $svcRecover = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+  }
+  $cimRecover = Get-CimInstance Win32_Service -Filter "Name='CamachoPOSLocalService'" -ErrorAction SilentlyContinue
+  $recoverOk = $null -ne $svcRecover -and $svcRecover.Status -eq 'Running' -and
+    $null -ne $cimRecover -and $cimRecover.StartName -eq $expectedScmAccount -and
+    $svcRecover.StartType -eq 'Automatic'
+  [void]$steps.Add((Write-Step 'scm_restart_recovery' $(if ($recoverOk) { 'PASS' } else { 'FAIL' }) @{
+    status = $(if ($svcRecover) { [string]$svcRecover.Status } else { 'Absent' })
+    startType = $(if ($svcRecover) { [string]$svcRecover.StartType } else { '' })
+    startName = $(if ($cimRecover) { [string]$cimRecover.StartName } else { '' })
+    expectedStartName = $expectedScmAccount
+    note = 'Proxies unexpected interruption + Automatic start after Windows restart (lab; no full reboot)'
+  }))
+  if (-not $recoverOk) { throw 'SCM_RESTART_RECOVERY_FAILED' }
+
+  # --- Negative ACL / forged provision / LocalSystem impersonation checks ---
+  Write-Host "PHASE=security_negatives"
+  $negScript = Join-Path $RepoRoot 'tools/operators/windows-nsis-security-negatives.ps1'
+  $negExit = 0
+  try {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $negScript `
+      -Run -PayloadDir $payloadDir -ScmDataDirectory $scmDataDirectory -WorkRoot $WorkRoot
+    $negExit = $LASTEXITCODE
+  }
+  catch {
+    $negExit = 1
+    Write-Host ("SECURITY_NEGATIVES_EXCEPTION=" + $_.Exception.Message)
+  }
+  $negReport = Join-Path $WorkRoot 'nsis-security-negatives.json'
+  $negDetail = @{ exitCode = $negExit; report = $negReport }
+  if (Test-Path -LiteralPath $negReport) {
+    try {
+      $negJson = Get-Content -LiteralPath $negReport -Raw | ConvertFrom-Json
+      $negDetail['failed'] = [int]$negJson.failed
+      $negDetail['stepCount'] = @($negJson.steps).Count
+    }
+    catch {}
+  }
+  [void]$steps.Add((Write-Step 'security_negatives' $(if ($negExit -eq 0) { 'PASS' } else { 'FAIL' }) $negDetail))
+  if ($negExit -ne 0) { throw 'SECURITY_NEGATIVES_FAILED' }
+
+  # --- G1 native identity on the NSIS-installed SCM virtual account (not Electron commercial handshake) ---
+  Write-Host "PHASE=g1_native_on_installed_scm"
+  $addonPath = Join-Path $RepoRoot 'packages/local-channel/native/build/Release/camacho_windows_pipe.node'
+  $g1Script = Join-Path $RepoRoot 'tools/operators/windows-nsis-scm-g1-identity.ps1'
+  $g1Status = 'SKIP'
+  $g1Detail = [ordered]@{ addonPresent = (Test-Path -LiteralPath $addonPath -PathType Leaf) }
+  if (-not (Test-Path -LiteralPath $addonPath -PathType Leaf)) {
+    $g1Detail['reason'] = 'NATIVE_ADDON_NOT_BUILT_IN_WORKFLOW'
+    [void]$steps.Add((Write-Step 'g1_native_on_installed_scm' 'SKIP' $g1Detail))
+  }
+  else {
+    $g1Exit = 1
+    try {
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $g1Script `
+        -Run -RepoRoot $RepoRoot -ResultsRoot (Join-Path $WorkRoot 'g1-installed')
+      $g1Exit = $LASTEXITCODE
+    }
+    catch {
+      $g1Exit = 1
+      $g1Detail['exception'] = [string]$_.Exception.Message
+      Write-Host ("G1_ON_INSTALLED_EXCEPTION=" + $_.Exception.Message)
+    }
+    $g1Detail['exitCode'] = $g1Exit
+    $g1Detail['commercialGate'] = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+    $g1Detail['electronHandshake'] = 'NOT_TESTED'
+    $g1Status = $(if ($g1Exit -eq 0) { 'PASS' } else { 'FAIL' })
+    [void]$steps.Add((Write-Step 'g1_native_on_installed_scm' $g1Status $g1Detail))
+    if ($g1Exit -ne 0) { throw 'G1_NATIVE_ON_INSTALLED_SCM_FAILED' }
+    # Confirm WinSW product identity still intact after G1 restore.
+    $cimAfterG1 = Get-CimInstance Win32_Service -Filter "Name='CamachoPOSLocalService'" -ErrorAction SilentlyContinue
+    $svcAfterG1 = Get-Service -Name 'CamachoPOSLocalService' -ErrorAction SilentlyContinue
+    $afterG1Ok = $null -ne $svcAfterG1 -and ($svcAfterG1.Status -eq 'Running' -or $svcAfterG1.Status -eq 'StartPending') -and
+      $null -ne $cimAfterG1 -and $cimAfterG1.StartName -eq $expectedScmAccount
+    [void]$steps.Add((Write-Step 'winsw_restored_after_g1' $(if ($afterG1Ok) { 'PASS' } else { 'FAIL' }) @{
+      status = $(if ($svcAfterG1) { [string]$svcAfterG1.Status } else { 'Absent' })
+      startName = $(if ($cimAfterG1) { [string]$cimAfterG1.StartName } else { '' })
+    }))
+    if (-not $afterG1Ok) { throw 'WINSW_NOT_RESTORED_AFTER_G1' }
+  }
+
   # --- Real SQLite preservation marker (AppData commercial retention path) ---
   New-Item -ItemType Directory -Force -Path $dataDirectory | Out-Null
   $markerScript = Join-Path $RepoRoot 'tools/operators/windows-nsis-lab-sqlite-marker.mjs'
@@ -523,9 +620,22 @@ try {
     scmCommercialIpc = 'NOT_PROVEN'
     commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
   }))
+  # Product RSA/Ed25519 handoff + Electron under NT SERVICE remains gated.
+  # G1 native identity on the installed SCM account is a separate step above;
+  # it must NEVER be mistaken for commercial Electron handshake certification.
+  $ipcReason = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+  $ipcNote = 'Product crypto handoff (RSA-OAEP/Ed25519 + lease) and Electron under NT SERVICE still unproven; gate held'
+  if ($g1Status -eq 'PASS') {
+    $ipcNote = 'G1 native identity on installed SCM=PASS; commercial Electron handshake and gate lift still blocked'
+  }
+  elseif ($g1Status -eq 'SKIP') {
+    $ipcNote = 'G1 native addon not built in this job; commercial Electron handshake NOT_PROVEN; gate held'
+  }
   [void]$steps.Add((Write-Step 'electron_winsw_scm_commercial_ipc' 'SKIP' @{
-    reason = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
-    note = 'Desktop CurrentUser DPAPI cannot share secret with NT SERVICE\\CamachoPOSLocalService until audited handoff'
+    reason = $ipcReason
+    g1NativeOnInstalledScm = $g1Status
+    note = $ipcNote
+    authenticodeProduct = 'RT-009-B_BLOCKED'
   }))
 
   # --- Silent upgrade ---

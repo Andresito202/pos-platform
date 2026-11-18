@@ -3,6 +3,7 @@ name: Windows SCM native artifact lab
 on:
   push:
     branches:
+      - cursor/commercial-design-review-0d11
       - feat/p0-windows-login-install-readiness
     paths:
       - '.github/workflows/windows-scm-native-artifact-lab.yml'
@@ -12,6 +13,22 @@ on:
       - 'pnpm-lock.yaml'
       - 'tools/operators/ci-windows-scm-identity-service.cs'
       - 'tools/operators/ci-windows-scm-identity-service.ps1'
+      - 'tools/operators/windows-nsis-scm-g1-identity.ps1'
+      - 'apps/pos-local-service/src/security/windows-commercial-host-identity.ts'
+      - 'apps/pos-local-service/tests/windows-scm-physical.test.ts'
+      - 'tools/operators/ci-windows-scm-native-peer.mjs'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/windows-scm-native-artifact-lab.yml'
+      - 'packages/local-channel/native/**'
+      - 'packages/local-channel/package.json'
+      - 'tools/operators/windows-native-addon-runtime-smoke.mjs'
+      - 'pnpm-lock.yaml'
+      - 'tools/operators/ci-windows-scm-identity-service.cs'
+      - 'tools/operators/ci-windows-scm-identity-service.ps1'
+      - 'tools/operators/windows-nsis-scm-g1-identity.ps1'
       - 'apps/pos-local-service/src/security/windows-commercial-host-identity.ts'
       - 'apps/pos-local-service/tests/windows-scm-physical.test.ts'
       - 'tools/operators/ci-windows-scm-native-peer.mjs'

@@ -89,3 +89,7 @@
 - **No** cierra IPC comercial Desktop↔`NT SERVICE` (`SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` / SKIP).
 - **No** cierra Authenticode Camacho (`RT-009-B_BLOCKED`).
 - **No** merge a `main`; Draft; sin FACTUS.
+
+## Continuación 2026-11-18 (mismo PR / misma rama)
+
+Ver `docs/testing/windows-commercial-close-attempt-20261118.md`: G1 nativo sobre SCM instalado, negativos ACL/provisión forjada, `scm_restart_recovery`, smoke de 4 roles/sesión. El gate comercial y RT-009-B permanecen.

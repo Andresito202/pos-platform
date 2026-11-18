@@ -13,8 +13,14 @@ on:
       - '.github/workflows/windows-nsis-installer-lab.yml'
       - 'apps/pos-desktop/**'
       - 'apps/pos-local-service/**'
+      - 'packages/local-channel/native/**'
+      - 'packages/local-channel/package.json'
       - 'tools/operators/windows-nsis-lab-lifecycle.ps1'
       - 'tools/operators/windows-nsis-lab-sqlite-marker.mjs'
+      - 'tools/operators/windows-nsis-scm-g1-identity.ps1'
+      - 'tools/operators/windows-nsis-security-negatives.ps1'
+      - 'tools/operators/ci-windows-scm-identity-service.cs'
+      - 'tools/operators/ci-windows-scm-native-peer.mjs'
       - 'pnpm-lock.yaml'
       - 'package.json'
   pull_request:
@@ -24,9 +30,16 @@ on:
       - '.github/workflows/windows-nsis-installer-lab.yml'
       - 'apps/pos-desktop/**'
       - 'apps/pos-local-service/**'
+      - 'packages/local-channel/native/**'
+      - 'packages/local-channel/package.json'
       - 'tools/operators/windows-nsis-lab-lifecycle.ps1'
       - 'tools/operators/windows-nsis-lab-sqlite-marker.mjs'
+      - 'tools/operators/windows-nsis-scm-g1-identity.ps1'
+      - 'tools/operators/windows-nsis-security-negatives.ps1'
+      - 'tools/operators/ci-windows-scm-identity-service.cs'
+      - 'tools/operators/ci-windows-scm-native-peer.mjs'
       - 'pnpm-lock.yaml'
+      - 'package.json'
   workflow_dispatch:
 
 permissions:
@@ -87,6 +100,15 @@ jobs:
           if (-not (Test-Path "apps/pos-desktop/packaging/icon.png")) {
             throw "MISSING_BRAND_ICON: apps/pos-desktop/packaging/icon.png"
           }
+
+      - name: Compile native Windows pipe addon (G1 on installed SCM)
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/local-channel native:build:win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $addon = 'packages/local-channel/native/build/Release/camacho_windows_pipe.node'
+          if (-not (Test-Path -LiteralPath $addon -PathType Leaf)) { throw 'NATIVE_BINARY_NOT_BUILT' }
+          Write-Host ('NATIVE_ADDON_SHA256=' + (Get-FileHash -LiteralPath $addon -Algorithm SHA256).Hash)
 
       - name: Generate NSIS installer (unsigned lab, with WinSW service payload)
         shell: pwsh
@@ -165,14 +187,24 @@ jobs:
             Write-Output "LIFECYCLE_REPORT_MISSING"
           }
 
-      - name: Windows desktop smoke (non role-preview)
+      - name: Windows desktop smoke + session/role negatives
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
           pnpm --filter @pos-platform/pos-desktop exec vitest run tests/window-security.test.ts tests/ipc-allowlist.test.ts --no-file-parallelism
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/windows-dpapi.test.ts tests/windows-winsw-readiness.test.ts --no-file-parallelism
+          pnpm --filter @pos-platform/pos-local-service exec vitest run `
+            tests/windows-dpapi.test.ts `
+            tests/windows-winsw-readiness.test.ts `
+            tests/native-session-close-lifecycle.test.ts `
+            tests/windows-scm-commercial-entry-process.test.ts `
+            src/commercial/local-operator-authorization.test.ts `
+            src/security/local-operator-session-registry.test.ts `
+            --no-file-parallelism
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'FOUR_ROLE_AUTH_NEGATIVES=PASS'
+          Write-Host 'SESSION_CLOSE_REVOKE=PASS'
+          Write-Host 'SCM_COMMERCIAL_ENTRY_FAIL_CLOSED=PASS'
 
       - name: Real-auth commercial Electron live + screenshots
         if: ${{ !cancelled() }}
