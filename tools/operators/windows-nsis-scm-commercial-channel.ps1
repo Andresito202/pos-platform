@@ -109,6 +109,8 @@ function Esc([string]$v) {
 # Never use `--import D:\...` — Node ESM on Windows requires file:// URLs.
 # Capture child stdout/stderr so this function returns ONLY the int exit code
 # (PowerShell otherwise merges Node output into the return Object[] and breaks Must).
+# Native stderr under $ErrorActionPreference=Stop becomes terminating RemoteException
+# unless Continue is set for the 2>&1 capture (same pattern as windows-login-lab-*).
 function Invoke-RepoTsx {
   param(
     [Parameter(Mandatory = $true)][string]$NodeExe,
@@ -116,8 +118,14 @@ function Invoke-RepoTsx {
     [Parameter(Mandatory = $true)][string]$Script,
     [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$ScriptArgs
   )
-  $lines = @(& $NodeExe $TsxCli $Script @ScriptArgs 2>&1)
-  $code = [int]$LASTEXITCODE
+  $previous = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $lines = @(& $NodeExe $TsxCli $Script @ScriptArgs 2>&1)
+    $code = [int]$LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previous
+  }
   foreach ($line in $lines) { Write-Host ([string]$line) }
   return $code
 }
@@ -310,31 +318,67 @@ try {
   $xmlSwapped = $false
 
   Start-Service -Name $serviceName -ErrorAction Stop
-  $logDir = Join-Path $env:ProgramData 'CamachoPOS\logs'
+  # Prefer WinSW logpath from the product XML; also scan ProgramData + payload.
+  $logDirs = New-Object System.Collections.Generic.List[string]
+  $logPathMatch = [regex]::Match($xml, '<logpath>([^<]+)</logpath>')
+  if ($logPathMatch.Success) {
+    [void]$logDirs.Add([System.Net.WebUtility]::HtmlDecode($logPathMatch.Groups[1].Value))
+  }
+  [void]$logDirs.Add((Join-Path $env:ProgramData 'CamachoPOS\logs'))
+  [void]$logDirs.Add($payload)
   $started = $false
+  $startFailed = $false
   $until = [DateTime]::UtcNow.AddSeconds(90)
   while ([DateTime]::UtcNow -lt $until) {
     $svc = Get-Service -Name $serviceName
     $cimNow = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
-    if ($svc.Status -eq 'Running' -and $cimNow.StartName -eq ('NT SERVICE\' + $serviceName)) {
-      # WinSW roll logs under logpath; also check wrapper stdout/err if present.
-      $logHits = @()
-      if (Test-Path -LiteralPath $logDir) {
-        $logHits = @(Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
-          Where-Object { $_.LastWriteTimeUtc -gt (Get-Date).ToUniversalTime().AddMinutes(-5) } |
-          ForEach-Object {
-            try { Select-String -LiteralPath $_.FullName -Pattern 'runtime\.started' -SimpleMatch -ErrorAction SilentlyContinue } catch {}
-          })
-      }
-      if ($logHits.Count -gt 0) { $started = $true; break }
-      # Service Running under virtual account with SCM handoff is necessary;
-      # log scan may miss if WinSW buffers — probe with desktop ops below.
-      $started = $true
+    if ($svc.Status -eq 'Stopped') {
+      $startFailed = $true
       break
     }
-    if ($svc.Status -eq 'Stopped') { throw 'PRODUCT_SERVICE_STOPPED_AFTER_COMMERCIAL_START' }
+    if ($svc.Status -eq 'Running' -and $cimNow.StartName -eq ('NT SERVICE\' + $serviceName)) {
+      foreach ($logDir in $logDirs) {
+        if (-not (Test-Path -LiteralPath $logDir)) { continue }
+        $files = @(Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.LastWriteTimeUtc -gt (Get-Date).ToUniversalTime().AddMinutes(-10) })
+        foreach ($file in $files) {
+          try {
+            $content = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
+            if ([string]::IsNullOrWhiteSpace($content)) { continue }
+            if ($content.Contains('runtime.start_failed') -or $content.Contains('SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED')) {
+              Write-Host ('PRODUCT_SCM_START_FAIL_LOG=' + $file.FullName)
+              $startFailed = $true
+              break
+            }
+            if ($content.Contains('runtime.started')) {
+              Write-Host ('PRODUCT_SCM_RUNTIME_STARTED_LOG=' + $file.FullName)
+              $started = $true
+              break
+            }
+          } catch {}
+        }
+        if ($started -or $startFailed) { break }
+      }
+      if ($started -or $startFailed) { break }
+    }
     Start-Sleep -Milliseconds 500
   }
+  if ($startFailed -or -not $started) {
+    Write-ServiceEnrollDiagnostics -PayloadDirectory $payload -LabResults (Join-Path $labRoot 'results') -Publication $publication -StartExit -1
+    foreach ($logDir in $logDirs) {
+      if (-not (Test-Path -LiteralPath $logDir)) { continue }
+      Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 6 |
+        ForEach-Object {
+          Write-Host ('PRODUCT_SCM_LOG=' + $_.FullName)
+          try {
+            Get-Content -LiteralPath $_.FullName -Tail 60 -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host ('PRODUCT_SCM_LOG_LINE=' + $_) }
+          } catch {}
+        }
+    }
+  }
+  Must (-not $startFailed) 'PRODUCT_SCM_SERVICE_START_FAILED'
   Must $started 'PRODUCT_SCM_SERVICE_NOT_READY'
   Write-Host 'PRODUCT_SCM_SERVICE_RUNNING=PASS'
 
@@ -342,6 +386,22 @@ try {
   $env:POS_WINDOWS_SCM_HANDOFF_FILE = $desktopManifest
   try {
     $opsExit = [int](Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $ops -ScriptArgs @())
+    if ($opsExit -ne 0) {
+      Write-Host ('COMMERCIAL_OPS_EXIT=' + $opsExit)
+      Write-Host ('COMMERCIAL_OPS_SERVICE_STATUS=' + (Get-Service -Name $serviceName).Status)
+      foreach ($logDir in $logDirs) {
+        if (-not (Test-Path -LiteralPath $logDir)) { continue }
+        Get-ChildItem -LiteralPath $logDir -File -ErrorAction SilentlyContinue |
+          Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 4 |
+          ForEach-Object {
+            Write-Host ('COMMERCIAL_OPS_SERVICE_LOG=' + $_.FullName)
+            try {
+              Get-Content -LiteralPath $_.FullName -Tail 40 -ErrorAction SilentlyContinue |
+                ForEach-Object { Write-Host ('COMMERCIAL_OPS_SERVICE_LOG_LINE=' + $_) }
+            } catch {}
+          }
+      }
+    }
     Must ($opsExit -eq 0) 'COMMERCIAL_OPS_FAILED'
   }
   finally {

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 
 /**
  * A commercial channel secured by DPAPI CurrentUser and a per-logon named-pipe
@@ -9,6 +10,14 @@ import { spawnSync } from "node:child_process";
  * GLOBAL identity, validates MFA, or substitutes for the Central device proof.
  * It deliberately does not accept a user SID/identity from environment vars.
  */
+
+function windowsPowerShellExecutable(): string {
+  const root = process.env.SystemRoot ?? process.env.WINDIR;
+  if (typeof root === "string" && root.length > 0) {
+    return join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  }
+  return "powershell.exe";
+}
 const VERIFY_INTERACTIVE_IDENTITY = String.raw`
 $ErrorActionPreference = "Stop"
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -43,13 +52,21 @@ type CommandResult = { readonly status: number | null; readonly stdout?: string;
 type IdentityRunner = (script: string) => CommandResult;
 
 function runWindowsIdentityInspection(script: string): CommandResult {
-  return spawnSync("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
-    windowsHide: true,
-    encoding: "utf8",
-    maxBuffer: 4096,
-    timeout: 15_000,
-    killSignal: "SIGKILL",
-  });
+  const invoke = (): CommandResult =>
+    spawnSync(windowsPowerShellExecutable(), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], {
+      windowsHide: true,
+      encoding: "utf8",
+      maxBuffer: 4096,
+      timeout: 15_000,
+      killSignal: "SIGKILL",
+    });
+  // One retry only for spawn/timeout (status null / error). Never retries a
+  // completed non-zero identity exit (11/12/13/21/22/23) — those stay fail-closed.
+  const first = invoke();
+  if (first.error || first.status === null) {
+    return invoke();
+  }
+  return first;
 }
 
 /**
