@@ -3,6 +3,7 @@ import "./App.css";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
 import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
+import { LocalAdministrativeAuditPanel } from "./components/LocalAdministrativeAuditPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
@@ -134,6 +135,16 @@ export function App(): React.JSX.Element {
         id: "receipts",
         label: "Comprobantes",
         render: () => <ReceiptPanel />,
+      });
+    }
+
+    if (permissions.has("AUDIT_EVENT_READ")) {
+      // Local SUPERADMINISTRADOR is audit-only development authority — never the
+      // GLOBAL platform portal and never commercial admin.metrics / FACTUS UX.
+      result.push({
+        id: "admin-audit",
+        label: "Auditoría administrativa",
+        render: () => <LocalAdministrativeAuditPanel />,
       });
     }
 

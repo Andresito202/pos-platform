@@ -5,6 +5,7 @@ import { App } from "../../renderer/src/App.js";
 
 function localOperatorResult(
   outcome: "NO_SESSION" | "UNAVAILABLE" | "AUTHENTICATED" | "SIGNED_OUT" = "AUTHENTICATED",
+  identity: { username: string; role: string } = { username: "cajero.local", role: "CAJERO" },
 ) {
   return {
     protocol_version: "1.0.0",
@@ -18,8 +19,8 @@ function localOperatorResult(
     server_time: "2026-11-08T00:00:00.000Z",
     result: {
       outcome,
-      username: outcome === "AUTHENTICATED" ? "cajero.local" : null,
-      role: outcome === "AUTHENTICATED" ? "CAJERO" : null,
+      username: outcome === "AUTHENTICATED" ? identity.username : null,
+      role: outcome === "AUTHENTICATED" ? identity.role : null,
       expires_at: outcome === "AUTHENTICATED" ? "2099-01-01T00:00:00.000Z" : null,
     },
   };
@@ -124,6 +125,33 @@ describe("App", () => {
       expect(screen.getByRole("button", { name: "Facturación electrónica" })).toBeTruthy();
       expect(screen.getByTestId("fiscal-panel")).toBeTruthy();
     });
+  });
+
+  it("shows a non-empty audit nav for SUPERADMINISTRADOR with AUDIT_EVENT_READ only", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: ["AUDIT_EVENT_READ"],
+        entitlements: [],
+      },
+    });
+    vi.mocked(window.posService["local.operator.session"]).mockResolvedValue(
+      localOperatorResult("AUTHENTICATED", { username: "superadmin.local", role: "SUPERADMINISTRADOR" }),
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("navigation")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Auditoría administrativa" })).toBeTruthy();
+      expect(screen.getByTestId("admin-panel-audit")).toBeTruthy();
+    });
+
+    expect(screen.queryByRole("button", { name: "Catálogo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Inventario" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
   });
 
   it("materializes the first authorized screen and keeps navigation capability-driven", async () => {
