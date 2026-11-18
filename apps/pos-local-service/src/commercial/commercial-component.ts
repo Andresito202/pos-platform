@@ -19,6 +19,34 @@ import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
 import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
+import { AddPresentationUseCase, UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
+import { ExecuteTransformUseCase } from "../inventory/execute-transform-use-case.js";
+import { SqlitePharmacyStore } from "../pharmacy/sqlite-pharmacy-store.js";
+import {
+  UpsertPharmacyEstablishmentUseCase,
+  UpsertPharmacyProfileUseCase,
+  RegisterPharmacyPrescriptionUseCase,
+  RegisterPharmacyTechnicalReceiptUseCase,
+  RegisterPharmacySanitaryAlertUseCase,
+} from "../pharmacy/pharmacy-use-cases.js";
+import { SqliteBakeryStore } from "../bakery/sqlite-bakery-store.js";
+import {
+  UpsertBakeryIngredientProfileUseCase,
+  UpsertBakeryFinishedPolicyUseCase,
+  CreateBakeryRecipeDraftUseCase,
+  ApproveBakeryRecipeUseCase,
+  RecordBakeryLotAcquisitionCostUseCase,
+  CreateBakeryProductionOrderUseCase,
+  PlanBakeryProductionOrderUseCase,
+  CancelBakeryProductionOrderUseCase,
+  AuthorizeBakeryProductionDeviationUseCase,
+  ConfirmBakeryProductionUseCase,
+  ReleaseBakeryFinishedLotUseCase,
+  GetBakeryProductionTraceUseCase,
+} from "../bakery/bakery-use-cases.js";
+import type { CashRegisterLicenseGate, SectorLicenseGate } from "../security/license-capacity-gate.js";
+import type { SyncScope } from "../sync/durable-sync-store.js";
+
 import { SqliteWaitingCartStore } from "../sales/sqlite-waiting-cart-store.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
@@ -89,6 +117,28 @@ export class CommercialComponent implements RuntimeComponent {
         readonly convertPresentation: ConvertPresentationUseCase;
         readonly createInventoryReservation: CreateInventoryReservationUseCase;
         readonly releaseInventoryReservation: ReleaseInventoryReservationUseCase;
+        readonly executeTransform: ExecuteTransformUseCase;
+        readonly pharmacyStore: SqlitePharmacyStore;
+        readonly upsertPharmacyEstablishment: UpsertPharmacyEstablishmentUseCase;
+        readonly upsertPharmacyProfile: UpsertPharmacyProfileUseCase;
+        readonly registerPharmacyPrescription: RegisterPharmacyPrescriptionUseCase;
+        readonly registerPharmacyTechnicalReceipt: RegisterPharmacyTechnicalReceiptUseCase;
+        readonly registerPharmacySanitaryAlert: RegisterPharmacySanitaryAlertUseCase;
+        readonly bakeryStore: SqliteBakeryStore;
+        readonly upsertBakeryIngredientProfile: UpsertBakeryIngredientProfileUseCase;
+        readonly upsertBakeryFinishedPolicy: UpsertBakeryFinishedPolicyUseCase;
+        readonly createBakeryRecipeDraft: CreateBakeryRecipeDraftUseCase;
+        readonly approveBakeryRecipe: ApproveBakeryRecipeUseCase;
+        readonly recordBakeryLotAcquisitionCost: RecordBakeryLotAcquisitionCostUseCase;
+        readonly createBakeryProductionOrder: CreateBakeryProductionOrderUseCase;
+        readonly planBakeryProductionOrder: PlanBakeryProductionOrderUseCase;
+        readonly cancelBakeryProductionOrder: CancelBakeryProductionOrderUseCase;
+        readonly authorizeBakeryProductionDeviation: AuthorizeBakeryProductionDeviationUseCase;
+        readonly confirmBakeryProduction: ConfirmBakeryProductionUseCase;
+        readonly releaseBakeryFinishedLot: ReleaseBakeryFinishedLotUseCase;
+        readonly getBakeryProductionTrace: GetBakeryProductionTraceUseCase;
+        readonly addPresentation: AddPresentationUseCase;
+        readonly upsertFoodPolicy: UpsertFoodPolicyUseCase;
         readonly waitingCarts: SqliteWaitingCartStore;
         readonly getReceipt: GetReceiptUseCase;
         /**
@@ -121,8 +171,35 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly fiscalSecretStore: EncryptedFileSecretStore | undefined = undefined,
     /** Inyección para pruebas: sin ella, producción construye `FactusAdapter` real. */
     private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
+    private readonly licenseGate?: CashRegisterLicenseGate,
+    private readonly sectorLicenseGate?: SectorLicenseGate,
+    private readonly licenseEntitlementsReader?: (scope: SyncScope) => readonly string[],
   ) {
     this.bindings = new SessionBindingRegistry(now);
+  }
+
+  private installationScope(): SyncScope {
+    return {
+      tenantId: this.config.tenant_id,
+      companyId: this.config.company_id,
+      branchId: this.config.branch_id,
+      installationId: this.config.installation_id,
+      deviceId: this.config.device_id,
+    };
+  }
+
+  /**
+   * Fail-closed sector gate when a capacity provision is wired.
+   * Tests without a provision leave the gate undefined and skip the check.
+   */
+  requireSectorEntitlement(entitlement: string): string | null {
+    if (!this.sectorLicenseGate) return null;
+    return this.sectorLicenseGate(this.installationScope(), entitlement);
+  }
+
+  listLicenseEntitlements(): readonly string[] {
+    if (!this.licenseEntitlementsReader) return [];
+    return this.licenseEntitlementsReader(this.installationScope());
   }
 
   private get ready(): NonNullable<CommercialComponent["state"]> {
@@ -154,6 +231,28 @@ export class CommercialComponent implements RuntimeComponent {
   get convertPresentation(): ConvertPresentationUseCase { return this.ready.convertPresentation; }
   get createInventoryReservation(): CreateInventoryReservationUseCase { return this.ready.createInventoryReservation; }
   get releaseInventoryReservation(): ReleaseInventoryReservationUseCase { return this.ready.releaseInventoryReservation; }
+  get executeTransform(): ExecuteTransformUseCase { return this.ready.executeTransform; }
+  get pharmacyStore(): SqlitePharmacyStore { return this.ready.pharmacyStore; }
+  get upsertPharmacyEstablishment(): UpsertPharmacyEstablishmentUseCase { return this.ready.upsertPharmacyEstablishment; }
+  get upsertPharmacyProfile(): UpsertPharmacyProfileUseCase { return this.ready.upsertPharmacyProfile; }
+  get registerPharmacyPrescription(): RegisterPharmacyPrescriptionUseCase { return this.ready.registerPharmacyPrescription; }
+  get registerPharmacyTechnicalReceipt(): RegisterPharmacyTechnicalReceiptUseCase { return this.ready.registerPharmacyTechnicalReceipt; }
+  get registerPharmacySanitaryAlert(): RegisterPharmacySanitaryAlertUseCase { return this.ready.registerPharmacySanitaryAlert; }
+  get bakeryStore(): SqliteBakeryStore { return this.ready.bakeryStore; }
+  get upsertBakeryIngredientProfile(): UpsertBakeryIngredientProfileUseCase { return this.ready.upsertBakeryIngredientProfile; }
+  get upsertBakeryFinishedPolicy(): UpsertBakeryFinishedPolicyUseCase { return this.ready.upsertBakeryFinishedPolicy; }
+  get createBakeryRecipeDraft(): CreateBakeryRecipeDraftUseCase { return this.ready.createBakeryRecipeDraft; }
+  get approveBakeryRecipe(): ApproveBakeryRecipeUseCase { return this.ready.approveBakeryRecipe; }
+  get recordBakeryLotAcquisitionCost(): RecordBakeryLotAcquisitionCostUseCase { return this.ready.recordBakeryLotAcquisitionCost; }
+  get createBakeryProductionOrder(): CreateBakeryProductionOrderUseCase { return this.ready.createBakeryProductionOrder; }
+  get planBakeryProductionOrder(): PlanBakeryProductionOrderUseCase { return this.ready.planBakeryProductionOrder; }
+  get cancelBakeryProductionOrder(): CancelBakeryProductionOrderUseCase { return this.ready.cancelBakeryProductionOrder; }
+  get authorizeBakeryProductionDeviation(): AuthorizeBakeryProductionDeviationUseCase { return this.ready.authorizeBakeryProductionDeviation; }
+  get confirmBakeryProduction(): ConfirmBakeryProductionUseCase { return this.ready.confirmBakeryProduction; }
+  get releaseBakeryFinishedLot(): ReleaseBakeryFinishedLotUseCase { return this.ready.releaseBakeryFinishedLot; }
+  get getBakeryProductionTrace(): GetBakeryProductionTraceUseCase { return this.ready.getBakeryProductionTrace; }
+  get addPresentation(): AddPresentationUseCase { return this.ready.addPresentation; }
+  get upsertFoodPolicy(): UpsertFoodPolicyUseCase { return this.ready.upsertFoodPolicy; }
   get waitingCarts(): SqliteWaitingCartStore { return this.ready.waitingCarts; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
@@ -178,8 +277,10 @@ export class CommercialComponent implements RuntimeComponent {
     const catalogStore = new SqliteCatalogStore(database, sync, this.now);
     // `SqliteInventoryStore` satisface `InventoryPort` por la misma razón: la
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
+    const pharmacyStore = new SqlitePharmacyStore(database, sync, this.now);
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
-    const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, inventoryStore, this.now);
+    const bakeryStore = new SqliteBakeryStore(database, sync, inventoryStore, this.now);
+    const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, inventoryStore, this.now, pharmacyStore);
 
     // `DEC-021` F5. Sin almacén de secretos fiscal o sin ambiente configurado,
     // la pieza no se construye — `fiscal.document.issue` falla cerrado con un
@@ -217,7 +318,26 @@ export class CommercialComponent implements RuntimeComponent {
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
-      createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now),
+      createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now, pharmacyStore),
+      upsertPharmacyEstablishment: new UpsertPharmacyEstablishmentUseCase(pharmacyStore),
+      upsertPharmacyProfile: new UpsertPharmacyProfileUseCase(pharmacyStore),
+      registerPharmacyPrescription: new RegisterPharmacyPrescriptionUseCase(pharmacyStore),
+      registerPharmacyTechnicalReceipt: new RegisterPharmacyTechnicalReceiptUseCase(pharmacyStore, inventoryStore),
+      registerPharmacySanitaryAlert: new RegisterPharmacySanitaryAlertUseCase(pharmacyStore, inventoryStore),
+      pharmacyStore,
+      bakeryStore,
+      upsertBakeryIngredientProfile: new UpsertBakeryIngredientProfileUseCase(bakeryStore),
+      upsertBakeryFinishedPolicy: new UpsertBakeryFinishedPolicyUseCase(bakeryStore),
+      createBakeryRecipeDraft: new CreateBakeryRecipeDraftUseCase(bakeryStore),
+      approveBakeryRecipe: new ApproveBakeryRecipeUseCase(bakeryStore),
+      recordBakeryLotAcquisitionCost: new RecordBakeryLotAcquisitionCostUseCase(bakeryStore),
+      createBakeryProductionOrder: new CreateBakeryProductionOrderUseCase(bakeryStore),
+      planBakeryProductionOrder: new PlanBakeryProductionOrderUseCase(bakeryStore),
+      cancelBakeryProductionOrder: new CancelBakeryProductionOrderUseCase(bakeryStore),
+      authorizeBakeryProductionDeviation: new AuthorizeBakeryProductionDeviationUseCase(bakeryStore),
+      confirmBakeryProduction: new ConfirmBakeryProductionUseCase(bakeryStore),
+      releaseBakeryFinishedLot: new ReleaseBakeryFinishedLotUseCase(bakeryStore),
+      getBakeryProductionTrace: new GetBakeryProductionTraceUseCase(bakeryStore),
       receiveStock: new ReceiveStockUseCase(inventoryStore),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),
@@ -227,10 +347,13 @@ export class CommercialComponent implements RuntimeComponent {
       convertPresentation: new ConvertPresentationUseCase(inventoryStore),
       createInventoryReservation: new CreateInventoryReservationUseCase(inventoryStore),
       releaseInventoryReservation: new ReleaseInventoryReservationUseCase(inventoryStore),
+      executeTransform: new ExecuteTransformUseCase(inventoryStore),
       waitingCarts: new SqliteWaitingCartStore(database, this.now),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct: new RegisterProductUseCase(catalogStore),
+      addPresentation: new AddPresentationUseCase(catalogStore),
+      upsertFoodPolicy: new UpsertFoodPolicyUseCase(catalogStore),
       findCatalogItem: new FindCatalogItemUseCase(catalogStore),
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),

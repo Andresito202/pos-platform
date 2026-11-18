@@ -143,6 +143,12 @@ export const AuthorizationCapabilitiesGetRequestSchema = createRequestEnvelopeSc
 export const AuthorizationCapabilitiesGetResultSchema = z.strictObject({
   outcome: z.enum(["AVAILABLE", "UNAUTHORIZED"]),
   permissions: z.array(PermissionCodeSchema).max(512),
+  /**
+   * Effective license entitlements for this installation (signed capacity).
+   * Navigation may hide sector modules; handlers still re-authorize.
+   * Default keeps older fixtures parseable; producers always emit the field.
+   */
+  entitlements: z.array(StableCodeSchema).max(256).default([]),
 });
 
 export const AuthorizationCapabilitiesGetResponseSchema =
@@ -359,6 +365,8 @@ export const SaleCreateLineSchema = z.strictObject({
   /** D-23: actual scanned/selected identifier; backend resolves it against catalog.
    * Omitted by legacy callers, never synthesized as a barcode. */
   identifier: z.string().min(1).max(128).optional(),
+  /** Pharmacy prescription binding for restricted dispensation lines. */
+  pharmacy_prescription_id: UuidSchema.nullable().optional(),
 });
 
 /**
@@ -407,6 +415,7 @@ export const SaleCreateRequestSchema = createRequestEnvelopeSchema(
     document_series: DocumentSeriesSchema,
     currency_code: CurrencyCodeSchema,
     lines: z.array(SaleCreateLineSchema).min(1).max(500),
+    pharmacy_professional_competence_code: z.string().min(3).max(64).nullable().optional(),
   }),
 ).safeExtend({ message_type: z.literal("sale.create") })
   .superRefine((request, context) => {
@@ -436,6 +445,14 @@ export const SaleCreateOutcomeSchema = z.enum([
   // completar la venta.
   "INSUFFICIENT_STOCK",
   "IDEMPOTENCY_CONFLICT",
+  "PHARMACY_CLASSIFICATION_UNKNOWN",
+  "PHARMACY_REGISTRATION_UNVERIFIED",
+  "PHARMACY_ESTABLISHMENT_UNAUTHORIZED",
+  "PHARMACY_PRESCRIPTION_REQUIRED",
+  "PHARMACY_PRESCRIPTION_INVALID",
+  "PHARMACY_CONTROLLED_BLOCKED",
+  "PHARMACY_COMPETENCE_REQUIRED",
+  "PHARMACY_QUANTITY_EXCEEDS_PRESCRIPTION",
 ]);
 
 export const SaleCreateResultSchema = z.strictObject({
@@ -486,6 +503,7 @@ export const PaymentRegisterCashOutcomeSchema = z.enum([
   // La venta quedaba cubierta pero no hay existencia que sacar. Todo el cobro
   // se revierte: el cajero lo ve antes de que el dinero quede tomado.
   "INSUFFICIENT_STOCK",
+  "PHARMACY_ELIGIBILITY_LOST",
 ]);
 
 /**
@@ -574,6 +592,7 @@ export const PaymentTransferConfirmOutcomeSchema = z.enum([
   "OVERPAYMENT_NOT_ALLOWED",
   "SALE_ALREADY_COMPLETED",
   "INSUFFICIENT_STOCK",
+  "PHARMACY_ELIGIBILITY_LOST",
 ]);
 
 export const PaymentTransferConfirmResultSchema = z.strictObject({
@@ -1453,6 +1472,497 @@ export type MerchantDestinationsGetResult=z.infer<typeof MerchantDestinationsGet
  * allowlist de `RT-007`— y las dos nomenclaturas no deben mezclarse. La
  * correspondencia está tabulada en `DEC-014` §3.2.
  */
+// ── catalog.presentation.register · catalog.food_policy.upsert ───────────────
+
+export const CatalogPresentationRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    presentation_name: z.string().min(1).max(200),
+    unit_code: z.string().min(1).max(16),
+    unit_precision: z.number().int().min(0).max(6),
+    barcode: BarcodeSchema.nullable(),
+    price_amount: PositiveScale6Schema,
+    currency_code: CurrencyCodeSchema,
+    fiscal_attributes: CatalogFiscalAttributeSchema.optional(),
+  }),
+).safeExtend({ message_type: z.literal("catalog.presentation.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogPresentationRegisterResultSchema = z.strictObject({
+  outcome: z.enum([
+    "REGISTERED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT",
+    "PRODUCT_NOT_FOUND", "BARCODE_ALREADY_REGISTERED", "INVALID_FISCAL_ATTRIBUTES",
+    "INVALID_QUANTITY",
+  ]),
+  product_id: UuidSchema.nullable(),
+  presentation_id: UuidSchema.nullable(),
+});
+
+export const CatalogPresentationRegisterResponseSchema =
+  createResponseEnvelopeSchema(CatalogPresentationRegisterResultSchema);
+
+export const CatalogFoodPolicyUpsertRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    conservation_code: z.enum(["AMBIENT", "CHILLED", "FROZEN", "CONTROLLED"]),
+    requires_lot_tracking: z.boolean(),
+    requires_expiry: z.boolean(),
+    notes: z.string().min(1).max(500).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("catalog.food_policy.upsert") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogFoodPolicyUpsertResultSchema = z.strictObject({
+  outcome: z.enum([
+    "SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "PRODUCT_NOT_FOUND",
+  ]),
+  version: z.number().int().nonnegative().nullable(),
+});
+
+export const CatalogFoodPolicyUpsertResponseSchema =
+  createResponseEnvelopeSchema(CatalogFoodPolicyUpsertResultSchema);
+
+// ── inventory.transform.execute ──────────────────────────────────────────────
+
+const TransformLineMassSchema = NonNegativeScale6Schema.nullable();
+
+export const InventoryTransformExecuteRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    reason_code: z.string().min(2).max(64).regex(/^[A-Z][A-Z0-9_]*$/),
+    business_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    canonical_mass_unit: z.enum(["G", "KG"]).nullable(),
+    inputs: z.array(z.strictObject({
+      presentation_id: UuidSchema,
+      lot_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      mass_quantity: TransformLineMassSchema,
+    })).min(1).max(32),
+    outputs: z.array(z.strictObject({
+      presentation_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      mass_quantity: TransformLineMassSchema,
+      batch_code: z.string().min(1).max(96),
+    })).min(1).max(32),
+    shrinkage: z.array(z.strictObject({
+      presentation_id: UuidSchema,
+      lot_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      mass_quantity: TransformLineMassSchema,
+    })).max(32),
+  }),
+).safeExtend({ message_type: z.literal("inventory.transform.execute") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const InventoryTransformExecuteResultSchema = z.strictObject({
+  outcome: z.enum([
+    "POSTED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_QUANTITY",
+    "MASS_RECONCILIATION_FAILED", "UNIT_EQUIVALENCE_FAILED", "LOT_NOT_FOUND", "LOT_NOT_SELLABLE",
+    "LOT_RESERVED", "INSUFFICIENT_STOCK", "PRESENTATION_NOT_FOUND", "QUANTITY_PRECISION_EXCEEDED",
+    "LEGACY_STOCK_RECONCILIATION_REQUIRED", "CONFLICT",
+  ]),
+  order_id: UuidSchema.nullable(),
+  available: NonNegativeScale6Schema.nullable(),
+});
+
+export const InventoryTransformExecuteResponseSchema =
+  createResponseEnvelopeSchema(InventoryTransformExecuteResultSchema);
+
+// ── Pharmacy / Droguería specialization (Prompt 6) ───────────────────────────
+
+export const PharmacyEstablishmentUpsertRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    establishment_type: z.enum([
+      "DROGUERIA", "FARMACIA_DROGUERIA", "SERVICIO_FARMACEUTICO_IPS", "DEPOSITO_MAYORISTA",
+    ]),
+    authorized_otc: z.boolean(),
+    authorized_prescription: z.boolean(),
+    authorized_controlled_special: z.boolean(),
+    controlled_authorization_status: z.enum(["NONE", "PENDING_FNE", "ACCREDITED", "REVOKED"]),
+    controlled_authorization_note: z.string().min(1).max(500).nullable(),
+    technical_director_attribution: z.string().min(1).max(200).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.establishment.upsert") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacyEstablishmentUpsertResultSchema = z.strictObject({
+  outcome: z.enum(["SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_CONFIGURATION"]),
+  version: z.number().int().nonnegative().nullable(),
+});
+export const PharmacyEstablishmentUpsertResponseSchema =
+  createResponseEnvelopeSchema(PharmacyEstablishmentUpsertResultSchema);
+
+export const PharmacyProfileUpsertRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    product_kind: z.enum(["MEDICINE", "MEDICAL_DEVICE", "COSMETIC", "SUPPLEMENT", "OTHER"]),
+    commercial_name: z.string().min(1).max(200),
+    generic_name: z.string().min(1).max(200).nullable(),
+    active_ingredients: z.array(z.string().min(1).max(120)).max(32),
+    concentration_text: z.string().min(1).max(120).nullable(),
+    pharmaceutical_form: z.string().min(1).max(120).nullable(),
+    manufacturer: z.string().min(1).max(200).nullable(),
+    sanitary_holder: z.string().min(1).max(200).nullable(),
+    sanitary_registration: z.string().min(1).max(64).nullable(),
+    registration_verification_status: z.enum(["UNVERIFIED", "VERIFIED_MANUAL", "INVALID", "EXPIRED"]),
+    dispensation_category: z.enum(["OTC", "PRESCRIPTION", "CONTROLLED_SPECIAL", "UNKNOWN"]),
+    requires_prescription: z.boolean(),
+    controlled_special: z.boolean(),
+    storage_condition: z.enum(["AMBIENT", "CHILLED", "CONTROLLED_ROOM", "OTHER"]),
+    requires_lot_tracking: z.boolean(),
+    requires_expiry: z.boolean(),
+    regulatory_review_at: z.string().min(10).max(40).nullable(),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.profile.upsert") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacyProfileUpsertResultSchema = z.strictObject({
+  outcome: z.enum([
+    "SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT",
+    "PRODUCT_NOT_FOUND", "INVALID_CONFIGURATION",
+  ]),
+  version: z.number().int().nonnegative().nullable(),
+});
+export const PharmacyProfileUpsertResponseSchema =
+  createResponseEnvelopeSchema(PharmacyProfileUpsertResultSchema);
+
+export const PharmacyPrescriptionRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    prescribed_quantity: PositiveScale6Schema,
+    prescribed_at: z.string().min(10).max(40),
+    expires_at: z.string().min(10).max(40),
+    issuer_professional_id: z.string().min(1).max(64),
+    issuer_name: z.string().min(1).max(120),
+    patient_reference: z.string().min(1).max(64),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.prescription.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacyPrescriptionRegisterResultSchema = z.strictObject({
+  outcome: z.enum([
+    "REGISTERED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT",
+    "PRODUCT_NOT_FOUND", "INVALID_QUANTITY",
+  ]),
+  prescription_id: UuidSchema.nullable(),
+});
+export const PharmacyPrescriptionRegisterResponseSchema =
+  createResponseEnvelopeSchema(PharmacyPrescriptionRegisterResultSchema);
+
+export const PharmacyTechnicalReceiptRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    lot_id: UuidSchema.nullable(),
+    sanitary_registration: z.string().min(1).max(64).nullable(),
+    batch_code: z.string().min(1).max(96),
+    expiry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    quantity: PositiveScale6Schema,
+    storage_condition: z.enum(["AMBIENT", "CHILLED", "CONTROLLED_ROOM", "OTHER"]),
+    inspection_result: z.enum(["ACCEPTED", "QUARANTINE", "REJECTED"]),
+    observations: z.string().min(1).max(500).nullable(),
+    inventory_movement_id: UuidSchema.nullable(),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.technical_receipt.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacyTechnicalReceiptRegisterResultSchema = z.strictObject({
+  outcome: z.enum([
+    "RECORDED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_QUANTITY",
+  ]),
+  receipt_id: UuidSchema.nullable(),
+});
+export const PharmacyTechnicalReceiptRegisterResponseSchema =
+  createResponseEnvelopeSchema(PharmacyTechnicalReceiptRegisterResultSchema);
+
+export const PharmacySanitaryAlertRegisterRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    source_kind: z.enum(["MANUAL_AUTHORIZED", "EXTERNAL_IMPORT"]),
+    source_reference: z.string().min(1).max(200),
+    product_id: UuidSchema.nullable(),
+    lot_id: UuidSchema.nullable(),
+    action_code: z.enum(["QUARANTINE", "RECALL"]),
+    evidence_note: z.string().min(1).max(500),
+  }),
+).safeExtend({ message_type: z.literal("pharmacy.sanitary_alert.register") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const PharmacySanitaryAlertRegisterResultSchema = z.strictObject({
+  outcome: z.enum([
+    "RECORDED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_CONFIGURATION",
+  ]),
+  alert_id: UuidSchema.nullable(),
+});
+export const PharmacySanitaryAlertRegisterResponseSchema =
+  createResponseEnvelopeSchema(PharmacySanitaryAlertRegisterResultSchema);
+
+// ── bakery (Pastelería) — recipes / production on shared inventory ───────────
+
+export const BakeryRecipeDraftCreateRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    recipe_family_id: UuidSchema.nullable(),
+    name: z.string().min(1).max(200),
+    finished_product_id: UuidSchema,
+    finished_presentation_id: UuidSchema,
+    base_batch_quantity: PositiveScale6Schema,
+    expected_yield_quantity: PositiveScale6Schema,
+    expected_shrinkage_quantity: NonNegativeScale6Schema,
+    canonical_mass_unit: z.enum(["G", "KG"]).nullable(),
+    instructions: z.string().min(1).max(4000).nullable(),
+    lines: z.array(z.strictObject({
+      ingredient_product_id: UuidSchema,
+      ingredient_presentation_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      unit_code: z.string().min(1).max(16),
+      mass_quantity: NonNegativeScale6Schema.nullable(),
+    })).min(1).max(64),
+  }),
+).safeExtend({ message_type: z.literal("bakery.recipe.draft.create") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryRecipeDraftCreateResultSchema = z.strictObject({
+  outcome: z.enum([
+    "CREATED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "INVALID_RECIPE",
+    "PRODUCT_NOT_FOUND", "INGREDIENT_NOT_FOUND", "COMPANY_MISMATCH",
+  ]),
+  recipe_id: UuidSchema.nullable(),
+  version: z.number().int().positive().nullable(),
+  recipe_family_id: UuidSchema.nullable(),
+});
+export const BakeryRecipeDraftCreateResponseSchema =
+  createResponseEnvelopeSchema(BakeryRecipeDraftCreateResultSchema);
+
+export const BakeryRecipeApproveRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    recipe_id: UuidSchema,
+    expected_version: z.number().int().positive(),
+  }),
+).safeExtend({ message_type: z.literal("bakery.recipe.approve") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryRecipeApproveResultSchema = z.strictObject({
+  outcome: z.enum([
+    "APPROVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "NOT_FOUND",
+    "NOT_DRAFT", "VERSION_CONFLICT", "COMPANY_MISMATCH",
+  ]),
+  recipe_id: UuidSchema.nullable(),
+  version: z.number().int().positive().nullable(),
+});
+export const BakeryRecipeApproveResponseSchema =
+  createResponseEnvelopeSchema(BakeryRecipeApproveResultSchema);
+
+export const BakeryProductionOrderCreateRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    recipe_id: UuidSchema,
+    planned_quantity: PositiveScale6Schema,
+  }),
+).safeExtend({ message_type: z.literal("bakery.production.order.create") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryProductionOrderCreateResultSchema = z.strictObject({
+  outcome: z.enum([
+    "CREATED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT",
+    "RECIPE_NOT_FOUND", "RECIPE_NOT_APPROVED", "INVALID_RECIPE",
+    "FINISHED_POLICY_REQUIRED", "COMPANY_MISMATCH",
+  ]),
+  order_id: UuidSchema.nullable(),
+  recipe_version: z.number().int().positive().nullable(),
+});
+export const BakeryProductionOrderCreateResponseSchema =
+  createResponseEnvelopeSchema(BakeryProductionOrderCreateResultSchema);
+
+export const BakeryProductionOrderPlanRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    order_id: UuidSchema,
+  }),
+).safeExtend({ message_type: z.literal("bakery.production.order.plan") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const BakeryProductionOrderPlanResultSchema = z.strictObject({
+  outcome: z.enum([
+    "PLANNED", "UNAUTHORIZED", "NOT_FOUND", "INVALID_STATUS", "INSUFFICIENT_INGREDIENTS",
+  ]),
+  order_id: UuidSchema.nullable(),
+  shortages: z.array(z.strictObject({
+    presentation_id: UuidSchema,
+    required: NonNegativeScale6Schema,
+    available: NonNegativeScale6Schema,
+  })).nullable(),
+});
+export const BakeryProductionOrderPlanResponseSchema =
+  createResponseEnvelopeSchema(BakeryProductionOrderPlanResultSchema);
+
+export const BakeryProductionReleaseRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    order_id: UuidSchema,
+  }),
+).safeExtend({ message_type: z.literal("bakery.production.release") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryProductionReleaseResultSchema = z.strictObject({
+  outcome: z.enum([
+    "RELEASED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT",
+    "NOT_FOUND", "INVALID_STATUS", "LOT_NOT_FOUND", "CONFLICT",
+  ]),
+  lot_id: UuidSchema.nullable(),
+});
+export const BakeryProductionReleaseResponseSchema =
+  createResponseEnvelopeSchema(BakeryProductionReleaseResultSchema);
+
+export const BakeryProductionDeviationAuthorizeRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    order_id: UuidSchema,
+    deviations: z.array(z.strictObject({
+      kind: z.enum(["OMISSION", "SUBSTITUTION", "QUANTITY_VARIANCE"]),
+      recipe_presentation_id: UuidSchema.nullable(),
+      ingredient_presentation_id: UuidSchema.nullable(),
+      approved_quantity: NonNegativeScale6Schema,
+      equivalence_basis: z.string().min(1).max(300).nullable(),
+      reason: z.string().min(1).max(300),
+    })).min(1).max(64),
+    expires_at: z.string().datetime({ offset: true }).optional(),
+  }),
+).safeExtend({ message_type: z.literal("bakery.production.deviation.authorize") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryProductionDeviationAuthorizeResultSchema = z.strictObject({
+  outcome: z.enum([
+    "AUTHORIZED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "NOT_FOUND",
+    "INVALID_STATUS", "INVALID_DEVIATION", "COMPANY_MISMATCH", "PRESENTATION_NOT_FOUND",
+    "RECIPE_INGREDIENT_UNAUTHORIZED", "SUBSTITUTION_QUANTITY_MISMATCH", "INCOMPATIBLE_DEVIATIONS",
+  ]),
+  approval_ids: z.array(UuidSchema).nullable(),
+});
+export const BakeryProductionDeviationAuthorizeResponseSchema =
+  createResponseEnvelopeSchema(BakeryProductionDeviationAuthorizeResultSchema);
+
+export const BakeryProductionConfirmRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    order_id: UuidSchema,
+    /** Commercial finished units (inventory quantity). Never treated as measured mass. */
+    actual_quantity: PositiveScale6Schema,
+    /** Measured net mass when the recipe requires mass conservation; otherwise null. */
+    actual_net_mass_quantity: NonNegativeScale6Schema.nullable(),
+    shrinkage_quantity: NonNegativeScale6Schema,
+    shrinkage_reason: z.string().min(1).max(200).nullable(),
+    production_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    finished_batch_code: z.string().min(1).max(96),
+    consumptions: z.array(z.strictObject({
+      ingredient_presentation_id: UuidSchema,
+      lot_id: UuidSchema,
+      planned_quantity: PositiveScale6Schema,
+      actual_quantity: PositiveScale6Schema,
+      mass_quantity: NonNegativeScale6Schema.nullable(),
+      deviation_kind: z.enum(["QUANTITY_VARIANCE", "SUBSTITUTION"]).nullable().optional(),
+      deviation_reason: z.string().min(1).max(300).nullable().optional(),
+    })).min(1).max(64),
+    recipe_deviations: z.array(z.strictObject({
+      kind: z.enum(["OMISSION", "SUBSTITUTION", "QUANTITY_VARIANCE"]),
+      recipe_presentation_id: UuidSchema.nullable(),
+      ingredient_presentation_id: UuidSchema.nullable(),
+      reason: z.string().min(1).max(300),
+      /** Backend-issued approval; client authorized_by UUIDs are not accepted. */
+      approval_id: UuidSchema,
+    })).max(64).optional(),
+    direct_costs: z.array(z.strictObject({
+      cost_kind: z.enum(["LABOR", "ENERGY", "PACKAGING", "OTHER"]),
+      amount: PositiveScale6Schema,
+      source_note: z.string().min(1).max(300),
+    })).max(32),
+    shrinkage_attributions: z.array(z.strictObject({
+      presentation_id: UuidSchema,
+      lot_id: UuidSchema,
+      quantity: PositiveScale6Schema,
+      mass_quantity: NonNegativeScale6Schema.nullable(),
+    })).max(32),
+  }),
+).safeExtend({ message_type: z.literal("bakery.production.confirm") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const BakeryProductionConfirmResultSchema = z.strictObject({
+  outcome: z.enum([
+    "CONFIRMED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "NOT_FOUND",
+    "INVALID_STATUS", "INVALID_QUANTITY", "MASS_RECONCILIATION_FAILED",
+    "MASS_QUANTITY_REQUIRED", "RECIPE_CONSUMPTION_MISMATCH", "RECIPE_INGREDIENT_UNAUTHORIZED",
+    "RECIPE_INGREDIENT_OMITTED", "RECIPE_QUANTITY_MISMATCH", "DEVIATION_REQUIRED",
+    "INVALID_DEVIATION", "SUBSTITUTION_QUANTITY_MISMATCH", "DEVIATION_APPROVAL_NOT_FOUND",
+    "DEVIATION_APPROVAL_ORDER_MISMATCH", "DEVIATION_APPROVAL_NOT_ACTIVE",
+    "DEVIATION_APPROVAL_EXPIRED", "COMPANY_MISMATCH",
+    "UNIT_EQUIVALENCE_FAILED", "LOT_NOT_FOUND", "LOT_NOT_SELLABLE", "LOT_RESERVED",
+    "INSUFFICIENT_STOCK", "PRESENTATION_NOT_FOUND", "QUANTITY_PRECISION_EXCEEDED",
+    "LEGACY_STOCK_RECONCILIATION_REQUIRED", "CONFLICT",
+  ]),
+  order_id: UuidSchema.nullable(),
+  transform_order_id: UuidSchema.nullable(),
+  finished_lot_id: UuidSchema.nullable(),
+  cost_status: z.enum(["NOT_APPLICABLE", "PENDING", "COSTED", "NOT_COSTABLE"]).nullable(),
+  total_production_cost: NonNegativeScale6Schema.nullable(),
+  unit_cost: NonNegativeScale6Schema.nullable(),
+  sellable: z.boolean().nullable(),
+});
+export const BakeryProductionConfirmResponseSchema =
+  createResponseEnvelopeSchema(BakeryProductionConfirmResultSchema);
+
+export const BakeryProductionTraceGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ order_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("bakery.production.trace.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const BakeryProductionTraceGetResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  order_id: UuidSchema.nullable(),
+  recipe_id: UuidSchema.nullable(),
+  recipe_version: z.number().int().positive().nullable(),
+  transform_order_id: UuidSchema.nullable(),
+  finished_lot_id: UuidSchema.nullable(),
+  cost_status: z.string().nullable(),
+  total_production_cost: NonNegativeScale6Schema.nullable(),
+  unit_cost: NonNegativeScale6Schema.nullable(),
+  sources: z.array(z.record(z.string(), z.unknown())).nullable(),
+});
+export const BakeryProductionTraceGetResponseSchema =
+  createResponseEnvelopeSchema(BakeryProductionTraceGetResultSchema);
+
 export const CommercialIpcMessageTypeSchema = z.enum([
   "hardware.command",
   "authorization.capabilities.get",
@@ -1492,6 +2002,22 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "audit.event.list",
   "admin.metrics.get",
   "license.offers.list",
+  "catalog.presentation.register",
+  "catalog.food_policy.upsert",
+  "inventory.transform.execute",
+  "pharmacy.establishment.upsert",
+  "pharmacy.profile.upsert",
+  "pharmacy.prescription.register",
+  "pharmacy.technical_receipt.register",
+  "pharmacy.sanitary_alert.register",
+  "bakery.recipe.draft.create",
+  "bakery.recipe.approve",
+  "bakery.production.order.create",
+  "bakery.production.order.plan",
+  "bakery.production.release",
+  "bakery.production.deviation.authorize",
+  "bakery.production.confirm",
+  "bakery.production.trace.get",
 ]);
 
 /**
@@ -1538,6 +2064,22 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:audit.event.list",
   "pos:admin.metrics.get",
   "pos:license.offers.list",
+  "pos:catalog.presentation.register",
+  "pos:catalog.food_policy.upsert",
+  "pos:inventory.transform.execute",
+  "pos:pharmacy.establishment.upsert",
+  "pos:pharmacy.profile.upsert",
+  "pos:pharmacy.prescription.register",
+  "pos:pharmacy.technical_receipt.register",
+  "pos:pharmacy.sanitary_alert.register",
+  "pos:bakery.recipe.draft.create",
+  "pos:bakery.recipe.approve",
+  "pos:bakery.production.order.create",
+  "pos:bakery.production.order.plan",
+  "pos:bakery.production.release",
+  "pos:bakery.production.deviation.authorize",
+  "pos:bakery.production.confirm",
+  "pos:bakery.production.trace.get",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;

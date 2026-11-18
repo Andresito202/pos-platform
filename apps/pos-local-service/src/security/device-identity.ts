@@ -7,6 +7,7 @@ import {
   type KeyObject,
 } from "node:crypto";
 import type { EncryptedFileSecretStore } from "./encrypted-secret-store.js";
+import { createDeviceRequestAuthorization, type DeviceRequestProofInput } from "@pos-platform/device-trust";
 
 export class DeviceIdentity {
   private constructor(private readonly privateKey: KeyObject) {}
@@ -39,6 +40,10 @@ export class DeviceIdentity {
   deviceKeyId(): string {
     const der = createPublicKey(this.privateKey).export({ type: "spki", format: "der" });
     return `DEVICE_KEY_${createHash("sha256").update(der).digest("hex").toUpperCase()}`;
+  }
+
+  signRequestAuthorization(input: Omit<DeviceRequestProofInput, "timestamp" | "nonce" | "credentialId"> & { credentialId: string }): string {
+    return createDeviceRequestAuthorization(input, this.privateKey);
   }
 
   signChallenge(challenge: Buffer): Buffer {

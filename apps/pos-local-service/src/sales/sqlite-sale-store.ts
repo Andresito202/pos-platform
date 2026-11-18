@@ -1,10 +1,11 @@
+import type { CashRegisterLicenseGate } from "../security/license-capacity-gate.js";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
+import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { DurableSyncStore } from "../sync/durable-sync-store.js";
 import { bigIntToScale6 } from "../money.js";
 import type { SaleLineCalculation, SaleTotalsCalculation } from "./sale-calculation.js";
-import { uuidV7 } from "@pos-platform/contracts";
 
 const SALE_PAYLOAD_SCHEMA_VERSION = "1.0.0";
 
@@ -24,6 +25,9 @@ export interface SaleLineInput {
 }
 
 export interface CreateSaleInput {
+  readonly customerId?: string | null;
+  /** Trusted adapter policy, never accepted from renderer payload. */
+  readonly requireOpenCashShift?: boolean;
   readonly saleId: string;
   readonly operationId: string;
   readonly scope: SyncScope;
@@ -56,6 +60,13 @@ export interface CreateSaleInput {
    * objeto y no dos campos sueltos que pudieran desparejarse.
    */
   readonly cashShift: { readonly cashRegisterId: string; readonly shiftId: string } | null;
+  /**
+   * Runs inside the sale writer transaction after the sale aggregate is inserted.
+   * Used to create inventory reservations atomically with READY_FOR_PAYMENT.
+   * Throwing rolls back the sale; returning a typed failure is not supported —
+   * callers map thrown codes to CreateSaleOutcome.
+   */
+  readonly afterInsert?: (saleId: string) => void;
 }
 
 export type CreateSaleOutcome =
@@ -71,7 +82,10 @@ export type CreateSaleOutcome =
       readonly saleNumber: number;
       readonly calculationChecksum: string;
     }
-  | { readonly kind: "IDEMPOTENCY_CONFLICT" };
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
+  | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string }
+  | { readonly kind: "CUSTOMER_NOT_FOUND" };
 
 interface SaleRow {
   id: string;
@@ -92,6 +106,7 @@ export class SqliteSaleStore {
     private readonly database: LocalDatabase,
     private readonly durableSync: DurableSyncStore,
     private readonly now: () => Date = () => new Date(),
+    private readonly licenseGate?: CashRegisterLicenseGate,
   ) {}
 
   create(input: CreateSaleInput): CreateSaleOutcome {
@@ -120,6 +135,30 @@ export class SqliteSaleStore {
           calculationChecksum: existing.calculation_checksum,
         };
       }
+
+      // Counter IPC requires OPEN even for transfers. Check in the writer transaction,
+      // after replay resolution and before numbering, audit, outbox or any sale write.
+      if (input.requireOpenCashShift) {
+        const shift = input.cashShift;
+        if (shift === null || !this.database.native.prepare(`SELECT 1 FROM cash_shift
+          WHERE tenant_id=? AND company_id=? AND branch_id=? AND cash_register_id=? AND id=? AND status='OPEN'`)
+          .get(input.scope.tenantId, input.scope.companyId, input.scope.branchId, shift.cashRegisterId, shift.shiftId)) {
+          return { kind: "CASH_SHIFT_NOT_OPEN" };
+        }
+      }
+
+      // A shift opened yesterday cannot extend signed license validity today.
+      // Replays above remain readable; only a new commercial sale is gated.
+      if (this.licenseGate) {
+        const register = input.cashShift?.cashRegisterId;
+        if (!register) return {kind:"LICENSE_BLOCKED",reason:"LICENSE_REGISTER_REQUIRED"};
+        const denial = this.licenseGate(input.scope, register);
+        if (denial) return {kind:"LICENSE_BLOCKED",reason:denial};
+      }
+
+      if (input.customerId && !this.database.native.prepare(
+        "SELECT 1 FROM customers_customers WHERE tenant_id=? AND company_id=? AND id=?"
+      ).get(input.scope.tenantId,input.scope.companyId,input.customerId)) return {kind:"CUSTOMER_NOT_FOUND"};
 
       // 2. Contador de serie documental — incremento atómico
       const counterRow = this.database.native.prepare(
@@ -173,7 +212,7 @@ export class SqliteSaleStore {
           pricing_snapshot, tax_snapshot, calculation_checksum,
           operation_id, idempotency_key, request_checksum,
           correlation_id, causation_id, version, created_at,
-          completed_at, cancelled_at, expired_at, server_recorded_at
+          completed_at, cancelled_at, expired_at, server_recorded_at, customer_id
         ) VALUES (
           ?,?,?,?,?,?,
           ?,?,?,?,
@@ -186,7 +225,7 @@ export class SqliteSaleStore {
           ?,?,?,
           ?,?,?,
           ?,?,?,?,
-          NULL,NULL,NULL,NULL
+          NULL,NULL,NULL,NULL,?
         )`,
       ).run(
         input.saleId,
@@ -227,6 +266,7 @@ export class SqliteSaleStore {
         input.causationId,
         1,
         nowIso,
+        input.customerId ?? null,
       );
 
       // 5. items
@@ -300,6 +340,7 @@ export class SqliteSaleStore {
         input.causationId,
         canonicalJson({
           sale_id: input.saleId,
+          ...(input.customerId ? {customer_id:input.customerId}:{}),
           document_series: input.documentSeries,
           sale_number: saleNumber,
           calculation_checksum: input.calculationChecksum,
@@ -340,6 +381,7 @@ export class SqliteSaleStore {
         payload_schema_version: SALE_PAYLOAD_SCHEMA_VERSION,
         payload: {
           sale_id: input.saleId,
+          ...(input.customerId ? {customer_id:input.customerId}:{}),
           document_series: input.documentSeries,
           sale_number: saleNumber,
           calculation_checksum: input.calculationChecksum,
@@ -353,6 +395,10 @@ export class SqliteSaleStore {
         recorded_at_local: nowIso,
       });
 
+      // Hold sellable stock for READY_FOR_PAYMENT before the transaction commits.
+      // Failures throw and roll back the sale aggregate + outbox together.
+      if (input.afterInsert) input.afterInsert(input.saleId);
+
       return {
         kind: "CREATED",
         saleId: input.saleId,
@@ -363,6 +409,14 @@ export class SqliteSaleStore {
 
     return transaction();
   }
+
+  /**
+   * P1: cancel a local READY_FOR_PAYMENT sale and free its inventory holds.
+   * Does not cancel PAYMENT_IN_PROGRESS / COMPLETED — those require payment
+   * reconciliation first. `releaseHolds` runs in the same SQLite transaction
+   * after the sale is CANCELLED so inventory refuses to release unbound.
+   * IPC/permission surface for sale.cancel is not materialized in this closure.
+   */
   cancelReadyForPayment(input: {
     readonly scope: SyncScope;
     readonly saleId: string;

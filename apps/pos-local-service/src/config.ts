@@ -18,6 +18,8 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_SESSION_TRUST_ENVIRONMENT",
   "POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM",
   "POS_SESSION_TRUST_ARTIFACT_PATH",
+  "POS_LICENSE_CAPACITY_PROVISION_FILE",
+  "POS_LOCAL_OPERATOR_AUTH_STORE",
 ]);
 
 const ServiceConfigSchema = z.strictObject({
@@ -36,6 +38,8 @@ const ServiceConfigSchema = z.strictObject({
   session_trust_root_public_key_pem: z.string().min(80).max(4096).optional(),
   /** Public signed bundle supplied by the installer; never contains private keys. */
   session_trust_artifact_path: z.string().min(1).max(4096).optional(),
+  license_capacity_provision_file: z.string().refine(isAbsolute).optional(),
+  local_operator_auth_store: z.string().refine(isAbsolute).optional(),
 }).superRefine((value, context) => {
   if (compareContractVersions(value.protocol_min, value.protocol_max) > 0) {
     context.addIssue({ code: "custom", path: ["protocol_max"], message: "protocol_max must be greater than or equal to protocol_min" });
@@ -68,7 +72,12 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     session_trust_environment: environment.POS_SESSION_TRUST_ENVIRONMENT,
     session_trust_root_public_key_pem: environment.POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM,
     session_trust_artifact_path: environment.POS_SESSION_TRUST_ARTIFACT_PATH,
+    license_capacity_provision_file: environment.POS_LICENSE_CAPACITY_PROVISION_FILE,
+    local_operator_auth_store: environment.POS_LOCAL_OPERATOR_AUTH_STORE,
   });
   if (!isAbsolute(parsed.data_directory)) throw new Error("data directory must be absolute");
+  if (parsed.local_operator_auth_store !== undefined && environment.NODE_ENV !== "development") {
+    throw new Error("local operator auth store is development-only");
+  }
   return { ...parsed, data_directory: resolve(parsed.data_directory) };
 }

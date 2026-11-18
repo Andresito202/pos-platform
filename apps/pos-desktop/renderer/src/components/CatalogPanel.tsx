@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { LicenseSectorEntitlement } from "@pos-platform/contracts";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
+import { PharmacyPanel } from "./PharmacyPanel.js";
+import { BakeryPanel } from "./BakeryPanel.js";
 
 /**
  * Alta de producto. Es la pantalla que faltaba para poder usar el POS el primer
@@ -9,7 +12,10 @@ import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
  * existencia necesita a continuación. Esconderlo obligaría a buscarlo en la base
  * de datos, que es justo lo que una pantalla existe para evitar.
  */
-export function CatalogPanel(): React.JSX.Element {
+export function CatalogPanel({ permissions = new Set(), entitlements = new Set() }: {
+  permissions?: ReadonlySet<string>;
+  entitlements?: ReadonlySet<string>;
+}): React.JSX.Element {
   const catalog = useCatalogAdmin();
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
@@ -130,6 +136,13 @@ export function CatalogPanel(): React.JSX.Element {
         <div data-testid="product-rejected">{catalog.outcome}</div>
       )}
       {catalog.error !== null && <div data-testid="catalog-error">{catalog.error}</div>}
+
+      {entitlements.has(LicenseSectorEntitlement.FARMACIA) && (
+        <PharmacyPanel permissions={permissions} />
+      )}
+      {entitlements.has(LicenseSectorEntitlement.PASTELERIA) && (
+        <BakeryPanel permissions={permissions} />
+      )}
     </section>
   );
 }

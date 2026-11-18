@@ -9,6 +9,7 @@ import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { FiscalPanel } from "./components/FiscalPanel.js";
 import { useAuthorizationCapabilities } from "./hooks/useAuthorizationCapabilities.js";
+import { orderScreensByRole } from "./roleNavigation.js";
 
 function hasAny(permissions: ReadonlySet<string>, required: readonly string[]): boolean {
   return required.some((permission) => permissions.has(permission));
@@ -35,7 +36,7 @@ export function App(): React.JSX.Element {
   const screens = useMemo<Screen[]>(() => {
     if (authorization.phase !== "ready") return [];
 
-    const { permissions } = authorization;
+    const { permissions, entitlements } = authorization;
     const result: Screen[] = [];
 
     if (hasAny(permissions, [
@@ -65,7 +66,7 @@ export function App(): React.JSX.Element {
       result.push({
         id: "catalog",
         label: "Catálogo",
-        render: () => <CatalogPanel />,
+        render: () => <CatalogPanel permissions={permissions} entitlements={entitlements} />,
       });
     }
 
@@ -77,7 +78,7 @@ export function App(): React.JSX.Element {
       result.push({
         id: "inventory",
         label: "Inventario",
-        render: () => <InventoryPanel permissions={permissions} />,
+        render: () => <InventoryPanel permissions={permissions} entitlements={entitlements} />,
       });
     }
 
@@ -100,7 +101,10 @@ export function App(): React.JSX.Element {
       });
     }
 
-    return result;
+    // Tip hosts Pharmacy/Bakery/Transform inside Catalog/Inventory under SECTOR
+    // entitlements. roleNavigation orders when a local role is known; without
+    // commercial login this keeps the permission-gated list as-is.
+    return orderScreensByRole(result, null);
   }, [authorization]);
 
   if (authorization.phase === "loading") {

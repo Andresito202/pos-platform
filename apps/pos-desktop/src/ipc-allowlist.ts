@@ -35,6 +35,28 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:inventory.conversion.execute",
   // Recibo — `DEC-019`. Sólo lectura: proyecta la venta ya cobrada.
   "pos:sales.receipt.get",
+  "pos:catalog.presentation.register",
+  "pos:catalog.food_policy.upsert",
+  "pos:pharmacy.establishment.upsert",
+  "pos:pharmacy.profile.upsert",
+  "pos:pharmacy.prescription.register",
+  "pos:pharmacy.technical_receipt.register",
+  "pos:pharmacy.sanitary_alert.register",
+  "pos:bakery.recipe.draft.create",
+  "pos:bakery.recipe.approve",
+  "pos:bakery.production.order.create",
+  "pos:bakery.production.order.plan",
+  "pos:bakery.production.release",
+  "pos:bakery.production.deviation.authorize",
+  "pos:bakery.production.confirm",
+  "pos:bakery.production.trace.get",
+  "pos:inventory.transform.execute",
+  "pos:cart.waiting.save",
+  "pos:cart.waiting.list",
+  "pos:cart.waiting.get",
+  "pos:cart.waiting.discard",
+  "pos:inventory.reservation.create",
+  "pos:inventory.reservation.release",
 ] as const;
 
 export type IpcAllowedChannel = (typeof IPC_ALLOWED_CHANNELS)[number];

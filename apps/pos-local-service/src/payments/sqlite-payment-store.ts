@@ -3,6 +3,7 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
 import type { CashPort } from "./cash-port.js";
 import type { InventoryPort } from "./inventory-port.js";
+import type { PharmacySaleEligibilityPort } from "./pharmacy-sale-eligibility-port.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 
 /**
@@ -27,7 +28,7 @@ const PAYMENT_PAYLOAD_SCHEMA_VERSION = "1.0.0";
 /** Estados de venta desde los que V1 admite recibir pago. */
 const PAYABLE_SALE_STATUSES = new Set(["READY_FOR_PAYMENT", "PAYMENT_IN_PROGRESS"]);
 
-export type PaymentMethod = "CASH" | "TRANSFER";
+export type PaymentMethod = "CASH" | "TRANSFER" | "QR";
 
 interface SaleRow {
   status: string;
@@ -132,6 +133,8 @@ export interface PaymentView {
   readonly confirmedAmount: string;
   readonly currencyCode: string;
   readonly version: number;
+  readonly providerCode: string | null;
+  readonly providerReference: string | null;
 }
 
 // ── Resultados ────────────────────────────────────────────────────────────────
@@ -149,6 +152,11 @@ export interface InsufficientStockOutcome {
   readonly presentationId: string;
   readonly available: string;
 }
+
+export type PharmacyEligibilityLostOutcome = {
+  readonly kind: "PHARMACY_ELIGIBILITY_LOST";
+  readonly reason: string;
+};
 
 export type RegisterPaymentOutcome =
   | {
@@ -168,7 +176,8 @@ export type RegisterPaymentOutcome =
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "CASH_SHIFT_MISSING" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
-  | InsufficientStockOutcome;
+  | InsufficientStockOutcome
+  | PharmacyEligibilityLostOutcome;
 
 export type ConfirmTransferOutcome =
   | {
@@ -185,7 +194,8 @@ export type ConfirmTransferOutcome =
   | { readonly kind: "VERSION_CONFLICT" }
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
-  | InsufficientStockOutcome;
+  | InsufficientStockOutcome
+  | PharmacyEligibilityLostOutcome;
 
 export type CancelPaymentOutcome =
   | { readonly kind: "CANCELLED"; readonly paymentId: string }
@@ -201,21 +211,89 @@ export type GetPaymentOutcome =
 
 // ── Store ─────────────────────────────────────────────────────────────────────
 
+type DeferredPharmacyReconciliation = {
+  scope: SyncScope;
+  sessionId: string;
+  operatorUserId: string;
+  saleId: string;
+  reason: string;
+  evidenceNote: string;
+  correlationId: string;
+  causationId: string | null;
+};
+
 export class SqlitePaymentStore {
+  /**
+   * Hold recorded **after** PaymentRollback so it is not undone with the
+   * confirming payment transaction. Cleared at the start of each confirm op.
+   */
+  private deferredPharmacyReconciliation: DeferredPharmacyReconciliation | null = null;
+
   constructor(
     private readonly database: LocalDatabase,
     private readonly durableSync: DurableSyncStore,
     private readonly cashPort: CashPort,
     private readonly inventoryPort: InventoryPort,
     private readonly now: () => Date = () => new Date(),
+    private readonly pharmacyEligibility: PharmacySaleEligibilityPort | null = null,
   ) {}
+
+  private flushDeferredPharmacyReconciliation(): void {
+    const pending = this.deferredPharmacyReconciliation;
+    this.deferredPharmacyReconciliation = null;
+    if (pending === null || this.pharmacyEligibility === null) return;
+    // Separate from the rolled-back confirm txn — durable hold, no bank reversal.
+    this.pharmacyEligibility.recordPaymentReconciliationPending(pending);
+  }
+
+  /**
+   * Definitive pharmacy gate for irreversible confirmation / sale completion.
+   * Called after actor authorization in the use-case and before confirmed
+   * payment rows or stock deduction. Failures never invent a bank reversal.
+   *
+   * `persistHold: "deferred"` is required when the caller may still throw
+   * `PaymentRollback` — otherwise the hold would die with the txn.
+   */
+  private assertPharmacyEligibleForConfirmation(
+    input: CommonInput,
+    saleId: string,
+    options: {
+      durablePriorCoverage: bigint;
+      persistHold: "inline" | "deferred";
+    },
+  ): PharmacyEligibilityLostOutcome | null {
+    if (this.pharmacyEligibility === null) return null;
+    const check = this.pharmacyEligibility.revalidateSaleEligibility(input.scope, saleId);
+    if (check.kind === "OK") return null;
+
+    if (options.durablePriorCoverage > 0n) {
+      const hold: DeferredPharmacyReconciliation = {
+        scope: input.scope,
+        sessionId: input.sessionId,
+        operatorUserId: input.operatorUserId,
+        saleId,
+        reason: check.reason,
+        evidenceNote:
+          "Confirmed local coverage exists; dispensation blocked pending reconciliation. No bank reversal claimed.",
+        correlationId: input.correlationId,
+        causationId: input.causationId,
+      };
+      if (options.persistHold === "inline") {
+        this.pharmacyEligibility.recordPaymentReconciliationPending(hold);
+      } else {
+        this.deferredPharmacyReconciliation = hold;
+      }
+    }
+    return { kind: "PHARMACY_ELIGIBILITY_LOST", reason: check.reason };
+  }
 
   // ── Lecturas ────────────────────────────────────────────────────────────────
 
   get(scope: SyncScope, paymentId: string): GetPaymentOutcome {
     const row = this.database.native.prepare(
       `SELECT p.id, p.payment_method, p.status, p.expected_amount, p.confirmed_amount,
-              p.currency_code, p.version, g.collection_subject_id
+              p.currency_code, p.version, p.provider_code, p.provider_reference,
+              g.collection_subject_id
        FROM payments_payments p
        JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
        WHERE p.tenant_id=? AND p.id=?`,
@@ -223,6 +301,7 @@ export class SqlitePaymentStore {
       | {
           id: string; payment_method: string; status: string; expected_amount: string;
           confirmed_amount: string; currency_code: string; version: number;
+          provider_code: string | null; provider_reference: string | null;
           collection_subject_id: string;
         }
       | undefined;
@@ -239,6 +318,8 @@ export class SqlitePaymentStore {
         confirmedAmount: row.confirmed_amount,
         currencyCode: row.currency_code,
         version: row.version,
+        providerCode: row.provider_code,
+        providerReference: row.provider_reference,
       },
     };
   }
@@ -391,9 +472,25 @@ export class SqlitePaymentStore {
     saleVersion: number,
     completionOperationId: string,
     nowIso: string,
+    newlyConfirmedAmount: string,
   ): { completed: boolean; coverage: bigint } {
     const coverage = this.confirmedCoverage(input.scope.tenantId, saleId);
     if (coverage < scale6ToBigInt(payableAmount)) return { completed: false, coverage };
+
+    // Durable prior = coverage already committed before this confirming payment.
+    // Current allocation is in this txn and will vanish on PaymentRollback.
+    const newlyConfirmed = scale6ToBigInt(newlyConfirmedAmount);
+    const durablePrior = coverage > newlyConfirmed ? coverage - newlyConfirmed : 0n;
+
+    // Revalidate immediately before stock exit — last gate inside the same txn.
+    // Hold must be deferred: PaymentRollback would otherwise erase it.
+    const pharmacyBlocked = this.assertPharmacyEligibleForConfirmation(input, saleId, {
+      durablePriorCoverage: durablePrior,
+      persistHold: "deferred",
+    });
+    if (pharmacyBlocked !== null) {
+      throw new PaymentRollback<PharmacyEligibilityLostOutcome>(pharmacyBlocked);
+    }
 
     // La mercancía sale **antes** de marcar COMPLETED y dentro de esta misma
     // transacción: una venta cobrada cuya existencia sigue en la estantería es
@@ -507,8 +604,10 @@ export class SqlitePaymentStore {
    */
   register(input: RegisterPaymentInput): RegisterPaymentOutcome {
     const nowIso = this.now().toISOString();
+    this.deferredPharmacyReconciliation = null;
 
-    return runWithRollback(this.database.native.transaction((): RegisterPaymentOutcome => {
+    try {
+      return runWithRollback(this.database.native.transaction((): RegisterPaymentOutcome => {
       // 1. Idempotencia canónica: la operación, no el agregado.
       const operation = this.operationIdempotency(input.idempotencyKey, input.requestChecksum);
       if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
@@ -538,6 +637,16 @@ export class SqlitePaymentStore {
       const amount = scale6ToBigInt(input.amount);
       const payable = scale6ToBigInt(sale.payable_amount);
       const confirming = input.method === "CASH";
+      const authorityType = confirming
+        ? "LOCAL_DEVICE"
+        : input.method === "QR"
+          ? "EXTERNAL_PROVIDER_AUTHORITATIVE"
+          : "MANUAL_ATTESTATION";
+      const providerReferenceType = input.providerReference === null
+        ? null
+        : input.method === "QR"
+          ? "FACTUS_PAY_REFERENCE"
+          : "MANUAL_REFERENCE";
       if (confirming && this.confirmedCoverage(input.scope.tenantId, input.saleId) + amount > payable) {
         return { kind: "OVERPAYMENT_NOT_ALLOWED" };
       }
@@ -545,6 +654,15 @@ export class SqlitePaymentStore {
       // 4. Efectivo: exige turno abierto ANTES de escribir nada.
       if (confirming) {
         if (sale.cash_shift_id === null) return { kind: "CASH_SHIFT_MISSING" };
+      }
+
+      // 4b. Pharmacy gate before irreversible local confirmation (cash).
+      if (confirming) {
+        const pharmacyBlocked = this.assertPharmacyEligibleForConfirmation(input, input.saleId, {
+          durablePriorCoverage: this.confirmedCoverage(input.scope.tenantId, input.saleId),
+          persistHold: "inline",
+        });
+        if (pharmacyBlocked !== null) return pharmacyBlocked;
       }
 
       const group = this.ensureGroup(input, sale, nowIso);
@@ -577,7 +695,7 @@ export class SqlitePaymentStore {
         )`,
       ).run(
         input.paymentId, input.scope.tenantId, input.scope.companyId, input.scope.branchId, group,
-        input.method, confirming ? "LOCAL_DEVICE" : "MANUAL_ATTESTATION", status,
+        input.method, authorityType, status,
         input.amount, confirming ? input.amount : "0.000000",
         input.tenderedAmount, input.changeAmount, sale.currency_code,
         input.scope.deviceId, input.scope.installationId,
@@ -600,9 +718,9 @@ export class SqlitePaymentStore {
       ).run(
         input.attemptId, input.scope.tenantId, input.scope.companyId, input.scope.branchId,
         input.paymentId,
-        input.method, confirming ? "LOCAL_DEVICE" : "MANUAL_ATTESTATION", status,
+        input.method, authorityType, status,
         input.amount, sale.currency_code,
-        input.providerCode, input.providerReference === null ? null : "MANUAL_REFERENCE", input.providerReference,
+        input.providerCode, providerReferenceType, input.providerReference,
         confirming ? input.operatorUserId : null,
         `attempt:${input.idempotencyKey}`, input.requestChecksum, input.correlationId, input.causationId,
         nowIso, confirming ? nowIso : null,
@@ -662,6 +780,7 @@ export class SqlitePaymentStore {
 
       const completion = this.completeSaleIfCovered(
         input, input.saleId, sale.payable_amount, saleVersion, input.saleCompletionOperationId, nowIso,
+        input.amount,
       );
 
       return {
@@ -672,6 +791,9 @@ export class SqlitePaymentStore {
         payableAmount: sale.payable_amount,
       };
     }));
+    } finally {
+      this.flushDeferredPharmacyReconciliation();
+    }
   }
 
   private saleBusinessDate(tenantId: string, saleId: string): string {
@@ -708,91 +830,104 @@ export class SqlitePaymentStore {
    */
   confirmTransfer(input: ConfirmTransferInput): ConfirmTransferOutcome {
     const nowIso = this.now().toISOString();
+    this.deferredPharmacyReconciliation = null;
 
-    return runWithRollback(this.database.native.transaction((): ConfirmTransferOutcome => {
-      const operation = this.operationIdempotency(input.idempotencyKey, input.requestChecksum);
-      if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
+    try {
+      return runWithRollback(this.database.native.transaction((): ConfirmTransferOutcome => {
+        const operation = this.operationIdempotency(input.idempotencyKey, input.requestChecksum);
+        if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
 
-      const payment = this.database.native.prepare(
-        `SELECT p.id, p.payment_group_id, p.payment_method, p.status, p.expected_amount,
-                p.confirmed_amount, p.currency_code, p.version, p.request_checksum,
-                g.collection_subject_id
-         FROM payments_payments p
-         JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
-         WHERE p.tenant_id=? AND p.id=?`,
-      ).get(input.scope.tenantId, input.paymentId) as PaymentRow | undefined;
+        const payment = this.database.native.prepare(
+          `SELECT p.id, p.payment_group_id, p.payment_method, p.status, p.expected_amount,
+                  p.confirmed_amount, p.currency_code, p.version, p.request_checksum,
+                  g.collection_subject_id
+           FROM payments_payments p
+           JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+           WHERE p.tenant_id=? AND p.id=?`,
+        ).get(input.scope.tenantId, input.paymentId) as PaymentRow | undefined;
 
-      if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+        if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
 
-      // Reintento de esta misma confirmación. Se resuelve antes de mirar el
-      // estado: tras confirmar, el pago ya no es `CREATED` y la comprobación de
-      // estado devolvería `PAYMENT_NOT_CONFIRMABLE` a una repetición legítima.
-      if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
+        // Reintento de esta misma confirmación. Se resuelve antes de mirar el
+        // estado: tras confirmar, el pago ya no es `CREATED` y la comprobación de
+        // estado devolvería `PAYMENT_NOT_CONFIRMABLE` a una repetición legítima.
+        if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
 
-      if (payment.status !== "CREATED") return { kind: "PAYMENT_NOT_CONFIRMABLE" };
-      if (payment.version !== input.expectedVersion) return { kind: "VERSION_CONFLICT" };
+        if (payment.status !== "CREATED") return { kind: "PAYMENT_NOT_CONFIRMABLE" };
+        if (payment.version !== input.expectedVersion) return { kind: "VERSION_CONFLICT" };
 
-      const saleId = payment.collection_subject_id;
-      const sale = this.loadSale(input.scope.tenantId, saleId);
-      if (sale === undefined) return { kind: "PAYMENT_NOT_FOUND" };
-      if (sale.status === "COMPLETED") return { kind: "SALE_ALREADY_COMPLETED" };
+        const saleId = payment.collection_subject_id;
+        const sale = this.loadSale(input.scope.tenantId, saleId);
+        if (sale === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+        if (sale.status === "COMPLETED") return { kind: "SALE_ALREADY_COMPLETED" };
 
-      const amount = scale6ToBigInt(payment.expected_amount);
-      if (this.confirmedCoverage(input.scope.tenantId, saleId) + amount > scale6ToBigInt(sale.payable_amount)) {
-        return { kind: "OVERPAYMENT_NOT_ALLOWED" };
-      }
+        const amount = scale6ToBigInt(payment.expected_amount);
+        if (this.confirmedCoverage(input.scope.tenantId, saleId) + amount > scale6ToBigInt(sale.payable_amount)) {
+          return { kind: "OVERPAYMENT_NOT_ALLOWED" };
+        }
 
-      this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_CONFIRMED", nowIso);
+        // Pharmacy gate before irreversible transfer confirmation (manual attestation).
+        const pharmacyBlocked = this.assertPharmacyEligibleForConfirmation(input, saleId, {
+          durablePriorCoverage: this.confirmedCoverage(input.scope.tenantId, saleId),
+          persistHold: "inline",
+        });
+        if (pharmacyBlocked !== null) return pharmacyBlocked;
 
-      this.database.native.prepare(
-        // `idempotency_key` y `request_checksum` NO se tocan: pertenecen a la
-        // operación de registro y son su ancla permanente (`D-1`). La
-        // confirmación registra la suya en `runtime_operations`.
-        `UPDATE payments_payments
-         SET status='CONFIRMED', confirmed_amount=expected_amount, confirmed_at=?,
-             confirmed_by_actor_type='USER', confirmed_by_actor_id=?,
-             version=version+1
-         WHERE tenant_id=? AND id=? AND version=?`,
-      ).run(
-        nowIso, input.operatorUserId,
-        input.scope.tenantId, input.paymentId, input.expectedVersion,
-      );
+        this.insertOperation(input.operationId, input.idempotencyKey, input.requestChecksum, "PAYMENT_CONFIRMED", nowIso);
 
-      this.database.native.prepare(
-        `UPDATE payments_payment_attempts
-         SET status='CONFIRMED', confirmed_at=?, manual_confirmation_actor_id=?, version=version+1
-         WHERE tenant_id=? AND payment_id=? AND attempt_number=1`,
-      ).run(nowIso, input.operatorUserId, input.scope.tenantId, input.paymentId);
+        this.database.native.prepare(
+          // `idempotency_key` y `request_checksum` NO se tocan: pertenecen a la
+          // operación de registro y son su ancla permanente (`D-1`). La
+          // confirmación registra la suya en `runtime_operations`.
+          `UPDATE payments_payments
+           SET status='CONFIRMED', confirmed_amount=expected_amount, confirmed_at=?,
+               confirmed_by_actor_type='USER', confirmed_by_actor_id=?,
+               version=version+1
+           WHERE tenant_id=? AND id=? AND version=?`,
+        ).run(
+          nowIso, input.operatorUserId,
+          input.scope.tenantId, input.paymentId, input.expectedVersion,
+        );
 
-      this.insertAllocation(
-        input.scope.tenantId, input.allocationId, payment.payment_group_id, input.paymentId,
-        saleId, payment.expected_amount, payment.currency_code, nowIso,
-      );
+        this.database.native.prepare(
+          `UPDATE payments_payment_attempts
+           SET status='CONFIRMED', confirmed_at=?, manual_confirmation_actor_id=?, version=version+1
+           WHERE tenant_id=? AND payment_id=? AND attempt_number=1`,
+        ).run(nowIso, input.operatorUserId, input.scope.tenantId, input.paymentId);
 
-      const saleVersion = this.beginPaymentOnSale(input.scope.tenantId, saleId, sale);
+        this.insertAllocation(
+          input.scope.tenantId, input.allocationId, payment.payment_group_id, input.paymentId,
+          saleId, payment.expected_amount, payment.currency_code, nowIso,
+        );
 
-      const details = {
-        amount: payment.expected_amount, method: payment.payment_method,
-        payment_id: input.paymentId, sale_id: saleId,
-      };
-      this.writeAudit(input, "PAYMENT_CONFIRMED", "PAYMENT", input.paymentId, details, nowIso);
-      this.enqueue(
-        input, input.operationId, input.idempotencyKey,
-        "PAYMENT", input.paymentId, "PAYMENT_CONFIRMED", details, input.requestChecksum, nowIso,
-      );
+        const saleVersion = this.beginPaymentOnSale(input.scope.tenantId, saleId, sale);
 
-      const completion = this.completeSaleIfCovered(
-        input, saleId, sale.payable_amount, saleVersion, input.saleCompletionOperationId, nowIso,
-      );
+        const details = {
+          amount: payment.expected_amount, method: payment.payment_method,
+          payment_id: input.paymentId, sale_id: saleId,
+        };
+        this.writeAudit(input, "PAYMENT_CONFIRMED", "PAYMENT", input.paymentId, details, nowIso);
+        this.enqueue(
+          input, input.operationId, input.idempotencyKey,
+          "PAYMENT", input.paymentId, "PAYMENT_CONFIRMED", details, input.requestChecksum, nowIso,
+        );
 
-      return {
-        kind: "CONFIRMED",
-        paymentId: input.paymentId,
-        saleCompleted: completion.completed,
-        confirmedCoverage: bigIntToScale6(completion.coverage),
-        payableAmount: sale.payable_amount,
-      };
-    }));
+        const completion = this.completeSaleIfCovered(
+          input, saleId, sale.payable_amount, saleVersion, input.saleCompletionOperationId, nowIso,
+          payment.expected_amount,
+        );
+
+        return {
+          kind: "CONFIRMED",
+          paymentId: input.paymentId,
+          saleCompleted: completion.completed,
+          confirmedCoverage: bigIntToScale6(completion.coverage),
+          payableAmount: sale.payable_amount,
+        };
+      }));
+    } finally {
+      this.flushDeferredPharmacyReconciliation();
+    }
   }
 
   // ── Cancelación ─────────────────────────────────────────────────────────────

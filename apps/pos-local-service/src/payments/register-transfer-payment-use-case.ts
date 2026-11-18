@@ -1,3 +1,4 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import { uuidV7 } from "@pos-platform/contracts";
@@ -6,7 +7,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
 
-export const PERMISSION_PAYMENTS_TRANSFER_REPORT = "PAYMENTS_TRANSFER_REPORT";
+export const PERMISSION_PAYMENTS_TRANSFER_REPORT = CanonicalPermission.PAYMENTS_TRANSFER_REPORT;
 
 export interface RegisterTransferPaymentRequest {
   readonly saleId: string;
@@ -108,7 +109,9 @@ export class RegisterTransferPaymentUseCase {
     }
     if (outcome.kind === "OVERPAYMENT_NOT_ALLOWED"
       || outcome.kind === "CASH_SHIFT_MISSING"
-      || outcome.kind === "CASH_SHIFT_NOT_OPEN") {
+      || outcome.kind === "CASH_SHIFT_NOT_OPEN"
+      || outcome.kind === "PHARMACY_ELIGIBILITY_LOST") {
+      // Transfer report is non-confirming; pharmacy gate runs on confirmTransfer.
       throw new Error(`unreachable outcome for transfer registration: ${outcome.kind}`);
     }
     return outcome;

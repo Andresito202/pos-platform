@@ -124,6 +124,21 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "customer.find":
       case "fiscal.document.issue":
       case "catalog.product.register":
+      case "catalog.presentation.register":
+      case "catalog.food_policy.upsert":
+      case "pharmacy.establishment.upsert":
+      case "pharmacy.profile.upsert":
+      case "pharmacy.prescription.register":
+      case "pharmacy.technical_receipt.register":
+      case "pharmacy.sanitary_alert.register":
+      case "bakery.recipe.draft.create":
+      case "bakery.recipe.approve":
+      case "bakery.production.order.create":
+      case "bakery.production.order.plan":
+      case "bakery.production.release":
+      case "bakery.production.deviation.authorize":
+      case "bakery.production.confirm":
+      case "bakery.production.trace.get":
       case "catalog.item.find":
       case "catalog.item.get":
       case "inventory.stock.receive":
@@ -135,6 +150,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "inventory.conversion.execute":
       case "inventory.reservation.create":
       case "inventory.reservation.release":
+      case "inventory.transform.execute":
       case "sales.receipt.get":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
