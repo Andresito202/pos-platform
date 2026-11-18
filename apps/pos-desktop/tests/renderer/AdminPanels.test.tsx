@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
+  CANONICAL_PERMISSION_CODES,
   CatalogProductRegisterRequestSchema,
   CustomerRegisterRequestSchema,
   FiscalDocumentIssueRequestSchema,
@@ -166,7 +167,7 @@ describe("InventoryPanel", () => {
       result_code: "POSTED",
       result: { outcome: "POSTED", stock_sequence: 1, quantity_after: "12.000000", available: null },
     });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     targetPresentation();
 
     fireEvent.change(screen.getByTestId("receive-quantity-input"), { target: { value: "12" } });
@@ -184,7 +185,7 @@ describe("InventoryPanel", () => {
 
   it("los motivos de entrada y de ajuste son listas disjuntas", () => {
     install({ status: "SUCCEEDED", result_code: "POSTED", result: null });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
 
     const receive = Array.from(
       screen.getByTestId("receive-movement-select").querySelectorAll("option"),
@@ -212,7 +213,7 @@ describe("InventoryPanel", () => {
         available: "3.000000",
       },
     });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     targetPresentation();
     fireEvent.change(screen.getByTestId("adjust-quantity-input"), { target: { value: "9" } });
     fireEvent.click(screen.getByTestId("adjust-stock-button"));
@@ -235,7 +236,7 @@ describe("InventoryPanel", () => {
         last_movement_sequence: null,
       },
     });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     targetPresentation();
     fireEvent.click(screen.getByTestId("get-stock-button"));
 
@@ -246,7 +247,7 @@ describe("InventoryPanel", () => {
 
   it("rechaza una cantidad fuera de escala 6 sin tocar el canal", async () => {
     install({ status: "SUCCEEDED", result_code: "POSTED", result: null });
-    render(<InventoryPanel />);
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     targetPresentation();
     fireEvent.change(screen.getByTestId("receive-quantity-input"), { target: { value: "1.0000001" } });
     fireEvent.click(screen.getByTestId("receive-stock-button"));

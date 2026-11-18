@@ -24,4 +24,5 @@ export * from "./master-snapshot.js";
 export * from "./device-trust.js";
 export * from "./device-enrollment.js";
 export * from "./qr-payment.js";
+export * from "./onboarding.js";
 export { uuidV7 as uuidV7FromModule } from "./uuid-v7.js";

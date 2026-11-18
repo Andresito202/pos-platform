@@ -80,6 +80,12 @@
       "layer": "transport",
       "type": "library",
       "scope": "local"
+    },
+    "@pos-platform/central-authority": {
+      "root": "apps/central-authority",
+      "layer": "runtime",
+      "type": "application",
+      "scope": "central"
     }
   },
   "allowedLayerDependencies": {

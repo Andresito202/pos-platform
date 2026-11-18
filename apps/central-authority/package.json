@@ -7,18 +7,24 @@
   "scripts": {
     "start": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "benchmark:kdf": "node --import tsx benchmarks/password-kdf.ts",
+    "deployment:preflight": "tsx src/central-certification-preflight-cli.ts",
+    "android:prepare-app-links": "tsx src/prepare-android-app-links-cli.ts",
+    "login:preflight": "tsx src/central-login-preflight-cli.ts"
   },
   "dependencies": {
     "@pos-platform/contracts": "workspace:*",
-    "@pos-platform/device-trust": "workspace:*",
-    "pg": "8.23.0"
+    "@pos-platform/database-postgres": "workspace:*",
+    "@pos-platform/device-trust": "workspace:*"
   },
   "devDependencies": {
+    "@simplewebauthn/server": "14.0.3",
     "@types/node": "22.20.1",
     "@types/pg": "8.21.0",
+    "argon2": "0.45.1",
     "tsx": "4.23.12",
     "typescript": "6.0.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   }
 }

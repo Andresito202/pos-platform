@@ -69,7 +69,7 @@ export function App(): React.JSX.Element {
       result.push({
         id: "inventory",
         label: "Inventario",
-        render: () => <InventoryPanel />,
+        render: () => <InventoryPanel permissions={permissions} />,
       });
     }
 

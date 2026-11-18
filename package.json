@@ -30,7 +30,8 @@
   },
   "devDependencies": {
     "nx": "23.1.2",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vite": "8.2.4"
   },
   "nx": {
     "targets": {
@@ -44,7 +45,18 @@
   },
   "pnpm": {
     "overrides": {
-      "smol-toml": ">=1.7.1"
+      "smol-toml": "1.9.0",
+      "axios": "1.20.0",
+      "undici": "7.30.1",
+      "follow-redirects": "1.16.2",
+      "brace-expansion": "5.0.12",
+      "source-map-js": ">=1.2.2",
+      "tar": ">=7.5.23",
+      "builder-util-runtime": ">=9.7.1",
+      "app-builder-lib": "26.18.1",
+      "electron-builder-squirrel-windows": "26.18.1",
+      "dmg-builder": "26.18.1",
+      "builder-util": "26.18.1"
     }
   }
 }

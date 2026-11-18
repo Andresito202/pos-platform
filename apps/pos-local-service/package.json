@@ -16,7 +16,7 @@
     "@pos-platform/contracts": "workspace:*",
     "@pos-platform/device-trust": "workspace:*",
     "@pos-platform/observability": "workspace:*",
-    "zod": "4.4.3",
+    "zod": "4.6.6",
     "@pos-platform/database-sqlite": "workspace:*",
     "@pos-platform/fiscal-adapters": "workspace:*",
     "@pos-platform/local-channel": "workspace:*"
