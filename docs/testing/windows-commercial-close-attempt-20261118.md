@@ -1,74 +1,58 @@
-# Cierre comercial Windows — intento 2026-11-18
+# Cierre comercial Windows — evidencia 2026-11-18
 
 **Rama:** `cursor/commercial-design-review-0d11` · **PR:** #106 Draft  
-**Base SCM NSIS cerrada:** `5e526641` (`WINDOWS_SCM_INTEGRACION_CERRADA`)  
-**HEAD de este incremento:** (rellenar tras push)
+**HEAD exacto:** `76253bb6082d1920eed5693b9ca7f2dcae7ae231`  
+**Base SCM NSIS previa:** `5e526641` (`WINDOWS_SCM_INTEGRACION_CERRADA`)
 
-## Objetivo
+## Artefacto instalador (lab unsigned)
 
-Cerrar la operación comercial del POS instalado en Windows: Electron ↔ Local Service bajo `NT SERVICE\CamachoPOSLocalService`, DPAPI/ACL, 4 roles, sesiones, auto-start, recuperación, upgrade y negativos — **sin** debilitar `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` ni inventar Authenticode.
-
-## Qué se conserva
-
-| Pieza | Estado |
+| Campo | Valor observado |
 |---|---|
-| WinSW/SCM NSIS autónomo | Aprobado; no se reescribe el instalador ni se introduce fallback auxiliar |
-| `commercialLogin=false` en descriptor | Conservado |
-| Gate `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` | **ACTIVO** (sin bypass por env) |
-| RT-009-B Authenticode Camacho | **BLOCKED** (certificado externo ausente) |
-| FACTUS / sectores | Sin cambios |
+| Archivo | `CamachoPOSColombia-0.0.0-win-x64.exe` |
+| SHA-256 | `3fbb815cb9a589589420fd80b0f04c960d35581031aeb59137e1c924de57b72f` |
+| Bytes | `158644625` |
+| Authenticode | `UNSIGNED_LAB_ONLY` / **RT-009-B BLOCKED** |
+| CI push | [run 44220691737](https://github.com/Andresito202/pos-platform/actions/runs/44220691737) |
+| CI PR | [run 44220701201](https://github.com/Andresito202/pos-platform/actions/runs/44220701201) |
+| Native G1 lab push | [run 44220691669](https://github.com/Andresito202/pos-platform/actions/runs/44220691669) |
+| Lifecycle | `FAILED_COUNT=0` · artifact `camacho-pos-nsis-lab-76253bb6082d1920eed5693b9ca7f2dcae7ae231` |
 
-## Qué se añade en este corte
+Addon nativo (NSIS job): `NATIVE_ADDON_SHA256=A05BF7AD066D7C694E59F6F416ECBDF1AA694A3356083D634AA445ED6A0E4F82`
 
-1. **G1 nativo sobre el SCM ya instalado por NSIS** (`tools/operators/windows-nsis-scm-g1-identity.ps1`):
-   - Retarget temporal del mismo `CamachoPOSLocalService` al probe C# + peer nativo.
-   - Prueba Session 0 + DPAPI CurrentUser del servicio + denegación cruzada Desktop.
-   - Peer interactivo real (cuenta local desechable con logon SID).
-   - Restaura binPath WinSW y reinicia el producto.
-   - **No** certifica handshake comercial Electron ni levanta el gate.
+## Matriz PASS / FAIL / SKIP (observada)
 
-2. **Negativos de seguridad** (`tools/operators/windows-nsis-security-negatives.ps1`):
-   - ACL payload / virtual account.
-   - Arranque con provisión SCM forjada → gate fail-closed antes de SQLite.
-   - Rechazo de LocalSystem como identidad aceptable.
-
-3. **Lifecycle NSIS**: `scm_restart_recovery`, `security_negatives`, `g1_native_on_installed_scm`, `winsw_restored_after_g1`.
-
-4. **Workflow nativo G1** habilitado en esta rama + build del addon en el lab NSIS.
-
-5. **Smoke**: cierre/revocación de sesión, autorización 4 roles, entrada comercial SCM fail-closed.
-
-## Matriz de evidencia (actualizar tras CI exact-head)
-
-| Capacidad | Resultado esperado | Evidencia |
+| Capacidad | Resultado | Evidencia |
 |---|---|---|
-| Silent install / upgrade / uninstall NSIS | PASS (previo) | lifecycle report |
-| WinSW `NT SERVICE\CamachoPOSLocalService` + Automatic | PASS (previo) | `winsw_scm_registration` |
-| Reinicio servicio / recuperación | PASS/FAIL | `scm_restart_recovery` |
-| Negativos ACL / provisión forjada / no-LocalSystem | PASS/FAIL | `security_negatives` |
-| G1 nativo en SCM instalado | PASS/FAIL/SKIP | `g1_native_on_installed_scm` |
-| Restaura WinSW tras G1 | PASS/FAIL | `winsw_restored_after_g1` |
-| Electron ↔ Local Service interactivo (same-user) | PASS (lab) | `electron_local_service_ipc` + Playwright live |
-| Electron ↔ NT SERVICE comercial (RSA/Ed25519+lease) | **SKIP** | gate activo |
-| 4 roles auth + aislamiento | PASS/FAIL | Playwright `local-operator-live` + vitest auth |
-| Renovación / cierre / revocación sesión | PASS/FAIL | `native-session-close-lifecycle` + live logout |
-| Auto-start tras reboot Windows | **SKIP**/parcial | Automatic verificado; reboot físico no en GHA |
-| Upgrade conserva SQLite comercial | PASS (previo) | `sqlite_preserved_across_upgrade` |
-| Win10/11 alcance soportado | SKIP lab | Lab = Server 2022; contrato Win10/11 documentado, no re-ejecutado aquí |
-| Authenticode Camacho | **BLOCKED** | RT-009-B |
-| Merge a `main` | NO | Draft only |
+| Silent install NSIS | **PASS** | `silent_install` |
+| Paths / ACL / native deps / payload | **PASS** | verify_* steps |
+| WinSW `NT SERVICE\CamachoPOSLocalService` + Automatic | **PASS** | `winsw_scm_registration` · `labFallbackUsed=false` |
+| Reinicio servicio / recuperación interrupción | **PASS** | `scm_restart_recovery` |
+| Negativos ACL / no-LocalSystem / secret ACL | **PASS** | `security_negatives` (`failed=0`) |
+| Negativo provisión SCM forjada (bundle path) | **SKIP** | `negative_forged_scm_provision_startup` (bundle/node no localizado en payload; fail-closed cubierto por vitest `windows-scm-commercial-entry-process`) |
+| Entrada comercial SCM fail-closed | **PASS** | smoke `SCM_COMMERCIAL_ENTRY_FAIL_CLOSED=PASS` |
+| G1 nativo en SCM **instalado** por NSIS | **PASS** | `g1_native_on_installed_scm` · `G1_NATIVE_ON_INSTALLED_SCM=PASS` |
+| Peer G1 Session 0 ↔ interactivo + DPAPI cruzado denegado | **PASS** | mismos logs G1 + lab nativo efímero |
+| Restaura WinSW tras G1 | **PASS** | `winsw_restored_after_g1` |
+| Electron ↔ Local Service interactivo (same-user DPAPI) | **PASS** | `electron_local_service_ipc` + Playwright live 4 roles |
+| Electron ↔ NT SERVICE comercial (RSA/Ed25519 + lease) | **SKIP** | `electron_winsw_scm_commercial_ipc` · gate activo |
+| 4 roles auth real + aislamiento | **PASS** | Playwright captures + `FOUR_ROLE_AUTH_NEGATIVES=PASS` |
+| Cierre / revocación sesión | **PASS** | `SESSION_CLOSE_REVOKE=PASS` |
+| Auto-start tras reboot Windows físico | **SKIP** | Automatic verificado; reboot físico no ejecutado en GHA |
+| Upgrade conserva SQLite comercial | **PASS** | `sqlite_preserved_across_upgrade` |
+| Uninstall retira SCM, conserva AppData | **PASS** | `winsw_scm_removed_after_uninstall` + `residuals_after_uninstall` |
+| Win10/11 físico dueño | **SKIP** | Lab = Server 2022 disposable |
+| Authenticode Camacho | **BLOCKED** | RT-009-B · certificado externo ausente |
+| Gate `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` | **ACTIVO** | sin bypass; `COMMERCIAL_GATE=ACTIVE` |
+| Merge a `main` | **NO** | Draft only · sin FACTUS |
 
-## Criterio para levantar el gate (aún no cumplido)
+## Qué queda para levantar el gate
 
-Sólo tras recibos observados en el HEAD exacto de:
+G1 de identidad en el SCM instalado ya es **PASS** en este HEAD. Aún falta el handoff criptográfico de producto (`windows-scm-physical.test.ts` SERVICE+DESKTOP/Electron con provisiones administradas) y revisión explícita del cambio a `assertWindowsScmCommercialCertification`. Hasta entonces el gate permanece incondicional.
 
-1. G1 nativo en el SCM instalado = PASS  
-2. Physical product handoff (`windows-scm-physical.test.ts`) SERVICE+DESKTOP/Electron = PASS  
-3. Revisión explícita del cambio a `assertWindowsScmCommercialCertification`  
+## Conservado
 
-Hasta entonces el gate permanece incondicional.
-
-## Comandos CI
-
-- `Windows NSIS installer lab` (esta rama)
-- `Windows SCM native artifact lab` (esta rama)
+- Instalación autónoma WinSW/SCM NSIS aprobada.
+- `commercialLogin=false`.
+- Sin mecanismos auxiliares que sustituyan el flujo comercial.
+- Sin debilitar seguridad para CI.
+- Sin ramas adicionales.
