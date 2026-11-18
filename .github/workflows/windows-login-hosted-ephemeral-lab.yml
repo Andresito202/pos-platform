@@ -97,12 +97,17 @@ jobs:
         shell: pwsh
         run: |
           $guard=Get-Content -LiteralPath 'apps/pos-local-service/src/security/windows-commercial-host-identity.ts' -Raw
-          if (-not $guard.Contains('SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN')) { throw 'COMMERCIAL_FAIL_CLOSED_GUARD_REMOVED' }
+          if (-not $guard.Contains('SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED')) { throw 'COMMERCIAL_FAIL_CLOSED_GUARD_REMOVED' }
+          if (-not $guard.Contains('SCM_COMMERCIAL_SERVICE_CONTEXT_VERIFIED')) { throw 'SCM_SERVICE_CONTEXT_GATE_MISSING' }
+          $descriptor=Get-Content -LiteralPath 'apps/pos-local-service/src/windows-service-descriptor.ts' -Raw
+          if (-not $descriptor.Contains('SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN')) { throw 'DESCRIPTOR_COMMERCIAL_PROVISION_GATE_REMOVED' }
           Write-Host 'SCM_VIRTUAL_ACCOUNT_NATIVE_PEER=TESTED'
+          Write-Host 'SCM_COMMERCIAL_ENTRY=SERVICE_SESSION_ZERO_REQUIRED'
           Write-Host 'ELECTRON_COMMERCIAL_RUNTIME=NOT_TESTED'
           Write-Host 'CENTRAL_DEV003_REAL_ENROLLMENT=NOT_TESTED'
           Write-Host 'BUSINESS_REAL_SESSION=NOT_TESTED'
           Write-Host 'HUMAN_MFA=NOT_TESTED'
+          Write-Host 'AUTHENTICODE=RT-009-B_BLOCKED'
           Write-Host 'COMMERCIAL_LOGIN_CERTIFIED=NO'
 
   hosted-electron-service-integration:

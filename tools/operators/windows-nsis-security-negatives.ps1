@@ -150,13 +150,14 @@ try {
     }
     else {
       $out = $p.StandardOutput.ReadToEnd() + $p.StandardError.ReadToEnd()
-      $gateHeld = $out -match 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+      # Interactive hosts must fail closed before SQLite; service Session-0 context is required.
+      $gateHeld = $out -match 'SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED|SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
       $started = $out -match 'runtime\.started'
       $dataCreated = Test-Path -LiteralPath (Join-Path $WorkRoot 'forge-data-must-not-exist')
       if ($gateHeld -and -not $started -and -not $dataCreated -and $p.ExitCode -ne 0) {
         Add-Step 'negative_forged_scm_provision_startup' 'PASS' @{
           exitCode = $p.ExitCode
-          gate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+          gate = 'SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED'
         }
       }
       else {

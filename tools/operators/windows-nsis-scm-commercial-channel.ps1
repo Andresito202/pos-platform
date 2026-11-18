@@ -173,6 +173,12 @@ try {
   # Node.exe itself must be executable by the virtual account.
   & icacls.exe $node /grant ('*' + $serviceSid + ':RX') /C /Q | Out-Null
 
+  # Prior lifecycle phases leave CamachoPOSLocalService Running; stop before enrollment swap.
+  if ((Get-Service -Name $serviceName).Status -ne 'Stopped') {
+    try { Stop-Service -Name $serviceName -Force -ErrorAction Stop } catch {
+      & sc.exe stop $serviceName | Out-Null
+    }
+  }
   Wait-ServiceStopped
   # Keep WinSW as the SCM host; temporarily point its Node arguments at enrollment.
   # (Plain node.exe as binPath is not a service and would be rejected by SCM.)
