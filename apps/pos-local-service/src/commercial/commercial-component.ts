@@ -1,6 +1,7 @@
 import { HardwareService } from "../hardware/hardware-service.js";
 import { HardwareStore } from "../hardware/hardware-store.js";
 import { loadHardwareRegistry } from "../hardware/platform-transports.js";
+import { WindowsCh340Transport, loadWindowsScaleProfile } from "../hardware/windows-ch340-transport.js";
 import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
@@ -93,6 +94,8 @@ import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-docum
  */
 export class CommercialComponent implements RuntimeComponent {
   private hardwareInstance: HardwareService | null = null;
+  private scaleInstance: WindowsCh340Transport | null = null;
+  get scale(): WindowsCh340Transport | null { return this.scaleInstance; }
   get hardware(): HardwareService {
     if (!this.hardwareInstance) throw new Error("HARDWARE_RUNTIME_NOT_STARTED");
     return this.hardwareInstance;
@@ -322,6 +325,8 @@ export class CommercialComponent implements RuntimeComponent {
     const hardwareStore = new HardwareStore(database);
     hardwareStore.recoverInterrupted();
     this.hardwareInstance = new HardwareService(hardwareStore, new GetReceiptUseCase(new SqliteReceiptStore(database)), loadHardwareRegistry(this.config.hardware_profiles_file));
+    const scaleProfile = loadWindowsScaleProfile(this.config.windows_scale_profile_file);
+    this.scaleInstance = scaleProfile ? new WindowsCh340Transport(scaleProfile) : null;
     this.state = {
       issueElectronicDocument,
       sessionStore,
@@ -374,9 +379,12 @@ export class CommercialComponent implements RuntimeComponent {
       registerCustomer: new RegisterCustomerUseCase(customerStore),
       getCustomer: new GetCustomerUseCase(customerStore),
     };
+    this.scaleInstance?.start();
   }
 
   async stop(): Promise<void> {
+    await this.scaleInstance?.stop();
+    this.scaleInstance = null;
     // Los vínculos mueren con el componente: no existe sesión vinculada a un
     // servicio detenido.
     this.bindings.clear();
