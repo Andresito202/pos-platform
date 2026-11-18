@@ -13,6 +13,7 @@ export * from "./native-client-registration.js";
 export * from "./commercial-access.js";
 export * from "./license-activation.js";
 export * from "./central-administration.js";
+export * from "./windows-channel-handoff.js";
 export { PermissionCode as CanonicalPermission, CANONICAL_PERMISSION_CODES } from "./permission-codes.js";
 export type { CanonicalPermissionCode } from "./permission-codes.js";
 export * from "./sync.js";

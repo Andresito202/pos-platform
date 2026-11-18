@@ -14,7 +14,8 @@
     "start:smoke": "electron --no-sandbox e2e/smoke-entry.mjs",
     "start:production": "electron --no-sandbox dist/start.bundle.mjs",
     "test": "vitest run --config vitest.config.ts",
-    "test:e2e": "playwright test --config e2e/playwright.config.ts"
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "pack:windows-nsis": "node scripts/pack-windows-nsis.mjs"
   },
   "dependencies": {
     "@pos-platform/contracts": "workspace:*",
@@ -37,6 +38,7 @@
     "typescript": "6.0.3",
     "vite": "6.4.5",
     "vitest": "4.1.11",
-    "@vitejs/plugin-react": "4.5.0"
+    "@vitejs/plugin-react": "4.5.0",
+    "electron-builder": "26.18.1"
   }
 }

@@ -45,9 +45,9 @@ export const SERVICE_ACCOUNT = `NT SERVICE\\${SERVICE_ID}`;
  * Política de recuperación, **derivada del propio repositorio**, no inventada.
  *
  * `DEFAULT_RETRY_POLICY` en `src/sync/durable-sync-store.ts` fija para el outbox
- * `maxAttempts: 5`, `baseDelayMs: 1_000`, `maxDelayMs: 60_000` con retroceso
- * exponencial. El servicio adopta la misma forma: cinco reintentos, 1 s
- * duplicando hasta el tope de 60 s.
+ * `maxAttempts: 5`, `baseDelayMs: 1_000`, `maxDelayMs: 60_000`, `jitterRatio: 0.2`
+ * con retroceso exponencial más jitter. El servicio adopta la misma forma: cinco
+ * reintentos, 1 s duplicando hasta el tope de 60 s.
  *
  * **Pendiente de ratificación.** El proyecto no ha fijado normativamente la
  * política de recuperación del *servicio*; ésta la hereda de la del *outbox*
@@ -105,9 +105,20 @@ export interface ServiceDescriptorInput {
   readonly workingDirectory: string;
   /** Las nueve variables que `parseServiceConfig` exige, ni una más. */
   readonly environment: Readonly<Record<string, string>>;
+  /** Explicit installer intent. Never infer commercial readiness from base POS vars. */
+  readonly commercialLogin?: boolean;
 }
 
 export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
+  // The installed WinSW service runs under NT SERVICE\\CamachoPOSLocalService.
+  // Production Desktop currently obtains its channel secret through DPAPI
+  // CurrentUser, while the pipe ACL is scoped to the server logon SID. Those
+  // identities are not shared with an interactive Windows user. Refuse to
+  // advertise commercial login support through this SCM descriptor until a
+  // separately audited cross-session transport and secret handoff exist.
+  if (input.commercialLogin === true || Object.hasOwn(input.environment, "POS_WINDOWS_COMMERCIAL_PROVISION_FILE")) {
+    throw new Error("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
+  }
   const missing = REQUIRED_ENVIRONMENT.filter((key) => !(key in input.environment));
   if (missing.length > 0) {
     throw new Error(`service descriptor is missing required environment: ${missing.join(", ")}`);
@@ -130,9 +141,15 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
     `  <arguments>${escapeXml(`"${input.bundle}"`)}</arguments>`,
     `  <workingdirectory>${escapeXml(input.workingDirectory)}</workingdirectory>`,
     "  <startmode>Automatic</startmode>",
+    // WinSW 2.12 XmlServiceConfig reads <domain>/<user> only — <username> is ignored
+    // and the service silently installs as LocalSystem (HasServiceAccount => false).
+    // allowservicelogon must stay false for NT SERVICE virtual accounts: WinSW grants
+    // SeServiceLogonRight via LookupAccountName BEFORE CreateService, but the virtual
+    // account does not exist until CreateService succeeds.
     "  <serviceaccount>",
-    `    <username>${escapeXml(SERVICE_ACCOUNT)}</username>`,
-    "    <allowservicelogon>true</allowservicelogon>",
+    "    <domain>NT SERVICE</domain>",
+    `    <user>${escapeXml(SERVICE_ID)}</user>`,
+    "    <allowservicelogon>false</allowservicelogon>",
     "  </serviceaccount>",
     `  <stoptimeout>${STOP_TIMEOUT}</stoptimeout>`,
     // El proceso Node es el hijo directo: se le señala a él, no al grupo.

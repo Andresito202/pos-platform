@@ -25,6 +25,7 @@ import {
   WindowsDpapiKeyProvider,
   type SecretStoreKeyProvider,
 } from "./security/index.js";
+import { assertWindowsScmCommercialCertification } from "./security/windows-commercial-host-identity.js";
 
 const logger = new StructuredLogger({
   write: (record) => new Promise<void>((resolve, reject) => {
@@ -98,6 +99,11 @@ try {
   const config = parseServiceConfig(process.env);
   if (process.platform !== "win32" && process.env.NODE_ENV !== "test") {
     throw new Error("POS Local Service production runtime requires Windows");
+  }
+  // Baseline 76253bb6 gate: SCM commercial handoff remains NOT_PROVEN.
+  // Reject before opening SQLite or loading DPAPI when an SCM provision is advertised.
+  if (config.windows_scm_handoff_file !== undefined) {
+    assertWindowsScmCommercialCertification();
   }
 
   const localDatabase = new LocalDatabaseComponent(config.data_directory);
