@@ -310,18 +310,28 @@ try {
   }))
   if (-not $layout.ok) { throw 'INSTALLED_PRODUCT_PATHS_MISSING' }
 
-  # --- ACL on real installDir ---
+  # --- ACL on real installDir + service payload (icacls; avoid Get-Acl) ---
   $aclSummary = ''
+  $payloadAclOk = $false
+  $icaclsExe = Join-Path $env:WINDIR 'System32\icacls.exe'
+  $payloadForAcl = Join-Path $installDir 'resources\service-payload'
   try {
-    $acl = Get-Acl -LiteralPath $installDir
-    $aclSummary = ($acl.Access | Select-Object -First 12 | ForEach-Object {
-      "{0}:{1}:{2}" -f $_.IdentityReference, $_.FileSystemRights, $_.AccessControlType
-    }) -join '|'
+    if (-not (Test-Path -LiteralPath $icaclsExe -PathType Leaf)) { throw "ICACLS_MISSING:$icaclsExe" }
+    $aclRaw = (& $icaclsExe $installDir 2>&1 | Out-String).Trim()
+    $aclSummary = (($aclRaw -split "`r?`n") | Select-Object -First 20) -join ' | '
+    if (Test-Path -LiteralPath $payloadForAcl) {
+      $payloadAclRaw = (& $icaclsExe $payloadForAcl 2>&1 | Out-String)
+      $payloadAclOk = ($payloadAclRaw -match 'NT SERVICE\\CamachoPOSLocalService' -or $payloadAclRaw -match 'S-1-5-80-')
+      $aclSummary = $aclSummary + ' || PAYLOAD=' + ((($payloadAclRaw -split "`r?`n") | Select-Object -First 12) -join ' | ')
+    }
   } catch { $aclSummary = "ACL_READ_FAILED:$($_.Exception.Message)" }
-  [void]$steps.Add((Write-Step 'verify_install_acl' $(if ($aclSummary -and ($aclSummary -notlike 'ACL_READ_FAILED*')) { 'PASS' } else { 'FAIL' }) @{
+  [void]$steps.Add((Write-Step 'verify_install_acl' $(if ($aclSummary -and ($aclSummary -notlike 'ACL_READ_FAILED*') -and $payloadAclOk) { 'PASS' } else { 'FAIL' }) @{
     acl = $aclSummary
     installDir = $installDir
+    payloadDir = $payloadForAcl
+    virtualAccountAclPresent = $payloadAclOk
   }))
+  if (-not $payloadAclOk) { throw 'INSTALL_ACL_MISSING_NT_SERVICE_GRANT' }
 
   # --- Native dependencies next to EXE ---
   $installFiles = @(Get-ChildItem -LiteralPath $installDir -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)

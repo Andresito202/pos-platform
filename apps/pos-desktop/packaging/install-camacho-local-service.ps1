@@ -3,12 +3,15 @@
   Elevated helper: materialize WinSW XML from template, install/start or stop/uninstall
   CamachoPOSLocalService. Used by NSIS custom actions and the lab lifecycle.
 
+  NSIS nsExec constraint (observed on GHA windows-2022):
+  - Microsoft.PowerShell.Security often fails to load → Get-Acl/Set-Acl unusable.
+  - Microsoft.PowerShell.Utility may fail for Get-FileHash.
+  Critical path therefore uses native System32 tools (sc.exe, icacls.exe, certutil.exe)
+  with verified paths + exit codes, plus BCL for crypto/SID. No broad ACL grants
+  (Users/Everyone/Authenticated Users are never added).
+
   Does NOT clear SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN.
   Does NOT claim Authenticode for Camacho PE (RT-009-B).
-  Verifies WinSW payload SHA-256 against payload-integrity.json when present.
-
-  Virtual-account ACLs: after WinSW install creates NT SERVICE\CamachoPOSLocalService,
-  grant RX on the payload and Modify on ProgramData data/log directories before start.
 #>
 [CmdletBinding()]
 param(
@@ -35,6 +38,8 @@ $bundle = Join-Path $PayloadDir 'local-service\pos-local-service.mjs'
 $workDir = Join-Path $PayloadDir 'local-service'
 $integrityFile = Join-Path $PayloadDir 'payload-integrity.json'
 $logDirectory = Join-Path $env:ProgramData 'CamachoPOS\logs'
+$script:resolvedDataDirectory = $null
+$script:serviceSidValue = $null
 
 function Write-HelperLog([string]$Message) {
   try {
@@ -70,16 +75,64 @@ function Assert-Admin {
   }
 }
 
+function Resolve-System32Tool {
+  param([Parameter(Mandatory = $true)][string]$FileName)
+  $candidate = Join-Path $env:WINDIR ("System32\" + $FileName)
+  if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+    throw ("NATIVE_TOOL_MISSING:{0}" -f $candidate)
+  }
+  return $candidate
+}
+
+function Invoke-NativeTool {
+  param(
+    [Parameter(Mandatory = $true)][string]$FileName,
+    [Parameter(Mandatory = $true)][string[]]$ArgumentList,
+    [string]$WorkingDirectory = ''
+  )
+  $exe = Resolve-System32Tool -FileName $FileName
+  $stdout = Join-Path $env:TEMP ("camacho-native-{0}-out.txt" -f [guid]::NewGuid().ToString('N'))
+  $stderr = Join-Path $env:TEMP ("camacho-native-{0}-err.txt" -f [guid]::NewGuid().ToString('N'))
+  try {
+    $start = @{
+      FilePath = $exe
+      ArgumentList = $ArgumentList
+      Wait = $true
+      PassThru = $true
+      NoNewWindow = $true
+      RedirectStandardOutput = $stdout
+      RedirectStandardError = $stderr
+    }
+    if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+      $start['WorkingDirectory'] = $WorkingDirectory
+    }
+    $p = Start-Process @start
+    $outText = ''
+    $errText = ''
+    if (Test-Path -LiteralPath $stdout) { $outText = [string](Get-Content -LiteralPath $stdout -Raw -ErrorAction SilentlyContinue) }
+    if (Test-Path -LiteralPath $stderr) { $errText = [string](Get-Content -LiteralPath $stderr -Raw -ErrorAction SilentlyContinue) }
+    $code = if ($null -eq $p) { -1 } else { [int]$p.ExitCode }
+    return [ordered]@{
+      exe = $exe
+      exitCode = $code
+      stdout = $outText
+      stderr = $errText
+      combined = (($outText + "`n" + $errText).Trim())
+    }
+  } finally {
+    Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Get-FileSha256Hex {
   param([Parameter(Mandatory = $true)][string]$Path)
-  # Do NOT use Get-FileHash: nsExec-hosted Windows PowerShell often cannot resolve
-  # Microsoft.PowerShell.Utility. Prefer certutil (always present on Windows), then BCL.
-  $certutil = Join-Path $env:WINDIR 'System32\certutil.exe'
-  if (Test-Path -LiteralPath $certutil -PathType Leaf) {
-    $raw = & $certutil -hashfile $Path SHA256 2>&1
-    if ($LASTEXITCODE -eq 0) {
+  # Prefer certutil (System32); never Get-FileHash (Utility module under nsExec).
+  try {
+    $raw = Invoke-NativeTool -FileName 'certutil.exe' -ArgumentList @('-hashfile', $Path, 'SHA256')
+    if ($raw.exitCode -eq 0) {
       $hex = (
-        @($raw | ForEach-Object { [string]$_ }) |
+        @($raw.combined -split "`r?`n") |
+          ForEach-Object { $_.Trim() } |
           Where-Object { $_ -match '^[0-9A-Fa-f]{64}$' -or $_ -match '^[0-9A-Fa-f]{2}( [0-9A-Fa-f]{2}){31}$' } |
           Select-Object -First 1
       )
@@ -87,6 +140,8 @@ function Get-FileSha256Hex {
         return (($hex -replace '\s', '').ToLowerInvariant())
       }
     }
+  } catch {
+    Write-HelperLog ("CERTUTIL_HASH_FAILED err={0}" -f $_.Exception.Message)
   }
   $algo = [System.Security.Cryptography.SHA256]::Create()
   try {
@@ -103,8 +158,6 @@ function Get-FileSha256Hex {
 }
 
 function Get-ScmInstallOkMarkerPaths {
-  # Payload marker is what NSIS IfFileExists checks ($INSTDIR\...\scm-install.ok).
-  # ProgramData copy is for lifecycle diagnostics after install.
   return @(
     (Join-Path $PayloadDir 'scm-install.ok'),
     (Join-Path $env:ProgramData 'CamachoPOS\logs\scm-install.ok')
@@ -181,8 +234,6 @@ function Materialize-Xml {
   if ($xml -notmatch '<logpath>') {
     throw 'WINSW_TEMPLATE_MISSING_LOGPATH'
   }
-  # WinSW 2.12 XmlServiceConfig only binds <domain>/<user>. A lone <username>
-  # is ignored and the service installs as LocalSystem — reject that shape.
   if ($xml -match '<username>') {
     throw 'WINSW_TEMPLATE_USES_USERNAME_NOT_DOMAIN_USER'
   }
@@ -201,51 +252,155 @@ function Merge-Result([hashtable]$Base, $Extra) {
   return $merged
 }
 
-function Grant-VirtualServiceAcl {
+function Get-ScmQuery {
+  # sc.exe queryex: exit 0 present; 1060 absent. Never Get-Service (optional under nsExec).
+  $r = Invoke-NativeTool -FileName 'sc.exe' -ArgumentList @('queryex', $serviceId)
+  $present = ($r.exitCode -eq 0)
+  $state = 'Absent'
+  if ($present) {
+    $state = 'Unknown'
+    foreach ($line in ($r.combined -split "`r?`n")) {
+      if ($line -match 'STATE\s*:\s*\d+\s+(\w+)') {
+        $state = $Matches[1]
+        break
+      }
+    }
+  }
+  return [ordered]@{
+    present = $present
+    exitCode = $r.exitCode
+    state = $state
+    raw = $r.combined
+  }
+}
+
+function Get-ScmConfig {
+  $r = Invoke-NativeTool -FileName 'sc.exe' -ArgumentList @('qc', $serviceId)
+  $startName = ''
+  $startType = ''
+  if ($r.exitCode -eq 0) {
+    foreach ($line in ($r.combined -split "`r?`n")) {
+      if ($line -match 'SERVICE_START_NAME\s*:\s*(.+)$') {
+        $startName = $Matches[1].Trim()
+      }
+      if ($line -match 'START_TYPE\s*:\s*\d+\s+(\w+)') {
+        $startType = $Matches[1].Trim()
+      }
+    }
+  }
+  return [ordered]@{
+    exitCode = $r.exitCode
+    startName = $startName
+    startType = $startType
+    raw = $r.combined
+  }
+}
+
+function Stop-ScmServiceNative {
+  $notes = New-Object System.Collections.Generic.List[string]
+  $q0 = Get-ScmQuery
+  if (-not $q0.present) {
+    [void]$notes.Add('service_already_absent')
+    return [ordered]@{ notes = $notes; present = $false }
+  }
+  $stop = Invoke-NativeTool -FileName 'sc.exe' -ArgumentList @('stop', $serviceId)
+  [void]$notes.Add(('sc_stop_exit={0}' -f $stop.exitCode))
+  for ($i = 0; $i -lt 45; $i++) {
+    $q = Get-ScmQuery
+    if (-not $q.present -or $q.state -eq 'STOPPED') { break }
+    Start-Sleep -Seconds 1
+  }
+  $qEnd = Get-ScmQuery
+  [void]$notes.Add(('sc_state_after_stop={0}' -f $qEnd.state))
+  return [ordered]@{ notes = $notes; present = $qEnd.present; state = $qEnd.state }
+}
+
+function Resolve-VirtualServiceSid {
+  # Virtual account SID exists only after CreateService (winsw install).
+  $account = New-Object Security.Principal.NTAccount($serviceAccount)
+  $sid = $account.Translate([Security.Principal.SecurityIdentifier])
+  $script:serviceSidValue = $sid.Value
+  Write-HelperLog ("SERVICE_SID={0} account={1}" -f $script:serviceSidValue, $serviceAccount)
+  return $script:serviceSidValue
+}
+
+function Grant-PathAclViaIcacls {
   param(
     [Parameter(Mandatory = $true)][string]$Path,
-    [Parameter(Mandatory = $true)][Security.AccessControl.FileSystemRights]$Rights,
+    [Parameter(Mandatory = $true)][ValidateSet('RX', 'M')][string]$RightToken,
+    [Parameter(Mandatory = $true)][string]$SidValue,
     [switch]$Directory
   )
   if (-not (Test-Path -LiteralPath $Path)) {
     throw "ACL_TARGET_MISSING:$Path"
   }
-  $account = New-Object Security.Principal.NTAccount($serviceAccount)
-  # Translate fails if the virtual account does not exist yet (must run after winsw install).
-  $null = $account.Translate([Security.Principal.SecurityIdentifier])
-  $acl = Get-Acl -LiteralPath $Path
-  $inherit = [Security.AccessControl.InheritanceFlags]::None
-  if ($Directory) {
-    $inherit = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor `
-      [Security.AccessControl.InheritanceFlags]::ObjectInherit
+  # Minimum privilege: only NT SERVICE\<service> SID. Never Users/Everyone/Authenticated Users.
+  $grantSpec = if ($Directory) {
+    ('*{0}:(OI)(CI){1}' -f $SidValue, $RightToken)
+  } else {
+    ('*{0}:{1}' -f $SidValue, $RightToken)
   }
-  $rule = New-Object Security.AccessControl.FileSystemAccessRule(
-    $account,
-    $Rights,
-    $inherit,
-    [Security.AccessControl.PropagationFlags]::None,
-    [Security.AccessControl.AccessControlType]::Allow
+  $grant = Invoke-NativeTool -FileName 'icacls.exe' -ArgumentList @($Path, '/grant', $grantSpec)
+  if ($grant.exitCode -ne 0) {
+    throw ("ICACLS_GRANT_FAILED:exit={0};path={1};grant={2};out={3}" -f $grant.exitCode, $Path, $grantSpec, $grant.combined)
+  }
+  Write-HelperLog ("ACL_ICACLS_GRANT_OK path={0} grant={1}" -f $Path, $grantSpec)
+}
+
+function Assert-EffectiveAclViaIcacls {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$SidValue,
+    [Parameter(Mandatory = $true)][ValidateSet('RX', 'M')][string]$ExpectedRight
   )
-  $acl.AddAccessRule($rule) | Out-Null
-  Set-Acl -LiteralPath $Path -AclObject $acl
+  $list = Invoke-NativeTool -FileName 'icacls.exe' -ArgumentList @($Path)
+  if ($list.exitCode -ne 0) {
+    throw ("ICACLS_LIST_FAILED:exit={0};path={1};out={2}" -f $list.exitCode, $Path, $list.combined)
+  }
+  $matched = $false
+  foreach ($line in ($list.combined -split "`r?`n")) {
+    # icacls prints SID or friendly name; match SID and required right token.
+    if ($line -match [regex]::Escape($SidValue) -or $line -match [regex]::Escape($serviceAccount)) {
+      if ($ExpectedRight -eq 'M') {
+        # Modify includes M, or expanded (M)/(RX,W)/etc. Reject lines that only show R without W/M.
+        if ($line -match '\(M\)' -or $line -match '\(W\)' -or $line -match '\(M,') {
+          $matched = $true
+          break
+        }
+      } else {
+        if ($line -match '\(RX\)' -or $line -match '\(R,X\)' -or $line -match '\(M\)' -or $line -match '\(R\)') {
+          $matched = $true
+          break
+        }
+      }
+    }
+  }
+  if (-not $matched) {
+    throw ("ACL_EFFECTIVE_MISSING:path={0};sid={1};expected={2};icacls={3}" -f $Path, $SidValue, $ExpectedRight, $list.combined)
+  }
+  Write-HelperLog ("ACL_EFFECTIVE_OK path={0} sid={1} expected={2}" -f $Path, $SidValue, $ExpectedRight)
 }
 
 function Grant-ServiceRuntimeAcls {
-  # Payload under Program Files: RX for the virtual account (not a Users-group member).
-  Grant-VirtualServiceAcl -Path $PayloadDir -Rights ([Security.AccessControl.FileSystemRights]::ReadAndExecute) -Directory
-  # Data + logs under ProgramData: Modify for SQLite/DPAPI/WinSW logs (not Program Files).
-  Grant-VirtualServiceAcl -Path $script:resolvedDataDirectory -Rights ([Security.AccessControl.FileSystemRights]::Modify) -Directory
-  Grant-VirtualServiceAcl -Path $logDirectory -Rights ([Security.AccessControl.FileSystemRights]::Modify) -Directory
-  # Parent CamachoPOS folder so the account can traverse.
+  $sid = Resolve-VirtualServiceSid
+  $targets = @(
+    @{ Path = $PayloadDir; Right = 'RX'; Directory = $true },
+    @{ Path = $script:resolvedDataDirectory; Right = 'M'; Directory = $true },
+    @{ Path = $logDirectory; Right = 'M'; Directory = $true }
+  )
   $camachoRoot = Join-Path $env:ProgramData 'CamachoPOS'
   if (Test-Path -LiteralPath $camachoRoot) {
-    Grant-VirtualServiceAcl -Path $camachoRoot -Rights ([Security.AccessControl.FileSystemRights]::ReadAndExecute) -Directory
+    $targets += @{ Path = $camachoRoot; Right = 'RX'; Directory = $true }
+  }
+  foreach ($t in $targets) {
+    Grant-PathAclViaIcacls -Path $t.Path -RightToken $t.Right -SidValue $sid -Directory:$t.Directory
+    Assert-EffectiveAclViaIcacls -Path $t.Path -SidValue $sid -ExpectedRight $t.Right
   }
 }
 
 function Get-ScmDiagnostics {
-  $query = (& sc.exe queryex $serviceId 2>&1 | Out-String).Trim()
-  $qc = (& sc.exe qc $serviceId 2>&1 | Out-String).Trim()
+  $q = Get-ScmQuery
+  $c = Get-ScmConfig
   $logTail = ''
   if (Test-Path -LiteralPath $logDirectory) {
     $logFile = Get-ChildItem -LiteralPath $logDirectory -File -ErrorAction SilentlyContinue |
@@ -256,23 +411,28 @@ function Get-ScmDiagnostics {
     }
   }
   return [ordered]@{
-    scQueryEx = $query
-    scQc = $qc
+    scQueryEx = $q.raw
+    scQc = $c.raw
+    startName = $c.startName
+    startType = $c.startType
+    state = $q.state
     logTail = $logTail
     xmlPath = $xmlPath
     payloadDir = $PayloadDir
     dataDirectory = $(if ($script:resolvedDataDirectory) { $script:resolvedDataDirectory } else { '' })
     logDirectory = $logDirectory
+    serviceSid = $(if ($script:serviceSidValue) { $script:serviceSidValue } else { '' })
   }
 }
 
 function Invoke-WinSW {
-  # Never name a parameter $args — it collides with the automatic $args variable
-  # and Start-Process -ArgumentList receives $null ("Argument types"/null collection).
   param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string[]]$WinSwArguments)
   $clean = @($WinSwArguments | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
   if ($clean.Count -eq 0) {
     throw 'WINSW_ARGUMENTS_EMPTY'
+  }
+  if (-not (Test-Path -LiteralPath $winswExe -PathType Leaf)) {
+    throw ("WINSW_EXE_MISSING:{0}" -f $winswExe)
   }
   $stdout = Join-Path $env:TEMP ("camacho-winsw-{0}-out.txt" -f [guid]::NewGuid().ToString('N'))
   $stderr = Join-Path $env:TEMP ("camacho-winsw-{0}-err.txt" -f [guid]::NewGuid().ToString('N'))
@@ -296,6 +456,19 @@ function Invoke-WinSW {
   }
 }
 
+function Get-XmlAccountSnippet {
+  if (-not (Test-Path -LiteralPath $xmlPath)) { return '' }
+  $xmlBody = [IO.File]::ReadAllText($xmlPath)
+  $lines = New-Object System.Collections.Generic.List[string]
+  foreach ($line in ($xmlBody -split "`r?`n")) {
+    $t = $line.Trim()
+    if ($t -match 'serviceaccount|domain|user|username') {
+      [void]$lines.Add($t)
+    }
+  }
+  return ($lines -join ' | ')
+}
+
 Write-HelperLog ("BEGIN action={0} payloadDir={1} dataDirectory={2} elevated={3}" -f $Action, $PayloadDir, $DataDirectory, $(
   try {
     $p = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -307,16 +480,14 @@ try {
 
 switch ($Action) {
   'Status' {
-    $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
+    $q = Get-ScmQuery
+    $c = Get-ScmConfig
     Write-Result @{
       ok = $true
-      registered = [bool]$svc
-      status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
-      startType = $(if ($svc) { [string]$svc.StartType } else { '' })
-      startName = $(if ($svc) {
-          $cim = Get-CimInstance Win32_Service -Filter "Name='$serviceId'" -ErrorAction SilentlyContinue
-          if ($cim) { [string]$cim.StartName } else { '' }
-        } else { '' })
+      registered = [bool]$q.present
+      status = $(if ($q.present) { [string]$q.state } else { 'Absent' })
+      startType = $(if ($q.present) { [string]$c.startType } else { '' })
+      startName = $(if ($q.present) { [string]$c.startName } else { '' })
       payloadDir = $PayloadDir
       commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
     } 0
@@ -325,13 +496,24 @@ switch ($Action) {
     Assert-Admin
     Clear-ScmInstallOkMarker
     Assert-Payload
+    # Verify native tools exist before mutating SCM.
+    [void](Resolve-System32Tool -FileName 'sc.exe')
+    [void](Resolve-System32Tool -FileName 'icacls.exe')
+    [void](Resolve-System32Tool -FileName 'certutil.exe')
     Materialize-Xml
-    $existing = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
-    if ($existing) {
-      try { Stop-Service -Name $serviceId -Force -ErrorAction SilentlyContinue } catch {}
-      [void](Invoke-WinSW -WinSwArguments @('uninstall'))
+
+    $existing = Get-ScmQuery
+    if ($existing.present) {
+      $stopInfo = Stop-ScmServiceNative
+      Write-HelperLog ("PRE_INSTALL_STOP {0}" -f ($stopInfo.notes -join ' | '))
+      if (Test-Path -LiteralPath $winswExe -PathType Leaf) {
+        [void](Invoke-WinSW -WinSwArguments @('uninstall'))
+      }
+      $del = Invoke-NativeTool -FileName 'sc.exe' -ArgumentList @('delete', $serviceId)
+      Write-HelperLog ("PRE_INSTALL_SC_DELETE exit={0} out={1}" -f $del.exitCode, $del.combined)
       Start-Sleep -Seconds 2
     }
+
     $installCode = Invoke-WinSW -WinSwArguments @('install')
     if ($installCode -ne 0) {
       Write-Result (Merge-Result @{
@@ -341,23 +523,18 @@ switch ($Action) {
       } (Get-ScmDiagnostics)) 5
     }
 
-    # Fail closed before start if SCM did not bind the virtual account.
-    $cimAfterInstall = Get-CimInstance Win32_Service -Filter "Name='$serviceId'" -ErrorAction SilentlyContinue
-    $startNameAfterInstall = if ($cimAfterInstall) { [string]$cimAfterInstall.StartName } else { '' }
+    $cfgAfterInstall = Get-ScmConfig
+    $startNameAfterInstall = [string]$cfgAfterInstall.startName
     if ($startNameAfterInstall -ne $serviceAccount) {
       Write-Result (Merge-Result @{
         ok = $false
         error = 'WINSW_VIRTUAL_ACCOUNT_NOT_BOUND'
         startName = $startNameAfterInstall
         expectedStartName = $serviceAccount
-        xmlSnippet = $(if (Test-Path -LiteralPath $xmlPath) {
-            $xmlBody = [IO.File]::ReadAllText($xmlPath)
-            (($xmlBody -split "`n") | Select-String -Pattern 'serviceaccount|domain|user|username' | ForEach-Object { $_.Line.Trim() }) -join ' | '
-          } else { '' })
+        xmlSnippet = (Get-XmlAccountSnippet)
       } (Get-ScmDiagnostics)) 7
     }
 
-    # Virtual account exists only after install — grant runtime ACLs before start.
     try {
       Grant-ServiceRuntimeAcls
     } catch {
@@ -370,32 +547,34 @@ switch ($Action) {
     }
 
     $startCode = Invoke-WinSW -WinSwArguments @('start')
-    $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
-    $running = $null -ne $svc -and ($svc.Status -eq 'Running' -or $svc.Status -eq 'StartPending')
+    $qAfterStart = Get-ScmQuery
+    $running = $qAfterStart.present -and ($qAfterStart.state -eq 'RUNNING' -or $qAfterStart.state -eq 'START_PENDING')
     if (-not $running) {
       Write-Result (Merge-Result @{
         ok = $false
         error = 'WINSW_START_FAILED'
         exitCode = $startCode
-        status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
+        status = $qAfterStart.state
         startName = $startNameAfterInstall
       } (Get-ScmDiagnostics)) 6
     }
-    # Give Node child time to bind pipe / open SQLite
+
     Start-Sleep -Seconds 5
-    $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
-    $cim = Get-CimInstance Win32_Service -Filter "Name='$serviceId'" -ErrorAction SilentlyContinue
-    $startName = if ($cim) { [string]$cim.StartName } else { '' }
+    $qStable = Get-ScmQuery
+    $cfgStable = Get-ScmConfig
+    $startName = [string]$cfgStable.startName
     $identityOk = $startName -eq $serviceAccount
-    $stillRunning = $null -ne $svc -and ($svc.Status -eq 'Running' -or $svc.Status -eq 'StartPending')
+    $stillRunning = $qStable.present -and ($qStable.state -eq 'RUNNING' -or $qStable.state -eq 'START_PENDING')
+    $autoOk = ($cfgStable.startType -eq 'AUTO_START' -or $cfgStable.startType -eq 'AUTO')
     if (-not ($stillRunning -and $identityOk)) {
       Write-Result (Merge-Result @{
         ok = $false
         error = $(if (-not $identityOk) { 'WINSW_VIRTUAL_ACCOUNT_NOT_BOUND' } else { 'WINSW_START_NOT_STABLE' })
-        registered = ($null -ne $svc)
-        status = $(if ($svc) { [string]$svc.Status } else { 'Absent' })
+        registered = $qStable.present
+        status = $qStable.state
         startName = $startName
         identityOk = $identityOk
+        startType = $cfgStable.startType
         dataDirectory = $script:resolvedDataDirectory
         logDirectory = $logDirectory
         xml = $xmlPath
@@ -403,12 +582,17 @@ switch ($Action) {
         authenticodeProduct = 'RT-009-B_BLOCKED'
       } (Get-ScmDiagnostics)) 7
     }
+    if (-not $autoOk) {
+      Write-HelperLog ("WARN_START_TYPE_NOT_AUTO raw={0}" -f $cfgStable.startType)
+    }
+
     $success = @{
       ok = $true
       registered = $true
-      status = [string]$svc.Status
+      status = [string]$qStable.state
       startName = $startName
       identityOk = $true
+      startType = [string]$cfgStable.startType
       dataDirectory = $script:resolvedDataDirectory
       logDirectory = $logDirectory
       xml = $xmlPath
@@ -422,25 +606,12 @@ switch ($Action) {
   'Uninstall' {
     Assert-Admin
     Clear-ScmInstallOkMarker
-    # Do not require the full runtime payload (node/bundle/template). Uninstall must
-    # succeed even if NSIS already removed part of $INSTDIR; otherwise the running
-    # service keeps file locks and Program Files cannot be deleted.
-    $svc = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
+    [void](Resolve-System32Tool -FileName 'sc.exe')
     $stopNotes = New-Object System.Collections.Generic.List[string]
-    if ($svc) {
-      try {
-        Stop-Service -Name $serviceId -Force -ErrorAction Stop
-        [void]$stopNotes.Add('Stop-Service=ok')
-      } catch {
-        [void]$stopNotes.Add(('Stop-Service=' + $_.Exception.Message))
-      }
-      $scStop = (& sc.exe stop $serviceId 2>&1 | Out-String).Trim()
-      [void]$stopNotes.Add(('sc_stop=' + $scStop))
-      for ($i = 0; $i -lt 45; $i++) {
-        $wait = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
-        if ($null -eq $wait -or $wait.Status -eq 'Stopped') { break }
-        Start-Sleep -Seconds 1
-      }
+    $q = Get-ScmQuery
+    if ($q.present) {
+      $stopInfo = Stop-ScmServiceNative
+      foreach ($n in $stopInfo.notes) { [void]$stopNotes.Add([string]$n) }
       if (Test-Path -LiteralPath $winswExe -PathType Leaf) {
         try {
           $unCode = Invoke-WinSW -WinSwArguments @('uninstall')
@@ -451,23 +622,21 @@ switch ($Action) {
       } else {
         [void]$stopNotes.Add('winsw_exe_absent')
       }
-      # Authoritative SCM removal — WinSW uninstall alone can leave the key if the
-      # process was busy or the exe was already deleted by NSIS.
-      $scDelete = (& sc.exe delete $serviceId 2>&1 | Out-String).Trim()
-      [void]$stopNotes.Add(('sc_delete=' + $scDelete))
+      $scDelete = Invoke-NativeTool -FileName 'sc.exe' -ArgumentList @('delete', $serviceId)
+      [void]$stopNotes.Add(('sc_delete_exit=' + $scDelete.exitCode))
+      [void]$stopNotes.Add(('sc_delete=' + $scDelete.combined))
       Start-Sleep -Seconds 2
     } else {
       [void]$stopNotes.Add('service_already_absent')
     }
-    $after = Get-Service -Name $serviceId -ErrorAction SilentlyContinue
-    # Never delete commercial AppData / ProgramData SQLite here.
+    $after = Get-ScmQuery
     Write-Result @{
-      ok = ($null -eq $after)
-      registered = ($null -ne $after)
+      ok = (-not $after.present)
+      registered = $after.present
       dataPreserved = $true
       stopNotes = ([string[]]$stopNotes.ToArray() -join ' | ')
       note = 'Service removed; commercial data directories left intact'
-    } $(if ($null -eq $after) { 0 } else { 8 })
+    } $(if (-not $after.present) { 0 } else { 8 })
   }
 }
 

@@ -65,6 +65,13 @@
 - `95e8279f`: `SILENT_INSTALL_FAILED:exit=2` — Abort de `customInstall` sin volcado de `winsw-helper.log` en el report.
 - `3f215949`: pack fail — makensis `warning 6000: unknown variable/constant "COMMONAPPDATA\..."` (warning treated as error). Marker debe vivir bajo `$INSTDIR`, no `$COMMONAPPDATA`.
 
+## Hallazgo CI `5980453d` (run 44205420193) — helper trail recuperado
+
+- Pack OK; silent install Abort.
+- Helper: `SERVICE_ACL_GRANT_FAILED` — `Get-Acl` found in `Microsoft.PowerShell.Security` but module could not load under nsExec (misma clase que `Get-FileHash`).
+- SCM ya estaba `NT SERVICE\CamachoPOSLocalService` (STOPPED); falló antes de start.
+- Cierre integral (no parches sueltos): helper crítico usa sólo `sc.exe` / `icacls.exe` / `certutil.exe` (System32 verificado + exit code) + BCL SID/SHA. Sin `Get-Acl`/`Set-Acl`/`Get-FileHash`/`Get-Service`/`Get-CimInstance`. ACL mínima al SID virtual; `icacls` lista y exige ACE efectiva. Gate estático: `tools/operators/assert-helper-nsis-safe.mjs`.
+
 ## Veredicto
 
 Se declara tras CI exact-head del tip que incluye este empaquetado:
