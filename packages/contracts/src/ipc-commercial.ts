@@ -926,6 +926,21 @@ export const FiscalDocumentIssueResultSchema = z.strictObject({
 
 export const FiscalDocumentIssueResponseSchema = createResponseEnvelopeSchema(FiscalDocumentIssueResultSchema);
 
+export const FiscalNumberingSyncRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({ message_type: z.literal("fiscal.numbering.sync") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+  });
+
+export const FiscalNumberingSyncResultSchema = z.strictObject({
+  outcome: z.enum(["SYNCHRONIZED", "UNAUTHORIZED", "FISCAL_NOT_CONFIGURED", "UNSUPPORTED", "UNAVAILABLE"]),
+  count: z.number().int().nonnegative().nullable(),
+  reason_code: StableCodeSchema.nullable(),
+});
+
+export const FiscalNumberingSyncResponseSchema = createResponseEnvelopeSchema(FiscalNumberingSyncResultSchema);
+
 // ── catalog.product.register ─────────────────────────────────────────────────
 
 /**
@@ -2104,6 +2119,7 @@ export type CustomerFinding = z.infer<typeof CustomerFindingSchema>;
 export type CustomerMarketingSubscriptionResult = z.infer<typeof CustomerMarketingSubscriptionResultSchema>;
 export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResultSchema>;
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
+export type FiscalNumberingSyncResult = z.infer<typeof FiscalNumberingSyncResultSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
 export type CatalogItemListItem = z.infer<typeof CatalogItemListItemSchema>;

@@ -27,7 +27,7 @@ type CommercialRequest = Extract<
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
-      | "fiscal.document.issue"
+      | "fiscal.document.issue" | "fiscal.numbering.sync"
       | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.batch.list" | "inventory.batch.status"
@@ -245,6 +245,7 @@ export class CommercialRequestHandler {
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
+      case "fiscal.numbering.sync": return this.syncNumberingRanges(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
@@ -671,21 +672,25 @@ export class CommercialRequestHandler {
     }
 
     const payload = request.payload;
+    const scope=this.scope();
+    const access=evaluatePermission({actor:createActor("USER",authenticated.identity.userId),permission:CanonicalPermission.FISCAL_DOCUMENT_ISSUE,
+      scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(authenticated.snapshot.claims)});
+    if(!access.allowed)return rejected(request,"UNAUTHORIZED",{outcome:"UNAUTHORIZED",...empty});
+    const sale=this.commercial.fiscalSaleSource.read(scope,payload.sale_id);
+    const linkedId=sale?.customerId ?? null;
+    if (linkedId && (payload.customer.kind === "NOT_IDENTIFIED" ||
+      (payload.customer.kind === "IDENTIFIED" && payload.customer.customer_id !== linkedId))) {
+      return rejected(request,"BLOCKED",{outcome:"BLOCKED",...empty,block_code:"SALE_CUSTOMER_MISMATCH"});
+    }
     let customer: FiscalCustomerResolution;
-    if (payload.customer.kind === "IDENTIFIED") {
-      const found = this.commercial.getCustomer.execute(
-        this.scope(),
-        authenticated.snapshot,
-        { by: "ID", customerId: payload.customer.customer_id },
-      );
-      if (found.kind !== "FOUND") {
-        return rejected(request, "CUSTOMER_NOT_FOUND", { outcome: "BLOCKED", ...empty, block_code: "CUSTOMER_NOT_FOUND" });
-      }
-      customer = { kind: "IDENTIFIED", customer: found.customer };
-    } else if (payload.customer.kind === "NOT_IDENTIFIED") {
-      customer = { kind: "NOT_IDENTIFIED", reason: payload.customer.reason };
+    if (payload.customer.kind === "IDENTIFIED" || payload.customer.kind === "SALE_CUSTOMER") {
+      const customerId=payload.customer.kind === "IDENTIFIED" ? payload.customer.customer_id : linkedId;
+      if(!customerId) return rejected(request,"BLOCKED",{outcome:"BLOCKED",...empty,block_code:"SALE_CUSTOMER_NOT_ASSIGNED"});
+      const found = this.commercial.getCustomer.execute(scope,authenticated.snapshot,{by:"ID",customerId});
+      if(found.kind!=="FOUND")return rejected(request,"BLOCKED",{outcome:"BLOCKED",...empty,block_code:"CUSTOMER_NOT_FOUND"});
+      customer={kind:"IDENTIFIED",customer:found.customer};
     } else {
-      return rejected(request, "BLOCKED", { outcome: "BLOCKED", ...empty, block_code: "SALE_CUSTOMER_NOT_ASSIGNED" });
+      customer={kind:"NOT_IDENTIFIED",reason:payload.customer.reason};
     }
 
     const result = await useCase.execute(
@@ -740,6 +745,50 @@ export class CommercialRequestHandler {
     // son desenlaces reales del protocolo de resultado incierto (`DEC-021`
     // §2.1) que el operador necesita ver, no un socket cerrado en silencio.
     return rejected(request, result.kind, { outcome: result.kind, ...documentFields });
+  }
+
+  private async syncNumberingRanges(
+    request: Extract<CommercialRequest, { message_type: "fiscal.numbering.sync" }>,
+    connectionId: string,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const empty = { count: null as number | null, reason_code: null as string | null };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const useCase = this.commercial.synchronizeNumberingRanges;
+    const credential = this.commercial.fiscalCredentialReference;
+    if (useCase === null || credential === null || this.config.fiscal_environment === undefined) {
+      return rejected(request, "FISCAL_NOT_CONFIGURED", { outcome: "FISCAL_NOT_CONFIGURED", ...empty });
+    }
+    const scope = this.scope();
+    const access = evaluatePermission({
+      actor: createActor("USER", authenticated.identity.userId),
+      permission: CanonicalPermission.FISCAL_DOCUMENT_ISSUE,
+      scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+      at: new Date(),
+      assignments: toRoleAssignments(authenticated.snapshot.claims),
+    });
+    if (!access.allowed) {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const result = await useCase.execute(
+      scope,
+      "FACTUS",
+      this.config.fiscal_environment as FiscalEnvironment,
+      ["SALES_INVOICE", "CREDIT_NOTE"],
+      credential,
+      signal,
+    );
+    if (result.kind === "SYNCHRONIZED") {
+      return succeeded(request, "SYNCHRONIZED", { outcome: "SYNCHRONIZED", count: result.count, reason_code: null });
+    }
+    return rejected(request, result.kind, {
+      outcome: result.kind,
+      count: null,
+      reason_code: result.reasonCode,
+    });
   }
 
   // ── catalog.product.register ───────────────────────────────────────────────

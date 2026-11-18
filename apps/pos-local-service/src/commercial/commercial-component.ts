@@ -75,6 +75,8 @@ import { SecretStoreFactusCredentialResolver } from "../fiscal/factus-credential
 import { SqliteFiscalDocumentStore } from "../fiscal/sqlite-fiscal-document-store.js";
 import { SqliteFiscalSaleSource } from "../fiscal/fiscal-sale-source.js";
 import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-document-use-case.js";
+import { SynchronizeNumberingRangesUseCase } from "../fiscal/synchronize-numbering-ranges-use-case.js";
+import type { CredentialReference, NumberingRangePort } from "@pos-platform/fiscal-adapters";
 
 /**
  * Componente que reúne la superficie comercial V1 — `DEC-014` / `DEC-015`.
@@ -163,6 +165,9 @@ export class CommercialComponent implements RuntimeComponent {
          * significa «esta pieza no está lista», no un error de arranque.
          */
         readonly issueElectronicDocument: IssueElectronicDocumentUseCase | null;
+        readonly fiscalSaleSource: SqliteFiscalSaleSource;
+        readonly synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null;
+        readonly fiscalCredentialReference: CredentialReference | null;
       }
     | undefined;
 
@@ -270,6 +275,9 @@ export class CommercialComponent implements RuntimeComponent {
   get waitingCarts(): SqliteWaitingCartStore { return this.ready.waitingCarts; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
+  get fiscalSaleSource(): SqliteFiscalSaleSource { return this.ready.fiscalSaleSource; }
+  get synchronizeNumberingRanges(): SynchronizeNumberingRangesUseCase | null { return this.ready.synchronizeNumberingRanges; }
+  get fiscalCredentialReference(): CredentialReference | null { return this.ready.fiscalCredentialReference; }
 
   async start(): Promise<void> {
     const database = this.localDatabase.database;
@@ -302,7 +310,10 @@ export class CommercialComponent implements RuntimeComponent {
     // credencial. Con ambos presentes pero **sin credencial depositada aún**
     // (F2 es una operación de operador, separada de este arranque), tampoco:
     // el criterio es el mismo, «no está lista», no un fallo de arranque.
+    const fiscalSaleSource = new SqliteFiscalSaleSource(database);
     let issueElectronicDocument: IssueElectronicDocumentUseCase | null = null;
+    let synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null = null;
+    let fiscalCredentialReference: CredentialReference | null = null;
     if (this.fiscalSecretStore !== undefined && this.config.fiscal_environment !== undefined) {
       const environment = this.config.fiscal_environment;
       const fiscalCredentialStore = new FiscalCredentialStore(this.fiscalSecretStore);
@@ -315,13 +326,17 @@ export class CommercialComponent implements RuntimeComponent {
           { now: () => this.now().getTime() },
         );
         issueElectronicDocument = new IssueElectronicDocumentUseCase(
-          new SqliteFiscalSaleSource(database),
+          fiscalSaleSource,
           catalogStore,
           new SqliteFiscalDocumentStore(database, this.now),
           issuancePort,
           credential,
           this.now,
         );
+        fiscalCredentialReference = credential;
+        if ("synchronizeRanges" in issuancePort) {
+          synchronizeNumberingRanges = new SynchronizeNumberingRangesUseCase(issuancePort as NumberingRangePort,new SqliteFiscalDocumentStore(database,this.now),this.now);
+        }
       }
     }
 
@@ -332,6 +347,9 @@ export class CommercialComponent implements RuntimeComponent {
     this.scaleInstance = scaleProfile ? new WindowsCh340Transport(scaleProfile) : null;
     this.state = {
       issueElectronicDocument,
+      fiscalSaleSource,
+      synchronizeNumberingRanges,
+      fiscalCredentialReference,
       sessionStore,
       sessionActivation: new SessionActivationService(verifier, sessionStore),
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),
