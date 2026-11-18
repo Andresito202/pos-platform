@@ -107,15 +107,19 @@ function Esc([string]$v) {
 }
 # Match NSIS lifecycle: invoke tsx as the Node entry script (absolute path).
 # Never use `--import D:\...` — Node ESM on Windows requires file:// URLs.
+# Capture child stdout/stderr so this function returns ONLY the int exit code
+# (PowerShell otherwise merges Node output into the return Object[] and breaks Must).
 function Invoke-RepoTsx {
   param(
     [Parameter(Mandatory = $true)][string]$NodeExe,
     [Parameter(Mandatory = $true)][string]$TsxCli,
     [Parameter(Mandatory = $true)][string]$Script,
-    [Parameter(Mandatory = $true)][string[]]$ScriptArgs
+    [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$ScriptArgs
   )
-  & $NodeExe $TsxCli $Script @ScriptArgs
-  return $LASTEXITCODE
+  $lines = @(& $NodeExe $TsxCli $Script @ScriptArgs 2>&1)
+  $code = [int]$LASTEXITCODE
+  foreach ($line in $lines) { Write-Host ([string]$line) }
+  return $code
 }
 function Write-ServiceEnrollDiagnostics {
   param(
@@ -221,10 +225,10 @@ try {
   foreach ($p in @($winswNode, (Join-Path $labRoot 'bin'))) {
     & icacls.exe $p /grant ('*' + $serviceSid + ':(OI)(CI)RX') /T /C /Q | Out-Null
   }
-  # powershell.exe is required by windows-handoff-native under the service token.
+  # powershell.exe under System32 is already executable by NT SERVICE (G1 + SERVICE
+  # enroll both invoke windows-handoff-native). Do not icacls System32 (Access denied).
   $psExe = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
   Must (Test-Path -LiteralPath $psExe -PathType Leaf) 'POWERSHELL_MISSING'
-  & icacls.exe $psExe /grant ('*' + $serviceSid + ':RX') /C /Q | Out-Null
 
   # Prior lifecycle phases leave CamachoPOSLocalService Running; stop before enrollment swap.
   if ((Get-Service -Name $serviceName).Status -ne 'Stopped') {
@@ -272,13 +276,13 @@ try {
   Write-Host 'SERVICE_CHANNEL_ENROLLMENT=PASS'
 
   # Desktop enrollment under interactive operator token (tsx entry, not --import path).
-  $deskExit = Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $enroll -ScriptArgs @('DESKTOP', $labRoot, $publication, $installationId, $deviceId)
+  $deskExit = [int](Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $enroll -ScriptArgs @('DESKTOP', $labRoot, $publication, $installationId, $deviceId))
   Must ($deskExit -eq 0) 'DESKTOP_ENROLLMENT_FAILED'
   $desktopOut = Join-Path $labRoot ('desktop\commercial-desktop-' + $publication + '.json')
   Must (Test-Path -LiteralPath $desktopOut -PathType Leaf) 'DESKTOP_ENROLLMENT_MISSING'
   Write-Host 'DESKTOP_CHANNEL_ENROLLMENT=PASS'
 
-  $pairExit = Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $enroll -ScriptArgs @('PAIR', $labRoot, $publication, $installationId, $deviceId)
+  $pairExit = [int](Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $enroll -ScriptArgs @('PAIR', $labRoot, $publication, $installationId, $deviceId))
   Must ($pairExit -eq 0) 'PAIR_FAILED'
   $serviceManifest = Join-Path $labRoot ('service\commercial-provision-' + $publication + '.json')
   $desktopManifest = Join-Path $labRoot ('desktop\commercial-provision-' + $publication + '.json')
@@ -337,7 +341,7 @@ try {
   # Authenticated ops via production connectWindowsScmClient (not interactive LS).
   $env:POS_WINDOWS_SCM_HANDOFF_FILE = $desktopManifest
   try {
-    $opsExit = Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $ops -ScriptArgs @()
+    $opsExit = [int](Invoke-RepoTsx -NodeExe $node -TsxCli $tsx -Script $ops -ScriptArgs @())
     Must ($opsExit -eq 0) 'COMMERCIAL_OPS_FAILED'
   }
   finally {
