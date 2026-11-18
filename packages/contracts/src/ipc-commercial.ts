@@ -1528,6 +1528,8 @@ export const CatalogFoodPolicyUpsertResultSchema = z.strictObject({
 export const CatalogFoodPolicyUpsertResponseSchema =
   createResponseEnvelopeSchema(CatalogFoodPolicyUpsertResultSchema);
 
+export type CatalogFoodPolicyUpsertResult = z.infer<typeof CatalogFoodPolicyUpsertResultSchema>;
+
 // ── inventory.transform.execute ──────────────────────────────────────────────
 
 const TransformLineMassSchema = NonNegativeScale6Schema.nullable();

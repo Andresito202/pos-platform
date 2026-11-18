@@ -24,6 +24,15 @@ test("WITH requires explicit reviewed combination",()=>{
   assert.equal(evaluateSpdxLicenseExpression("Apache-2.0 WITH Classpath-exception-2.0",policy()).decision,"REVIEW_REQUIRED");
 });
 test("invalid expression is review-required",()=>assert.equal(evaluateSpdxLicenseExpression("MIT OR (",policy()).decision,"REVIEW_REQUIRED"));
+
+test("WTFPL is allowlisted for electron-builder transitive sanitize-filename chain", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const { fileURLToPath } = await import("node:url");
+  const path = await import("node:path");
+  const policyPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "license-compatibility-policy.json");
+  const committed = JSON.parse(await readFile(policyPath, "utf8"));
+  assert.equal(evaluateSpdxLicenseExpression("WTFPL", committed).decision, "ALLOW");
+});
 test("mandatory deny floor cannot be weakened",()=>{
   const p=policy(); p.deny=p.deny.filter((id)=>id!=="GPL-3.0-only");
   assert.throws(()=>validateLicensePolicy(p),/deny floor must include GPL-3.0-only/);

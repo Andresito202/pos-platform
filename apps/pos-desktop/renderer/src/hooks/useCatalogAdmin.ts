@@ -1,5 +1,8 @@
 import { useCallback, useState } from "react";
-import type { CatalogProductRegisterResult } from "@pos-platform/contracts";
+import type {
+  CatalogFoodPolicyUpsertResult,
+  CatalogProductRegisterResult,
+} from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 import { toScale6 } from "../scale6.js";
 
@@ -31,20 +34,33 @@ export interface CatalogAdminInput {
   readonly currencyCode: string;
 }
 
+export interface FoodPolicyInput {
+  readonly productId: string;
+  readonly conservationCode: "AMBIENT" | "CHILLED" | "FROZEN" | "CONTROLLED";
+  readonly requiresLotTracking: boolean;
+  readonly requiresExpiry: boolean;
+  readonly notes: string;
+}
+
 export interface CatalogAdminState {
   readonly busy: boolean;
   readonly product: RegisteredProduct | null;
   /** Desenlace del contrato cuando no hubo alta: `UNAUTHORIZED`, conflicto… */
   readonly outcome: CatalogProductRegisterResult["outcome"] | null;
+  readonly foodPolicyOutcome: CatalogFoodPolicyUpsertResult["outcome"] | null;
+  readonly foodPolicyVersion: number | null;
   readonly error: string | null;
 }
 
 export function useCatalogAdmin(): CatalogAdminState & {
   registerProduct(input: CatalogAdminInput): Promise<void>;
+  upsertFoodPolicy(input: FoodPolicyInput): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const [product, setProduct] = useState<RegisteredProduct | null>(null);
   const [outcome, setOutcome] = useState<CatalogProductRegisterResult["outcome"] | null>(null);
+  const [foodPolicyOutcome, setFoodPolicyOutcome] = useState<CatalogFoodPolicyUpsertResult["outcome"] | null>(null);
+  const [foodPolicyVersion, setFoodPolicyVersion] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const registerProduct = useCallback(async (input: CatalogAdminInput): Promise<void> => {
@@ -96,5 +112,44 @@ export function useCatalogAdmin(): CatalogAdminState & {
     }
   }, []);
 
-  return { busy, product, outcome, error, registerProduct };
+  const upsertFoodPolicy = useCallback(async (input: FoodPolicyInput): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setFoodPolicyOutcome(null);
+    setFoodPolicyVersion(null);
+    try {
+      const response = await callCommercial<CatalogFoodPolicyUpsertResult>(
+        "catalog.food_policy.upsert",
+        {
+          product_id: input.productId,
+          conservation_code: input.conservationCode,
+          requires_lot_tracking: input.requiresLotTracking,
+          requires_expiry: input.requiresExpiry,
+          notes: input.notes.trim() === "" ? null : input.notes.trim(),
+        },
+        newIdempotencyKey(),
+      );
+      if (response.result === null) {
+        setError(response.result_code);
+        return;
+      }
+      setFoodPolicyOutcome(response.result.outcome);
+      setFoodPolicyVersion(response.result.version);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  return {
+    busy,
+    product,
+    outcome,
+    foodPolicyOutcome,
+    foodPolicyVersion,
+    error,
+    registerProduct,
+    upsertFoodPolicy,
+  };
 }

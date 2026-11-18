@@ -87,7 +87,7 @@ describe("main bootstrap IPC registration", () => {
     const service = makeServiceChannel();
     await bootstrapWith(service);
     const handler = handlers.get("pos:operation.confirm");
-    const payload = { operation_id: "op-99" };
+    const payload = { message_type: "operation.confirm", operation_id: "op-99" };
     await handler?.({}, payload);
     expect(service.request).toHaveBeenCalledWith(payload);
   });
@@ -97,7 +97,7 @@ describe("main bootstrap IPC registration", () => {
     service.request.mockRejectedValue(new Error("servicio local caido"));
     await bootstrapWith(service);
     const handler = handlers.get("pos:runtime.status.get");
-    await expect(handler?.({}, {})).rejects.toThrow("servicio local caido");
+    await expect(handler?.({}, { message_type: "runtime.status.get" })).rejects.toThrow("servicio local caido");
   });
 });
 
