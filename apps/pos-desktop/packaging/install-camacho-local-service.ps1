@@ -102,26 +102,40 @@ function Get-FileSha256Hex {
   }
 }
 
+function Get-ScmInstallOkMarkerPaths {
+  # Payload marker is what NSIS IfFileExists checks ($INSTDIR\...\scm-install.ok).
+  # ProgramData copy is for lifecycle diagnostics after install.
+  return @(
+    (Join-Path $PayloadDir 'scm-install.ok'),
+    (Join-Path $env:ProgramData 'CamachoPOS\logs\scm-install.ok')
+  )
+}
+
 function Clear-ScmInstallOkMarker {
-  $marker = Join-Path $env:ProgramData 'CamachoPOS\logs\scm-install.ok'
-  if (Test-Path -LiteralPath $marker) {
-    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+  foreach ($marker in Get-ScmInstallOkMarkerPaths) {
+    if (Test-Path -LiteralPath $marker) {
+      Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+    }
   }
 }
 
 function Write-ScmInstallOkMarker {
   param([Parameter(Mandatory = $true)]$Payload)
-  $dir = Join-Path $env:ProgramData 'CamachoPOS\logs'
-  New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  $marker = Join-Path $dir 'scm-install.ok'
   $body = [ordered]@{
     at = [DateTime]::UtcNow.ToString('o')
     serviceId = $serviceId
     startName = [string]$Payload.startName
     status = [string]$Payload.status
     identityOk = [bool]$Payload.identityOk
+    startType = 'Automatic'
   }
-  ($body | ConvertTo-Json -Compress) | Set-Content -LiteralPath $marker -Encoding ASCII
+  $json = ($body | ConvertTo-Json -Compress)
+  foreach ($marker in Get-ScmInstallOkMarkerPaths) {
+    $dir = Split-Path -Parent $marker
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    Set-Content -LiteralPath $marker -Value $json -Encoding ASCII
+  }
+  Write-HelperLog ("SCM_INSTALL_OK_MARKERS written payload={0}" -f $json)
 }
 
 function Assert-Payload {
@@ -407,6 +421,7 @@ switch ($Action) {
   }
   'Uninstall' {
     Assert-Admin
+    Clear-ScmInstallOkMarker
     # Do not require the full runtime payload (node/bundle/template). Uninstall must
     # succeed even if NSIS already removed part of $INSTDIR; otherwise the running
     # service keeps file locks and Program Files cannot be deleted.

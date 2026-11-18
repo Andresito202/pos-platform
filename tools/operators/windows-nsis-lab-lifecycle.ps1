@@ -256,22 +256,34 @@ try {
   # --- Silent install ---
   Write-Host "PHASE=silent_install"
   $helperLogPath = Join-Path $env:ProgramData 'CamachoPOS\logs\winsw-helper.log'
-  $scmOkMarkerPath = Join-Path $env:ProgramData 'CamachoPOS\logs\scm-install.ok'
+  $scmOkMarkerProgramData = Join-Path $env:ProgramData 'CamachoPOS\logs\scm-install.ok'
   $p = Start-Process -FilePath $InstallerPath -ArgumentList @('/S') -Wait -PassThru -NoNewWindow
   $helperLogTail = ''
   if (Test-Path -LiteralPath $helperLogPath) {
-    $helperLogTail = ((Get-Content -LiteralPath $helperLogPath -Tail 50 -ErrorAction SilentlyContinue) -join ' || ')
+    $helperLogTail = ((Get-Content -LiteralPath $helperLogPath -Tail 80 -ErrorAction SilentlyContinue) -join ' || ')
     Write-Host ('WINSW_HELPER_LOG_TAIL=' + $helperLogTail)
   }
-  $scmOkMarkerPresent = Test-Path -LiteralPath $scmOkMarkerPath -PathType Leaf
+  # After Abort, Program Files may be rolled back — still capture whatever evidence remains.
+  $layoutProbe = Resolve-InstalledLayout
+  $payloadMarkerPath = ''
+  if ($layoutProbe.ok -and $layoutProbe.installDir) {
+    $payloadMarkerPath = Join-Path $layoutProbe.installDir 'resources\service-payload\scm-install.ok'
+  }
+  $scmOkMarkerPresent = (
+    (Test-Path -LiteralPath $scmOkMarkerProgramData -PathType Leaf) -or
+    ($payloadMarkerPath -and (Test-Path -LiteralPath $payloadMarkerPath -PathType Leaf))
+  )
   if ($p.ExitCode -ne 0 -or -not $scmOkMarkerPresent) {
     [void]$steps.Add((Write-Step 'silent_install' 'FAIL' @{
       exitCode = $p.ExitCode
       phase = 'install'
       installer = $InstallerPath
       scmOkMarkerPresent = $scmOkMarkerPresent
-      scmOkMarkerPath = $scmOkMarkerPath
+      scmOkMarkerProgramData = $scmOkMarkerProgramData
+      payloadMarkerPath = "$payloadMarkerPath"
       helperLogTail = $helperLogTail
+      layoutOk = [bool]$layoutProbe.ok
+      layoutSource = "$($layoutProbe.source)"
     }))
     throw ("SILENT_INSTALL_FAILED:exit={0};scmOkMarker={1}" -f $p.ExitCode, $scmOkMarkerPresent)
   }
@@ -359,10 +371,16 @@ try {
     $helperLogTail = ((Get-Content -LiteralPath $helperLog -Tail 40 -ErrorAction SilentlyContinue) -join ' || ')
     Write-Host ('WINSW_HELPER_LOG_TAIL=' + $helperLogTail)
   }
-  if (-not (Test-Path -LiteralPath $scmOkMarkerPath -PathType Leaf)) {
+  $payloadMarkerNow = Join-Path $payloadDir 'scm-install.ok'
+  $markerOkNow = (
+    (Test-Path -LiteralPath $scmOkMarkerProgramData -PathType Leaf) -or
+    (Test-Path -LiteralPath $payloadMarkerNow -PathType Leaf)
+  )
+  if (-not $markerOkNow) {
     [void]$steps.Add((Write-Step 'winsw_scm_registration' 'FAIL' @{
       reason = 'SCM_INSTALL_OK_MARKER_MISSING'
-      scmOkMarkerPath = $scmOkMarkerPath
+      scmOkMarkerProgramData = $scmOkMarkerProgramData
+      payloadMarkerPath = $payloadMarkerNow
       helperLogTail = $helperLogTail
       labFallbackUsed = $false
     }))
@@ -536,7 +554,11 @@ try {
     $svcAfterUpgrade.Status -eq 'Running' -or $svcAfterUpgrade.Status -eq 'StartPending'
   )
   $autoAfterUpgrade = $null -ne $svcAfterUpgrade -and ($svcAfterUpgrade.StartType -eq 'Automatic')
-  $markerAfterUpgrade = Test-Path -LiteralPath $scmOkMarkerPath -PathType Leaf
+  $payloadMarkerAfterUpgrade = Join-Path $payloadAfter 'scm-install.ok'
+  $markerAfterUpgrade = (
+    (Test-Path -LiteralPath $scmOkMarkerProgramData -PathType Leaf) -or
+    (Test-Path -LiteralPath $payloadMarkerAfterUpgrade -PathType Leaf)
+  )
   $upgradeScmOk = $payloadOk -and $runningAfterUpgrade -and $identityAfterUpgrade -and $autoAfterUpgrade -and $markerAfterUpgrade
   $scQcAfterUpgrade = (& sc.exe qc CamachoPOSLocalService 2>&1 | Out-String).Trim()
   $helperLogAfterUpgrade = ''

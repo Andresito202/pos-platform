@@ -33,9 +33,10 @@
 - WinSW 2.12 XML: usar `<domain>NT SERVICE</domain>` + `<user>CamachoPOSLocalService</user>`. El elemento `<username>` **no** lo lee XmlServiceConfig → el servicio queda en LocalSystem. `allowservicelogon=false` para cuentas virtuales (LookupAccountName corre antes de CreateService).
 - Lifecycle exige `StartName=NT SERVICE\CamachoPOSLocalService` + Running; LocalSystem nunca PASS.
 - Uninstall: helper ya no exige payload completo; stop + WinSW uninstall + `sc delete`; NSIS `customUnInstall` también ejecuta `sc stop/delete` por si el payload ya no está.
-- NSIS-hosted PS: **no** `Get-FileHash` → SHA256 vía `certutil` (fallback BCL). Éxito escribe `ProgramData\CamachoPOS\logs\scm-install.ok`.
-- NSIS `customInstall`: `Abort` si falta `scm-install.ok` (no confiar sólo en el exit code de nsExec).
-- Lifecycle: **sin** fallback auxiliar. Exige marker + Running + `NT SERVICE\…` + Automatic tras install y tras upgrade; Absent post-upgrade = FAIL.
+- NSIS-hosted PS: **no** `Get-FileHash` → SHA256 vía `certutil` (fallback BCL).
+- Marker `scm-install.ok` en `$INSTDIR\resources\service-payload\` (NSIS) + copia ProgramData (diagnóstico). **No** usar `$COMMONAPPDATA` (warning 6000 en electron-builder NSIS → pack fail).
+- NSIS `customInstall`: `Abort` si falta el marker bajo `$INSTDIR` (no confiar sólo en exit code de nsExec).
+- Lifecycle: **sin** fallback auxiliar. Exige marker + Running + `NT SERVICE\…` + Automatic tras install y tras upgrade; vuelca `winsw-helper.log` si falla.
 
 ## Niveles de certificación
 
@@ -58,6 +59,11 @@
 1. NSIS `customInstall` → `HELPER_UNCAUGHT`: `Get-FileHash` no reconocido bajo nsExec → servicio ausente tras install.
 2. Lifecycle usó fallback auxiliar → PASS falso de registro.
 3. Upgrade: `customUnInstall` quitó el servicio; `customInstall` falló otra vez por Get-FileHash → `servicePresent=False` con `paths_after_upgrade` aún PASS (sólo miraba payload).
+
+## Hallazgo CI `95e8279f` (run 44201766108) / `3f215949`
+
+- `95e8279f`: `SILENT_INSTALL_FAILED:exit=2` — Abort de `customInstall` sin volcado de `winsw-helper.log` en el report.
+- `3f215949`: pack fail — makensis `warning 6000: unknown variable/constant "COMMONAPPDATA\..."` (warning treated as error). Marker debe vivir bajo `$INSTDIR`, no `$COMMONAPPDATA`.
 
 ## Veredicto
 
