@@ -45,7 +45,7 @@ describe("App", () => {
 
     expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Inventario" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "Catálogo" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBeTruthy();
     expect(screen.queryByTestId("fiscal-panel")).toBeNull();
   });
 
