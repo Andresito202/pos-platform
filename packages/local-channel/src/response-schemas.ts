@@ -47,6 +47,7 @@ import {
   BakeryProductionDeviationAuthorizeResponseSchema,
   BakeryProductionConfirmResponseSchema,
   BakeryProductionTraceGetResponseSchema,
+  LocalOperatorResponseSchema,
 } from "@pos-platform/contracts";
 
 /**
@@ -79,6 +80,9 @@ export const IPC_RESPONSE_SCHEMA_BY_MESSAGE_TYPE: Record<IpcMessageType, z.ZodTy
   "authorization.capabilities.get": AuthorizationCapabilitiesGetResponseSchema,
   "session.activate": SessionActivateResponseSchema,
   "session.recover": SessionRecoverResponseSchema,
+  "local.operator.login": LocalOperatorResponseSchema,
+  "local.operator.session": LocalOperatorResponseSchema,
+  "local.operator.logout": LocalOperatorResponseSchema,
   "cash.shift.open": CashShiftOpenResponseSchema,
   "cash.shift.close": CashShiftCloseResponseSchema,
   "sale.create": SaleCreateResponseSchema,

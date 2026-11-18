@@ -15,6 +15,8 @@ import { OperationConfirmationComponent } from "./operations/operation-confirmat
 import { LicenseCapacityGate, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
+import { LocalOperatorPasswordGate } from "./security/local-operator-password-gate.js";
+import { LocalOperatorSessionRegistry } from "./security/local-operator-session-registry.js";
 import {
   EncryptedFileSecretStore,
   InsecureDerivedKeyProvider,
@@ -218,6 +220,12 @@ try {
       () => lifecycle?.state ?? "STARTING",
       operationConfirmation,
       commercial,
+      config.local_operator_auth_store === undefined
+        ? undefined
+        : () => new LocalOperatorSessionRegistry(new LocalOperatorPasswordGate(
+          localDatabase.database,
+          config.local_operator_auth_store!,
+        )),
     );
     components.push(localChannel);
   }

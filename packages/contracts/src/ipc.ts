@@ -101,6 +101,12 @@ import {
   BakeryProductionTraceGetResponseSchema,
 
 } from "./ipc-commercial.js";
+import {
+  LocalOperatorLoginRequestSchema,
+  LocalOperatorSessionRequestSchema,
+  LocalOperatorLogoutRequestSchema,
+  LocalOperatorResponseSchema,
+} from "./ipc-local-operator.js";
 
 export const IpcMessageTypeSchema = z.enum([
   "runtime.handshake",
@@ -112,6 +118,9 @@ export const IpcMessageTypeSchema = z.enum([
   "authorization.capabilities.get",
   "session.activate",
   "session.recover",
+  "local.operator.login",
+  "local.operator.session",
+  "local.operator.logout",
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
@@ -236,6 +245,9 @@ export const IpcRequestSchema = z.union([
   AuthorizationCapabilitiesGetRequestSchema,
   SessionActivateRequestSchema,
   SessionRecoverRequestSchema,
+  LocalOperatorLoginRequestSchema,
+  LocalOperatorSessionRequestSchema,
+  LocalOperatorLogoutRequestSchema,
   CashShiftOpenRequestSchema,
   CashShiftCloseRequestSchema,
   SaleCreateRequestSchema,
@@ -291,6 +303,7 @@ export const IpcResponseSchema = z.union([
   AuthorizationCapabilitiesGetResponseSchema,
   SessionActivateResponseSchema,
   SessionRecoverResponseSchema,
+  LocalOperatorResponseSchema,
   CashShiftOpenResponseSchema,
   CashShiftCloseResponseSchema,
   SaleCreateResponseSchema,

@@ -1,6 +1,8 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import { StatusPanel } from "./components/StatusPanel.js";
+import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
+import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
@@ -9,7 +11,8 @@ import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { FiscalPanel } from "./components/FiscalPanel.js";
 import { useAuthorizationCapabilities } from "./hooks/useAuthorizationCapabilities.js";
-import { orderScreensByRole } from "./roleNavigation.js";
+import { useLocalOperatorSession } from "./hooks/useLocalOperatorSession.js";
+import { homeScreenId, orderScreensByRole } from "./roleNavigation.js";
 
 function hasAny(permissions: ReadonlySet<string>, required: readonly string[]): boolean {
   return required.some((permission) => permissions.has(permission));
@@ -23,18 +26,51 @@ type Screen = {
 
 export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
+  const [sessionEpoch, setSessionEpoch] = useState(0);
+  const localSession = useLocalOperatorSession(sessionEpoch);
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
   // Tip #106: keep visited screens mounted (hidden) so SalePanel shift/cart
   // state survives capability navigation. Unmounting on every nav wiped the open shift.
   const [visitedScreens, setVisitedScreens] = useState<ReadonlySet<string>>(new Set());
+
+  const refreshAccess = useCallback((): void => {
+    setSessionEpoch((value) => value + 1);
+    authorization.retry();
+  }, [authorization.retry]);
 
   const navigateTo = useCallback((id: string, from: string | null): void => {
     setVisitedScreens((visited) => new Set([...visited, ...(from === null ? [] : [from]), id]));
     setActiveScreen(id);
   }, []);
 
+  useEffect(() => {
+    // Only clear workspace navigation when the session leaves the authorized
+    // surface. Background revalidation must not wipe an active screen.
+    if (
+      authorization.phase === "unauthenticated"
+      || authorization.phase === "denied"
+      || authorization.phase === "expired"
+      || authorization.phase === "error"
+    ) {
+      setActiveScreen(null);
+      setVisitedScreens(new Set());
+    }
+  }, [authorization.phase]);
+
+  // Reset workspace only when a settled local identity *changes* (login, role
+  // switch, logout). Epoch bumps during an already-authorized session must not
+  // bounce navigation back to the role home.
+  const settledIdentity = localSession.ready
+    ? `${localSession.username ?? ""}:${localSession.role ?? ""}`
+    : null;
+  useEffect(() => {
+    if (settledIdentity === null) return;
+    setActiveScreen(null);
+    setVisitedScreens(new Set());
+  }, [settledIdentity]);
+
   const screens = useMemo<Screen[]>(() => {
-    if (authorization.phase !== "ready") return [];
+    if (authorization.phase !== "ready" || !localSession.ready) return [];
 
     const { permissions, entitlements } = authorization;
     const result: Screen[] = [];
@@ -101,30 +137,64 @@ export function App(): React.JSX.Element {
       });
     }
 
-    // Tip hosts Pharmacy/Bakery/Transform inside Catalog/Inventory under SECTOR
-    // entitlements. roleNavigation orders when a local role is known; without
-    // commercial login this keeps the permission-gated list as-is.
-    return orderScreensByRole(result, null);
-  }, [authorization]);
+    return orderScreensByRole(result, localSession.role);
+  }, [authorization, localSession.role, localSession.ready]);
 
-  if (authorization.phase === "loading") {
-    return (
-      <main>
-        <h1>Camacho POS Colombia</h1>
-        <StatusPanel />
-        <div data-testid="authorization-loading">Cargando permisos…</div>
-      </main>
-    );
-  }
+  useEffect(() => {
+    if (activeScreen !== null || screens.length === 0) return;
+    const home = homeScreenId(screens, localSession.role);
+    if (home !== null) setActiveScreen(home);
+  }, [activeScreen, screens, localSession.role]);
 
-  if (authorization.phase === "error") {
+  if (authorization.phase !== "ready" || !localSession.ready) {
+    const loading = authorization.phase === "loading" || (authorization.phase === "ready" && !localSession.ready);
+    const unauthenticated = authorization.phase === "unauthenticated";
     return (
-      <main>
-        <h1>Camacho POS Colombia</h1>
-        <StatusPanel />
-        <div data-testid="authorization-error">
-          No se pudo cargar la autorización: {authorization.message}
-        </div>
+      <main className="pos-entry" aria-busy={loading}>
+        <section className="pos-entry-card" aria-label="Estado de acceso">
+          <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
+          <h1>Iniciar sesión</h1>
+          <h2>
+            {loading
+              ? "Validando sesión"
+              : unauthenticated
+                ? "Accede con tu cuenta local para continuar"
+                : authorization.phase === "denied"
+                  ? "Acceso denegado"
+                  : authorization.phase === "expired"
+                    ? "Sesión expirada"
+                    : "Acceso no disponible"}
+          </h2>
+          <p>
+            {loading
+              ? "Comprobando la sesión y los permisos efectivos."
+              : unauthenticated
+                ? "Identifícate para acceder a las funciones locales autorizadas de tu perfil."
+                : "El POS no ha podido verificar una sesión autorizada."}
+          </p>
+          {loading ? (
+            <div data-testid="authorization-loading" role="status">Cargando permisos…</div>
+          ) : unauthenticated ? (
+            <div data-testid="authorization-unauthenticated" role="status">
+              No hay una sesión iniciada en este dispositivo.
+            </div>
+          ) : authorization.phase === "denied" ? (
+            <div data-testid="authorization-denied" role="alert">
+              La sesión no dispone de permisos efectivos para operar en este POS.
+            </div>
+          ) : authorization.phase === "expired" ? (
+            <div data-testid="authorization-expired" role="alert">
+              La verificación del backend indica que la sesión expiró. Es necesario autenticarse de nuevo.
+            </div>
+          ) : authorization.phase === "error" ? (
+            <div data-testid="authorization-error" role="alert">
+              No se pudo cargar la autorización: {authorization.message}
+            </div>
+          ) : null}
+          {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={refreshAccess} />}
+          <button type="button" onClick={refreshAccess} disabled={loading}>Actualizar acceso</button>
+          <StatusPanel />
+        </section>
       </main>
     );
   }
@@ -132,11 +202,21 @@ export function App(): React.JSX.Element {
   const selectedScreen = screens.find((screen) => screen.id === activeScreen) ?? screens[0] ?? null;
 
   return (
-    <main className="pos-shell">
+    <main className="pos-shell" data-operator-role={localSession.role ?? "none"}>
       <aside className="pos-sidebar" aria-label="Navegación principal">
         <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
-        <p className="pos-subtitle">Acceso según permisos efectivos</p>
+        <p className="pos-subtitle">
+          {localSession.role === "CAJERO"
+            ? "Caja"
+            : localSession.role === "SUPERVISOR"
+              ? "Supervisión"
+              : localSession.role === "ADMINISTRADOR"
+                ? "Administración"
+                : localSession.role === "SUPERADMINISTRADOR"
+                  ? "Auditoría local (no GLOBAL)"
+                  : "Acceso según permisos efectivos"}
+        </p>
         <nav className="pos-nav">
           {screens.map((screen) => (
             <button
@@ -150,6 +230,7 @@ export function App(): React.JSX.Element {
             </button>
           ))}
         </nav>
+        <LocalOperatorSessionControl onSessionChanged={refreshAccess} />
       </aside>
 
       <div className="pos-content">
