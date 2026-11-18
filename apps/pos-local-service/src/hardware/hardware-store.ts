@@ -55,6 +55,10 @@ export class HardwareStore {
       this.audit(null,actor,"ASSOCIATED",id);
     }).immediate();
   }
+  receiptBindingIds(scope:SyncScope,saleId:string):string[] {
+    const rows=this.database.native.prepare("SELECT b.id FROM hardware_bindings b JOIN sales_sales s ON s.tenant_id=b.tenant_id AND s.company_id=b.company_id AND s.branch_id=b.branch_id AND s.cash_register_id=b.cash_register_id WHERE s.tenant_id=? AND s.company_id=? AND s.branch_id=? AND s.id=? AND s.status='COMPLETED' ORDER BY b.id").all(scope.tenantId,scope.companyId,scope.branchId,saleId) as {id:string}[];
+    return rows.map(row=>row.id);
+  }
   binding(scope:SyncScope,id:string):{id:string;device_id:string;profile:HardwareProfile}|null {
     const row=this.database.native.prepare("SELECT id,device_id,profile_json FROM hardware_bindings WHERE id=? AND tenant_id=? AND company_id=? AND branch_id=?").get(id,scope.tenantId,scope.companyId,scope.branchId) as {id:string;device_id:string;profile_json:string}|undefined;
     return row?{id:row.id,device_id:row.device_id,profile:HardwareProfileSchema.parse(JSON.parse(row.profile_json))}:null;

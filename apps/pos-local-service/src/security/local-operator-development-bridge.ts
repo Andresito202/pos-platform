@@ -14,6 +14,7 @@ import type { ServiceConfig } from "../config.js";
  * Nothing from this projection is persisted as a SignedAuthorizationSnapshot.
  */
 const CASHIER = [
+  CanonicalPermission.HARDWARE_PRINT,
   CanonicalPermission.CASH_SHIFT_OPEN,
   CanonicalPermission.CASH_SHIFT_CLOSE,
   CanonicalPermission.SALES_SALE_CREATE,
@@ -39,6 +40,8 @@ const SUPERVISOR = [
 
 const ADMINISTRATOR = [
   ...SUPERVISOR,
+  CanonicalPermission.HARDWARE_READ,
+  CanonicalPermission.HARDWARE_CONFIGURE,
   // Stock and customer/catalog changes belong to business administration.
   CanonicalPermission.INVENTORY_STOCK_RECEIVE,
   CanonicalPermission.INVENTORY_STOCK_ADJUST,
@@ -52,7 +55,8 @@ const ADMINISTRATOR = [
 ] as const;
 
 // No local permission to provision commercial BUSINESS licences, issue fiscal
-// documents against FACTUS, or control hardware without physical certification.
+// documents against FACTUS, or open a drawer. Physical printing remains gated
+// by the verified device profile and persisted completed sale.
 export const LOCAL_OPERATOR_PERMISSIONS: Readonly<Record<LocalOperator["role"], readonly string[]>> = Object.freeze({
   CAJERO: CASHIER,
   SUPERVISOR,

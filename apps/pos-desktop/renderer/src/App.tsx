@@ -7,6 +7,7 @@ import { LocalAdministrativeAuditPanel } from "./components/LocalAdministrativeA
 import { OperationPanel } from "./components/OperationPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
+import { HardwarePanel } from "./components/HardwarePanel.js";
 import { CatalogPanel } from "./components/CatalogPanel.js";
 import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
@@ -134,8 +135,12 @@ export function App(): React.JSX.Element {
       result.push({
         id: "receipts",
         label: "Comprobantes",
-        render: () => <ReceiptPanel />,
+        render: () => <ReceiptPanel canPrint={permissions.has("HARDWARE_PRINT")} />,
       });
+    }
+
+    if (permissions.has("HARDWARE_READ") && permissions.has("HARDWARE_CONFIGURE")) {
+      result.push({ id: "hardware", label: "Impresora y cajón", render: () => <HardwarePanel /> });
     }
 
     if (permissions.has("AUDIT_EVENT_READ")) {

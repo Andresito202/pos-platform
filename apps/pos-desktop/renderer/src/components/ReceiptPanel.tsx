@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { callCommercial } from "../pos-service.js";
 import { useReceipt } from "../hooks/useReceipt.js";
 
 /**
@@ -16,9 +17,25 @@ import { useReceipt } from "../hooks/useReceipt.js";
  * valor inventado mientras no haya identidad de compañía en local ni consumidor
  * del adapter fiscal.
  */
-export function ReceiptPanel(): React.JSX.Element {
+export function ReceiptPanel({ canPrint = false }: { canPrint?: boolean }): React.JSX.Element {
   const receipt = useReceipt();
   const [saleId, setSaleId] = useState("");
+  const [printStatus, setPrintStatus] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
+  const inFlight = useRef(false);
+  async function printReceipt(id: string): Promise<void> {
+    if (inFlight.current || !canPrint) return;
+    inFlight.current = true; setPrinting(true); setPrintStatus(null);
+    const jobId = crypto.randomUUID();
+    try {
+      const response = await callCommercial<{kind:string;reason:string|null}>("hardware.command", {action:"print_receipt",job_id:jobId,sale_id:id});
+      setPrintStatus(response.result?.kind === "TRANSPORT_ACCEPTED"
+        ? "Trabajo aceptado por la impresora; salida física no confirmada."
+        : "Trabajo " + jobId + ": " + (response.result?.reason ?? response.result_code) + ". Verifique antes de repetir.");
+    } catch {
+      setPrintStatus("Resultado incierto del trabajo " + jobId + ". No repetir sin verificar la impresora.");
+    } finally { inFlight.current = false; setPrinting(false); }
+  }
 
   return (
     <section data-testid="receipt-panel">
@@ -109,6 +126,8 @@ export function ReceiptPanel(): React.JSX.Element {
             {" "}<span data-testid="receipt-currency">{receipt.receipt.currency_code}</span>
           </div>
 
+          {canPrint && receipt.receipt.sale_id !== null && <button type="button" disabled={printing} onClick={() => { const id = receipt.receipt?.sale_id; if (id) void printReceipt(id); }}>Imprimir comprobante</button>}
+          {printStatus && <p role="status">{printStatus}</p>}
           <ul data-testid="receipt-payments">
             {(receipt.receipt.payments ?? []).map((payment, index) => (
               <li key={`${payment.payment_method}-${String(index)}`} data-testid="receipt-payment">
