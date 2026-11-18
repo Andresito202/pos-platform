@@ -23,7 +23,7 @@ describe("CatalogPanel sector surfaces", () => {
         entitlements={new Set([LicenseSectorEntitlement.SALSAMENTARIA])}
       />,
     );
-    expect(screen.getByRole("heading", { name: "Política alimentaria", exact: true })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /^Política alimentaria$/ })).toBeTruthy();
   });
 
   it("hides Política alimentaria without the Salsamentaria entitlement", () => {
@@ -33,6 +33,6 @@ describe("CatalogPanel sector surfaces", () => {
         entitlements={new Set([LicenseSectorEntitlement.FARMACIA])}
       />,
     );
-    expect(screen.queryByRole("heading", { name: "Política alimentaria", exact: true })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^Política alimentaria$/ })).toBeNull();
   });
 });
