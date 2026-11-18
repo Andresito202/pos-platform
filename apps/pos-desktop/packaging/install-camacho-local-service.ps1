@@ -84,6 +84,24 @@ function Resolve-System32Tool {
   return $candidate
 }
 
+function Format-NativeArg {
+  param([Parameter(Mandatory = $true)][AllowEmptyString()][string]$Value)
+  # Start-Process -ArgumentList as a string[] does NOT quote for us. Paths with
+  # spaces ("C:\Program Files\…") become multiple argv tokens → icacls exit 87
+  # ("Invalid parameter Files\Camacho"). Quote any token with whitespace or
+  # shell-sensitive characters; double embedded quotes (CommandLineToArgvW).
+  $v = [string]$Value
+  if ($v -notmatch '[\s"&<>|()^]') {
+    return $v
+  }
+  return ('"{0}"' -f ($v.Replace('"', '""')))
+}
+
+function Format-NativeArgumentList {
+  param([Parameter(Mandatory = $true)][string[]]$ArgumentList)
+  return ((@($ArgumentList | ForEach-Object { Format-NativeArg -Value ([string]$_) }) -join ' '))
+}
+
 function Invoke-NativeTool {
   param(
     [Parameter(Mandatory = $true)][string]$FileName,
@@ -91,12 +109,14 @@ function Invoke-NativeTool {
     [string]$WorkingDirectory = ''
   )
   $exe = Resolve-System32Tool -FileName $FileName
+  # Single Arguments string (not string[]) so quoting is preserved end-to-end.
+  $argString = Format-NativeArgumentList -ArgumentList $ArgumentList
   $stdout = Join-Path $env:TEMP ("camacho-native-{0}-out.txt" -f [guid]::NewGuid().ToString('N'))
   $stderr = Join-Path $env:TEMP ("camacho-native-{0}-err.txt" -f [guid]::NewGuid().ToString('N'))
   try {
     $start = @{
       FilePath = $exe
-      ArgumentList = $ArgumentList
+      ArgumentList = $argString
       Wait = $true
       PassThru = $true
       NoNewWindow = $true
@@ -106,6 +126,7 @@ function Invoke-NativeTool {
     if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
       $start['WorkingDirectory'] = $WorkingDirectory
     }
+    Write-HelperLog ("NATIVE_EXEC exe={0} args={1}" -f $exe, $argString)
     $p = Start-Process @start
     $outText = ''
     $errText = ''
@@ -115,6 +136,7 @@ function Invoke-NativeTool {
     return [ordered]@{
       exe = $exe
       exitCode = $code
+      args = $argString
       stdout = $outText
       stderr = $errText
       combined = (($outText + "`n" + $errText).Trim())

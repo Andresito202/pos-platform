@@ -39,6 +39,8 @@ const required = [
   { re: /sc\.exe/, why: 'native SCM query/stop/delete' },
   { re: /certutil\.exe/, why: 'native SHA-256' },
   { re: /Resolve-System32Tool/, why: 'verified System32 paths' },
+  { re: /Format-NativeArg/, why: 'quote paths with spaces for Start-Process' },
+  { re: /Format-NativeArgumentList/, why: 'join quoted argv for native tools' },
   { re: /Assert-EffectiveAclViaIcacls/, why: 'effective ACL verification' },
   { re: /Clear-ScmInstallOkMarker/, why: 'stale marker cleanup' },
   { re: /NT SERVICE\\CamachoPOSLocalService|NT SERVICE\\\$serviceId/, why: 'virtual account identity' },

@@ -72,6 +72,11 @@
 - SCM ya estaba `NT SERVICE\CamachoPOSLocalService` (STOPPED); falló antes de start.
 - Cierre integral (no parches sueltos): helper crítico usa sólo `sc.exe` / `icacls.exe` / `certutil.exe` (System32 verificado + exit code) + BCL SID/SHA. Sin `Get-Acl`/`Set-Acl`/`Get-FileHash`/`Get-Service`/`Get-CimInstance`. ACL mínima al SID virtual; `icacls` lista y exige ACE efectiva. Gate estático: `tools/operators/assert-helper-nsis-safe.mjs`.
 
+## Hallazgo CI `15a862ce` (run 44208000488)
+
+- `ICACLS_GRANT_FAILED:exit=87` — `Invalid parameter "Files\Camacho"`: `Start-Process -ArgumentList` string[] sin quoting partió `C:\Program Files\…`.
+- Corrección: `Format-NativeArg` / `Format-NativeArgumentList` → una sola cadena Arguments con paths/grants entrecomillados; regresión `test-native-arg-quoting.mjs`.
+
 ## Veredicto
 
 Se declara tras CI exact-head del tip que incluye este empaquetado:
