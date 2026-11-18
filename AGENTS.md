@@ -4,15 +4,42 @@
 
 Este repositorio se desarrolla sobre **una única línea activa**. La existencia de una idea técnicamente interesante no autoriza a abrir otra línea.
 
-### Línea activa vigente
+### Línea activa vigente — decisión del propietario 2026-11-09
 
-- Rama activa: `claude/pos-camacho-bloque-4c-ld43py`
-- Rama canónica del producto: `main`
-- El trabajo nuevo debe continuar sobre la rama activa vigente, salvo una decisión explícita de gobernanza que cambie esa línea.
+- Única rama activa: `cursor/commercial-design-review-0d11`. Se continúa esta rama existente; no crear, renombrar ni abrir otra para la consolidación.
+- Rama canónica de entrega: `main`, mediante el flujo de PR y verificación existente. No desarrollar en paralelo en main.
+- Base inspeccionada: `6a02c858a38a18d801532706eac34e440befea72`. Contiene como ancestros Windows P0 `f277416f`, login local `7f44c05d` e integración `e31e008a`; restaura SalePanel, que en e31e008a contiene únicamente FULL_CONTENT_WILL_BE_INSERTED.
+- Esta elección conserva el historial y no certifica runtime, licencias ni login BUSINESS. El nombre histórico de la rama no impone el launcher DesignReview como producto.
+- Dirección vigente (2026-11-13): el propietario define alcance y decisiones; ChatGPT revisa arquitectura, código, contratos, riesgos y evidencia; Codex es el único ejecutor de implementación y pruebas que requieren su entorno. No incorporar otros asistentes/agentes de IA al flujo sin nueva autorización expresa. Se trabaja sobre esta misma rama activa, sin variantes paralelas ni escrituras concurrentes. El nombre histórico `cursor/` es solo el identificador de la rama; no implica participación activa de Cursor.
+- Las órdenes anteriores que señalan otra rama activa quedan sustituidas para trabajo futuro por esta decisión; su evidencia técnica y controles de seguridad conservan su alcance.
+- Objetivo único: consolidar el POS existente, conectar login y pantallas a servicios reales, corregir lo defectuoso y retirar lo redundante tras comprobar cobertura. No rehacer el POS.
+
+### Contrato de consolidación y retiro
+
+1. Trabajar sobre `apps/pos-desktop`, su renderer y `apps/pos-local-service` existentes. No crear otro shell, otro App ni pantallas desconectadas.
+2. Seguir cada operación UI → hook → preload/canal → handler → caso de uso → persistencia. Un botón o captura no acredita el flujo.
+3. No sustituir componentes por marcadores, contenido prometido o formularios sin operación conectada.
+4. No presentar local-operator-development-bridge como autorización BUSINESS; no trasladar semillas, claves o provisión DesignReview a producción.
+5. Revisar cambios exclusivos de Android/balanza/QR por capacidad y dependencias. La divergencia Git no demuestra que sean inútiles ni que deban integrarse completos.
+6. Cada frente debe terminar con decisión verificable: incorporar y probar; corregir y probar; o retirar por duplicación, sustitución o cancelación demostrada. No mantener variantes activas indefinidamente.
+7. Antes de borrar una rama/carpeta, comprobar trabajo exclusivo, PR dependientes y datos locales. Borrar refs no equivale a borrar evidencia del historial. No borrar main.
+8. No afirmar que GitHub identifica la ventana del PC o sus cambios sin publicar. El working tree y dist de Windows siguen pendientes de inspección.
+9. El diseño se realiza sobre los componentes conectados después de fijar su identidad y capacidades. No abrir una maqueta como segunda aplicación.
+
+
+## Decisión obligatoria de cierre de certificación — 2026-10-30
+
+**LEER ANTES DE PROPONER CUALQUIER TRABAJO DE CERTIFICACIÓN:** [decisión vinculante](docs/governance/decision-free-certification-closure-2026-10-30.md).
+
+- **CERRADO:** evaluación de certificados gratuitos de terceros, MSIX/Store, firma pública y dependencia de GitHub Actions. No reabrir el tema salvo orden expresa del propietario.
+- **APROBADO EN SU ALCANCE:** certificación técnica local gratuita de 10 controles sobre HEAD histórico `1efddb4a`, y gate aislado de SQLite/Central/Postgres/RLS/enrolamiento sobre `72baef5e`; conservar evidencia y alcance exacto.
+- **NO ACREDITADO:** instalación SCM (servicio ausente), interoperabilidad real entre identidades, login humano, emisión comercial completa y hardware. Estos son **pendientes de materialización del producto**, no de firma ni certificación externa.
+- **PRIORIDAD:** corregir y conectar código funcional real, ejecutar pruebas locales relevantes y dejar las pruebas humanas/PC para cuando sean indispensables. Prohibido debilitar `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` para simular progreso.
+- No modificar, reducir ni eliminar funcionalidad comercial por requisitos de una entidad certificadora; mantener seguridad fail-closed.
 
 ## Prohibido crear trabajo paralelo por iniciativa propia
 
-Una IA, Claude Code, agente o colaborador **NO DEBE**:
+Una IA, agente o colaborador **NO DEBE**:
 
 - abrir otra rama porque considere que su enfoque es mejor;
 - crear un segundo diseño para el mismo problema;
@@ -79,9 +106,9 @@ Los componentes críticos —contratos, migrations cerradas, reglas de ownership
 - No integrar a `main` sin PR, CI del HEAD exacto, autorización y verificación post-merge.
 - No declarar `PASS`, `TESTED` o `VERIFIED` por inferencia.
 
-## Regla para Claude Code
+## Regla de continuidad para agentes
 
-Claude Code debe tratar este archivo como una restricción de continuidad del proyecto. Antes de ejecutar una tarea debe auditar la línea activa y continuar desde el estado existente. Si detecta una solución alternativa, debe documentarla como hallazgo y no implementarla en paralelo.
+Cada agente debe tratar este archivo como una restricción de continuidad del proyecto. Antes de ejecutar una tarea debe auditar la línea activa y continuar desde el estado existente. Si detecta una solución alternativa, debe documentarla como hallazgo y no implementarla en paralelo.
 
 ## Regla para cualquier otra IA/agente
 
@@ -90,3 +117,27 @@ Si el agente no puede determinar cuál es la línea activa, **no debe crear una 
 ## Principio final
 
 > **Una sola línea. Un solo objetivo activo. Una sola fuente de verdad por tipo de decisión. Se construye sobre lo existente; no se dispersa el proyecto.**
+
+## Guía técnica y herramientas reutilizables
+
+- Monolito modular, TypeScript estricto, pnpm workspaces y Nx; owners en `docs/architecture/module-map.md` y `data-ownership.md`.
+- Electron + React + Vite no acceden directamente a la base de datos. POS Local Service es el único writer SQLite/WAL.
+- Tenant, empresa y sucursal se derivan del contexto confiable; los IDs del cliente no conceden autoridad.
+- Ventas autorizadas local-first no dependen de Internet. Conservar idempotencia, causalidad, append-only y conflictos explícitos; no usar last-write-wins genérico.
+- Providers y hardware se integran mediante adapters, sin redefinir el dominio.
+- Consultar scripts reales de `package.json`; no inventar comandos. Central Sync usa `central-sync:gate` en `@pos-platform/target-migrations`.
+- Las guías existentes se conservan en `.agents/skills/` y el procedimiento en `.agents/commands/pipeline.md`. Su reubicación no amplía el alcance autorizado ni altera el código del POS.
+
+## Pipeline de trabajo
+
+1. AUDIT: identificar defecto, contrato, owner y solución existente.
+2. PLAN: delimitar archivos, riesgos y evidencia necesaria.
+3. BUILD: modificar sólo el alcance autorizado sobre lo construido.
+4. TEST: ejecutar validaciones aplicables y conservar salidas reales, incluidos fallos y omitidas.
+5. REVIEW: revisar diff, permisos, errores, regresiones y ausencia de duplicación.
+6. EVIDENCE: registrar SHA, entorno y nivel realmente observado.
+7. SHIP: publicar en la misma línea; integrar a main sólo mediante el flujo de gobernanza vigente.
+
+## Aclaración vinculante de roles
+
+El superadministrador comercializa y administra LICENCIAS mediante la autoridad GLOBAL; no vende productos ni recibe acceso a Caja/carrito. Administrador y supervisor tampoco son cajeros. La sesión local de superadministrador no acredita autoridad GLOBAL. Conservar pruebas de denegación en servicio y navegación. No confundir perfiles sectoriales con concesiones comerciales firmadas.

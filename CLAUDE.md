@@ -4,7 +4,7 @@
 
 Este repositorio no acepta desarrollo paralelo por iniciativa de una IA.
 
-- **Línea activa vigente:** `claude/pos-camacho-bloque-4c-ld43py`
+- **Línea activa vigente:** `cursor/commercial-design-review-0d11`
 - **Rama canónica del producto:** `main`
 - El trabajo nuevo continúa sobre la línea activa mientras la gobernanza no la cambie explícitamente.
 - No abrir otra rama porque una IA considere que su enfoque es más limpio, moderno o conveniente.
@@ -108,8 +108,8 @@ Este repo distingue niveles de claim. NUNCA afirmes un nivel que no verificaste 
 
 - Fase 1 — fundación técnica ejecutable.
 - `main` es la única rama canónica.
-- La línea activa de desarrollo es `claude/pos-camacho-bloque-4c-ld43py`.
-- PR #78/D-2 es trabajo de la línea activa y todavía no debe describirse como integrado en `main` hasta merge + verificación post-merge.
+- La línea activa de desarrollo es `cursor/commercial-design-review-0d11`.
+- PR #106 (Draft) concentra la línea activa hacia `main`. No se describe como integrado hasta merge commit + CI exact-head + verificación post-merge. Integración selectiva por olas autorizadas; FACTUS al final; ola 5 SCM comercial congelada temporalmente.
 - El persistence gate de Central Sync está implementado en la línea activa, con workflow dedicado; su ejecución real debe demostrar persistencia y replay antes de declararse `VERIFIED`.
 - Migrations PostgreSQL 001/002/003: integradas con gates cerrados. SQLite 003: `NONE`.
 
