@@ -18,6 +18,9 @@ on:
       - 'tools/operators/windows-nsis-lab-lifecycle.ps1'
       - 'tools/operators/windows-nsis-lab-sqlite-marker.mjs'
       - 'tools/operators/windows-nsis-scm-g1-identity.ps1'
+      - 'tools/operators/windows-nsis-scm-commercial-channel.ps1'
+      - 'tools/operators/windows-nsis-scm-commercial-enroll.mjs'
+      - 'tools/operators/windows-nsis-scm-commercial-ops.mjs'
       - 'tools/operators/windows-nsis-security-negatives.ps1'
       - 'tools/operators/ci-windows-scm-identity-service.cs'
       - 'tools/operators/ci-windows-scm-native-peer.mjs'
@@ -35,6 +38,9 @@ on:
       - 'tools/operators/windows-nsis-lab-lifecycle.ps1'
       - 'tools/operators/windows-nsis-lab-sqlite-marker.mjs'
       - 'tools/operators/windows-nsis-scm-g1-identity.ps1'
+      - 'tools/operators/windows-nsis-scm-commercial-channel.ps1'
+      - 'tools/operators/windows-nsis-scm-commercial-enroll.mjs'
+      - 'tools/operators/windows-nsis-scm-commercial-ops.mjs'
       - 'tools/operators/windows-nsis-security-negatives.ps1'
       - 'tools/operators/ci-windows-scm-identity-service.cs'
       - 'tools/operators/ci-windows-scm-native-peer.mjs'
@@ -198,6 +204,8 @@ jobs:
             tests/windows-winsw-readiness.test.ts `
             tests/native-session-close-lifecycle.test.ts `
             tests/windows-scm-commercial-entry-process.test.ts `
+            tests/windows-scm-commercial-certification.test.ts `
+            tests/service-descriptor.test.ts `
             src/commercial/local-operator-authorization.test.ts `
             src/security/local-operator-session-registry.test.ts `
             --no-file-parallelism
@@ -205,6 +213,7 @@ jobs:
           Write-Host 'FOUR_ROLE_AUTH_NEGATIVES=PASS'
           Write-Host 'SESSION_CLOSE_REVOKE=PASS'
           Write-Host 'SCM_COMMERCIAL_ENTRY_FAIL_CLOSED=PASS'
+          Write-Host 'SCM_COMMERCIAL_SERVICE_CONTEXT_GATE=PASS'
 
       - name: Real-auth commercial Electron live + screenshots
         if: ${{ !cancelled() }}

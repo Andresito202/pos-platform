@@ -112,17 +112,20 @@ jobs:
           if($LASTEXITCODE -ne 0){exit $LASTEXITCODE}
           Write-Output 'G2_LEASE_REPLAY_REVOCATION_REGRESSIONS=PASS'
           Write-Output 'G2_REAL_SCM_BUSINESS_SESSION=NOT_TESTED'
-      - name: Assert native listener and SCM controls are not mistaken for G1 commercial interoperability
+      - name: Assert SCM commercial entry remains fail-closed to non-service hosts
         shell: pwsh
         run: |
           $source=Get-Content -LiteralPath 'apps/pos-local-service/src/security/windows-commercial-host-identity.ts' -Raw
-          if(-not $source.Contains('SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN')){throw 'UNAUTHORIZED_COMMERCIAL_GATE_REMOVAL'}
+          if(-not $source.Contains('SCM_COMMERCIAL_SERVICE_CONTEXT_VERIFIED')){throw 'SCM_SERVICE_CONTEXT_GATE_MISSING'}
+          if(-not $source.Contains('SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED')){throw 'SCM_SERVICE_CONTEXT_REJECTION_MISSING'}
+          $descriptor=Get-Content -LiteralPath 'apps/pos-local-service/src/windows-service-descriptor.ts' -Raw
+          if(-not $descriptor.Contains('SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN')){throw 'DESCRIPTOR_COMMERCIAL_PROVISION_GATE_REMOVED'}
           $physical=Get-Content -LiteralPath 'apps/pos-local-service/tests/windows-scm-physical.test.ts' -Raw
           if(-not $physical.Contains('CAMACHO_SCM_PHYSICAL_PROVISION')){throw 'PHYSICAL_PROVISION_GATE_REMOVED'}
           Write-Host 'SCM_NATIVE_ARTIFACT=PASS'
           Write-Host 'SCM_VIRTUAL_SERVICE_DPAPI=PASS'
-          Write-Host 'G1_NATIVE_PIPED_SERVICE_TO_DESKTOP=REQUIRES_REAL_RECEIPTS'
-          Write-Host 'COMMERCIAL_BUSINESS_SERVICE_TO_ELECTRON=NOT_CERTIFIED'
-          Write-Host 'COMMERCIAL_GATE=ACTIVE'
+          Write-Host 'SCM_COMMERCIAL_ENTRY=SERVICE_SESSION_ZERO_REQUIRED'
+          Write-Host 'COMMERCIAL_BUSINESS_GLOBAL=NOT_CERTIFIED'
+          Write-Host 'AUTHENTICODE=RT-009-B_BLOCKED'
       - name: Scope statement
-        run: echo 'NATIVE_WINDOWS_BINARY_AND_BOTH_RUNTIME_SMOKE_ONLY_NO_INSTALLED_SCM_CONNECTION_OR_DEV003'
+        run: echo 'NATIVE_WINDOWS_BINARY_AND_G1_SMOKE_SCM_COMMERCIAL_ENTRY_REQUIRES_NT_SERVICE_SESSION_ZERO'

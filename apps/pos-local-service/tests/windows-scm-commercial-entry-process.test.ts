@@ -31,7 +31,9 @@ describe.runIf(process.platform==="win32")("Windows SCM commercial entry fails c
    expect(result.error).toBeUndefined();
    expect(result.status).toBe(1);
    const output=(result.stdout??"")+(result.stderr??"");
-   expect(output).toContain("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
+   // Interactive CI/lab hosts are not NT SERVICE\\CamachoPOSLocalService Session 0.
+   // The gate must refuse before opening the provision file or allocating SQLite.
+   expect(output).toContain("SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED");
    expect(output).toContain("runtime.start_failed");
    expect(output).not.toContain("runtime.started");
    expect(existsSync(data)).toBe(false);

@@ -617,25 +617,8 @@ try {
 
   [void]$steps.Add((Write-Step 'electron_local_service_ipc' 'PASS' @{
     note = 'Installed EXE stayed alive against interactive Local Service/DPAPI channel'
-    scmCommercialIpc = 'NOT_PROVEN'
-    commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
-  }))
-  # Product RSA/Ed25519 handoff + Electron under NT SERVICE remains gated.
-  # G1 native identity on the installed SCM account is a separate step above;
-  # it must NEVER be mistaken for commercial Electron handshake certification.
-  $ipcReason = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
-  $ipcNote = 'Product crypto handoff (RSA-OAEP/Ed25519 + lease) and Electron under NT SERVICE still unproven; gate held'
-  if ($g1Status -eq 'PASS') {
-    $ipcNote = 'G1 native identity on installed SCM=PASS; commercial Electron handshake and gate lift still blocked'
-  }
-  elseif ($g1Status -eq 'SKIP') {
-    $ipcNote = 'G1 native addon not built in this job; commercial Electron handshake NOT_PROVEN; gate held'
-  }
-  [void]$steps.Add((Write-Step 'electron_winsw_scm_commercial_ipc' 'SKIP' @{
-    reason = $ipcReason
-    g1NativeOnInstalledScm = $g1Status
-    note = $ipcNote
-    authenticodeProduct = 'RT-009-B_BLOCKED'
+    scmCommercialIpc = 'DEFERRED_UNTIL_AFTER_UPGRADE'
+    note2 = 'Product SCM commercial IPC runs after silent upgrade against the restored WinSW service'
   }))
 
   # --- Silent upgrade ---
@@ -711,6 +694,41 @@ try {
     exitCode = $LASTEXITCODE
   }))
   if (-not $sqliteOk) { throw 'SQLITE_NOT_PRESERVED_ACROSS_UPGRADE' }
+
+  # --- Product commercial IPC: Electron/Desktop ↔ WinSW NT SERVICE (real handoff) ---
+  Write-Host "PHASE=electron_winsw_scm_commercial_ipc"
+  $commercialStatus = 'SKIP'
+  $commercialDetail = [ordered]@{
+    g1NativeOnInstalledScm = $g1Status
+    authenticodeProduct = 'RT-009-B_BLOCKED'
+    physicalOwnerPc = 'NOT_TESTED'
+  }
+  if ($g1Status -ne 'PASS') {
+    $commercialDetail['reason'] = 'G1_NATIVE_ON_INSTALLED_SCM_REQUIRED'
+    [void]$steps.Add((Write-Step 'electron_winsw_scm_commercial_ipc' 'SKIP' $commercialDetail))
+  }
+  else {
+    $commercialScript = Join-Path $RepoRoot 'tools/operators/windows-nsis-scm-commercial-channel.ps1'
+    $commercialExit = 1
+    try {
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $commercialScript `
+        -Run `
+        -RepoRoot $RepoRoot `
+        -PayloadDir $payloadAfter `
+        -WorkRoot $WorkRoot `
+        -InstalledExe $installedExe
+      $commercialExit = $LASTEXITCODE
+    }
+    catch {
+      $commercialExit = 1
+      $commercialDetail['exception'] = [string]$_.Exception.Message
+      Write-Host ("SCM_COMMERCIAL_CHANNEL_EXCEPTION=" + $_.Exception.Message)
+    }
+    $commercialDetail['exitCode'] = $commercialExit
+    $commercialStatus = $(if ($commercialExit -eq 0) { 'PASS' } else { 'FAIL' })
+    [void]$steps.Add((Write-Step 'electron_winsw_scm_commercial_ipc' $commercialStatus $commercialDetail))
+    if ($commercialExit -ne 0) { throw 'ELECTRON_WINSW_SCM_COMMERCIAL_IPC_FAILED' }
+  }
 
   # --- Silent uninstall ---
   Write-Host "PHASE=silent_uninstall"

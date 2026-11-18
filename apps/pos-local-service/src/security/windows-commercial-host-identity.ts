@@ -22,13 +22,24 @@ if (@($memberships | Where-Object { $_ -in $interactive }).Count -eq 0) { exit 1
 Write-Output "COMMERCIAL_INTERACTIVE_CONTEXT_VERIFIED"
 `;
 
+/**
+ * SCM commercial handoff may start only under the real virtual service account
+ * in Session 0. G1 native peer attestation on the NSIS-installed SCM account
+ * (HEAD 76253bb6) proved identity interop; this gate no longer blocks that
+ * proven path with an unconditional throw. It still refuses any non-service
+ * host. No environment switch, provision boolean or lab flag bypasses it.
+ */
+const VERIFY_SCM_SERVICE_IDENTITY = String.raw`
+$ErrorActionPreference = "Stop"
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $identity.IsAuthenticated -or $identity.IsSystem -or $identity.IsAnonymous) { exit 21 }
+if ($identity.Name -ne 'NT SERVICE\CamachoPOSLocalService') { exit 22 }
+if ([Diagnostics.Process]::GetCurrentProcess().SessionId -ne 0) { exit 23 }
+Write-Output "SCM_COMMERCIAL_SERVICE_CONTEXT_VERIFIED"
+`;
+
 type CommandResult = { readonly status: number | null; readonly stdout?: string; readonly error?: Error };
 
-/** Integration code is present, but only observed Windows evidence may remove
- * this release gate. No environment switch or provision boolean bypasses it. */
-export function assertWindowsScmCommercialCertification():never{
-  throw Error("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
-}
 type IdentityRunner = (script: string) => CommandResult;
 
 function runWindowsIdentityInspection(script: string): CommandResult {
@@ -39,6 +50,32 @@ function runWindowsIdentityInspection(script: string): CommandResult {
     timeout: 15_000,
     killSignal: "SIGKILL",
   });
+}
+
+/**
+ * Fail-closed SCM commercial entry: requires the real
+ * `NT SERVICE\CamachoPOSLocalService` Session-0 host. Does not certify
+ * BUSINESS/GLOBAL login, MFA, or Authenticode (RT-009-B remains blocked).
+ */
+export function assertWindowsScmCommercialCertification(
+  platform: NodeJS.Platform = process.platform,
+  runner: IdentityRunner = runWindowsIdentityInspection,
+): void {
+  if (platform !== "win32") {
+    throw new Error("SCM_COMMERCIAL_WINDOWS_REQUIRED");
+  }
+  let result: CommandResult;
+  try {
+    result = runner(VERIFY_SCM_SERVICE_IDENTITY);
+  } catch {
+    throw new Error("SCM_COMMERCIAL_SERVICE_IDENTITY_INSPECTION_FAILED");
+  }
+  if (result.error || result.status === null) {
+    throw new Error("SCM_COMMERCIAL_SERVICE_IDENTITY_INSPECTION_FAILED");
+  }
+  if (result.status !== 0 || result.stdout?.trim() !== "SCM_COMMERCIAL_SERVICE_CONTEXT_VERIFIED") {
+    throw new Error("SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED");
+  }
 }
 
 export function assertWindowsCommercialInteractiveHost(
