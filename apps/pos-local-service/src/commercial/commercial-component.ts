@@ -96,6 +96,9 @@ export class CommercialComponent implements RuntimeComponent {
   private hardwareInstance: HardwareService | null = null;
   private scaleInstance: WindowsCh340Transport | null = null;
   get scale(): WindowsCh340Transport | null { return this.scaleInstance; }
+  hasOpenScaleRegister(registerId: string): boolean {
+    return this.localDatabase.database.native.prepare("SELECT 1 FROM cash_shift WHERE tenant_id=? AND company_id=? AND branch_id=? AND cash_register_id=? AND status='OPEN'").get(this.config.tenant_id,this.config.company_id,this.config.branch_id,registerId) !== undefined;
+  }
   get hardware(): HardwareService {
     if (!this.hardwareInstance) throw new Error("HARDWARE_RUNTIME_NOT_STARTED");
     return this.hardwareInstance;

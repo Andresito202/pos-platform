@@ -32,6 +32,7 @@ export class HardwareService {
   }
   async execute(scope:SyncScope,snapshot:StoredAuthorizationSnapshot,actor:HardwareActor,input:HardwareCommand):Promise<{kind:string;data:unknown;reason:string|null}> {
     const command=HardwareCommandSchema.parse(input);
+    if(command.action==="capture_weight")return {kind:"REJECTED",data:null,reason:"SCALE_REQUIRES_COMMERCIAL_CONTEXT"};
     const job=command.action==="dispatch"?this.store.job(scope,command.job_id):null;
     const kind=command.action==="enqueue"?command.kind:job?.kind;
     const permission=command.action==="associate" || kind==="PRINT_TEST" || kind==="CUT"?CanonicalPermission.HARDWARE_CONFIGURE:
