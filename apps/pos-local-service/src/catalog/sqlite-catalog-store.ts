@@ -1,4 +1,6 @@
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
+import { uuidV7 } from "@pos-platform/contracts";
+import { FiscalDocumentItemSchema, validateFiscalDocumentItem } from "@pos-platform/fiscal-adapters";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
 
@@ -52,6 +54,11 @@ export interface CatalogItem {
   readonly price: CatalogPrice | null;
 }
 
+/** List query guarantees an ACTIVE price through its INNER JOIN. */
+export type SellableCatalogItem = Omit<CatalogItem, "price"> & {
+  readonly price: CatalogPrice;
+};
+
 /** Atributos fiscales de la presentación — `MIGRATION_013`. */
 export interface CatalogFiscalAttribute {
   readonly codeReference: string;
@@ -79,6 +86,7 @@ export interface RegisterProductInput {
   readonly barcode: string | null;
   readonly priceAmount: string;
   readonly currencyCode: string;
+  readonly fiscalAttributes?: CatalogFiscalAttribute;
   readonly idempotencyKey: string;
   readonly requestChecksum: string;
   readonly correlationId: string;
@@ -89,6 +97,7 @@ export type RegisterProductOutcome =
   | { readonly kind: "REGISTERED"; readonly productId: string; readonly presentationId: string }
   | { readonly kind: "IDEMPOTENT"; readonly productId: string; readonly presentationId: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "INVALID_FISCAL_ATTRIBUTES" }
   | { readonly kind: "CODE_ALREADY_REGISTERED"; readonly productId: string }
   | { readonly kind: "BARCODE_ALREADY_REGISTERED"; readonly presentationId: string };
 
@@ -220,6 +229,68 @@ export class SqliteCatalogStore {
     };
   }
 
+  /**
+   * Lista presentaciones vendibles para la caja.
+   *
+   * Sólo devuelve productos/presentaciones ACTIVOS con precio ACTIVO. El
+   * renderer no recibe filas que no pueda cobrar y nunca inventa un precio.
+   */
+  listSellableItems(
+    scope: CatalogScope,
+    query: string,
+    limit: number,
+    offset: number,
+  ): { readonly items: SellableCatalogItem[]; readonly hasMore: boolean } {
+    const normalizedQuery = query.trim();
+    const like = normalizedQuery === "" ? null : `%${normalizedQuery}%`;
+    const rows = this.database.native.prepare(
+      `SELECT
+         p.id AS product_id, p.code AS product_code, p.name AS product_name,
+         p.stock_controlled,
+         cp.id AS presentation_id, cp.name AS presentation_name,
+         cp.unit_code, cp.unit_precision, cp.barcode,
+         pr.amount AS price_amount, pr.currency_code
+       FROM catalog_product p
+       INNER JOIN catalog_presentation cp
+         ON cp.tenant_id=p.tenant_id AND cp.product_id=p.id AND cp.status='ACTIVE'
+       INNER JOIN catalog_price pr
+         ON pr.tenant_id=cp.tenant_id AND pr.presentation_id=cp.id AND pr.status='ACTIVE'
+       WHERE p.tenant_id=? AND p.company_id=? AND p.status='ACTIVE'
+         AND (? IS NULL OR p.name LIKE ? OR p.code LIKE ? OR cp.barcode LIKE ?)
+       ORDER BY p.name COLLATE NOCASE ASC, cp.name COLLATE NOCASE ASC, cp.id ASC
+       LIMIT ? OFFSET ?`,
+    ).all(
+      scope.tenantId, scope.companyId, like, like, like, like, limit + 1, offset,
+    ) as Array<{
+      product_id: string; product_code: string; product_name: string; stock_controlled: number;
+      presentation_id: string; presentation_name: string; unit_code: string; unit_precision: number;
+      barcode: string | null; price_amount: string; currency_code: string;
+    }>;
+
+    const hasMore = rows.length > limit;
+    const visibleRows = hasMore ? rows.slice(0, limit) : rows;
+    return {
+      items: visibleRows.map((row) => ({
+        product: {
+          id: row.product_id,
+          code: row.product_code,
+          name: row.product_name,
+          stockControlled: row.stock_controlled === 1,
+        },
+        presentation: {
+          id: row.presentation_id,
+          productId: row.product_id,
+          name: row.presentation_name,
+          unitCode: row.unit_code,
+          unitPrecision: row.unit_precision,
+          barcode: row.barcode,
+        },
+        price: { amount: row.price_amount, currencyCode: row.currency_code },
+      })),
+      hasMore,
+    };
+  }
+
   // ── Escritura ───────────────────────────────────────────────────────────────
 
   /**
@@ -230,6 +301,15 @@ export class SqliteCatalogStore {
    * medias sería un estado que ninguna pantalla puede resolver.
    */
   register(input: RegisterProductInput): RegisterProductOutcome {
+    if (input.fiscalAttributes !== undefined) {
+      const fiscal = input.fiscalAttributes;
+      const parsed = FiscalDocumentItemSchema.safeParse({
+        codeReference: fiscal.codeReference, name: input.name, quantity: "1.000000", unitPrice: input.priceAmount,
+        unitMeasureCode: fiscal.unitMeasureCode, standardCode: fiscal.standardCode,
+        discount: null, taxes: [{ code: fiscal.taxCode, rate: fiscal.taxRate }],
+      });
+      if (!parsed.success || validateFiscalDocumentItem(parsed.data).length > 0) return { kind: "INVALID_FISCAL_ATTRIBUTES" };
+    }
     return this.database.native.transaction((): RegisterProductOutcome => {
       const nowIso = this.now().toISOString();
       // Idempotencia antes de escribir: dejar saltar la restricción UNIQUE
@@ -243,8 +323,8 @@ export class SqliteCatalogStore {
           return { kind: "IDEMPOTENCY_CONFLICT" };
         }
         const existing = this.database.native.prepare(
-          "SELECT id FROM catalog_product WHERE tenant_id=? AND idempotency_key=?",
-        ).get(input.scope.tenantId, input.idempotencyKey) as { id: string } | undefined;
+          "SELECT id FROM catalog_product WHERE tenant_id=? AND company_id=? AND idempotency_key=?",
+        ).get(input.scope.tenantId, input.scope.companyId, input.idempotencyKey) as { id: string } | undefined;
         if (existing === undefined) return { kind: "IDEMPOTENCY_CONFLICT" };
         const presentation = this.database.native.prepare(
           "SELECT id FROM catalog_presentation WHERE tenant_id=? AND product_id=?",
@@ -307,6 +387,15 @@ export class SqliteCatalogStore {
         input.priceId, input.scope.tenantId, input.presentationId,
         input.priceAmount, input.currencyCode, nowIso, nowIso,
       );
+
+      if (input.fiscalAttributes !== undefined) {
+        const fiscal = input.fiscalAttributes;
+        this.database.native.prepare(
+          `INSERT INTO catalog_fiscal_attribute(tenant_id,presentation_id,code_reference,unit_measure_code,
+            standard_code,tax_code,tax_rate,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?)`,
+        ).run(input.scope.tenantId,input.presentationId,fiscal.codeReference,fiscal.unitMeasureCode,
+          fiscal.standardCode,fiscal.taxCode,fiscal.taxRate,nowIso,nowIso);
+      }
 
       this.database.native.prepare(
         `INSERT INTO runtime_operations(
@@ -378,6 +467,10 @@ export class SqliteCatalogStore {
         barcode: input.barcode,
         price_amount: input.priceAmount,
         currency_code: input.currencyCode,
+        ...(input.fiscalAttributes === undefined ? {} : { fiscal_attributes: {
+          code_reference: input.fiscalAttributes.codeReference, unit_measure_code: input.fiscalAttributes.unitMeasureCode,
+          standard_code: input.fiscalAttributes.standardCode, tax_code: input.fiscalAttributes.taxCode, tax_rate: input.fiscalAttributes.taxRate,
+        } }),
       },
       payload_checksum: input.requestChecksum,
       causation_id: input.causationId,
@@ -385,5 +478,294 @@ export class SqliteCatalogStore {
       occurred_at_local: nowIso,
       recorded_at_local: nowIso,
     });
+  }
+
+  /**
+   * Adds a secondary presentation + ACTIVE price to an existing product.
+   * Never creates inventory_stock — reception/transform create balances later.
+   */
+  addPresentation(input: {
+    readonly scope: SyncScope;
+    readonly sessionId: string;
+    readonly operatorUserId: string;
+    readonly productId: string;
+    readonly presentationId: string;
+    readonly priceId: string;
+    readonly operationId: string;
+    readonly presentationName: string;
+    readonly unitCode: string;
+    readonly unitPrecision: number;
+    readonly barcode: string | null;
+    readonly priceAmount: string;
+    readonly currencyCode: string;
+    readonly fiscalAttributes?: CatalogFiscalAttribute;
+    readonly idempotencyKey: string;
+    readonly requestChecksum: string;
+    readonly correlationId: string;
+    readonly causationId: string | null;
+  }):
+    | { readonly kind: "REGISTERED"; readonly productId: string; readonly presentationId: string }
+    | { readonly kind: "IDEMPOTENT"; readonly productId: string; readonly presentationId: string }
+    | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+    | { readonly kind: "PRODUCT_NOT_FOUND" }
+    | { readonly kind: "BARCODE_ALREADY_REGISTERED"; readonly presentationId: string }
+    | { readonly kind: "INVALID_FISCAL_ATTRIBUTES" }
+    | { readonly kind: "INVALID_QUANTITY" } {
+    if (input.unitPrecision < 0 || input.unitPrecision > 6) return { kind: "INVALID_QUANTITY" };
+    if (input.fiscalAttributes !== undefined) {
+      const fiscal = input.fiscalAttributes;
+      const parsed = FiscalDocumentItemSchema.safeParse({
+        codeReference: fiscal.codeReference, name: input.presentationName, quantity: "1.000000",
+        unitPrice: input.priceAmount, unitMeasureCode: fiscal.unitMeasureCode,
+        standardCode: fiscal.standardCode, discount: null,
+        taxes: [{ code: fiscal.taxCode, rate: fiscal.taxRate }],
+      });
+      if (!parsed.success || validateFiscalDocumentItem(parsed.data).length > 0) {
+        return { kind: "INVALID_FISCAL_ATTRIBUTES" };
+      }
+    }
+    return this.database.native.transaction(() => {
+      const nowIso = this.now().toISOString();
+      const operation = this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (operation !== undefined) {
+        if (operation.payload_checksum !== input.requestChecksum) return { kind: "IDEMPOTENCY_CONFLICT" as const };
+        const outbox = this.database.native.prepare(
+          "SELECT aggregate_id FROM local_sync_outbox WHERE tenant_id=? AND idempotency_key=?",
+        ).get(input.scope.tenantId, input.idempotencyKey) as { aggregate_id: string } | undefined;
+        const presentation = outbox === undefined ? undefined : this.database.native.prepare(
+          "SELECT id, product_id FROM catalog_presentation WHERE tenant_id=? AND id=?",
+        ).get(input.scope.tenantId, outbox.aggregate_id) as { id: string; product_id: string } | undefined;
+        return {
+          kind: "IDEMPOTENT" as const,
+          productId: presentation?.product_id ?? input.productId,
+          presentationId: presentation?.id ?? "",
+        };
+      }
+
+      const product = this.database.native.prepare(
+        "SELECT id FROM catalog_product WHERE tenant_id=? AND company_id=? AND id=? AND status='ACTIVE'",
+      ).get(input.scope.tenantId, input.scope.companyId, input.productId) as { id: string } | undefined;
+      if (!product) return { kind: "PRODUCT_NOT_FOUND" as const };
+
+      if (input.barcode !== null) {
+        const duplicateBarcode = this.database.native.prepare(
+          "SELECT id FROM catalog_presentation WHERE tenant_id=? AND barcode=?",
+        ).get(input.scope.tenantId, input.barcode) as { id: string } | undefined;
+        if (duplicateBarcode !== undefined) {
+          return { kind: "BARCODE_ALREADY_REGISTERED" as const, presentationId: duplicateBarcode.id };
+        }
+      }
+
+      this.database.native.prepare(
+        `INSERT INTO catalog_presentation(
+          id, tenant_id, product_id, name, unit_code, unit_precision,
+          barcode, status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?)`,
+      ).run(
+        input.presentationId, input.scope.tenantId, input.productId,
+        input.presentationName, input.unitCode, input.unitPrecision,
+        input.barcode, nowIso, nowIso,
+      );
+      this.database.native.prepare(
+        `INSERT INTO catalog_price(
+          id, tenant_id, presentation_id, amount, currency_code,
+          status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,'ACTIVE',?,?)`,
+      ).run(
+        input.priceId, input.scope.tenantId, input.presentationId,
+        input.priceAmount, input.currencyCode, nowIso, nowIso,
+      );
+      if (input.fiscalAttributes !== undefined) {
+        const fiscal = input.fiscalAttributes;
+        this.database.native.prepare(
+          `INSERT INTO catalog_fiscal_attribute(tenant_id,presentation_id,code_reference,unit_measure_code,
+            standard_code,tax_code,tax_rate,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,'ACTIVE',?,?)`,
+        ).run(input.scope.tenantId, input.presentationId, fiscal.codeReference, fiscal.unitMeasureCode,
+          fiscal.standardCode, fiscal.taxCode, fiscal.taxRate, nowIso, nowIso);
+      }
+      this.database.native.prepare(
+        `INSERT INTO runtime_operations(
+          operation_id, idempotency_key, payload_checksum, status, result_code, created_at, updated_at)
+         VALUES (?,?,?,'SUCCEEDED','PRESENTATION_REGISTERED',?,?)`,
+      ).run(input.operationId, input.idempotencyKey, input.requestChecksum, nowIso, nowIso);
+      this.database.native.prepare(
+        `INSERT INTO local_operation_audit(
+          tenant_id, company_id, branch_id, device_id,
+          actor_type, actor_id, session_id,
+          action_code, resource_type, resource_id,
+          correlation_id, causation_id, reason_code, details_json, created_at
+        ) VALUES (?,?,?,?,'USER',?,?,'CATALOG_PRESENTATION_REGISTER','CATALOG_PRESENTATION',?,?,?,NULL,?,?)`,
+      ).run(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
+        input.operatorUserId, input.sessionId,
+        input.presentationId, input.correlationId, input.causationId,
+        canonicalJson({
+          product_id: input.productId,
+          presentation_name: input.presentationName,
+          unit_code: input.unitCode,
+          unit_precision: input.unitPrecision,
+        }),
+        nowIso,
+      );
+      const nextSequence = (this.database.native.prepare(
+        `SELECT COALESCE(MAX(local_sequence), 0) + 1 AS next_sequence FROM local_sync_outbox
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`,
+      ).get(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId,
+        input.scope.deviceId, input.scope.installationId,
+      ) as NextSequenceRow).next_sequence;
+      this.durableSync.enqueue({
+        operation_id: input.operationId,
+        tenant_id: input.scope.tenantId,
+        company_id: input.scope.companyId,
+        branch_id: input.scope.branchId,
+        device_id: input.scope.deviceId,
+        installation_id: input.scope.installationId,
+        session_id: input.sessionId,
+        actor_id: input.operatorUserId,
+        aggregate_type: "CATALOG_PRESENTATION",
+        aggregate_id: input.presentationId,
+        operation_type: "CATALOG_PRESENTATION_REGISTER",
+        authority_policy: "LOCAL_AUTHORITATIVE_UNTIL_SYNC",
+        local_sequence: nextSequence,
+        idempotency_key: input.idempotencyKey,
+        expected_version: null,
+        payload_schema_version: CATALOG_PAYLOAD_SCHEMA_VERSION,
+        payload: {
+          product_id: input.productId,
+          presentation_id: input.presentationId,
+          presentation_name: input.presentationName,
+          unit_code: input.unitCode,
+          unit_precision: input.unitPrecision,
+          barcode: input.barcode,
+          price_amount: input.priceAmount,
+          currency_code: input.currencyCode,
+        },
+        payload_checksum: input.requestChecksum,
+        causation_id: input.causationId,
+        correlation_id: input.correlationId,
+        occurred_at_local: nowIso,
+        recorded_at_local: nowIso,
+      });
+      return {
+        kind: "REGISTERED" as const,
+        productId: input.productId,
+        presentationId: input.presentationId,
+      };
+    })();
+  }
+
+  upsertFoodPolicy(input: {
+    readonly scope: SyncScope;
+    readonly sessionId: string;
+    readonly operatorUserId: string;
+    readonly productId: string;
+    readonly conservationCode: "AMBIENT" | "CHILLED" | "FROZEN" | "CONTROLLED";
+    readonly requiresLotTracking: boolean;
+    readonly requiresExpiry: boolean;
+    readonly notes: string | null;
+    readonly idempotencyKey: string;
+    readonly requestChecksum: string;
+    readonly correlationId: string;
+    readonly causationId: string | null;
+  }):
+    | { readonly kind: "SAVED"; readonly version: number }
+    | { readonly kind: "IDEMPOTENT"; readonly version: number }
+    | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+    | { readonly kind: "PRODUCT_NOT_FOUND" } {
+    return this.database.native.transaction(() => {
+      const nowIso = this.now().toISOString();
+      const operation = this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (operation !== undefined) {
+        if (operation.payload_checksum !== input.requestChecksum) return { kind: "IDEMPOTENCY_CONFLICT" as const };
+        const existing = this.database.native.prepare(
+          "SELECT version FROM catalog_food_policy WHERE tenant_id=? AND product_id=?",
+        ).get(input.scope.tenantId, input.productId) as { version: number } | undefined;
+        return { kind: "IDEMPOTENT" as const, version: existing?.version ?? 0 };
+      }
+      const product = this.database.native.prepare(
+        "SELECT id FROM catalog_product WHERE tenant_id=? AND company_id=? AND id=?",
+      ).get(input.scope.tenantId, input.scope.companyId, input.productId) as { id: string } | undefined;
+      if (!product) return { kind: "PRODUCT_NOT_FOUND" as const };
+      const prior = this.database.native.prepare(
+        "SELECT version FROM catalog_food_policy WHERE tenant_id=? AND product_id=?",
+      ).get(input.scope.tenantId, input.productId) as { version: number } | undefined;
+      const version = (prior?.version ?? 0) + 1;
+      if (prior) {
+        this.database.native.prepare(
+          `UPDATE catalog_food_policy
+           SET company_id=?, conservation_code=?, requires_lot_tracking=?, requires_expiry=?,
+               notes=?, version=?, updated_by=?, updated_at=?
+           WHERE tenant_id=? AND product_id=?`,
+        ).run(
+          input.scope.companyId, input.conservationCode, input.requiresLotTracking ? 1 : 0,
+          input.requiresExpiry ? 1 : 0, input.notes, version, input.operatorUserId, nowIso,
+          input.scope.tenantId, input.productId,
+        );
+      } else {
+        this.database.native.prepare(
+          `INSERT INTO catalog_food_policy(
+            tenant_id, company_id, product_id, conservation_code, requires_lot_tracking,
+            requires_expiry, notes, version, updated_by, updated_at
+          ) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        ).run(
+          input.scope.tenantId, input.scope.companyId, input.productId, input.conservationCode,
+          input.requiresLotTracking ? 1 : 0, input.requiresExpiry ? 1 : 0, input.notes,
+          version, input.operatorUserId, nowIso,
+        );
+      }
+      this.database.native.prepare(
+        `INSERT INTO runtime_operations(
+          operation_id, idempotency_key, payload_checksum, status, result_code, created_at, updated_at)
+         VALUES (?,?,?,'SUCCEEDED','FOOD_POLICY_SAVED',?,?)`,
+      ).run(uuidV7(), input.idempotencyKey, input.requestChecksum, nowIso, nowIso);
+      this.database.native.prepare(
+        `INSERT INTO local_operation_audit(
+          tenant_id, company_id, branch_id, device_id,
+          actor_type, actor_id, session_id,
+          action_code, resource_type, resource_id,
+          correlation_id, causation_id, reason_code, details_json, created_at
+        ) VALUES (?,?,?,?,'USER',?,?,'CATALOG_FOOD_POLICY_UPSERT','CATALOG_PRODUCT',?,?,?,NULL,?,?)`,
+      ).run(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
+        input.operatorUserId, input.sessionId, input.productId, input.correlationId, input.causationId,
+        canonicalJson({
+          conservation_code: input.conservationCode,
+          requires_lot_tracking: input.requiresLotTracking,
+          requires_expiry: input.requiresExpiry,
+          version,
+        }),
+        nowIso,
+      );
+      return { kind: "SAVED" as const, version };
+    })();
+  }
+
+  getFoodPolicy(scope: CatalogScope, productId: string): {
+    conservationCode: string;
+    requiresLotTracking: boolean;
+    requiresExpiry: boolean;
+    notes: string | null;
+    version: number;
+  } | null {
+    const row = this.database.native.prepare(
+      `SELECT conservation_code, requires_lot_tracking, requires_expiry, notes, version
+       FROM catalog_food_policy WHERE tenant_id=? AND company_id=? AND product_id=?`,
+    ).get(scope.tenantId, scope.companyId, productId) as {
+      conservation_code: string; requires_lot_tracking: number; requires_expiry: number;
+      notes: string | null; version: number;
+    } | undefined;
+    if (!row) return null;
+    return {
+      conservationCode: row.conservation_code,
+      requiresLotTracking: row.requires_lot_tracking === 1,
+      requiresExpiry: row.requires_expiry === 1,
+      notes: row.notes,
+      version: row.version,
+    };
   }
 }

@@ -1,0 +1,20 @@
+import {resolve,basename,dirname,join} from "node:path";
+import {tmpdir} from "node:os";
+import {LocalDatabase} from "@pos-platform/database-sqlite";
+import {LicenseCapacityGate,readLicenseCapacityProvision} from "../../src/security/license-capacity-gate.js";
+import {LocalSecurityLifecycle} from "../../src/security/security-lifecycle.js";
+const dir=resolve(process.argv[2]??"");
+if(dirname(dir)!==resolve(tmpdir())||!basename(dir).startsWith("pos-central-capacity-"))throw Error("TEMPORARY_CENTRAL_CAPACITY_PROBE_ONLY");
+const path=join(dir,"provision.json"),p=readLicenseCapacityProvision(path),c=p.artifact.claims,allocation=c.cash_register_capacity.allocations[0]!;
+const scope={tenantId:c.tenant_id,companyId:c.company_id,branchId:allocation.branch_id,installationId:c.installation_id,deviceId:c.device_id};
+let db=LocalDatabase.open({dataDirectory:join(dir,"database")});
+try{new LocalSecurityLifecycle(db).registerInitialDeviceKey("TEST_CENTRAL_CAPACITY");
+  let at=new Date(Date.parse(c.not_before)+1),gate=()=>new LicenseCapacityGate(db,()=>readLicenseCapacityProvision(path),()=>at);
+  const accepted=gate().authorize(scope,allocation.register_id)===null;
+  const unallocatedRejected=gate().authorize(scope,"018f0000-0000-7000-8000-999999999999")==="LICENSE_REGISTER_NOT_ALLOCATED";
+  db.close();db=LocalDatabase.open({dataDirectory:join(dir,"database")});
+  const restartAccepted=gate().authorize(scope,allocation.register_id)===null;
+  at=new Date(Date.parse(c.expires_at!)+1);
+  const expiredRejected=gate().authorize(scope,allocation.register_id)==="LICENSE_EXPIRED";
+  process.stdout.write(JSON.stringify({accepted,unallocatedRejected,restartAccepted,expiredRejected}));
+}finally{db.close();}

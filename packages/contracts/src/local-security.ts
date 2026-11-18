@@ -34,3 +34,30 @@ export const SignedLicenseSchema = z.strictObject({
 });
 export type LicenseClaims = z.infer<typeof LicenseClaimsSchema>;
 export type SignedLicense = z.infer<typeof SignedLicenseSchema>;
+
+/** Explicit successor: V1 flags never imply a register allowance. Register IDs
+ * belong to Cash Register; this is their centrally allocated licensing capacity,
+ * not a count of installations/devices or an offline pool to allocate locally. */
+export const LicenseCapacityClaimsSchema = LicenseClaimsSchema.safeExtend({
+  profile: z.literal("CAMACHO_LICENSE_CAPACITY_V2"),
+  license_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  plan_id: UuidSchema,
+  plan_version: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  cash_register_capacity: z.strictObject({
+    included: z.literal(1),
+    paid_additional: z.number().int().min(0).max(10_000),
+    allocations: z.array(z.strictObject({ register_id: UuidSchema, branch_id: UuidSchema })).min(1).max(10_001),
+  }),
+}).superRefine((claims, context) => {
+  const capacity = claims.cash_register_capacity;
+  if (capacity.allocations.length > capacity.included + capacity.paid_additional)
+    context.addIssue({ code: "custom", path: ["cash_register_capacity"], message: "register allocation exceeds paid capacity" });
+  if (new Set(capacity.allocations.map(a => a.register_id)).size !== capacity.allocations.length)
+    context.addIssue({ code: "custom", path: ["cash_register_capacity", "allocations"], message: "a register can be allocated only once" });
+});
+export const SignedLicenseCapacitySchema = z.strictObject({
+  claims: LicenseCapacityClaimsSchema,
+  signature: SignedLicenseSchema.shape.signature,
+});
+export type LicenseCapacityClaims = z.infer<typeof LicenseCapacityClaimsSchema>;
+export type SignedLicenseCapacity = z.infer<typeof SignedLicenseCapacitySchema>;

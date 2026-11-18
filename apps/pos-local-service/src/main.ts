@@ -12,6 +12,7 @@ import { FetchCentralTransport } from "./sync/fetch-central-transport.js";
 import { SyncDispatcher } from "./sync/sync-dispatcher.js";
 import { UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
+import { LicenseCapacityGate, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import {
@@ -146,6 +147,24 @@ try {
 
   const commercial = new CommercialComponent(
     config, localDatabase, durableSync, sessionTrustKeys.keys, () => new Date(), fiscalSecretStore,
+    undefined,
+    (scope, registerId) => {
+      const path = config.license_capacity_provision_file;
+      if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
+      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path)).authorize(scope, registerId);
+    },
+    (scope, entitlement) => {
+      const path = config.license_capacity_provision_file;
+      if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
+      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path))
+        .authorizeEntitlement(scope, entitlement);
+    },
+    (scope) => {
+      const path = config.license_capacity_provision_file;
+      if (!path) return [];
+      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path))
+        .listEntitlements(scope);
+    },
   );
   let localChannel: LocalChannelComponent | undefined;
   const components: RuntimeComponent[] = [

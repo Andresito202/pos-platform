@@ -1,3 +1,4 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { createHash, randomUUID } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import { uuidV7 } from "@pos-platform/contracts";
@@ -7,7 +8,7 @@ import type { SyncScope } from "../sync/durable-sync-store.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { InsufficientStockOutcome, SqlitePaymentStore } from "./sqlite-payment-store.js";
 
-export const PERMISSION_PAYMENTS_PAYMENT_REGISTER = "PAYMENTS_PAYMENT_REGISTER";
+export const PERMISSION_PAYMENTS_PAYMENT_REGISTER = CanonicalPermission.PAYMENTS_PAYMENT_REGISTER;
 
 export interface RegisterCashPaymentRequest {
   readonly saleId: string;
@@ -39,7 +40,8 @@ export type RegisterCashPaymentResult =
   | { readonly kind: "OVERPAYMENT_NOT_ALLOWED" }
   | { readonly kind: "CASH_SHIFT_MISSING" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
-  | { readonly kind: "INSUFFICIENT_TENDER" };
+  | { readonly kind: "INSUFFICIENT_TENDER" }
+  | { readonly kind: "PHARMACY_ELIGIBILITY_LOST"; readonly reason: string };
 
 function requestChecksum(request: RegisterCashPaymentRequest, operatorUserId: string): string {
   return createHash("sha256")
@@ -59,6 +61,9 @@ function requestChecksum(request: RegisterCashPaymentRequest, operatorUserId: st
  * El efectivo es autoridad local: registrar es confirmar. La operación imputa,
  * asienta en caja y, si con ello la cobertura queda completa, completa la venta
  * — todo en una sola transacción.
+ *
+ * Pharmacy eligibility is revalidated inside `SqlitePaymentStore` after this
+ * authorization check and before irreversible confirmation / stock exit.
  */
 export class RegisterCashPaymentUseCase {
   constructor(

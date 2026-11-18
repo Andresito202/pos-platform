@@ -28,8 +28,8 @@ PR acumulado: [#106](https://github.com/Andresito202/pos-platform/pull/106) (Dra
 | Ola | Contenido | Baseline / hitos | Estado |
 |---|---|---|---|
 | 0 | Gobernanza: línea activa = `cursor/commercial-design-review-0d11` | blobs tip / este documento | PR #108 Draft |
-| 1 | SQLite M017–M024 + inventario (lotes/FEFO/reservas/conversión) | Techo schema **`321d09db`** (M024). Features: `ba579f1a`→`0b4965b0`→`9717ee78`. Cadena 017–021 viaja en el mismo `local-database.ts` | Diff presentado; sin merge |
-| 2 | Sectores M025–M029 + licencias + roles | Schema `c3f6946e` (M029); licencias `dcd75305`; roles `a21c3e79` → UI `0cb6d72d`. PG license: 006/017/022/023 (pelar FACTUS 018) | Diff presentado; sin merge |
+| 1 | SQLite M017–M024 + inventario (lotes/FEFO/reservas/conversión) | Techo schema **`321d09db`** (M024). Features: `ba579f1a`→`0b4965b0`→`9717ee78`. Cadena 017–021 viaja en el mismo `local-database.ts` | **MERGED** PR #109 → `main@6c011289` (exact HEAD `3d8e7139`); post-merge CI SUCCESS |
+| 2 | Sectores M025–M029 + licencias + roles | Schema `c3f6946e` (M029); licencias `dcd75305`; roles `a21c3e79` → UI `0cb6d72d`. PG license: 006/017/022/023 (pelar FACTUS 018) | **IN PROGRESS** PR #110 @ `7ef515df` — CI blockers closed locally; awaiting exact-HEAD CI; SCM/FACTUS excluded |
 | 3 | Central Sync / outbox / multicaja lab | `b895d8a7`→**`8ae99fea`**; PG `028_sync_domain_projections`. No Bloque 7 UI/NSIS | Diff presentado; sin merge |
 | 4 | Instalador Windows aprobado | Corte SHA **`76253bb6`** (docs lock `d206408e`); evidencia `5e526641`. **No** path-checkout solo de packaging | Después de 0–3 |
 | 5 | SCM comercial tip | `79fba84f`…`9922e91c` (canal commercial IPC; tip debilita `NOT_PROVEN`) | **CONGELADA** en #106 |

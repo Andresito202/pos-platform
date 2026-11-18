@@ -7,6 +7,7 @@ import type { StoredAuthorizationSnapshot } from "../authorization/authorization
 import type { CatalogFiscalAttribute, SqliteCatalogStore } from "../catalog/index.js";
 import type { SqliteInventoryStore } from "../inventory/index.js";
 import type { SqliteCashShiftStore } from "../cash/sqlite-cash-shift-store.js";
+import type { PharmacyEligibilityDenial, SqlitePharmacyStore } from "../pharmacy/sqlite-pharmacy-store.js";
 import { buildChecksumInput, computeSaleChecksum } from "./sale-checksum.js";
 import { calculateSaleLine, calculateSaleTotals, quantityFitsUnitPrecision } from "./sale-calculation.js";
 import type { SqliteSaleStore } from "./sqlite-sale-store.js";
@@ -26,6 +27,8 @@ export interface CreateSaleRequestLine {
   /** TEXT a escala 6, e.g. "1.000000" */
   readonly quantity: string;
   readonly identifier?: string;
+  /** Optional pharmacy prescription binding for restricted lines. */
+  readonly pharmacyPrescriptionId?: string | null;
 }
 
 export interface CreateSaleRequest {
@@ -44,6 +47,8 @@ export interface CreateSaleRequest {
   readonly correlationId: string;
   readonly causationId: string | null;
   readonly lines: readonly CreateSaleRequestLine[];
+  /** Professional competence attribution for controlled categories — not a 5th global role. */
+  readonly pharmacyProfessionalCompetenceCode?: string | null;
 }
 
 export type CreateSaleResult =
@@ -80,7 +85,8 @@ export type CreateSaleResult =
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "CASH_SHIFT_NOT_OPEN" }
   | { readonly kind: "LICENSE_BLOCKED"; readonly reason: string }
-  | { readonly kind: "CUSTOMER_NOT_FOUND" };
+  | { readonly kind: "CUSTOMER_NOT_FOUND" }
+  | { readonly kind: PharmacyEligibilityDenial; readonly productId: string; readonly presentationId: string };
 
 function requestChecksum(request: CreateSaleRequest, operatorUserId: string): string {
   return createHash("sha256")
@@ -91,10 +97,12 @@ function requestChecksum(request: CreateSaleRequest, operatorUserId: string): st
       business_date: request.businessDate,
       currency_code: request.currencyCode,
       document_series: request.documentSeries,
+      pharmacy_professional_competence_code: request.pharmacyProfessionalCompetenceCode ?? null,
       lines: request.lines.map((line) => ({
         product_id: line.productId,
         presentation_id: line.presentationId,
         quantity: line.quantity,
+        pharmacy_prescription_id: line.pharmacyPrescriptionId ?? null,
         ...(line.identifier === undefined ? {} : { identifier: line.identifier }),
       })),
       operator_user_id: operatorUserId,
@@ -119,6 +127,7 @@ export class CreateSaleUseCase {
     private readonly cashShiftStore: SqliteCashShiftStore,
     private readonly saleStore: SqliteSaleStore,
     private readonly now: () => Date = () => new Date(),
+    private readonly pharmacyStore: SqlitePharmacyStore | null = null,
   ) {}
 
   execute(
@@ -166,6 +175,7 @@ export class CreateSaleUseCase {
       quantity: string;
       fiscal: CatalogFiscalAttribute | null;
       identifier: string | null;
+      pharmacyPrescriptionId: string | null;
     }> = [];
 
     // El catálogo es de la compañía, no de la sucursal: un producto no cambia
@@ -258,7 +268,46 @@ export class CreateSaleUseCase {
         quantity: line.quantity,
         fiscal: this.catalogStore.getFiscalAttribute(catalogScope, line.presentationId),
         identifier: line.identifier ?? null,
+        pharmacyPrescriptionId: line.pharmacyPrescriptionId ?? null,
       });
+    }
+
+    const pharmacyAuthorizations: Array<{
+      productId: string;
+      presentationId: string;
+      prescriptionId: string | null;
+      dispensationCategory: string;
+      snapshot: Record<string, unknown>;
+    }> = [];
+    if (this.pharmacyStore) {
+      for (const line of resolvedLines) {
+        const eligibility = this.pharmacyStore.evaluateLineEligibility({
+          scope,
+          productId: line.productId,
+          quantity: line.quantity,
+          prescriptionId: line.pharmacyPrescriptionId,
+          professionalCompetenceCode: request.pharmacyProfessionalCompetenceCode ?? null,
+        });
+        if (eligibility.kind === "DENIED") {
+          return {
+            kind: eligibility.reason,
+            productId: line.productId,
+            presentationId: line.presentationId,
+          };
+        }
+        if (eligibility.profile) {
+          pharmacyAuthorizations.push({
+            productId: line.productId,
+            presentationId: line.presentationId,
+            prescriptionId: line.pharmacyPrescriptionId,
+            dispensationCategory: eligibility.profile.dispensationCategory,
+            snapshot: {
+              ...eligibility.snapshot,
+              professional_competence_code: request.pharmacyProfessionalCompetenceCode ?? null,
+            },
+          });
+        }
+      }
     }
 
     // 4. PRICING_PIPELINE_V1: cálculo de líneas y totales
@@ -455,6 +504,22 @@ export class CreateSaleUseCase {
             throw new Error(`inventory reservation failed: ${reserved.kind}`);
           }
         }
+        if (this.pharmacyStore) {
+          for (const auth of pharmacyAuthorizations) {
+            this.pharmacyStore.recordDispensationAuthorization({
+              scope,
+              sessionId,
+              operatorUserId,
+              saleId,
+              productId: auth.productId,
+              presentationId: auth.presentationId,
+              prescriptionId: auth.prescriptionId,
+              dispensationCategory: auth.dispensationCategory,
+              snapshot: auth.snapshot,
+              status: "AUTHORIZED",
+            });
+          }
+        }
       },
     };
 
@@ -477,6 +542,8 @@ export class CreateSaleUseCase {
     if (outcome.kind === "IDEMPOTENCY_CONFLICT") {
       return { kind: "IDEMPOTENCY_CONFLICT" };
     }
+
+    if (outcome.kind === "CASH_SHIFT_NOT_OPEN" || outcome.kind === "LICENSE_BLOCKED" || outcome.kind === "CUSTOMER_NOT_FOUND") return outcome;
 
     return {
       kind: outcome.kind === "CREATED" ? "CREATED" : "IDEMPOTENT",
