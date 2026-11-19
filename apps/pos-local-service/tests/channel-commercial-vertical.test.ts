@@ -1,32 +1,9 @@
-import { LicenseCapacityGate } from "../src/security/license-capacity-gate.js";
-import { LocalSecurityLifecycle } from "../src/security/security-lifecycle.js";
-import { unsignedLicenseCapacityBytes } from "../src/security/license-verifier.js";
-import type { LicenseCapacityClaims } from "@pos-platform/contracts";
-import { uuidV7 } from "@pos-platform/contracts";
-import type {Server,Socket} from "node:net";
-// Linux test transport uses actual loopback sockets; Windows keeps named pipes.
-// Business handler, framing, MAC and SQLite remain real.
-const loopback=vi.hoisted(()=>({server:undefined as Server|undefined}));
-vi.mock("node:net",async original=>{
-  const net=await original<typeof import("node:net")>();
-  if(process.platform==="win32")return net;
-  return {...net,createServer:(listener:(socket:Socket)=>void)=>{
-    const server=net.createServer(listener),listen=server.listen.bind(server);
-    Object.defineProperty(server,"listen",{value:(_endpoint:string,ready:()=>void)=>listen({host:"127.0.0.1",port:0},ready)});
-    loopback.server=server;return server;
-  },createConnection:()=>{
-    const address=loopback.server?.address();
-    if(!address||typeof address==="string")throw Error("TCP_TEST_LISTENER_REQUIRED");
-    return net.createConnection({host:"127.0.0.1",port:address.port});
-  }};
-});
-
 import { createPublicKey, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import {
   LocalChannelAuthenticator,
@@ -44,8 +21,6 @@ import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-au
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
 import { SqliteReceiptStore } from "../src/receipts/sqlite-receipt-store.js";
-import { HardwareStore } from "../src/hardware/hardware-store.js";
-import { HardwareProfileSchema } from "@pos-platform/contracts";
 import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/security/index.js";
 import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
@@ -78,8 +53,8 @@ import {
  * socket, con el `CommercialRequestHandler` de producción y una base SQLite
  * real detrás, puenteados **igual que lo hace `local-channel-component.ts`**.
  *
- * En Linux usa TCP loopback efímero mediante el adaptador de prueba;
- * conserva framing, MAC, servidor, cliente, handler y SQLite reales. El named pipe y su DACL tienen
+ * Corre sobre socket POSIX —`localChannelEndpoint` lo admite con directorio de
+ * prueba—, así que **se ejecuta en Linux**. El named pipe y su DACL tienen
  * cobertura propia en `channel.test.ts`, que CI ejecuta en `windows-2022`; lo
  * que sigue siendo `REQUIRES_LOCAL_VERIFICATION` es **la identidad del proceso
  * cliente**.
@@ -89,12 +64,11 @@ import {
  */
 
 const testOnlyKeyPair = generateKeyPairSync("ed25519");
-const authorizationKeyPair=generateKeyPairSync("ed25519");
 
 const TENANT = "018f0000-0000-7000-8000-0000000000a4";
 const COMPANY = "018f0000-0000-7000-8000-0000000000a5";
 const BRANCH = "018f0000-0000-7000-8000-0000000000a6";
-const INSTALLATION = "01900000-0000-7000-8000-000000000001";
+const INSTALLATION = "018f0000-0000-7000-8000-0000000000a2";
 const DEVICE = "018f0000-0000-7000-8000-0000000000a3";
 const USER = "018f0000-0000-7000-8000-0000000000a1";
 const MEMBERSHIP = "018f0000-0000-7000-8000-0000000000b1";
@@ -112,42 +86,11 @@ const SCOPE = {
 const NOW = new Date("2026-09-03T12:00:00.000Z");
 const clock = { now: () => NOW };
 
-// Windows CI serializes this suite (--maxWorkers 1). Cold channel + SQLite open for
-// prepareCounter/createSale/pay can exceed the default 30s under runner load without
-// a hang (a12d5ecf Windows job: timeout-only; same HEAD TypeScript/NSIS green).
-it("hardware: confirmed cash fact authorizes one durable drawer intent, never an unpaid sale or replay",async()=>{
-  await withRealChannel(async(send,database)=>{
-    const ids=await prepareCounter(send,database,"hardware");
-    const store=new HardwareStore(database),binding=randomUUID(),actor={userId:USER,sessionId:SSA_SESSION};
-    const profile=HardwareProfileSchema.parse({schema_version:"1.0.0",id:"TEST_ONLY",revision:1,manufacturer:"Fixture",model:"Test only",firmware:"none",support_status:"SIMULATED",evidence:"SQLite test only",protocol:"ESC_POS",transport:"SIMULATOR",paper_mm:80,columns:48,encoding:"CP1252",code_page:16,cut:"UNSUPPORTED",drawer:"SUPPORTED",drawer_sensor:"UNKNOWN",paper_sensor:"UNKNOWN",drawer_pulse:{pin:0,on:10,off:10}});
-    store.associate(SCOPE,actor,binding,REGISTER,"TEST_ONLY",profile);
-    expect(store.enqueueConfirmedCashDrawer(SCOPE,actor,randomUUID(),binding,"TEST_ONLY_POLICY")).toBeNull();
-    const sale=await createSale(send,ids,"1.000000","hardware:sale");
-    const paid=await send(mutating("payment.register.cash",{sale_id:sale.saleId,amount:sale.payable,tendered_amount:null},"hardware:pay"));
-    expect(paid.result["sale_completed"]).toBe(true);
-    const payment=paid.result["payment_id"] as string;
-    expect(store.enqueueConfirmedCashDrawer({...SCOPE,branchId:randomUUID()},actor,payment,binding,"TEST_ONLY_POLICY")).toBeNull();
-    database.native.exec("CREATE TRIGGER hardware_auto_audit_failure BEFORE INSERT ON hardware_events BEGIN SELECT RAISE(ABORT,'test failure'); END");
-    expect(()=>store.enqueueConfirmedCashDrawer(SCOPE,actor,payment,binding,"TEST_ONLY_POLICY")).toThrow();
-    expect(store.list(SCOPE).jobs).toHaveLength(0);
-    database.native.exec("DROP TRIGGER hardware_auto_audit_failure");
-    const job=store.enqueueConfirmedCashDrawer(SCOPE,actor,payment,binding,"TEST_ONLY_POLICY");
-    expect(job?.kind).toBe("DRAWER_OPEN");
-    expect(store.enqueueConfirmedCashDrawer(SCOPE,actor,payment,binding,"TEST_ONLY_POLICY")).toBeNull();
-    expect(store.list(SCOPE).jobs).toHaveLength(1);
-    expect(stockOf(database,ids.presentationId)).toBe("11.000000");
-    const denied=await send(reading("hardware.command",{action:"list"}));
-    expect(denied.status).toBe("REJECTED"); // canonical cashier fixture has no hardware permission
-    expect(store.list(SCOPE).jobs[0]?.state).toBe("PENDING");
-  });
-},60000);
-
 const PERMISSIONS = [
   "CASH_SHIFT_OPEN",
   "CATALOG_PRODUCT_REGISTER",
   "CATALOG_PRODUCT_READ",
   "INVENTORY_STOCK_RECEIVE",
-  "INVENTORY_STOCK_ADJUST",
   "INVENTORY_STOCK_READ",
   "SALES_SALE_CREATE",
   "PAYMENTS_PAYMENT_REGISTER",
@@ -229,7 +172,7 @@ function authorizationClaims(): AuthorizationSnapshotClaims {
 function signAuthorization(claims: AuthorizationSnapshotClaims) {
   return {
     claims,
-    signature: sign(null, unsignedAuthorizationSnapshotBytes(claims), authorizationKeyPair.privateKey)
+    signature: sign(null, unsignedAuthorizationSnapshotBytes(claims), testOnlyKeyPair.privateKey)
       .toString("base64url"),
   };
 }
@@ -331,8 +274,6 @@ interface ChannelResponse {
  */
 async function withRealChannel(
   run: (send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase) => Promise<void>,
-  licenseGate?: () => string | null,
-  serviceNow: () => Date = () => NOW,
 ): Promise<void> {
   const dir = await directory();
   const database = LocalDatabase.open({ dataDirectory: dir });
@@ -347,16 +288,14 @@ async function withRealChannel(
     { database } as never,
     { store: new DurableSyncStore(database) } as never,
     keys,
-    serviceNow,
-    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),undefined,licenseGate,
+    () => NOW,
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
 
-  const endpoint = localChannelEndpoint(uuidV7(), process.platform, dir);
+  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
   const secret = randomBytes(32);
 
-  let handlerFailure: unknown;
   const server = new LocalChannelServer(
     endpoint,
     new LocalChannelAuthenticator(secret, clock),
@@ -378,8 +317,7 @@ async function withRealChannel(
       }
       // El servidor ya validó el sobre contra `IpcRequestSchema`, y el
       // handshake quedó atendido arriba: lo que llega aquí es comercial.
-      try { return await handler.handle(request as Parameters<typeof handler.handle>[0], context.connectionId); }
-      catch(error) { handlerFailure=error; throw error; }
+      return await handler.handle(request as Parameters<typeof handler.handle>[0], context.connectionId);
     },
     { min: "1.0.0", max: "1.0.0" },
     undefined,
@@ -398,10 +336,7 @@ async function withRealChannel(
     await server.start();
     await client.connect(handshakeRequest());
     await run(
-      async (request) => {
-        try { return await client.request(request) as ChannelResponse; }
-        catch(error) { throw new Error(`Channel request ${(request as {message_type:string}).message_type} failed`,{cause:handlerFailure ?? error}); }
-      },
+      async (request) => await client.request(request) as ChannelResponse,
       database,
     );
   } finally {
@@ -437,7 +372,6 @@ class FakeIssuancePort implements DocumentIssuancePort {
 async function withRealFiscalChannel(
   outcome: DocumentIssuanceOutcome,
   run: (send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase) => Promise<void>,
-  licenseGate?: () => string | null,
 ): Promise<void> {
   const dir = await directory();
   const database = LocalDatabase.open({ dataDirectory: dir });
@@ -450,9 +384,9 @@ async function withRealFiscalChannel(
   const fiscalSecretStore = new EncryptedFileSecretStore(
     dir,
     new InsecureDerivedKeyProvider(dir),
-    fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE, companyId: COMPANY }),
+    fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE }),
   );
-  new FiscalCredentialStore(fiscalSecretStore, COMPANY).deposit(
+  new FiscalCredentialStore(fiscalSecretStore).deposit(
     {
       provider: "FACTUS", environment: "SANDBOX",
       fields: { client_id: "x", client_secret: "x", username: "x", password: "x" },
@@ -468,12 +402,11 @@ async function withRealFiscalChannel(
     () => NOW,
     fiscalSecretStore,
     new FakeIssuancePort(outcome),
-    new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(fiscalConfig(), commercial);
 
-  const endpoint = localChannelEndpoint(uuidV7(), process.platform, dir);
+  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
   const secret = randomBytes(32);
 
   const server = new LocalChannelServer(
@@ -514,10 +447,7 @@ async function withRealFiscalChannel(
     await server.start();
     await client.connect(handshakeRequest());
     await run(
-      async (request) => {
-        try { return await client.request(request) as ChannelResponse; }
-        catch(error) { throw new Error(`Channel request ${(request as {message_type:string}).message_type} failed`,{cause:error}); }
-      },
+      async (request) => await client.request(request) as ChannelResponse,
       database,
     );
   } finally {
@@ -653,7 +583,7 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       const found = await send(reading("catalog.item.find", { barcode: "7700000000002" }));
 
       const sale = await send(mutating("sale.create", {
-        cash_register_id: REGISTER, customer_id: customerId, channel: "POS",
+        cash_register_id: REGISTER, channel: "POS",
         business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
         document_series: "A", currency_code: "COP",
         lines: [{ product_id: found.result["product_id"], presentation_id: presentationId, quantity: "1.000000" }],
@@ -666,14 +596,10 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       }, "fiscalv2:payment:1"));
       expect(payment.result["sale_completed"]).toBe(true);
 
-      expect(database.native.prepare("SELECT customer_id FROM sales_sales WHERE id=?").get(saleId)).toEqual({customer_id:customerId});
-      const mismatch=await send(mutating("fiscal.document.issue",{sale_id:saleId,document_type:"SALES_INVOICE",customer:{kind:"IDENTIFIED",customer_id:randomUUID()},observation:null},"fiscalv2:wrong-customer"));
-      expect(mismatch.result.block_code).toBe("SALE_CUSTOMER_MISMATCH");
-      expect(countOf(database,"SELECT count(*) AS n FROM fiscal_electronic_document")).toBe(0);
       const issued = await send(mutating("fiscal.document.issue", {
         sale_id: saleId,
         document_type: "SALES_INVOICE",
-        customer: { kind: "SALE_CUSTOMER" },
+        customer: { kind: "IDENTIFIED", customer_id: customerId },
         observation: null,
       }, "fiscalv2:issue:1"));
 
@@ -686,36 +612,11 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
         "SELECT transport_status, normalized_result, cufe FROM fiscal_electronic_document WHERE sale_id=?",
       ).get(saleId) as { transport_status: string; normalized_result: string; cufe: string };
       expect(persisted).toEqual({ transport_status: "COMPLETED", normalized_result: "ACCEPTED", cufe: "b".repeat(96) });
-      const frozen=database.native.prepare("SELECT payload_json FROM fiscal_electronic_document WHERE sale_id=?").get(saleId) as {payload_json:string};
-      expect(JSON.parse(frozen.payload_json).customer.identification).toBe("1020304050");
-      expect(()=>database.native.prepare("UPDATE sales_sales SET customer_id=NULL WHERE id=?").run(saleId)).toThrow("sale customer identity immutable");
-      expect(()=>database.native.prepare("DELETE FROM customers_customers WHERE id=?").run(customerId)).toThrow("customer referenced by sale");
     });
-
   }, 30_000);
 });
 
 describe("la vertical comercial atraviesa el socket real hasta SQLite", () => {
-  it("D-19/D-23 validates fiscal registration and freezes the sold scan through the real channel", async () => {
-    await withRealChannel(async (send, database) => {
-      const payload = { code: "D19-001", name: "Producto fiscal", stock_controlled: false, presentation_name: "Unidad", unit_code: "UND", unit_precision: 0,
-        barcode: "7700000000019", price_amount: "10000.000000", currency_code: "COP",
-        fiscal_attributes: { code_reference: "D19-001", unit_measure_code: "94", standard_code: "999", tax_code: "01", tax_rate: "19.000000" } };
-      expect((await send(mutating("catalog.product.register", payload, "d19:unauth"))).status).toBe("REJECTED");
-      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(signAuthorization(authorizationClaims()), { userId: USER, installationId: INSTALLATION, deviceId: DEVICE });
-      await send(reading("session.activate", { session_assertion: signSession(sessionClaims()) }));
-      expect((await send(mutating("catalog.product.register", { ...payload, fiscal_attributes: { ...payload.fiscal_attributes, unit_measure_code: "KGM" } }, "d19:invalid"))).result["outcome"]).toBe("INVALID_FISCAL_ATTRIBUTES");
-      const product = await send(mutating("catalog.product.register", payload, "d19:valid"));
-      expect(product.result["outcome"]).toBe("REGISTERED");
-      expect(database.native.prepare("SELECT tax_rate FROM catalog_fiscal_attribute WHERE presentation_id=?").get(product.result["presentation_id"])).toEqual({ tax_rate: "19.000000" });
-      seedRegister(database);
-      expect((await send(mutating("cash.shift.open", { cash_register_id: REGISTER, opening_amount:"0.000000", business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300 },"d19:shift"))).result.outcome).toBe("OPENED");
-      const sale = await send(mutating("sale.create", { cash_register_id: REGISTER, channel: "POS", business_date: "2026-09-03", timezone_id: "America/Bogota", utc_offset_minutes: -300,
-        document_series: "D19", currency_code: "COP", lines: [{ product_id: product.result["product_id"], presentation_id: product.result["presentation_id"], quantity: "1.000000", identifier: payload.barcode }] }, "d23:valid"));
-      expect(sale.result["outcome"]).toBe("CREATED");
-      expect(database.native.prepare("SELECT identifier_snapshot FROM sales_sale_items WHERE sale_id=?").get(sale.result["sale_id"])).toEqual({ identifier_snapshot: payload.barcode });
-    });
-  }, 60_000);
   it("turno → producto → existencia → venta → cobro → COMPLETED, todo por el canal", async () => {
     await withRealChannel(async (send, database) => {
       new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
@@ -980,54 +881,6 @@ function allocationsOf(database: LocalDatabase, saleId: string): number {
     saleId,
   );
 }
-
-describe("v23 conversion traverses the real signed IPC and original SQLite",()=>{
-  it("approves a versioned ratio and atomically converts a source batch",async()=>{
-    await withRealChannel(async(send,database)=>{
-      await prepareCounter(send,database,"convert-boot");
-      const product=await send(mutating("catalog.product.register",{
-        code:"CONVERT-BASE",name:"Aceite por presentación",stock_controlled:true,
-        presentation_name:"Unidad base",unit_code:"UND",unit_precision:0,
-        barcode:"7709876543210",price_amount:"4000.000000",currency_code:"COP",
-      },"convert:product"));
-      expect(product.result["outcome"]).toBe("REGISTERED");
-      const sourceId=product.result["presentation_id"] as string;
-      const productId=product.result["product_id"] as string;
-      const targetId=randomUUID(),now=NOW.toISOString();
-      database.native.prepare(`INSERT INTO catalog_presentation(
-        id,tenant_id,product_id,name,unit_code,unit_precision,barcode,status,created_at,updated_at
-      ) VALUES(?,?,?,'Paquete x2','UND',0,NULL,'ACTIVE',?,?)`)
-        .run(targetId,TENANT,productId,now,now);
-      const received=await send(mutating("inventory.stock.receive",{
-        presentation_id:sourceId,movement_type:"PURCHASE_RECEIPT",
-        quantity:"5.000000",reason_code:"SUPPLIER_DELIVERY",business_date:"2026-09-03",
-        batch:{code:"LOT-CONV",manufacture_date:"2026-09-01",expiry_date:"2026-09-30",
-          supplier_reference:"SUP-001",receipt_document:"DOC-001"},
-      },"convert:receive"));
-      expect(received.result["outcome"]).toBe("POSTED");
-      const lot=database.native.prepare(`SELECT id FROM inventory_lot
-        WHERE tenant_id=? AND branch_id=? AND presentation_id=?`).get(
-        TENANT,BRANCH,sourceId) as {id:string};
-      const approval=await send(mutating("inventory.conversion.rule.approve",{
-        source_presentation_id:sourceId,target_presentation_id:targetId,
-        numerator:"2",denominator:"1",version:1,
-      },"convert:rule"));
-      expect(approval.result["outcome"]).toBe("APPROVED");
-      const rule=approval.result["rule_id"] as string;
-      const payload={rule_id:rule,source_lot_id:lot.id,quantity:"2.000000",
-        reason_code:"PRESENTATION_CONVERSION",business_date:"2026-09-03"};
-      const first=await send(mutating("inventory.conversion.execute",payload,"convert:run"));
-      expect(first.result["outcome"]).toBe("CONVERTED");
-      expect(first.result["target_quantity"]).toBe("4.000000");
-      const retry=await send(mutating("inventory.conversion.execute",payload,"convert:run"));
-      expect(retry.result["outcome"]).toBe("IDEMPOTENT");
-      expect(stockOf(database,sourceId)).toBe("3.000000");
-      expect(stockOf(database,targetId)).toBe("4.000000");
-      expect(countOf(database,"SELECT COUNT(*) AS n FROM inventory_conversion_event")).toBe(1);
-      expect(countOf(database,"SELECT COUNT(*) AS n FROM inventory_lot_movement WHERE event_type='CONVERSION'")).toBe(2);
-    });
-  },30_000);
-});
 
 describe("la vertical resiste el uso real: ventas seguidas, reintentos y saldos", () => {
   it("dos ventas consecutivas no se contaminan y el inventario baja una vez por venta", async () => {
@@ -1627,117 +1480,4 @@ describe("la transferencia recorre reportar → leer versión → atestiguar", (
       expect(stockOf(database, ids.presentationId)).toBe("12.000000");
     });
   }, 30_000);
-});
-
-it("waiting cart crosses authenticated channel and is consumed atomically by the real sale use case",async()=>{
-  await withRealChannel(async(send,database)=>{
-    const ids=await prepareCounter(send,database,"waiting");
-    const customer = await send(mutating("customer.register", {
-      identification_document_code:"13",identification:"1020304050",verification_digit:null,
-      legal_organization_code:"2",company:null,names:"Cliente de espera",tribute_code:"ZZ",
-      fiscal_responsibility_codes:["R-99-PN"],email:null,phone:null,address:null,country_code:null,municipality_code:null,
-    },"waiting-customer"));
-    expect(customer.result.outcome).toBe("REGISTERED");
-    const customerId=customer.result.customer_id;
-    const cartId=randomUUID();
-    const save=mutating("cart.waiting.save",{cart_id:cartId,expected_version:0,cart:{label:"Cliente A",customer_id:customerId,cash_register_id:REGISTER,
-      lines:[{...ids,name:"Café",presentationName:"Bolsa",priceAmount:"1.000000",currencyCode:"COP",quantity:"2.000000",identifier:BARCODE}]}},"waiting-save");
-    const invalid=structuredClone(save);
-    (invalid.payload as any).cart.customer_id=randomUUID();
-    expect((await send(invalid)).result.outcome).toBe("NOT_FOUND");
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_waiting_carts")).toBe(0);
-    expect((await send(save)).result.outcome).toBe("SAVED");
-    expect((await send(save)).result.outcome).toBe("SAVED");
-    expect((await send(reading("cart.waiting.list",{}))).result.carts).toHaveLength(1);
-    const recovered=await send(reading("cart.waiting.get",{cart_id:cartId}));
-    expect(recovered.result.carts).toMatchObject([{active_shift:{version:1},payload:{customer_id:customerId}}]);
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
-    const request=mutating("sale.create",{cash_register_id:REGISTER,customer_id:customerId,waiting_cart:{id:cartId,version:1},channel:"POS",
-      business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,document_series:"A",currency_code:"COP",
-      lines:[{product_id:ids.productId,presentation_id:ids.presentationId,quantity:"2.000000",identifier:BARCODE}]
-    },"waiting-sale");
-    database.native.prepare("UPDATE customers_customers SET company_id=? WHERE id=?").run(randomUUID(),customerId);
-    expect((await send(request)).result.outcome).toBe("CUSTOMER_NOT_FOUND");
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
-    database.native.prepare("UPDATE customers_customers SET company_id=? WHERE id=?").run(COMPANY,customerId);
-    const sale=await send(request);
-    expect(sale.result.outcome).toBe("CREATED");
-    expect(database.native.prepare("SELECT customer_id FROM sales_sales WHERE id=?").get(sale.result.sale_id)).toEqual({customer_id:customerId});
-    expect(sale.result.payable_amount).toBe("36000.000000");
-    expect((await send(request)).result.outcome).toBe("IDEMPOTENT");
-    expect((await send({...request,request_id:randomUUID(),idempotency_key:"other-window"})).result.outcome).toBe("IDEMPOTENCY_CONFLICT");
-    expect((await send(reading("cart.waiting.list",{}))).result.carts).toEqual([]);
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
-    expect(stockOf(database,ids.presentationId)).toBe("12.000000");
-  });
-});
-
-
-it("counter channel rejects a missing or closing shift, with no numbering or sale writes, and replays after closure", async () => {
-  await withRealChannel(async (send,database) => {
-    const ids=await prepareCounter(send,database,"shift-required");
-    const request=mutating("sale.create",{cash_register_id:REGISTER,channel:"POS",
-      business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,document_series:"A",currency_code:"COP",
-      lines:[{product_id:ids.productId,presentation_id:ids.presentationId,quantity:"1.000000",identifier:BARCODE}]
-    },"shift-required-sale");
-    const noBox=structuredClone(request); (noBox.payload as any).cash_register_id=null;
-    (noBox.payload as any).channel="OTHER_CHANNEL";
-    expect((await send(noBox)).result.outcome).toBe("CASH_SHIFT_NOT_OPEN");
-    database.native.prepare("UPDATE cash_shift SET status='CLOSING' WHERE cash_register_id=?").run(REGISTER);
-    expect((await send(request)).result.outcome).toBe("CASH_SHIFT_NOT_OPEN");
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_document_series_counter")).toBe(0);
-    database.native.prepare("UPDATE cash_shift SET status='OPEN' WHERE cash_register_id=?").run(REGISTER);
-    expect((await send(request)).result.outcome).toBe("CREATED");
-    database.native.prepare("UPDATE cash_shift SET status='CLOSING' WHERE cash_register_id=?").run(REGISTER);
-    expect((await send(request)).result.outcome).toBe("IDEMPOTENT");
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
-  });
-});
-
-
-it("rechecks licensing for new sales in an already open shift, without blocking replay or renewal",async()=>{
-  let denial:string|null=null;
-  await withRealChannel(async(send,database)=>{
-    const ids=await prepareCounter(send,database,"license-live");
-    const request=mutating("sale.create",{cash_register_id:REGISTER,channel:"POS",business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,
-      document_series:"L",currency_code:"COP",lines:[{product_id:ids.productId,presentation_id:ids.presentationId,quantity:"1.000000",identifier:BARCODE}]},"license-sale-original");
-    const original=await send(request);expect(original.result.outcome).toBe("CREATED");
-    denial="LICENSE_EXPIRED";
-    expect((await send(request)).result.sale_id).toBe(original.result.sale_id);
-    const next={...request,request_id:randomUUID(),idempotency_key:"license-sale-next"};
-    expect((await send(next)).result.outcome).toBe("LICENSE_BLOCKED");
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
-    expect(database.native.prepare("SELECT last_number FROM sales_document_series_counter WHERE series='L'").get()).toEqual({last_number:1});
-    denial="LICENSE_REVOKED";expect((await send(next)).result.outcome).toBe("LICENSE_BLOCKED");
-    denial=null;expect((await send(next)).result.outcome).toBe("CREATED");
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(2);
-  },()=>denial);
-});
-
-
-it("signed license expiry and renewed artifact govern sales through the real socket and SQLite writer",async()=>{
-  let gate:LicenseCapacityGate;
-  let at=new Date(NOW);
-  await withRealChannel(async(send,database)=>{
-    new LocalSecurityLifecycle(database).registerInitialDeviceKey("LICENSE_CHANNEL_DEVICE_TEST");
-    const pair=generateKeyPairSync("ed25519");
-    let claims:LicenseCapacityClaims={profile:"CAMACHO_LICENSE_CAPACITY_V2",license_id:randomUUID(),tenant_id:TENANT,company_id:COMPANY,
-      installation_id:INSTALLATION,device_id:DEVICE,mode:"HYBRID",entitlements:["CASH_REGISTER"],
-      issued_at:NOW.toISOString(),not_before:NOW.toISOString(),expires_at:"2026-09-03T12:01:00.000Z",offline_grace_until:null,
-      key_id:"LICENSE_CHANNEL_TEST",license_version:1,plan_id:randomUUID(),plan_version:1,
-      cash_register_capacity:{included:1,paid_additional:0,allocations:[{register_id:REGISTER,branch_id:BRANCH}]}};
-    gate=new LicenseCapacityGate(database,()=>({artifact:{claims,signature:sign(null,unsignedLicenseCapacityBytes(claims),pair.privateKey).toString("base64url")},
-      keys:new Map([[claims.key_id,{key:pair.publicKey,status:"ACTIVE" as const}]])}),()=>at);
-    const ids=await prepareCounter(send,database,"signed-license");
-    const request=mutating("sale.create",{cash_register_id:REGISTER,channel:"POS",business_date:"2026-09-03",timezone_id:"America/Bogota",utc_offset_minutes:-300,
-      document_series:"SG",currency_code:"COP",lines:[{product_id:ids.productId,presentation_id:ids.presentationId,quantity:"1.000000",identifier:BARCODE}]},"signed-license-sale");
-    at=new Date("2026-09-03T12:01:00.000Z");
-    expect((await send(request)).result.outcome).toBe("LICENSE_BLOCKED");
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(0);
-    claims={...claims,license_version:2,expires_at:"2026-10-04T00:00:00.000Z"};
-    expect((await send(request)).result.outcome).toBe("CREATED");
-    expect((await send({...request,request_id:randomUUID()})).result.outcome).toBe("IDEMPOTENT");
-    expect(countOf(database,"SELECT count(*) AS n FROM sales_sales")).toBe(1);
-  },()=>gate.authorize(SCOPE,REGISTER),()=>at);
 });

@@ -49,7 +49,8 @@ async function lab(options:{clock?:()=>Date;handler?:ChannelHandler;mutate?:(p:W
  const server=new LocalChannelServer("NATIVE_TEST_PORT",auth,async(r,signal,context)=>{
   if(r.message_type==="runtime.handshake"){ids.push(context.connectionId);return response(r,{status:"COMPATIBLE",negotiated_protocol_version:"1.0.0"});}
   if(options.handler)return options.handler(r,signal,context);
-  return response(r,{service_state:"READY",service_version:"1.0.0",protocol_version:"1.0.0",schema_version:"5",outbox_pending_count:0,outbox_dead_letter_count:0});
+  // Match current RuntimeStatusResultSchema on main (outbox_* removed post-baseline).
+  return response(r,{service_state:"READY",service_version:"1.0.0",protocol_version:"1.0.0",schema_version:"5"});
  },range,32,64,2000,undefined,transport);
  cleanup.push(async()=>{await server.stop();auth.destroy();master.fill(0);db.close();rmSync(dir,{recursive:true,force:true});});
  await server.start();
@@ -117,7 +118,7 @@ describe("SCM runtime integration with simulated kernel/DPAPI ports",()=>{
   let x:Awaited<ReturnType<typeof lab>>;
   x=await lab({handler:async(r,_signal,context)=>{
     x.transport.revokeConnections(x.ids,context.connectionId);
-    return response(r,{service_version:"1.0.0",protocol_version:"1.0.0",service_state:"READY",schema_version:"5",outbox_pending_count:0,outbox_dead_letter_count:0});
+    return response(r,{service_version:"1.0.0",protocol_version:"1.0.0",service_state:"READY",schema_version:"5"});
   }});
   const a=await x.connect(),b=await x.connect();
   await expect(a.request(request())).resolves.toMatchObject({status:"SUCCEEDED"});

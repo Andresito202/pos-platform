@@ -119,11 +119,16 @@ export const PAYMENT_METHOD_CODES = table([
  * - `"01"` — tipo documental DIAN en cuerpo de factura (histórico sandbox).
  * - `"21"` — código de rango de numeración «Factura de Venta».
  * - `"22"` — código de rango de numeración «Nota Crédito».
+ * - `"23"`, `"24"`, `"25"` — nota débito, documento soporte y nota de ajuste.
+ * Las etiquetas se contrastaron con la respuesta sandbox del 2026-11-18.
  */
 const DOCUMENT_TYPE_BY_CODE: ReadonlyMap<string, FiscalDocumentType> = new Map([
   ["01", "SALES_INVOICE"],
   ["21", "SALES_INVOICE"],
   ["22", "CREDIT_NOTE"],
+  ["23", "DEBIT_NOTE"],
+  ["24", "SUPPORT_DOCUMENT"],
+  ["25", "SUPPORT_DOCUMENT_ADJUSTMENT_NOTE"],
 ]);
 
 /**
@@ -138,8 +143,11 @@ export function fiscalDocumentTypeForCode(code: string | null): FiscalDocumentTy
   const mapped = DOCUMENT_TYPE_BY_CODE.get(normalized);
   if (mapped !== undefined) return mapped;
   const lower = normalized.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "");
-  if (lower === "nota credito" || lower.startsWith("nota credito")) return "CREDIT_NOTE";
-  if (lower === "factura de venta" || lower.startsWith("factura de venta")) return "SALES_INVOICE";
+  if (lower === "nota credito" || lower === "nota de credito") return "CREDIT_NOTE";
+  if (lower === "nota debito" || lower === "nota de debito") return "DEBIT_NOTE";
+  if (lower === "factura de venta" || lower === "factura electronica de venta") return "SALES_INVOICE";
+  if (lower === "documento soporte") return "SUPPORT_DOCUMENT";
+  if (lower === "nota de ajuste documento soporte" || lower === "nota de ajuste de documento soporte") return "SUPPORT_DOCUMENT_ADJUSTMENT_NOTE";
   return null;
 }
 
@@ -154,11 +162,14 @@ export function canonicalDocumentTypeCode(type: FiscalDocumentType): string | nu
 
 /**
  * Código de documento para rangos de numeración FACTUS (`filter[document]`).
- * Fuente: tablas oficiales — `21` factura, `22` nota crédito.
+ * Fuente: tablas oficiales — `21` a `25`. Clasificar un rango no habilita emisión.
  */
 export function numberingDocumentTypeCode(type: FiscalDocumentType): string | null {
   if (type === "SALES_INVOICE") return "21";
   if (type === "CREDIT_NOTE") return "22";
+  if (type === "DEBIT_NOTE") return "23";
+  if (type === "SUPPORT_DOCUMENT") return "24";
+  if (type === "SUPPORT_DOCUMENT_ADJUSTMENT_NOTE") return "25";
   return null;
 }
 

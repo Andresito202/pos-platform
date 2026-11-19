@@ -390,8 +390,10 @@ describe("POS Local Service process boundary", () => {
       const dataDirectory = await directory();
       const child = spawnServiceWithFatal(serviceEnvironment(dataDirectory), mode);
       const stdout = captureStdout(child);
-      // Lifecycle component shutdown permits up to 10 seconds; leave bounded
-      // headroom for the process to flush logs and exit on slower Windows hosts.
+      // Lifecycle component.stop budget is 10s (`ServiceLifecycle`). Waiting only
+      // the default 8s from spawn races that budget on Windows after cold migrate
+      // and leaves SQLite locked (EBUSY) when the test SIGKILLs mid-close.
+      // Bound = stop budget + flush/exit headroom; not a blanket default raise.
       expect(await waitForExit(child, 15_000)).toBe(1);
       expect(stdout()).toContain('"event":"runtime.started"');
       expect(stdout()).toContain('"event":"runtime.stopping"');

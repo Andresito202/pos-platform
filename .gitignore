@@ -4,7 +4,6 @@ __pycache__/
 .env.*
 *.egg-info/
 dist/
-dist-installer/
 build/
 .venv/
 node_modules/
@@ -30,19 +29,15 @@ Thumbs.db
 # publica como artefacto del workflow, no como contenido del repositorio.
 artifacts/
 
-# Configuración local de herramientas: no versionar preferencias ni respaldos.
-settings.local.json
-settings.json.*-bak
-*.graphify-bak
-.agents/*.bak
+# Configuración de Claude Code por desarrollador y respaldos de herramientas
+# locales. `settings.local.json` es por definición local, y un `.graphify-bak`
+# es un respaldo que una herramienta deja al reescribir la configuración: ni uno
+# ni otro describen el proyecto. Las **skills** sí se versionan: son
+# conocimiento del proyecto y ya están en `.claude/skills/`.
+.claude/settings.local.json
+.claude/*.bak
+.claude/settings.json.*-bak
 
 # Artefactos de ejecucion de Playwright (trazas y capturas de un fallo).
 test-results/
 playwright-report/
-.gradle/
-.kotlin/
-apps/pos-local-service/native/android-hardware/build/
-
-# NSIS service payload staged at pack time (WinSW/Node/Local Service)
-apps/pos-desktop/packaging/service-payload/
-apps/pos-desktop/packaging/.cache/

@@ -18,12 +18,12 @@ export class HardwareService {
     if(!this.automaticPolicy)return;
     try {
       if(actor.userId!==snapshot.claims.user_id)throw new Error("HARDWARE_ACTOR_CONTEXT_MISMATCH");
-      const decision=evaluatePermission({actor:createActor("USER",snapshot.claims.user_id),permission:CanonicalPermission.HARDWARE_DRAWER_OPEN,
+      const decision=evaluatePermission({actor:createActor("USER",snapshot.claims.user_id),permission:CanonicalPermission.PAYMENTS_PAYMENT_REGISTER,
         scope:createOperationScope(scope.tenantId,scope.companyId,scope.branchId),at:new Date(),assignments:toRoleAssignments(snapshot.claims)});
       if(!decision.allowed){this.store.audit(null,actor,"AUTOMATIC_DRAWER_DENIED",decision.reason);return;}
       const job=this.store.enqueueConfirmedCashDrawer(scope,actor,paymentId,this.automaticPolicy.binding_id,this.automaticPolicy.policy_reference);
       if(job){
-        const outcome=await this.execute(scope,snapshot,actor,{action:"dispatch",job_id:job.id});
+        const outcome=await this.executeInternal(scope,snapshot,actor,{action:"dispatch",job_id:job.id},true);
         if(outcome.kind==="REJECTED"||outcome.kind==="UNAUTHORIZED")this.store.audit(job.id,actor,"AUTOMATIC_DRAWER_INCIDENT",outcome.reason??"RECONCILIATION_REQUIRED");
       }
     }catch{
@@ -31,10 +31,15 @@ export class HardwareService {
     }
   }
   async execute(scope:SyncScope,snapshot:StoredAuthorizationSnapshot,actor:HardwareActor,input:HardwareCommand):Promise<{kind:string;data:unknown;reason:string|null}> {
+    return this.executeInternal(scope,snapshot,actor,input,false);
+  }
+  private async executeInternal(scope:SyncScope,snapshot:StoredAuthorizationSnapshot,actor:HardwareActor,input:HardwareCommand,automaticCashDrawer:boolean):Promise<{kind:string;data:unknown;reason:string|null}> {
     const command=HardwareCommandSchema.parse(input);
+    if(command.action==="capture_weight")return {kind:"REJECTED",data:null,reason:"SCALE_REQUIRES_COMMERCIAL_CONTEXT"};
     const job=command.action==="dispatch"?this.store.job(scope,command.job_id):null;
     const kind=command.action==="enqueue"?command.kind:job?.kind;
-    const permission=command.action==="associate"?CanonicalPermission.HARDWARE_CONFIGURE:
+    if(automaticCashDrawer && (command.action!=="dispatch" || job?.kind!=="DRAWER_OPEN"))return {kind:"REJECTED",data:null,reason:"AUTOMATIC_DRAWER_CONTEXT_INVALID"};
+    const permission=automaticCashDrawer?CanonicalPermission.PAYMENTS_PAYMENT_REGISTER:command.action==="associate" || kind==="PRINT_TEST" || kind==="CUT"?CanonicalPermission.HARDWARE_CONFIGURE:
       command.action==="list"||command.action==="diagnose"?CanonicalPermission.HARDWARE_READ:
       kind==="DRAWER_OPEN"?CanonicalPermission.HARDWARE_DRAWER_OPEN:CanonicalPermission.HARDWARE_PRINT;
     const decision=evaluatePermission({actor:createActor("USER",snapshot.claims.user_id),permission,
@@ -53,11 +58,22 @@ export class HardwareService {
         this.store.associate(scope,actor,command.binding_id,command.cash_register_id,command.device_id,HardwareProfileSchema.parse(selected.profile));
         return {kind:"ASSOCIATED",data:null,reason:null};
       }
+      if(command.action==="print_receipt"){
+        const receipt=this.receipts.execute(scope,snapshot,command.sale_id);
+        if(receipt.kind!=="FOUND")throw new Error(receipt.kind);
+        const ids=this.store.receiptBindingIds(scope,command.sale_id);
+        if(ids.length!==1)throw new Error("RECEIPT_PRINTER_BINDING_MISSING_OR_AMBIGUOUS");
+        const bindingId=ids[0]!;
+        const queued=await this.execute(scope,snapshot,actor,{action:"enqueue",job_id:command.job_id,binding_id:bindingId,kind:"PRINT_RECEIPT",sale_id:command.sale_id,reason:"Impresión de comprobante"});
+        if(queued.kind!=="QUEUED")return queued;
+        return this.execute(scope,snapshot,actor,{action:"dispatch",job_id:command.job_id});
+      }
       if(command.action==="enqueue"){
         const binding=this.store.binding(scope,command.binding_id);if(!binding)throw new Error("HARDWARE_BINDING_NOT_FOUND");
         if(command.kind==="PRINT_RECEIPT"){
           if(!command.sale_id)throw new Error("HARDWARE_SALE_REQUIRED");
           const receipt=this.receipts.execute(scope,snapshot,command.sale_id);if(receipt.kind!=="FOUND")throw new Error(receipt.kind);
+          if(!this.store.receiptBindingIds(scope,command.sale_id).includes(command.binding_id))throw new Error("RECEIPT_PRINTER_WRONG_REGISTER");
         }else if(command.sale_id!==null)throw new Error("HARDWARE_UNEXPECTED_SALE_REFERENCE");
         if(command.kind==="DRAWER_OPEN" && binding.profile.drawer!=="SUPPORTED")throw new Error("DRAWER_PROFILE_UNSUPPORTED");
         if(command.kind==="CUT" && binding.profile.cut!=="SUPPORTED")throw new Error("PRINTER_HAS_NO_VERIFIED_CUTTER");
@@ -76,6 +92,7 @@ export class HardwareService {
         let text="Camacho POS — prueba de impresión\nSin confirmación física\n";
         if(job.kind==="PRINT_RECEIPT"){
           const receipt=this.receipts.execute(scope,snapshot,job.sale_id!);if(receipt.kind!=="FOUND")throw new Error(receipt.kind);
+          if(!this.store.receiptBindingIds(scope,job.sale_id!).includes(job.binding_id))throw new Error("RECEIPT_PRINTER_WRONG_REGISTER");
           text=projectPrintableReceipt(receipt.receipt,binding.profile.columns);
         }
         bytes=encodePrinterText(text,binding.profile);

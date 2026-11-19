@@ -13,18 +13,16 @@ import {
 } from "@pos-platform/contracts";
 import { canonicalJson } from "@pos-platform/local-channel";
 import { parseDeviceRequestAuthorization, verifyDeviceRequestAuthorization } from "@pos-platform/device-trust";
-import { applyCentralDomainOperation, type DomainApplyOutcome } from "./central-domain-consumers.js";
-import { resolveCentralSyncListenPolicy } from "./central-sync-tls-policy.js";
 
 const databaseUrl = process.env.DATABASE_URL;
-const listenPolicy = resolveCentralSyncListenPolicy(process.env);
-const port = listenPolicy.port;
+const port = Number(process.env.PORT ?? 8787);
 const maxOperations = Number(process.env.SYNC_MAX_OPERATIONS ?? 100);
 const maxBodyBytes = Number(process.env.SYNC_MAX_BODY_BYTES ?? 4 * 1024 * 1024);
 const protocolVersion = "1.0.0";
 const resultSchemaVersion = "1.0.0";
 
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT must be a valid TCP port");
 if (!Number.isInteger(maxOperations) || maxOperations < 1) throw new Error("SYNC_MAX_OPERATIONS must be a positive integer");
 if (!Number.isInteger(maxBodyBytes) || maxBodyBytes < 1) throw new Error("SYNC_MAX_BODY_BYTES must be a positive integer");
 
@@ -284,13 +282,8 @@ async function acceptBatch(batch: SyncBatchRequest, principal: AuthenticatedDevi
     );
     await setTenantContext(client, principal.tenantId);
 
-    const applyByOperation = new Map<string, DomainApplyOutcome>();
     for (const operation of batch.operations) {
-      // 1) Durable receive into sync.sync_operations (idempotent).
       await persistOperation(client, operation, receivedAt);
-      // 2) Domain application (typed consumers) — distinct from receive.
-      const applied = await applyCentralDomainOperation(client, operation);
-      applyByOperation.set(operation.operation_id, applied);
     }
 
     await client.query("COMMIT");
@@ -303,9 +296,8 @@ async function acceptBatch(batch: SyncBatchRequest, principal: AuthenticatedDevi
       id: string;
       received_at_server: string | Date;
       committed_at_server: string | Date;
-      sync_status: string;
     }>(
-      `SELECT id, received_at_server, committed_at_server, sync_status
+      `SELECT id, received_at_server, committed_at_server
          FROM sync.sync_operations
         WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
       [batch.tenant_id, batch.operations.map((operation) => operation.operation_id)],
@@ -322,45 +314,24 @@ async function acceptBatch(batch: SyncBatchRequest, principal: AuthenticatedDevi
     }
     await client.query("COMMIT");
 
-    const checkpointEligible = new Set(["SERVER_ACCEPTED", "SERVER_REJECTED"]);
-    let acknowledgedThrough: number | null = batch.checkpoint_local_sequence;
-    const results = batch.operations.map((operation) => {
-      const applied = applyByOperation.get(operation.operation_id);
-      const row = rows.get(operation.operation_id);
-      const serverStatus = (applied?.server_status
-        ?? (row?.sync_status === "CONFLICT" || row?.sync_status === "REVIEW_REQUIRED"
-          ? row.sync_status
-          : "SERVER_ACCEPTED")) as DomainApplyOutcome["server_status"];
-      if (
-        checkpointEligible.has(serverStatus)
-        && (acknowledgedThrough === null
-          ? operation.local_sequence === 1
-          : operation.local_sequence === acknowledgedThrough + 1)
-      ) {
-        acknowledgedThrough = operation.local_sequence;
-      }
-      return {
-        operation_id: operation.operation_id,
-        correlation_id: operation.correlation_id,
-        server_status: serverStatus,
-        server_result_code: applied?.server_result_code ?? "COMMITTED",
-        aggregate_id: operation.aggregate_id,
-        previous_version: null,
-        new_version: null,
-        received_at_server: timestamp(row?.received_at_server ?? receivedAt),
-        committed_at_server: timestamp(row?.committed_at_server ?? committedAt),
-        retryable: false,
-        review_required: applied?.review_required
-          ?? (serverStatus === "REVIEW_REQUIRED" || serverStatus === "CONFLICT"),
-      };
-    });
-
     const result: SyncBatchResponse = {
       batch_id: batch.batch_id,
       tenant_id: batch.tenant_id,
       device_id: batch.device_id,
-      acknowledged_through_local_sequence: acknowledgedThrough,
-      results,
+      acknowledged_through_local_sequence: batch.operations.at(-1)?.local_sequence ?? null,
+      results: batch.operations.map((operation) => ({
+        operation_id: operation.operation_id,
+        correlation_id: operation.correlation_id,
+        server_status: "SERVER_ACCEPTED",
+        server_result_code: "COMMITTED",
+        aggregate_id: operation.aggregate_id,
+        previous_version: null,
+        new_version: null,
+        received_at_server: timestamp(rows.get(operation.operation_id)?.received_at_server ?? receivedAt),
+        committed_at_server: timestamp(rows.get(operation.operation_id)?.committed_at_server ?? committedAt),
+        retryable: false,
+        review_required: false,
+      })),
     };
     return { result: SyncBatchResponseSchema.parse(result), committedAt };
   } catch (error) {
@@ -551,11 +522,8 @@ const server = createServer(async (request, response) => {
   }
 });
 
-server.listen(port, listenPolicy.host, () => {
-  console.log(
-    `central sync API listening on ${listenPolicy.host}:${port} mode=${listenPolicy.mode} scope=${listenPolicy.certificationScope}`,
-  );
-});
+const bindHost = process.env.CENTRAL_SYNC_BIND_HOST ?? "0.0.0.0";
+server.listen(port, bindHost, () => console.log(`central sync API listening on ${bindHost}:${port}`));
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`${signal}: shutting down central sync API`);

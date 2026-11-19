@@ -27,8 +27,7 @@ const REQUIREMENT = FACTUS_ADAPTER_DECLARATION.credential;
 
 const INSTALLATION = "018f0000-0000-7000-8000-000000000005";
 const DEVICE = "018f0000-0000-7000-8000-000000000004";
-const COMPANY = "018f0000-0000-7000-8000-000000000002";
-const BINDING = { installationId: INSTALLATION, deviceId: DEVICE, companyId: COMPANY };
+const BINDING = { installationId: INSTALLATION, deviceId: DEVICE };
 
 /** Valores de prueba, reconocibles a simple vista en un volcado. */
 const FIELDS = {
@@ -61,7 +60,7 @@ async function seeded(): Promise<{
 }> {
   const dir = await directory();
   const secrets = open(dir);
-  const store = new FiscalCredentialStore(secrets, COMPANY);
+  const store = new FiscalCredentialStore(secrets);
   const reference = store.deposit(
     { provider: "FACTUS", environment: "SANDBOX", fields: FIELDS },
     REQUIREMENT,
@@ -72,14 +71,14 @@ async function seeded(): Promise<{
 describe("FiscalCredentialStore — DEC-021 F2", () => {
   it("deposita y resuelve los cuatro campos declarados", async () => {
     const { store, reference } = await seeded();
-    expect(reference.secretRef).toBe(`fiscal:FACTUS:SANDBOX:${COMPANY}`);
+    expect(reference.secretRef).toBe("fiscal:FACTUS:SANDBOX");
     expect(reference.version).toMatch(/^[0-9a-f-]{36}$/);
     expect(store.resolve(reference)).toEqual(FIELDS);
   });
 
   it("el valor no queda en claro en el disco", async () => {
     const { dir } = await seeded();
-    const raw = readFileSync(join(dir, `${fiscalSecretName("FACTUS", "SANDBOX", COMPANY)}.secret`), "utf8");
+    const raw = readFileSync(join(dir, `${fiscalSecretName("FACTUS", "SANDBOX")}.secret`), "utf8");
     // Ésta es la prueba que importa: el fichero existe y no contiene el secreto.
     for (const value of VALUES) expect(raw).not.toContain(value);
     expect(raw).not.toContain("client_secret");
@@ -101,14 +100,14 @@ describe("FiscalCredentialStore — DEC-021 F2", () => {
 
   it("sin depósito previo falla cerrado y lo dice sin inventar nada", async () => {
     const dir = await directory();
-    const store = new FiscalCredentialStore(open(dir), COMPANY);
+    const store = new FiscalCredentialStore(open(dir));
     expect(store.has("FACTUS", "SANDBOX")).toBe(false);
     expect(() => store.reference("FACTUS", "SANDBOX")).toThrow(FiscalCredentialNotFoundError);
   });
 
   it("los ambientes no se mezclan", async () => {
     const dir = await directory();
-    const store = new FiscalCredentialStore(open(dir), COMPANY);
+    const store = new FiscalCredentialStore(open(dir));
     const sandbox = store.deposit({ provider: "FACTUS", environment: "SANDBOX", fields: FIELDS }, REQUIREMENT);
     store.deposit(
       { provider: "FACTUS", environment: "PRODUCTION", fields: { ...FIELDS, password: "PROD" } },
@@ -124,7 +123,7 @@ describe("FiscalCredentialStore — DEC-021 F2", () => {
 
   it("rechaza una credencial que no es exactamente la declarada", async () => {
     const dir = await directory();
-    const store = new FiscalCredentialStore(open(dir), COMPANY);
+    const store = new FiscalCredentialStore(open(dir));
     const deposit = (fields: Record<string, string>) =>
       () => store.deposit({ provider: "FACTUS", environment: "SANDBOX", fields }, REQUIREMENT);
 
@@ -137,7 +136,7 @@ describe("FiscalCredentialStore — DEC-021 F2", () => {
   it("un secreto de identidad de dispositivo no se puede leer como credencial fiscal", async () => {
     const { dir } = await seeded();
     // Mismo directorio y misma clave maestra; distinto contexto criptográfico.
-    const foreign = new FiscalCredentialStore(open(dir, deviceIdentityContext(BINDING)), COMPANY);
+    const foreign = new FiscalCredentialStore(open(dir, deviceIdentityContext(BINDING)));
     expect(() => foreign.reference("FACTUS", "SANDBOX"))
       .toThrow(/secret envelope authentication failed/);
   });
@@ -166,13 +165,13 @@ describe("SecretStoreFactusCredentialResolver — DEC-021 F2", () => {
 
   it("no lee del entorno aunque las variables de sandbox estén puestas", async () => {
     const dir = await directory();
-    const store = new FiscalCredentialStore(open(dir), COMPANY);
+    const store = new FiscalCredentialStore(open(dir));
     const resolver = new SecretStoreFactusCredentialResolver(store);
     process.env.FACTUS_SANDBOX_PASSWORD = "NO-DEBE-USARSE";
     try {
       // `FACTUS_SANDBOX_ENV` existe para F6 en el equipo del propietario. El
       // resolutor de producción no lo mira: sin depósito, no hay credencial.
-      await expect(resolver.resolve({ secretRef: `fiscal:FACTUS:SANDBOX:${COMPANY}`, version: "x" }))
+      await expect(resolver.resolve({ secretRef: "fiscal:FACTUS:SANDBOX", version: "x" }))
         .rejects.toThrow(FiscalCredentialNotFoundError);
     } finally {
       delete process.env.FACTUS_SANDBOX_PASSWORD;
@@ -188,13 +187,12 @@ describe("SecretStoreFactusCredentialResolver — DEC-021 F2", () => {
       version: "v1",
       provider: "FACTUS",
       environment: "SANDBOX",
-      companyId: COMPANY,
       fields: { client_id: "a", username: "b", password: "c" },
       depositedAt: "2026-09-14T12:00:00.000Z",
     };
-    secrets.write(fiscalSecretName("FACTUS", "SANDBOX", COMPANY), Buffer.from(JSON.stringify(envelope)));
-    const resolver = new SecretStoreFactusCredentialResolver(new FiscalCredentialStore(secrets, COMPANY));
-    await expect(resolver.resolve({ secretRef: `fiscal:FACTUS:SANDBOX:${COMPANY}`, version: "v1" }))
+    secrets.write(fiscalSecretName("FACTUS", "SANDBOX"), Buffer.from(JSON.stringify(envelope)));
+    const resolver = new SecretStoreFactusCredentialResolver(new FiscalCredentialStore(secrets));
+    await expect(resolver.resolve({ secretRef: "fiscal:FACTUS:SANDBOX", version: "v1" }))
       .rejects.toThrow(/lacks client_secret/);
   });
 });
@@ -228,7 +226,7 @@ describe("Depósito — la operación del operador", () => {
     // Lo impreso es la referencia opaca, y nada más.
     expect(JSON.parse(printed)).toEqual({
       status: "DEPOSITED",
-      reference: { secretRef: `fiscal:FACTUS:SANDBOX:${COMPANY}`, version: expect.any(String) },
+      reference: { secretRef: "fiscal:FACTUS:SANDBOX", version: expect.any(String) },
     });
     for (const value of VALUES) expect(printed).not.toContain(value);
 

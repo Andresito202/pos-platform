@@ -93,8 +93,6 @@ function compatibleResponse(request: ReturnType<typeof runtimeHandshakeRequest> 
       protocol_version: "1.0.0",
       service_state: "READY",
       schema_version: "5",
-      outbox_pending_count: 0,
-      outbox_dead_letter_count: 0,
     },
   };
 }

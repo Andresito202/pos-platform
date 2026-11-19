@@ -16,11 +16,6 @@ const valid = {
 const rootPublicKeyPem = "-----BEGIN PUBLIC KEY-----\n" + "A".repeat(44) + "\n-----END PUBLIC KEY-----";
 
 describe("parseServiceConfig", () => {
-  it("accepts only an absolute installer-managed SAS provision path and keeps it absent by default",()=>{
-    expect(parseServiceConfig(valid).authorization_trust_provision_file).toBeUndefined();
-    expect(()=>parseServiceConfig({...valid,POS_AUTHORIZATION_TRUST_PROVISION_FILE:"relative.json"})).toThrow();
-    expect(parseServiceConfig({...valid,POS_AUTHORIZATION_TRUST_PROVISION_FILE:valid.POS_DATA_DIRECTORY+"/sas.json"}).authorization_trust_provision_file).toBe(valid.POS_DATA_DIRECTORY+"/sas.json");
-  });
   it("fails closed when required configuration is absent", () => {
     expect(() => parseServiceConfig({})).toThrow();
   });
@@ -81,39 +76,6 @@ describe("parseServiceConfig", () => {
     expect(parsed.session_trust_artifact_path).toBe("/var/lib/camacho-pos/security/session-trust.json");
   });
 
-  it("accepts the authenticated central trust distribution configuration", () => {
-    const parsed = parseServiceConfig({
-      ...valid,
-      POS_CENTRAL_BASE_URL: "https://api.camachopos.co",
-      POS_SESSION_TRUST_ENVIRONMENT: "production",
-      POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
-      POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE: "/var/lib/camacho-pos/security/session-trust-token",
-    });
-    expect(parsed.session_trust_transport_token_file).toBe("/var/lib/camacho-pos/security/session-trust-token");
-  });
-
-  it("requires central HTTPS and a root trust anchor for remote trust distribution", () => {
-    expect(() => parseServiceConfig({
-      ...valid,
-      POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE: "/var/lib/camacho-pos/security/session-trust-token",
-    })).toThrow("session trust transport token requires POS_CENTRAL_BASE_URL");
-    expect(() => parseServiceConfig({
-      ...valid,
-      POS_CENTRAL_BASE_URL: "https://api.camachopos.co",
-      POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE: "/var/lib/camacho-pos/security/session-trust-token",
-    })).toThrow("central session trust distribution requires the configured root public key and environment");
-  });
-
-  it("rejects a relative session trust transport token path", () => {
-    expect(() => parseServiceConfig({
-      ...valid,
-      POS_CENTRAL_BASE_URL: "https://api.camachopos.co",
-      POS_SESSION_TRUST_ENVIRONMENT: "production",
-      POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
-      POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE: "./token",
-    })).toThrow("session trust transport token file path must be absolute");
-  });
-
   it("rejects a relative session trust artifact path", () => {
     expect(() => parseServiceConfig({
       ...valid,
@@ -121,29 +83,5 @@ describe("parseServiceConfig", () => {
       POS_SESSION_TRUST_ROOT_PUBLIC_KEY_PEM: rootPublicKeyPem,
       POS_SESSION_TRUST_ARTIFACT_PATH: "./session-trust.json",
     })).toThrow("session trust artifact path must be absolute");
-  });
-});
-
-it("recognizes the SCM handoff consumed by main and requires an absolute managed path",()=>{
-  expect(parseServiceConfig(valid).windows_scm_handoff_file).toBeUndefined();
-  const file=valid.POS_DATA_DIRECTORY+"/service-provision.json";
-  expect(parseServiceConfig({...valid,POS_WINDOWS_SCM_HANDOFF_FILE:file}).windows_scm_handoff_file).toBe(file);
-  expect(()=>parseServiceConfig({...valid,POS_WINDOWS_SCM_HANDOFF_FILE:"relative.json"})).toThrow();
-  expect(()=>parseServiceConfig({...valid,POS_WINDOWS_SCM_HANDOFF_FILE:""})).toThrow();
-});
-
-
-describe("local operator development boundary", () => {
-  it.each(["production", "test", undefined])("rejects local credentials in NODE_ENV=%s", mode => {
-    expect(()=>parseServiceConfig({...valid,NODE_ENV:mode,
-      POS_LOCAL_OPERATOR_AUTH_STORE:valid.POS_DATA_DIRECTORY+"/accounts.json"}))
-      .toThrow("LOCAL_OPERATOR_AUTH_DEVELOPMENT_ONLY");
-  });
-  it("accepts explicit development credentials without adding commercial trust", () => {
-    const parsed=parseServiceConfig({...valid,NODE_ENV:"development",
-      POS_LOCAL_OPERATOR_AUTH_STORE:valid.POS_DATA_DIRECTORY+"/accounts.json"});
-    expect(parsed.local_operator_auth_store).toBe(valid.POS_DATA_DIRECTORY+"/accounts.json");
-    expect(parsed.authorization_trust_provision_file).toBeUndefined();
-    expect(parsed.windows_commercial_provision_file).toBeUndefined();
   });
 });

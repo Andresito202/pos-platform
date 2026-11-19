@@ -9,7 +9,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const entry = join(here, "smoke-entry.mjs");
 
 /**
- * Electron ya está instalado como dependencia del proyecto (44.1.1). Sin
+ * Electron ya está instalado como dependencia del proyecto. Sin
  * `executablePath`, Playwright intenta descargar su propia copia y la descarga
  * falla tras el proxy del entorno: se apunta al binario que el repositorio ya
  * fija, que además es el que se empaquetará.
@@ -25,10 +25,16 @@ test.beforeAll(async () => {
   // seguridad de la aplicación: `WINDOW_SECURITY_CONFIG` —`contextIsolation`,
   // `nodeIntegration` desactivada, `sandbox` del renderer— no se toca, y la
   // última prueba de este archivo lo comprueba sobre la ventana real.
+  // Strip ELECTRON_RUN_AS_NODE (tip #106): Playwright may set it and Electron
+  // then runs as Node without opening a BrowserWindow.
   const env = Object.fromEntries(Object.entries(process.env).filter(
     (entry): entry is [string, string] => entry[1] !== undefined && entry[0] !== "ELECTRON_RUN_AS_NODE",
   ));
-  app = await electron.launch({ args: [...(process.platform === "linux" ? ["--no-sandbox"] : []), entry], executablePath, env });
+  app = await electron.launch({
+    args: [...(process.platform === "linux" ? ["--no-sandbox"] : []), entry],
+    executablePath,
+    env,
+  });
 });
 
 test.afterAll(async () => {
@@ -42,6 +48,8 @@ test("el proceso principal compilado arranca y abre una ventana", async () => {
 
 test("el renderer compilado monta la aplicación", async () => {
   const window = await app.firstWindow();
+  // Auth entry gate recovered from baseline: brand eyebrow + login heading.
+  await expect(window.getByText("CAMACHO POS COLOMBIA")).toBeVisible();
   await expect(window.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
 });
 
@@ -49,7 +57,6 @@ test("sin autorización válida no monta la superficie comercial", async () => {
   const window = await app.firstWindow();
   await expect(window.getByTestId("authorization-error")).toBeVisible();
   await expect(window.getByTestId("sale-panel")).toHaveCount(0);
-  await expect(window.locator(".pos-nav")).toHaveCount(0);
 });
 
 test("el preload expone window.posService con la superficie completa", async () => {

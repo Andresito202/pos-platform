@@ -1,20 +1,18 @@
-import { WaitingCartResultSchema, type WaitingCart } from "@pos-platform/contracts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type {
   CashShiftCloseResult,
   CashShiftOpenResult,
   PaymentGetResult,
   PaymentRegisterTransferResult,
   PaymentTransferConfirmResult,
-  PaymentCancelResult,
-  CatalogItemResult,
-  CatalogItemListItem,
-  PaymentRegisterCashResult,
   PaymentFactusPayCollectResult,
   PaymentFactusPayVerifyResult,
+  PaymentFactusPayResumeResult,
+  CatalogItemResult,
+  PaymentRegisterCashResult,
   SaleCreateResult,
 } from "@pos-platform/contracts";
-import { buildEnvelope, callCommercial, getPosService, newIdempotencyKey, type CommercialEnvelope, type CommercialResponse } from "../pos-service.js";
+import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 import { playConfirmationChime, shouldPlayChime } from "../confirmation-sound.js";
 import { toScale6 } from "../scale6.js";
 
@@ -27,9 +25,6 @@ export interface CartLine {
   readonly priceAmount: string;
   readonly currencyCode: string;
   readonly quantity: string;
-  readonly identifier: string;
-  /** Optional pharmacy prescription binding for restricted dispensation. */
-  readonly pharmacyPrescriptionId?: string | null | undefined;
 }
 
 export interface OpenShift {
@@ -54,21 +49,20 @@ export interface OpenShift {
  */
 export interface RegisteredTransfer {
   readonly paymentId: string;
-  readonly saleId: string | null;
-  readonly version: number | null;
+  readonly version: number;
   /** Estado real del pago según el servicio, no según la interfaz. */
-  readonly status: string | null;
-  readonly expectedAmount: string | null;
+  readonly status: string;
+  readonly expectedAmount: string;
 }
 
 export interface RegisteredFactusPay {
   readonly paymentId: string;
-  readonly saleId: string | null;
-  readonly version: number | null;
-  readonly status: string | null;
-  readonly expectedAmount: string | null;
-  readonly referenceCode: string | null;
+  readonly version: number;
+  readonly status: string;
+  readonly expectedAmount: string;
+  readonly referenceCode: string;
   readonly qr: string | null;
+  readonly providerStatus: string | null;
 }
 
 export interface CommercialSaleState {
@@ -76,10 +70,6 @@ export interface CommercialSaleState {
   readonly error: string | null;
   readonly shift: OpenShift | null;
   readonly foundItem: CatalogItemResult | null;
-  readonly catalogItems: readonly CatalogItemListItem[];
-  readonly catalogHasMore: boolean;
-  /** Carga del catálogo, independiente de las operaciones de caja/venta. */
-  readonly catalogBusy: boolean;
   readonly lines: readonly CartLine[];
   readonly sale: { readonly saleId: string; readonly payableAmount: string } | null;
   readonly payment: PaymentRegisterCashResult | null;
@@ -123,104 +113,25 @@ function operationTime(now: Date): {
  * `caja → CashShift → cash_shift_id` vive en `CreateSaleUseCase` (`DEC-012`
  * §25.2). El renderer no conoce esa regla y no debe conocerla.
  */
-export function useCommercialSale({ canReadCatalog, canReadPayment }: {
-  canReadCatalog: boolean;
-  canReadPayment: boolean;
-}): CommercialSaleState & {
-  waitingCarts: readonly WaitingCart[];
-  customerId: string | null;
-  selectCustomer(customerId: string | null): void;
-  waitingLabel: string;
-  setWaitingLabel(value: string): void;
-  listWaiting(): Promise<void>;
-  holdCart(): Promise<void>;
-  resumeCart(cart: WaitingCart): Promise<void>;
-  discardWaiting(cart: WaitingCart): Promise<void>;
+export function useCommercialSale(): CommercialSaleState & {
   openShift(cashRegisterId: string, openingAmount: string): Promise<void>;
-  listCatalogItems(query?: string, offset?: number): Promise<void>;
-  addCatalogItem(item: CatalogItemListItem, quantity: string, pharmacyPrescriptionId?: string | null): void;
   findItem(barcode: string): Promise<void>;
-  addFoundItem(quantity: string, pharmacyPrescriptionId?: string | null): void;
-  removeLine(index: number): void;
+  addFoundItem(quantity: string): void;
+  captureWeight(): Promise<void>;
   createSale(): Promise<void>;
-  chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
-  registerTransfer(paymentAmount?: string, provider?: "NEQUI" | "DAVIPLATA" | null): Promise<void>;
+  chargeCash(): Promise<void>;
+  registerTransfer(): Promise<void>;
   confirmTransfer(): Promise<void>;
-  loadTransfer(paymentId: string): Promise<void>;
-  cancelTransfer(): Promise<void>;
-  collectFactusPay(paymentAmount?: string): Promise<void>;
+  collectFactusPay(): Promise<void>;
   verifyFactusPay(): Promise<void>;
-  loadFactusPay(paymentId: string): Promise<void>;
-  unresolved: boolean;
-  retryPending(): Promise<void>;
+  resumeFactusPay(): Promise<void>;
   closeShift(countedAmount: string): Promise<void>;
-  reset(): boolean;
+  reset(): void;
 } {
-  const [waitingCarts,setWaitingCarts]=useState<WaitingCart[]>([]);
-  const [customerId,setCustomerId]=useState<string|null>(null);
-  const [waitingLabel,setWaitingLabel]=useState("");
-  const [activeWaiting,setActiveWaiting]=useState<WaitingCart|null>(null);
   const [busy, setBusy] = useState(false);
-  const busyRef = useRef(false);
-  const applyMutation = useRef<(result: unknown) => void>(() => undefined);
-  const [unresolved, setUnresolved] = useState(false);
-  const pendingMutation = useRef<{
-    signature: string;
-    uncertain: boolean;
-    messageType: Parameters<typeof buildEnvelope>[0];
-    request: CommercialEnvelope;
-    apply: (result: unknown) => void;
-  } | null>(null);
-  const sendMutation = useCallback(async <T,>(pending: NonNullable<typeof pendingMutation.current>): Promise<CommercialResponse<T>> => {
-    try {
-      const response = await getPosService()[pending.messageType](pending.request) as CommercialResponse<T>;
-      if(pending.messageType === "cart.waiting.save" && response.status === "SUCCEEDED") {
-        const parsed=WaitingCartResultSchema.safeParse(response.result);
-        const request=pending.request.payload as {cart_id:string;expected_version:number};
-        if(!parsed.success || parsed.data.outcome!=="SAVED" || response.result_code!=="SAVED" ||
-          parsed.data.carts[0]?.id!==request.cart_id || parsed.data.carts[0].version!==request.expected_version+1) {
-          pending.uncertain=true;throw new Error("WAITING_CART_RESPONSE_INVALID");
-        }
-      }
-      // A rejection now says nothing about an earlier transmission whose
-      // response was lost. Keep that original identity until recovered.
-      const confirmed = response.status === "SUCCEEDED" && response.result !== null;
-      const initialRejection = response.status === "REJECTED" && !pending.uncertain;
-      if (confirmed || initialRejection) {
-        pendingMutation.current = null;
-        setUnresolved(false);
-      } else {
-        pending.uncertain = true;
-        setUnresolved(true);
-      }
-      return response;
-    } catch (error) {
-      pending.uncertain = true;
-      setUnresolved(true);
-      throw error;
-    }
-  }, []);
-  // A lost response does not authorize a new financial operation. Retain the
-  // original envelope until the service returns a definitive outcome.
-  const callMutation = useCallback(async <T,>(
-    messageType: Parameters<typeof buildEnvelope>[0], payload: unknown,
-  ): Promise<CommercialResponse<T>> => {
-    const signature = JSON.stringify({ messageType, payload });
-    if (pendingMutation.current !== null && pendingMutation.current.signature !== signature) {
-      throw new Error("OPERATION_OUTCOME_UNRESOLVED");
-    }
-    // Do not mark unresolved during a normal in-flight send; busy covers that.
-    // unresolved is reserved for lost/non-conclusive responses that need retry.
-    pendingMutation.current ??= { signature, uncertain: false, messageType, request: buildEnvelope(messageType, payload, newIdempotencyKey()), apply: applyMutation.current };
-    return sendMutation<T>(pendingMutation.current);
-  }, [sendMutation]);
-
   const [error, setError] = useState<string | null>(null);
   const [shift, setShift] = useState<OpenShift | null>(null);
   const [foundItem, setFoundItem] = useState<CatalogItemResult | null>(null);
-  const [catalogItems, setCatalogItems] = useState<readonly CatalogItemListItem[]>([]);
-  const [catalogHasMore, setCatalogHasMore] = useState(false);
-  const [catalogBusy, setCatalogBusy] = useState(false);
   const [lines, setLines] = useState<readonly CartLine[]>([]);
   const [sale, setSale] = useState<{ saleId: string; payableAmount: string } | null>(null);
   const [payment, setPayment] = useState<PaymentRegisterCashResult | null>(null);
@@ -240,11 +151,8 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
   const run = useCallback(async <T,>(
     work: () => Promise<{ status: string; result_code: string; result: T | null }>,
     onSuccess: (result: T) => void,
-    trackOperationBusy = true,
   ): Promise<void> => {
-    if (trackOperationBusy && busyRef.current) return;
-    if (trackOperationBusy) { busyRef.current = true; setBusy(true); }
-    applyMutation.current = (result) => onSuccess(result as T);
+    setBusy(true);
     setError(null);
     try {
       const response = await work();
@@ -256,45 +164,25 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
-      if (trackOperationBusy) { busyRef.current = false; setBusy(false); }
+      setBusy(false);
     }
   }, []);
-
-  useEffect(() => {
-    if (!unresolved) return;
-    const preventLoss = (event: BeforeUnloadEvent) => {
-      if (pendingMutation.current === null) return;
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", preventLoss);
-    return () => window.removeEventListener("beforeunload", preventLoss);
-  }, [unresolved]);
-
-  const retryPending = useCallback(async (): Promise<void> => {
-    const pending = pendingMutation.current;
-    if (pending === null) return;
-    await run(() => sendMutation<unknown>(pending), pending.apply);
-  }, [run, sendMutation]);
 
   const openShift = useCallback(async (
     cashRegisterId: string,
     openingAmount: string,
   ): Promise<void> => {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cashRegisterId)) {
-      setError("INVALID_CASH_REGISTER"); return;
-    }
     const opening = toScale6(openingAmount);
     if (opening === null) {
       setError("INVALID_OPENING_AMOUNT");
       return;
     }
     await run<CashShiftOpenResult>(
-      () => callMutation("cash.shift.open", {
+      () => callCommercial("cash.shift.open", {
         cash_register_id: cashRegisterId,
         opening_amount: opening,
         ...operationTime(new Date()),
-      }),
+      }, newIdempotencyKey()),
       (result) => {
         if (result.shift_id === null || result.version === null) {
           setError(result.outcome);
@@ -303,53 +191,7 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
         setShift({ shiftId: result.shift_id, cashRegisterId, version: result.version });
       },
     );
-  }, [run, callMutation]);
-
-  const listCatalogItems = useCallback(async (query = "", offset = 0): Promise<void> => {
-    setCatalogBusy(true);
-    try {
-      await run<{ outcome: "FOUND" | "UNAUTHORIZED"; items: CatalogItemListItem[]; has_more: boolean }>(
-        () => callCommercial("catalog.item.list", { query, limit: 24, offset }),
-        (result) => {
-          if (result.outcome !== "FOUND") {
-            setError(result.outcome);
-            return;
-          }
-          setCatalogItems((current) => offset === 0 ? result.items : [...current, ...result.items]);
-          setCatalogHasMore(result.has_more);
-        },
-        false,
-      );
-    } finally {
-      setCatalogBusy(false);
-    }
-  }, [run, callMutation]);
-
-  useEffect(() => {
-    if (canReadCatalog) void listCatalogItems();
-  }, [canReadCatalog, listCatalogItems]);
-
-  const addCatalogItem = useCallback((item: CatalogItemListItem, quantity: string, pharmacyPrescriptionId?: string | null): void => {
-    if (busyRef.current || sale !== null || pendingMutation.current !== null) return;
-    const canonical = toScale6(quantity);
-    if (canonical === null || canonical === "0.000000") {
-      setError("INVALID_QUANTITY");
-      return;
-    }
-    setLines((current) => [...current, {
-      productId: item.product_id,
-      presentationId: item.presentation_id,
-      name: item.name,
-      presentationName: item.presentation_name,
-      priceAmount: item.price_amount,
-      currencyCode: item.currency_code,
-      quantity: canonical,
-      identifier: item.code,
-      ...(pharmacyPrescriptionId
-        ? { pharmacyPrescriptionId }
-        : {}),
-    }]);
-  }, [sale]);
+  }, [run]);
 
   const findItem = useCallback(async (barcode: string): Promise<void> => {
     setFoundItem(null);
@@ -363,42 +205,58 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
         setFoundItem(result);
       },
     );
-  }, [run, callMutation]);
+  }, [run]);
 
-  const addFoundItem = useCallback((quantity: string, pharmacyPrescriptionId?: string | null): void => {
-    if (busyRef.current || pendingMutation.current !== null) return;
+  const addFoundItem = useCallback((quantity: string): void => {
     const canonical = toScale6(quantity);
-    if (canonical === null || canonical === "0.000000") {
+    if (canonical === null) {
       setError("INVALID_QUANTITY");
       return;
     }
-    const item = foundItem;
-    if (sale !== null || item?.product_id == null || item.presentation_id === null || item.price_amount === null || item.currency_code === null || item.barcode === null) return;
-    setLines((current) => [...current, {
-      productId: item.product_id!, presentationId: item.presentation_id!, name: item.name ?? "",
-      presentationName: item.presentation_name ?? "", priceAmount: item.price_amount!, currencyCode: item.currency_code!, quantity: canonical,
-      identifier: item.barcode!,
-      ...(pharmacyPrescriptionId
-        ? { pharmacyPrescriptionId }
-        : {}),
-    }]);
-    setFoundItem(null);
-  }, [foundItem, sale]);
+    setFoundItem((item) => {
+      if (
+        item === null
+        || item.product_id === null
+        || item.presentation_id === null
+        || item.price_amount === null
+        || item.currency_code === null
+      ) return item;
+      setLines((current) => [...current, {
+        productId: item.product_id as string,
+        presentationId: item.presentation_id as string,
+        name: item.name ?? "",
+        presentationName: item.presentation_name ?? "",
+        priceAmount: item.price_amount as string,
+        currencyCode: item.currency_code as string,
+        quantity: canonical,
+      }]);
+      return null;
+    });
+  }, []);
 
-  const removeLine = useCallback((index: number): void => {
-    if (busyRef.current || sale !== null || pendingMutation.current !== null) return;
-    setLines((current) => current.filter((_, position) => position !== index));
-  }, [sale]);
+  const captureWeight = useCallback(async (): Promise<void> => {
+    const item = foundItem;
+    if (busy || sale !== null || !shift || !item?.presentation_id || !item.product_id ||
+        (item.unit_code !== "KGM" && item.unit_code !== "GRM")) return;
+    await run<{kind:string;data:{quantity:string;presentation_id:string}|null}>(
+      () => callCommercial("hardware.command",{action:"capture_weight",cash_register_id:shift.cashRegisterId,presentation_id:item.presentation_id}),
+      result => {
+        if(result.kind !== "WEIGHT_CAPTURED" || result.data?.presentation_id !== item.presentation_id) {
+          setError("SCALE_CAPTURE_INVALID"); return;
+        }
+        addFoundItem(result.data.quantity);
+      },
+    );
+  }, [busy, sale, shift, foundItem, run, addFoundItem]);
 
   const createSale = useCallback(async (): Promise<void> => {
     if (lines.length === 0) return;
     const currency = lines[0]!.currencyCode;
     await run<SaleCreateResult>(
-      () => callMutation("sale.create", {
-        // The service requires a real OPEN shift before creating the sale.
+      () => callCommercial("sale.create", {
+        // El único selector del turno. `null` si no hay caja abierta: la venta
+        // se crea igual, con el par en `NULL`, y el efectivo la rechazará.
         cash_register_id: shift?.cashRegisterId ?? null,
-        ...(customerId ? {customer_id:customerId}:{}),
-        ...(activeWaiting ? {waiting_cart:{id:activeWaiting.id,version:activeWaiting.version}}:{}),
         channel: "POS",
         document_series: "POS1",
         currency_code: currency,
@@ -406,58 +264,35 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
           product_id: line.productId,
           presentation_id: line.presentationId,
           quantity: line.quantity,
-          identifier: line.identifier,
-          ...(line.pharmacyPrescriptionId
-            ? { pharmacy_prescription_id: line.pharmacyPrescriptionId }
-            : {}),
         })),
         ...operationTime(new Date()),
-      }),
+      }, newIdempotencyKey()),
       (result) => {
         if (result.sale_id === null || result.payable_amount === null) {
           setError(result.outcome);
           return;
         }
         setSale({ saleId: result.sale_id, payableAmount: result.payable_amount });
-        if (activeWaiting) {
-          setWaitingCarts((current) => current.filter((cart) => cart.id !== activeWaiting.id));
-          setActiveWaiting(null);
-        }
       },
     );
-  }, [lines, shift, activeWaiting, customerId, run, callMutation]);
+  }, [lines, shift, run]);
 
-  const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
+  const chargeCash = useCallback(async (): Promise<void> => {
     const current = sale;
     if (current === null) return;
-    const priorCoverage = payment?.confirmed_coverage;
-    const hasPriorCoverage = priorCoverage !== null && priorCoverage !== undefined
-      && priorCoverage !== "0.000000" && payment?.sale_completed !== true;
-    // After a partial, never default to the full payable — that triggers OVERPAYMENT.
-    if (hasPriorCoverage && (paymentAmount === undefined || paymentAmount.trim() === "")) {
-      setError("PAYMENT_AMOUNT_REQUIRED");
-      return;
-    }
-    const amount = toScale6(paymentAmount ?? current.payableAmount);
-    if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
-    const tendered = toScale6(tenderedAmount ?? amount);
-    if (tendered === null) {
-      setError("INVALID_TENDERED_AMOUNT");
-      return;
-    }
     await run<PaymentRegisterCashResult>(
-      () => callMutation("payment.register.cash", {
+      () => callCommercial("payment.register.cash", {
         sale_id: current.saleId,
-        // El importe de la venta sigue siendo autoridad del servicio; el cajero aporta cuánto efectivo recibió.
-        amount,
-        tendered_amount: tendered,
-      }),
+        // Se cobra exactamente el importe que emitió la capa confiable.
+        amount: current.payableAmount,
+        tendered_amount: current.payableAmount,
+      }, newIdempotencyKey()),
       (result) => {
         setPayment(result);
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [sale, payment, run, callMutation]);
+  }, [sale, run]);
 
   /**
    * Cerrar el turno con el efectivo contado.
@@ -480,18 +315,18 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
       return;
     }
     await run<CashShiftCloseResult>(
-      () => callMutation("cash.shift.close", {
+      () => callCommercial("cash.shift.close", {
         shift_id: current.shiftId,
         counted_amount: counted,
         expected_version: current.version,
-      }),
+      }, newIdempotencyKey()),
       (result) => {
         setClosedShift(result);
         // El turno deja de estar abierto sólo si el servicio lo cerró de verdad.
         if (result.outcome === "CLOSED") setShift(null);
       },
     );
-  }, [shift, run, callMutation]);
+  }, [shift, run]);
 
   /**
    * Reportar una transferencia — `UC-PAY-002`.
@@ -506,63 +341,54 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
    * fuente de `version`, que la confirmación exigirá. También en `IDEMPOTENT`,
    * donde el pago ya existía y su versión puede ser cualquiera.
    *
-   * El medio seleccionado viaja como metadata NEQUI/DAVIPLATA o null.
-   * Identifica lo reportado; no constituye confirmación del proveedor.
+   * `provider_code` y `provider_reference` viajan nulos porque el contrato los
+   * admite nulos y la pantalla todavía no los pide. Inventar campos que el
+   * contrato no define sería fabricar datos de un comprobante.
    */
-  const loadTransfer = useCallback(async (paymentId: string): Promise<void> => {
-    if (!canReadPayment) return;
-    setTransfer(null);
-    setTransferConfirmation(null);
-    await run<PaymentGetResult>(
-      () => callCommercial("payment.get", { payment_id: paymentId }),
-      (result) => {
-        if (result.outcome !== "FOUND" || result.payment_id === null || result.method !== "TRANSFER") {
-          setError(result.outcome === "FOUND" ? "PAYMENT_NOT_TRANSFER" : result.outcome);
-          return;
-        }
-        setTransfer({ paymentId: result.payment_id, saleId: result.sale_id, version: result.version, status: result.status, expectedAmount: result.expected_amount });
-      },
-    );
-  }, [canReadPayment, run]);
-
-  const registerTransfer = useCallback(async (paymentAmount?: string, provider: "NEQUI" | "DAVIPLATA" | null = null): Promise<void> => {
+  const registerTransfer = useCallback(async (): Promise<void> => {
     const current = sale;
     if (current === null) return;
-    const priorCoverage = payment?.confirmed_coverage
-      ?? (transferConfirmation?.sale_completed === true ? null : transferConfirmation?.confirmed_coverage);
-    const hasPriorCoverage = priorCoverage !== null && priorCoverage !== undefined
-      && priorCoverage !== "0.000000"
-      && payment?.sale_completed !== true
-      && transferConfirmation?.sale_completed !== true;
-    if (hasPriorCoverage && (paymentAmount === undefined || paymentAmount.trim() === "")) {
-      setError("PAYMENT_AMOUNT_REQUIRED");
-      return;
-    }
-    const amount = toScale6(paymentAmount ?? current.payableAmount);
-    if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
     setTransferConfirmation(null);
 
     let registeredId: string | null = null;
     await run<PaymentRegisterTransferResult>(
-      () => callMutation("payment.register.transfer", {
+      () => callCommercial("payment.register.transfer", {
         sale_id: current.saleId,
-        amount,
-        provider_code: provider,
+        amount: current.payableAmount,
+        provider_code: null,
         provider_reference: null,
-      }),
+      }, newIdempotencyKey()),
       (result) => {
         if (result.payment_id === null) {
           setError(result.outcome);
           return;
         }
         registeredId = result.payment_id;
-        setTransfer({ paymentId: result.payment_id, saleId: current.saleId, version: null, status: null, expectedAmount: null });
       },
     );
     if (registeredId === null) return;
 
-    await loadTransfer(registeredId);
-  }, [sale, payment, transferConfirmation, run, loadTransfer, callMutation]);
+    await run<PaymentGetResult>(
+      () => callCommercial("payment.get", { payment_id: registeredId }),
+      (result) => {
+        if (
+          result.payment_id === null
+          || result.version === null
+          || result.status === null
+          || result.expected_amount === null
+        ) {
+          setError(result.outcome);
+          return;
+        }
+        setTransfer({
+          paymentId: result.payment_id,
+          version: result.version,
+          status: result.status,
+          expectedAmount: result.expected_amount,
+        });
+      },
+    );
+  }, [sale, run]);
 
   /**
    * Atestiguar la transferencia — `UC-PAY-003`.
@@ -579,210 +405,124 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
    */
   const confirmTransfer = useCallback(async (): Promise<void> => {
     const current = transfer;
-    if (current === null || current.version === null) return;
+    if (current === null) return;
     await run<PaymentTransferConfirmResult>(
-      () => callMutation("payment.transfer.confirm", {
+      () => callCommercial("payment.transfer.confirm", {
         payment_id: current.paymentId,
         expected_version: current.version,
-      }),
+      }, newIdempotencyKey()),
       (result) => {
         setTransferConfirmation(result);
-        if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") {
-          setTransfer((value) => value?.paymentId === current.paymentId ? { ...value, status: "CONFIRMED", version: null } : value);
-        }
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [transfer, run, callMutation]);
+  }, [transfer, run]);
 
-  const loadFactusPay = useCallback(async (paymentId: string): Promise<void> => {
-    if (!canReadPayment) return;
-    setFactusPay(null);
-    setFactusPayConfirmation(null);
-    await run<PaymentGetResult>(
-      () => callCommercial("payment.get", { payment_id: paymentId }),
-      (result) => {
-        if (result.outcome !== "FOUND" || result.payment_id === null || result.method !== "QR") {
-          setError(result.outcome === "FOUND" ? "PAYMENT_NOT_FACTUS_PAY" : result.outcome);
-          return;
-        }
-        setFactusPay({
-          paymentId: result.payment_id,
-          saleId: result.sale_id,
-          version: result.version,
-          status: result.status,
-          expectedAmount: result.expected_amount,
-          referenceCode: null,
-          qr: null,
-        });
-      },
-    );
-  }, [canReadPayment, run]);
-
-  const collectFactusPay = useCallback(async (paymentAmount?: string): Promise<void> => {
+  /**
+   * FACTUS Pay — Generar QR. No cobra la venta; sólo crea cobro pendiente
+   * tras respuesta del proveedor. Verificar exige GET al proveedor con estado paid.
+   */
+  const collectFactusPay = useCallback(async (): Promise<void> => {
     const current = sale;
     if (current === null) return;
-    const priorCoverage = payment?.confirmed_coverage
-      ?? (transferConfirmation?.sale_completed === true ? null : transferConfirmation?.confirmed_coverage)
-      ?? (factusPayConfirmation?.sale_completed === true ? null : factusPayConfirmation?.confirmed_coverage);
-    const hasPriorCoverage = priorCoverage !== null && priorCoverage !== undefined
-      && priorCoverage !== "0.000000"
-      && payment?.sale_completed !== true
-      && transferConfirmation?.sale_completed !== true
-      && factusPayConfirmation?.sale_completed !== true;
-    if (hasPriorCoverage && (paymentAmount === undefined || paymentAmount.trim() === "")) {
-      setError("PAYMENT_AMOUNT_REQUIRED");
-      return;
-    }
-    const amount = toScale6(paymentAmount ?? current.payableAmount);
-    if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
     setFactusPayConfirmation(null);
-
     let registeredId: string | null = null;
-    let referenceCode: string | null = null;
-    let qr: string | null = null;
+    let collectQr: string | null = null;
+    let collectReference: string | null = null;
+    let collectStatus: string | null = null;
     await run<PaymentFactusPayCollectResult>(
-      () => callMutation("payment.factus_pay.collect", {
+      () => callCommercial("payment.factus_pay.collect", {
         sale_id: current.saleId,
-        amount,
+        amount: current.payableAmount,
         expiration_seconds: 900,
-      }),
+      }, newIdempotencyKey()),
       (result) => {
         if (result.payment_id === null) {
           setError(result.outcome);
           return;
         }
         registeredId = result.payment_id;
-        referenceCode = result.reference_code;
-        qr = result.qr;
-        setFactusPay({
-          paymentId: result.payment_id,
-          saleId: current.saleId,
-          version: null,
-          status: null,
-          expectedAmount: null,
-          referenceCode: result.reference_code,
-          qr: result.qr,
-        });
+        collectQr = result.qr;
+        collectReference = result.reference_code;
+        collectStatus = result.provider_status;
       },
     );
     if (registeredId === null) return;
-    await loadFactusPay(registeredId);
-    setFactusPay((value) => value?.paymentId === registeredId
-      ? { ...value, referenceCode, qr }
-      : value);
-  }, [sale, payment, transferConfirmation, factusPayConfirmation, run, loadFactusPay, callMutation]);
+
+    await run<PaymentGetResult>(
+      () => callCommercial("payment.get", { payment_id: registeredId }),
+      (result) => {
+        if (
+          result.payment_id === null
+          || result.version === null
+          || result.status === null
+          || result.expected_amount === null
+        ) {
+          setError(result.outcome);
+          return;
+        }
+        setFactusPay({
+          paymentId: result.payment_id,
+          version: result.version,
+          status: result.status,
+          expectedAmount: result.expected_amount,
+          referenceCode: collectReference ?? "",
+          qr: collectQr,
+          providerStatus: collectStatus,
+        });
+      },
+    );
+  }, [sale, run]);
 
   const verifyFactusPay = useCallback(async (): Promise<void> => {
     const current = factusPay;
-    if (current === null || current.version === null) return;
+    if (current === null) return;
     await run<PaymentFactusPayVerifyResult>(
-      () => callMutation("payment.factus_pay.verify", {
+      () => callCommercial("payment.factus_pay.verify", {
         payment_id: current.paymentId,
         expected_version: current.version,
-      }),
+      }, newIdempotencyKey()),
       (result) => {
         setFactusPayConfirmation(result);
-        if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") {
-          setFactusPay((value) => value?.paymentId === current.paymentId
-            ? { ...value, status: "CONFIRMED", version: null }
-            : value);
-        }
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [factusPay, run, callMutation]);
+  }, [factusPay, run]);
 
-  const cancelTransfer = useCallback(async (): Promise<void> => {
-    const current = transfer;
-    if (current === null || current.version === null) return;
-    let cancelled = false;
-    await run<PaymentCancelResult>(
-      () => callMutation("payment.cancel", { payment_id: current.paymentId, expected_version: current.version }),
+  /** After POS restart: recover durable pending FACTUS Pay for the open sale. */
+  const resumeFactusPay = useCallback(async (): Promise<void> => {
+    const current = sale;
+    if (current === null) return;
+    setFactusPayConfirmation(null);
+    await run<PaymentFactusPayResumeResult>(
+      () => callCommercial("payment.factus_pay.resume", { sale_id: current.saleId }),
       (result) => {
-        cancelled = result.outcome === "CANCELLED" || result.outcome === "IDEMPOTENT";
-        if (!cancelled) setError(result.outcome);
-        else {
-          setTransfer((value) => value?.paymentId === current.paymentId ? { ...value, status: "CANCELLED", version: null } : value);
-          setTransferConfirmation(null);
+        if (
+          result.outcome !== "FOUND"
+          || result.payment_id === null
+          || result.version === null
+          || result.status === null
+          || result.expected_amount === null
+          || result.reference_code === null
+        ) {
+          setError(result.outcome);
+          return;
         }
+        setFactusPay({
+          paymentId: result.payment_id,
+          version: result.version,
+          status: result.status,
+          expectedAmount: result.expected_amount,
+          referenceCode: result.reference_code,
+          qr: result.qr,
+          providerStatus: result.provider_status,
+        });
       },
     );
-    if (cancelled) { setTransferConfirmation(null); await loadTransfer(current.paymentId); }
-  }, [transfer, run, loadTransfer, callMutation]);
+  }, [sale, run]);
 
-  const listWaiting = useCallback(async ():Promise<void> => {
-    // Read-only: must not take the mutation busy lock or it races Abrir turno / Cobrar.
-    await run(() => callCommercial("cart.waiting.list",{}), result => {
-      const parsed=WaitingCartResultSchema.safeParse(result);
-      if(!parsed.success || parsed.data.outcome!=="FOUND") {setError("WAITING_CART_RESPONSE_INVALID");return;}
-      setWaitingCarts(parsed.data.carts);
-    }, false);
-  },[run]);
-  const holdCart = useCallback(async ():Promise<void> => {
-    if(busyRef.current || pendingMutation.current || sale || !shift || lines.length===0) return;
-    const id=activeWaiting?.id ?? globalThis.crypto.randomUUID();
-    await run(() => callMutation("cart.waiting.save",{
-      cart_id:id,expected_version:activeWaiting?.version ?? 0,
-      cart:{label:waitingLabel,cash_register_id:shift.cashRegisterId,lines,...(customerId ? {customer_id:customerId}:{})},
-    }),result=>{
-      const parsed=WaitingCartResultSchema.safeParse(result);
-      if(!parsed.success || parsed.data.outcome!=="SAVED" || parsed.data.carts[0]?.id!==id) {setError("WAITING_CART_RESPONSE_INVALID");return;}
-      setLines([]);setFoundItem(null);setActiveWaiting(null);setWaitingLabel("");setCustomerId(null);
-      setWaitingCarts(current=>[...current.filter(c=>c.id!==id),parsed.data.carts[0]!]);
-    });
-  },[sale,shift,lines,activeWaiting,waitingLabel,customerId,run,callMutation]);
-  const resumeCart = useCallback(async (cart:WaitingCart):Promise<void>=>{
-    if(busyRef.current || pendingMutation.current || sale || lines.length>0) {setError("Guarda el carrito actual en espera antes de recuperar otro.");return;}
-    if(shift && shift.cashRegisterId!==cart.payload.cash_register_id) {setError("Abre la misma caja del carrito antes de recuperarlo.");return;}
-    await run(()=>callCommercial("cart.waiting.get",{cart_id:cart.id}),result=>{
-      const parsed=WaitingCartResultSchema.safeParse(result);
-      const found=parsed.success && parsed.data.outcome==="FOUND" ? parsed.data.carts[0]:undefined;
-      if(!found || found.id!==cart.id || found.payload.lines.length===0 || (shift && found.payload.cash_register_id!==shift.cashRegisterId)) {setError("WAITING_CART_NOT_FOUND");return;}
-      if(!shift) {
-        if(!found.active_shift) {setError("Abre la misma caja del carrito antes de recuperarlo.");return;}
-        setShift({shiftId:found.active_shift.shift_id,version:found.active_shift.version,cashRegisterId:found.payload.cash_register_id});
-      }
-      setLines(found.payload.lines.map((line) => ({
-        productId: line.productId,
-        presentationId: line.presentationId,
-        name: line.name,
-        presentationName: line.presentationName,
-        priceAmount: line.priceAmount,
-        currencyCode: line.currencyCode,
-        quantity: line.quantity,
-        identifier: line.identifier,
-        ...(line.pharmacyPrescriptionId
-          ? { pharmacyPrescriptionId: line.pharmacyPrescriptionId }
-          : {}),
-      })));
-      setActiveWaiting(found);setWaitingLabel(found.payload.label);setCustomerId(found.payload.customer_id ?? null);setError(null);
-    });
-  },[sale,lines,shift,run]);
-
-  const discardWaiting=useCallback(async (cart:WaitingCart):Promise<void>=>{
-    if(busyRef.current || pendingMutation.current || activeWaiting?.id===cart.id) return;
-    await run(()=>callMutation("cart.waiting.discard",{cart_id:cart.id,expected_version:cart.version}),result=>{
-      const parsed=WaitingCartResultSchema.safeParse(result);
-      if(!parsed.success || parsed.data.outcome!=="DISCARDED") {setError("WAITING_CART_RESPONSE_INVALID");return;}
-      setWaitingCarts(current=>current.filter(item=>item.id!==cart.id));
-    });
-  },[run,callMutation,activeWaiting]);
-
-  const reset = useCallback((): boolean => {
-    if (busyRef.current || pendingMutation.current !== null) { setError("OPERATION_OUTCOME_UNRESOLVED"); return false; }
-    // sale.cancel IPC is not materialized; abandoning READY_FOR_PAYMENT would
-    // leave inventory SALE holds. Block until the sale is completed or cancelled
-    // through an authorized path.
-    const saleCompleted = payment?.sale_completed === true
-      || transferConfirmation?.sale_completed === true
-      || factusPayConfirmation?.sale_completed === true;
-    if (sale !== null && !saleCompleted) {
-      setError("SALE_IN_PROGRESS_REQUIRES_COMPLETION");
-      return false;
-    }
+  const reset = useCallback((): void => {
     setLines([]);
-    setActiveWaiting(null);setWaitingLabel("");setCustomerId(null);
     setSale(null);
     setPayment(null);
     setFoundItem(null);
@@ -791,20 +531,13 @@ export function useCommercialSale({ canReadCatalog, canReadPayment }: {
     setFactusPay(null);
     setFactusPayConfirmation(null);
     setError(null);
-    return true;
-  }, [sale, payment, transferConfirmation, factusPayConfirmation]);
+  }, []);
 
   return {
-    customerId, selectCustomer: (id) => {
-      if (!busyRef.current && !pendingMutation.current && !sale) setCustomerId(id);
-    },
-    waitingCarts, waitingLabel, setWaitingLabel, listWaiting, holdCart, resumeCart, discardWaiting,
-    busy, error, shift, foundItem, catalogItems, catalogHasMore, catalogBusy, lines, sale, payment, closedShift,
-    transfer, transferConfirmation,
-    factusPay, factusPayConfirmation,
-    openShift, listCatalogItems, addCatalogItem, findItem, addFoundItem, removeLine, createSale, chargeCash,
-    registerTransfer, confirmTransfer, loadTransfer, cancelTransfer,
-    collectFactusPay, verifyFactusPay, loadFactusPay,
-    unresolved, retryPending, closeShift, reset,
+    busy, error, shift, foundItem, lines, sale, payment, closedShift,
+    transfer, transferConfirmation, factusPay, factusPayConfirmation,
+    openShift, findItem, addFoundItem, captureWeight, createSale, chargeCash,
+    registerTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
+    closeShift, reset,
   };
 }

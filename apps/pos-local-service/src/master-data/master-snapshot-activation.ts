@@ -28,18 +28,9 @@ import type {
  * sólo existe el puerto; no se provee un sustituto local, porque un sustituto
  * local sería una segunda autoridad.
  */
-export interface AcknowledgedFloorRequest {
-  /** La cota es independiente por instalación, no por dispositivo ni tenant. */
-  readonly installationId: string;
-  /** El contrato actual sólo autoriza CASH_REGISTER (DEC-012 §32). */
-  readonly snapshotType: "CASH_REGISTER";
-  /** Binding de dominio; no incluye identidad de instalación. */
-  readonly binding: MasterSnapshotScopeKey;
-}
-
 export interface AcknowledgedFloorSource {
   /** `null` cuando la central no tiene acuse registrado para este ámbito. */
-  floorFor(request: AcknowledgedFloorRequest): Promise<number | null>;
+  floorFor(scope: MasterSnapshotScopeKey): number | null;
 }
 
 /**
@@ -92,11 +83,11 @@ export class MasterSnapshotActivationService {
     private readonly observer?: MasterSnapshotObserver,
   ) {}
 
-  async accept(
+  accept(
     input: unknown,
     scope: MasterSnapshotScope,
     options: MasterSnapshotAcceptanceOptions = {},
-  ): Promise<MasterSnapshotAcceptanceOutcome> {
+  ): MasterSnapshotAcceptanceOutcome {
     const scopeKey: MasterSnapshotScopeKey = {
       tenantId: scope.tenantId,
       companyId: scope.companyId,
@@ -110,11 +101,7 @@ export class MasterSnapshotActivationService {
     // restauración silenciosa queda cubierta por construcción.
     let central: number | null;
     try {
-      central = await this.acknowledgedFloor.floorFor({
-        installationId: scope.installationId,
-        snapshotType: "CASH_REGISTER",
-        binding: scopeKey,
-      });
+      central = this.acknowledgedFloor.floorFor(scopeKey);
     } catch {
       // Sin cota central no se acepta nada. El estado restaurado local es sólo
       // una cota inferior candidata, y operar sin confirmarla permitiría

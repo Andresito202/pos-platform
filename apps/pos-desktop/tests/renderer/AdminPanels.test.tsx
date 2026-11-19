@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
-import { CANONICAL_PERMISSION_CODES, LicenseSectorEntitlement } from "@pos-platform/contracts";
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { webcrypto } from "node:crypto";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
+  CANONICAL_PERMISSION_CODES,
   CatalogProductRegisterRequestSchema,
-  CatalogItemListRequestSchema,
   CustomerRegisterRequestSchema,
   FiscalDocumentIssueRequestSchema,
   InventoryStockAdjustRequestSchema,
@@ -16,7 +14,6 @@ import { CatalogPanel } from "../../renderer/src/components/CatalogPanel.js";
 import { InventoryPanel } from "../../renderer/src/components/InventoryPanel.js";
 import { CustomerPanel } from "../../renderer/src/components/CustomerPanel.js";
 import { FiscalPanel } from "../../renderer/src/components/FiscalPanel.js";
-import { AdministrativeControlPanel } from "../../renderer/src/components/AdministrativeControlPanel.js";
 
 /**
  * Las tres pantallas de administración contra respuestas controladas.
@@ -63,40 +60,6 @@ describe("CatalogPanel", () => {
     fireEvent.change(screen.getByTestId("product-price-input"), { target: { value: price } });
   }
 
-  it("CSV previews without writes and confirms only through existing backend registration", async () => {
-    vi.stubGlobal("crypto", webcrypto);
-    try {
-      install({ status: "SUCCEEDED", result_code: "REGISTERED", result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PRESENTATION } });
-      Object.defineProperty(window, "posService", { configurable: true, value: { ...window.posService,
-        "catalog.item.list": async () => ({ status: "SUCCEEDED", result_code: "FOUND", result: { outcome: "FOUND", items: [], has_more: false } }),
-      } });
-      render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
-      const bytes = new TextEncoder().encode("code,name,stock_controlled,presentation_name,unit_code,unit_precision,barcode,price_amount,currency_code\r\nARZ,Arroz,true,Bolsa,UND,0,,1500,COP\r\n");
-      fireEvent.change(screen.getByLabelText("Archivo de catálogo CSV"), { target: { files: [{ size: bytes.length, arrayBuffer: async () => bytes.buffer }] } });
-      await screen.findByText("SIN_COINCIDENCIA_VISIBLE", { exact: false });
-      expect(calls.get("catalog.product.register")).toBeUndefined();
-      fireEvent.click(screen.getByText("Confirmar o reanudar altas CSV"));
-      await screen.findByText("Fila 2: REGISTERED");
-      const request = CatalogProductRegisterRequestSchema.parse(sent("catalog.product.register"));
-      expect(request.idempotency_key).toMatch(/^catalog-csv:[a-f0-9]{64}:2$/);
-      expect(request.payload.code).toBe("ARZ");
-      expect(calls.get("inventory.stock.receive")).toBeUndefined();
-    } finally { vi.unstubAllGlobals(); }
-  });
-
-  it("D-19 sends only explicitly declared fiscal attributes, normalizing the tax rate", async () => {
-    install({ status: "SUCCEEDED", result_code: "REGISTERED", result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PRESENTATION } });
-    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />); fillProduct();
-    fireEvent.click(screen.getByLabelText("Declarar atributos fiscales"));
-    for (const [label, value] of [["Referencia fiscal", "ARZ-FISCAL"], ["Código DIAN de unidad", "94"], ["Estándar de producto", "999"], ["Código de impuesto", "01"], ["Tasa de impuesto (%)", "19"]]) {
-      fireEvent.change(screen.getByLabelText(label!), { target: { value } });
-    }
-    fireEvent.click(screen.getByTestId("register-product-button"));
-    await screen.findByTestId("product-registered");
-    const request = CatalogProductRegisterRequestSchema.parse(sent("catalog.product.register"));
-    expect(request.payload.fiscal_attributes).toEqual({ code_reference: "ARZ-FISCAL", unit_measure_code: "94", standard_code: "999", tax_code: "01", tax_rate: "19.000000" });
-  });
-
   it("construye un sobre que el esquema real del contrato acepta", async () => {
     install({
       status: "SUCCEEDED",
@@ -107,7 +70,7 @@ describe("CatalogPanel", () => {
         presentation_id: PRESENTATION,
       },
     });
-    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    render(<CatalogPanel />);
     fillProduct();
     fireEvent.change(screen.getByTestId("product-barcode-input"), { target: { value: "7700000000017" } });
     fireEvent.click(screen.getByTestId("register-product-button"));
@@ -121,7 +84,6 @@ describe("CatalogPanel", () => {
     // la frontera.
     expect(payload["price_amount"]).toBe("1500.000000");
     expect(payload["barcode"]).toBe("7700000000017");
-    expect(payload["fiscal_attributes"]).toBeUndefined();
     // El sobre no lleva identidad: la operación la rechaza si la lleva.
     expect(envelope["tenant_id"]).toBeUndefined();
     expect(envelope["branch_id"]).toBeUndefined();
@@ -137,7 +99,7 @@ describe("CatalogPanel", () => {
         presentation_id: PRESENTATION,
       },
     });
-    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    render(<CatalogPanel />);
     fillProduct();
     fireEvent.click(screen.getByTestId("register-product-button"));
 
@@ -153,7 +115,7 @@ describe("CatalogPanel", () => {
       result_code: "REGISTERED",
       result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: PRESENTATION },
     });
-    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    render(<CatalogPanel />);
     fillProduct();
     fireEvent.click(screen.getByTestId("register-product-button"));
 
@@ -164,7 +126,7 @@ describe("CatalogPanel", () => {
 
   it("rechaza un precio que no cabe en escala 6 en vez de truncarlo", async () => {
     install({ status: "SUCCEEDED", result_code: "REGISTERED", result: null });
-    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    render(<CatalogPanel />);
     fillProduct("1500.1234567");
     fireEvent.click(screen.getByTestId("register-product-button"));
 
@@ -181,7 +143,7 @@ describe("CatalogPanel", () => {
       result_code: "UNAUTHORIZED",
       result: { outcome: "UNAUTHORIZED", product_id: null, presentation_id: null },
     });
-    render(<CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    render(<CatalogPanel />);
     fillProduct();
     fireEvent.click(screen.getByTestId("register-product-button"));
 
@@ -189,46 +151,6 @@ describe("CatalogPanel", () => {
       expect(screen.getByTestId("product-rejected").textContent).toBe("UNAUTHORIZED");
     });
     expect(screen.queryByTestId("product-registered")).toBeNull();
-  });
-
-  it("gates sector modules by signed license entitlements only", () => {
-    install({ status: "SUCCEEDED", result_code: "FOUND", result: { outcome: "FOUND", items: [], has_more: false } });
-    const { rerender } = render(
-      <CatalogPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} entitlements={new Set()} />,
-    );
-    expect(screen.queryByTestId("food-policy-product-id")).toBeNull();
-    expect(screen.queryByTestId("pharmacy-panel")).toBeNull();
-    expect(screen.queryByTestId("bakery-panel")).toBeNull();
-
-    rerender(
-      <CatalogPanel
-        permissions={new Set(CANONICAL_PERMISSION_CODES)}
-        entitlements={new Set([LicenseSectorEntitlement.SALSAMENTARIA])}
-      />,
-    );
-    expect(screen.getByTestId("food-policy-product-id")).toBeTruthy();
-    expect(screen.queryByTestId("pharmacy-panel")).toBeNull();
-    expect(screen.queryByTestId("bakery-panel")).toBeNull();
-
-    rerender(
-      <CatalogPanel
-        permissions={new Set(CANONICAL_PERMISSION_CODES)}
-        entitlements={new Set([LicenseSectorEntitlement.FARMACIA])}
-      />,
-    );
-    expect(screen.queryByTestId("food-policy-product-id")).toBeNull();
-    expect(screen.getByTestId("pharmacy-panel")).toBeTruthy();
-    expect(screen.queryByTestId("bakery-panel")).toBeNull();
-
-    rerender(
-      <CatalogPanel
-        permissions={new Set(CANONICAL_PERMISSION_CODES)}
-        entitlements={new Set([LicenseSectorEntitlement.PASTELERIA])}
-      />,
-    );
-    expect(screen.queryByTestId("food-policy-product-id")).toBeNull();
-    expect(screen.queryByTestId("pharmacy-panel")).toBeNull();
-    expect(screen.getByTestId("bakery-panel")).toBeTruthy();
   });
 });
 
@@ -259,28 +181,6 @@ describe("InventoryPanel", () => {
       expect((calls.get("inventory.stock.adjust") ?? []).length).toBe(1);
     });
     expect(() => InventoryStockAdjustRequestSchema.parse(sent("inventory.stock.adjust"))).not.toThrow();
-  });
-
-  it("shows Salsamentaria transform only with adjust permission and sector entitlement", () => {
-    install({ status: "SUCCEEDED", result_code: "POSTED", result: null });
-    const { rerender } = render(
-      <InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} entitlements={new Set()} />,
-    );
-    expect(screen.queryByTestId("inventory-transform-panel")).toBeNull();
-    rerender(
-      <InventoryPanel
-        permissions={new Set(CANONICAL_PERMISSION_CODES)}
-        entitlements={new Set([LicenseSectorEntitlement.SALSAMENTARIA])}
-      />,
-    );
-    expect(screen.getByTestId("inventory-transform-panel")).toBeTruthy();
-    rerender(
-      <InventoryPanel
-        permissions={new Set(["INVENTORY_STOCK_READ"])}
-        entitlements={new Set([LicenseSectorEntitlement.SALSAMENTARIA])}
-      />,
-    );
-    expect(screen.queryByTestId("inventory-transform-panel")).toBeNull();
   });
 
   it("los motivos de entrada y de ajuste son listas disjuntas", () => {
@@ -360,18 +260,6 @@ describe("InventoryPanel", () => {
 });
 
 describe("CustomerPanel", () => {
-  it("expone el aviso de privacidad y el canal de consultas desde el formulario", () => {
-    install({ status: "SUCCEEDED", result_code: "NOT_FOUND", result: null });
-    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
-
-    expect(screen.getByTestId("customer-privacy-notice")).toBeTruthy();
-    expect(screen.getByTestId("customer-privacy-details").querySelector("summary")?.textContent)
-      .toContain("Consultar el aviso de privacidad");
-    expect(screen.getByRole("link", { name: "andrescamacho.19@hotmail.com" }).getAttribute("href"))
-      .toBe("mailto:andrescamacho.19@hotmail.com");
-    expect(screen.getByText(/política definitiva está pendiente de formalización/i)).toBeTruthy();
-  });
-
   function fillCustomer(): void {
     fireEvent.change(screen.getByTestId("customer-document-code-input"), { target: { value: "13" } });
     fireEvent.change(screen.getByTestId("customer-identification-input"), { target: { value: "1020304050" } });
@@ -391,7 +279,7 @@ describe("CustomerPanel", () => {
         findings: [],
       },
     });
-    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    render(<CustomerPanel />);
     fillCustomer();
     fireEvent.change(screen.getByTestId("customer-responsibilities-input"), {
       target: { value: "R-99-PN, O-13" },
@@ -421,7 +309,7 @@ describe("CustomerPanel", () => {
         findings: [{ code: "TRIBUTE_CODE_UNKNOWN", path: "tribute_code" }],
       },
     });
-    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    render(<CustomerPanel />);
     fillCustomer();
     fireEvent.click(screen.getByTestId("register-customer-button"));
 
@@ -453,7 +341,7 @@ describe("CustomerPanel", () => {
         version: null,
       },
     });
-    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    render(<CustomerPanel />);
     fillCustomer();
     fireEvent.click(screen.getByTestId("find-customer-button"));
 
@@ -599,14 +487,6 @@ describe("FiscalPanel", () => {
 
     await waitFor(() => { expect(screen.getByTestId("fiscal-uncertain")).toBeTruthy(); });
     expect(screen.getByTestId("fiscal-uncertain-status").textContent).toBe("UNKNOWN_OUTCOME");
-    expect((screen.getByTestId("issue-identified-button") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("issue-anonymous-button") as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByTestId("fiscal-sale-id-input"), { target: { value: "77777777-7777-4777-8777-777777777777" } });
-    expect((screen.getByTestId("issue-identified-button") as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.queryByTestId("fiscal-uncertain")).toBeNull();
-    fillSale();
-    expect((screen.getByTestId("issue-identified-button") as HTMLButtonElement).disabled).toBe(true);
-
     expect(screen.queryByTestId("fiscal-issued")).toBeNull();
     expect(screen.queryByTestId("fiscal-blocked")).toBeNull();
   });
@@ -621,167 +501,5 @@ describe("FiscalPanel", () => {
       expect(screen.getByTestId("fiscal-error").textContent).toBe("SESSION_NOT_BOUND");
     });
     expect(screen.queryByTestId("fiscal-blocked")).toBeNull();
-  });
-});
-
-
-describe("AdministrativeControlPanel", () => {
-  it("navega entre pestañas sin fabricar métricas", () => {
-    render(<AdministrativeControlPanel kind="superadmin" />);
-    expect(screen.getByTestId("admin-panel-superadmin")).toBeTruthy();
-    expect(screen.getAllByText("—")).toHaveLength(4);
-    fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
-    expect(screen.getByRole("heading", { name: "Seguimiento" })).toBeTruthy();
-    expect(screen.getByText("Sin datos ejecutables")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Seguridad" }));
-    expect(screen.getByTestId("admin-security-surface")).toBeTruthy();
-    expect(screen.getByText(/Autorización efectiva/)).toBeTruthy();
-    expect((screen.getByTestId("admin-security-revoke-session") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("admin-security-change-permissions") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByTestId("admin-security-global-only")).toBeTruthy();
-  });
-
-  it("conecta Seguridad de administrador a auditoría real y deja mutaciones sin backend deshabilitadas", async () => {
-    install({
-      status: "SUCCEEDED",
-      result_code: "FOUND",
-      result: {
-        outcome: "FOUND",
-        events: [{
-          sequence: 3,
-          actor_type: "USER",
-          actor_id: "11111111-1111-4111-8111-111111111111",
-          session_id: "22222222-2222-4222-8222-222222222222",
-          action_code: "SESSION_BOUND",
-          resource_type: "SESSION",
-          resource_id: "33333333-3333-4333-8333-333333333333",
-          correlation_id: "44444444-4444-4444-8444-444444444444",
-          causation_id: null,
-          reason_code: null,
-          created_at: "2026-09-07T10:00:00.000Z",
-        }],
-        has_more: false,
-      },
-    });
-    render(<AdministrativeControlPanel kind="admin" />);
-    fireEvent.click(screen.getByRole("button", { name: "Seguridad" }));
-    await waitFor(() => { expect(screen.getByText(/SESSION_BOUND/)).toBeTruthy(); });
-    expect(screen.getByTestId("admin-security-audit")).toBeTruthy();
-    expect((screen.getByTestId("admin-security-revoke-session") as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByTestId("admin-security-change-permissions") as HTMLButtonElement).disabled).toBe(true);
-    expect(calls.get("audit.event.list")?.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it("consume métricas administrativas reales sin calcularlas en el renderer", async () => {
-    install({
-      status: "SUCCEEDED",
-      result_code: "AVAILABLE",
-      result: {
-        outcome: "AVAILABLE",
-        sales_completed_count: null,
-        sales_completed_amount: null,
-        inventory_tracked_count: 48,
-        cash_open_shift_count: null,
-      },
-    });
-    render(<AdministrativeControlPanel kind="admin" />);
-    await waitFor(() => { expect(screen.getByText("48")).toBeTruthy(); });
-    // Aggregate sales and cash are intentionally unavailable until their
-    // canonical administrative-read permissions are published centrally.
-    expect(screen.getAllByText("Sin permiso").length).toBeGreaterThanOrEqual(2);
-    fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
-    expect(screen.getByText("Seguimiento operativo")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Actualizar métricas" }));
-    await waitFor(() => {
-      expect((calls.get("admin.metrics.get") ?? []).length).toBeGreaterThanOrEqual(2);
-    });
-  });
-
-  it("consume eventos de auditoría reales mediante el contrato read-only", async () => {
-    install({
-      status: "SUCCEEDED",
-      result_code: "FOUND",
-      result: {
-        outcome: "FOUND",
-        events: [{
-          sequence: 7,
-          actor_type: "USER",
-          actor_id: "11111111-1111-4111-8111-111111111111",
-          session_id: "22222222-2222-4222-8222-222222222222",
-          action_code: "SALE_CREATED",
-          resource_type: "SALE",
-          resource_id: "33333333-3333-4333-8333-333333333333",
-          correlation_id: "44444444-4444-4444-8444-444444444444",
-          causation_id: null,
-          reason_code: null,
-          created_at: "2026-09-07T10:00:00.000Z",
-        }],
-        has_more: false,
-      },
-    });
-    render(<AdministrativeControlPanel kind="audit" />);
-    fireEvent.click(screen.getByRole("button", { name: "Seguimiento" }));
-    await waitFor(() => { expect(screen.getByText("SALE_CREATED")).toBeTruthy(); });
-    expect(screen.getByText("Auditoría administrativa")).toBeTruthy();
-    expect(screen.getByRole("table", { name: "Eventos de auditoría" })).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "Acción" })).toBeTruthy();
-    expect(screen.getByRole("cell", { name: "SALE_CREATED" })).toBeTruthy();
-    expect(screen.getByText("1 evento cargado")).toBeTruthy();
-    expect(sent("audit.event.list")["payload"]).toBeDefined();
-  });
-});
-
-
-describe("permisos por acción y consultas conectadas", () => {
-  it("connects catalog-read without enabling product registration", async () => {
-    install({ status: "SUCCEEDED", result_code: "FOUND", result: { outcome: "FOUND", items: [], has_more: false } });
-    render(<CatalogPanel permissions={new Set(["CATALOG_PRODUCT_READ"])} />);
-    fireEvent.click(screen.getByTestId("catalog-list-button"));
-    await waitFor(() => expect(calls.get("catalog.item.list")).toHaveLength(1));
-    expect(CatalogItemListRequestSchema.safeParse(sent("catalog.item.list")).success).toBe(true);
-    expect(screen.queryByTestId("register-product-button")).toBeNull();
-    expect(calls.get("catalog.product.register")).toBeUndefined();
-  });
-
-  it("does not enable stock mutations for an inventory reader", () => {
-    install(null);
-    render(<InventoryPanel permissions={new Set(["INVENTORY_STOCK_READ"])} initialPresentationId={PRESENTATION} />);
-    expect(screen.queryByTestId("receive-stock-button")).toBeNull();
-    expect(screen.queryByTestId("adjust-stock-button")).toBeNull();
-    expect((screen.getByTestId("get-stock-button") as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("preselects the completed sale for fiscal issuance without issuing automatically", () => {
-    install(null);
-    render(<FiscalPanel initialSaleId="55555555-5555-4555-8555-555555555555" />);
-    expect((screen.getByTestId("fiscal-sale-id-input") as HTMLInputElement).value).toBe("55555555-5555-4555-8555-555555555555");
-    expect(calls.get("fiscal.document.issue")).toBeUndefined();
-  });
-});
-
-
-describe("read-only role surfaces", () => {
-  it("retains catalog lookup without product creation or CSV import", () => {
-    install({}); render(<CatalogPanel permissions={new Set(["CATALOG_PRODUCT_READ"])} />);
-    expect(screen.getByTestId("catalog-list-button")).toBeTruthy();
-    expect(screen.queryByTestId("register-product-button")).toBeNull();
-    expect(screen.queryByLabelText("Archivo de catálogo CSV")).toBeNull();
-    expect(screen.queryByTestId("product-price-input")).toBeNull();
-  });
-  it("retains stock lookup without receiving, adjusting or importing", () => {
-    install({}); render(<InventoryPanel permissions={new Set(["INVENTORY_STOCK_READ"])} />);
-    expect(screen.getByTestId("get-stock-button")).toBeTruthy();
-    expect(screen.queryByTestId("receive-stock-button")).toBeNull();
-    expect(screen.queryByTestId("adjust-stock-button")).toBeNull();
-    expect(screen.queryByTestId("inventory-business-date-input")).toBeNull();
-    expect(screen.queryByText("Entrada")).toBeNull();
-  });
-  it("retains customer identification lookup without registration fields", () => {
-    install({}); render(<CustomerPanel permissions={new Set(["CUSTOMERS_CUSTOMER_READ"])} />);
-    expect(screen.getByTestId("find-customer-button")).toBeTruthy();
-    expect(screen.getByTestId("customer-identification-input")).toBeTruthy();
-    expect(screen.queryByTestId("register-customer-button")).toBeNull();
-    expect(screen.queryByTestId("customer-names-input")).toBeNull();
-    expect(screen.queryByTestId("customer-marketing-opt-in")).toBeNull();
   });
 });

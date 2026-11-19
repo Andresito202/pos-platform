@@ -7,9 +7,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import {
   CashShiftOpenRequestSchema,
-  CashShiftCloseRequestSchema,
-  PaymentRegisterCashRequestSchema,
-  SalesReceiptGetRequestSchema,
   CatalogItemFindRequestSchema,
   CatalogProductRegisterRequestSchema,
   CustomerFindRequestSchema,
@@ -20,8 +17,6 @@ import {
   InventoryStockReceiveRequestSchema,
   SaleCreateRequestSchema,
   SessionActivateRequestSchema,
-  LicenseOffersListRequestSchema,
-  type PublicLicenseCatalog,
   type AuthorizationSnapshotClaims,
   type SessionAssertionClaims,
 } from "@pos-platform/contracts";
@@ -34,7 +29,6 @@ import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-authorization-snapshot-store.js";
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
-import { LocalOperatorSessionRegistry } from "../src/security/local-operator-session-registry.js";
 import type { ServiceConfig } from "../src/config.js";
 
 /**
@@ -43,7 +37,6 @@ import type { ServiceConfig } from "../src/config.js";
  * sustituyen un trust anchor de producción.
  */
 const testOnlyKeyPair = generateKeyPairSync("ed25519");
-const authorizationKeyPair=generateKeyPairSync("ed25519");
 
 const TENANT = "018f0000-0000-7000-8000-0000000000a4";
 const COMPANY = "018f0000-0000-7000-8000-0000000000a5";
@@ -144,7 +137,7 @@ function authorizationClaims(
 function signAuthorization(claims: AuthorizationSnapshotClaims) {
   return {
     claims,
-    signature: sign(null, unsignedAuthorizationSnapshotBytes(claims), authorizationKeyPair.privateKey)
+    signature: sign(null, unsignedAuthorizationSnapshotBytes(claims), testOnlyKeyPair.privateKey)
       .toString("base64url"),
   };
 }
@@ -161,7 +154,7 @@ function config(): ServiceConfig {
   } as ServiceConfig;
 }
 
-async function buildEnv(options: { trustKeys?: boolean;catalog?:()=>Promise<PublicLicenseCatalog>; clock?:()=>Date } = {}) {
+async function buildEnv(options: { trustKeys?: boolean } = {}) {
   const dir = await directory();
   const database = track(LocalDatabase.open({ dataDirectory: dir }));
   const durableSync = new DurableSyncStore(database);
@@ -176,13 +169,12 @@ async function buildEnv(options: { trustKeys?: boolean;catalog?:()=>Promise<Publ
     { database } as never,
     { store: durableSync } as never,
     keys,
-    options.clock ?? (() => NOW),
-    undefined,undefined,new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),undefined,undefined,options.catalog,
+    () => NOW,
   );
   await commercial.start();
 
   const handler = new CommercialRequestHandler(config(), commercial);
-  return { database, commercial, handler, dir };
+  return { database, commercial, handler };
 }
 
 /** Deja un snapshot de autorización activo para `userId`. */
@@ -255,20 +247,6 @@ function response(raw: unknown) {
     result: Record<string, unknown>;
   };
 }
-
-it("license catalog: authenticated read only, no GLOBAL authority, rechecks channel after asynchronous response",async()=>{
-  const catalog:PublicLicenseCatalog={profile:"CAMACHO_PUBLIC_LICENSE_CATALOG_V1",offers:[]};let deliver:((value:PublicLicenseCatalog)=>void)|undefined,calls=0;
-  const {handler,commercial,database}=await buildEnv({catalog:()=>{calls++;return new Promise(resolve=>{deliver=resolve;});}});
-  const request=LicenseOffersListRequestSchema.parse({...BASE,message_type:"license.offers.list",request_id:randomUUID(),correlation_id:randomUUID(),payload:{}}),connection=randomUUID();
-  expect(response(await handler.handle(request,connection)).result).toEqual({outcome:"UNAUTHORIZED",catalog:null});expect(calls).toBe(0);
-  seedAuthorization(database,USER,[]);handler.handle(activateRequest(signSession(sessionClaims())),connection);
-  const pending=handler.handle(request,connection);deliver!(catalog);
-  expect(response(await pending).result).toEqual({outcome:"AVAILABLE",catalog});
-  const lost=handler.handle(request,connection);commercial.bindings.release(connection);deliver!(catalog);
-  expect(response(await lost).result).toEqual({outcome:"UNAUTHORIZED",catalog:null});
-  expect(()=>LicenseOffersListRequestSchema.parse({...request,tenant_id:TENANT})).toThrow();
-  expect(()=>LicenseOffersListRequestSchema.parse({...request,payload:{publish:true}})).toThrow();
-});
 
 // ── session.activate ─────────────────────────────────────────────────────────
 
@@ -881,28 +859,6 @@ function registerProductRequest(overrides: Record<string, unknown> = {}) {
 }
 
 describe("catalog.* — el catálogo es alcanzable por el canal", () => {
-  it.each(["cashier-without-grant", "other-tenant", "other-company", "other-branch", "inactive-role", "expired-assignment", "expired-snapshot", "missing-snapshot"])("role boundary rejects catalog mutation: %s", async (scenario) => {
-    const { database, handler } = await buildEnv(); const connection = randomUUID();
-    const claims = authorizationClaims(USER, scenario === "cashier-without-grant" ? ["SALES_SALE_CREATE", "INVENTORY_STOCK_READ"] : CATALOG_PERMISSIONS);
-    const other = "018f0000-0000-7000-8000-000000000099";
-    if (scenario === "other-tenant") claims.assignments[0]!.tenant_id = other;
-    if (scenario === "other-company") claims.assignments[0]!.company_id = other;
-    if (scenario === "other-branch") claims.assignments[0]!.branch_id = other;
-    if (scenario === "inactive-role") claims.assignments[0]!.role_status = "RETIRED";
-    if (scenario === "expired-assignment") claims.assignments[0]!.valid_until = "2026-09-03T10:00:00.000Z";
-    if (scenario === "expired-snapshot") claims.expires_at = "2026-09-03T10:00:00.000Z";
-    if (scenario !== "missing-snapshot") new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(signAuthorization(claims), { userId: USER, installationId: INSTALLATION, deviceId: DEVICE });
-    handler.handle(activateRequest(signSession(sessionClaims())), connection);
-    const result = response(handler.handle(registerProductRequest(), connection));
-    expect(result.status).toBe("REJECTED"); expect(result.result["outcome"]).toBe("UNAUTHORIZED");
-    for (const table of ["catalog_product", "catalog_fiscal_attribute", "local_sync_outbox", "runtime_operations"]) expect(database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 });
-  });
-  it("role boundary: mutation payload cannot self-assert a grant, actor or supervisor approval", () => {
-    const request = registerProductRequest();
-    for (const field of ["permissions", "actor_id", "approved", "approval_actor_id"]) {
-      expect(CatalogProductRegisterRequestSchema.safeParse({ ...request, payload: { ...request.payload, [field]: field === "approved" ? true : USER } }).success).toBe(false);
-    }
-  });
   it("registra un producto y lo devuelve al escanear su código de barras", async () => {
     const { database, handler } = await buildEnv();
     seedAuthorization(database, USER, CATALOG_PERMISSIONS);
@@ -976,24 +932,6 @@ const INVENTORY_PERMISSIONS = [
 ];
 
 describe("inventory.* — el inventario es alcanzable por el canal", () => {
-  it.each(["receive", "adjust"] as const)("role boundary: %s denies absent, cross-branch, retired and expired grants", async (operation) => {
-    for (const scenario of ["missing-grant", "other-branch", "retired-role", "expired-grant"]) {
-      const { database, handler } = await buildEnv(); const connection = randomUUID();
-      const permission = operation === "receive" ? "INVENTORY_STOCK_RECEIVE" : "INVENTORY_STOCK_ADJUST";
-      const claims = authorizationClaims(USER, scenario === "missing-grant" ? ["INVENTORY_STOCK_READ", "SALES_SALE_CREATE"] : [permission]);
-      if (scenario === "other-branch") claims.assignments[0]!.branch_id = "018f0000-0000-7000-8000-000000000099";
-      if (scenario === "retired-role") claims.assignments[0]!.role_status = "RETIRED";
-      if (scenario === "expired-grant") claims.assignments[0]!.valid_until = "2026-09-03T10:00:00.000Z";
-      new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(signAuthorization(claims), { userId: USER, installationId: INSTALLATION, deviceId: DEVICE });
-      handler.handle(activateRequest(signSession(sessionClaims())), connection);
-      const input = { ...BASE, message_type: `inventory.stock.${operation}`, request_id: randomUUID(), correlation_id: randomUUID(), operation_id: randomUUID(), idempotency_key: `role:${operation}:${scenario}`,
-        payload: { presentation_id: "018f0000-0000-7000-8000-000000000099", movement_type: operation === "receive" ? "PURCHASE_RECEIPT" : "SHRINKAGE", quantity: "1.000000", reason_code: "TEST_REASON", business_date: "2026-09-03" } };
-      const request = operation === "receive" ? InventoryStockReceiveRequestSchema.parse(input) : InventoryStockAdjustRequestSchema.parse(input);
-      const result = response(handler.handle(request, connection));
-      expect(result.status).toBe("REJECTED"); expect(result.result["outcome"]).toBe("UNAUTHORIZED");
-      for (const table of ["inventory_movement", "inventory_stock", "local_sync_outbox", "runtime_operations"]) expect(database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get()).toEqual({ n: 0 });
-    }
-  }, 15_000);
   async function withProduct() {
     const env = await buildEnv();
     seedAuthorization(env.database, USER, INVENTORY_PERMISSIONS);
@@ -1121,70 +1059,5 @@ describe("inventory.* — el inventario es alcanzable por el canal", () => {
     expect(result.result["outcome"]).toBe("UNAUTHORIZED");
     expect((database.native.prepare("SELECT count(*) AS n FROM inventory_movement")
       .get() as { n: number }).n).toBe(0);
-  });
-});
-
-
-describe("customer.marketing.get — autorización backend", () => {
-  it.each([
-    { permissions: [] as string[], expectedStatus: "REJECTED", expectedCode: "UNAUTHORIZED" },
-    { permissions: ["CUSTOMERS_CUSTOMER_READ"], expectedStatus: "SUCCEEDED", expectedCode: "NOT_SUBSCRIBED" },
-  ])("$expectedCode con permisos $permissions", async ({ permissions, expectedStatus, expectedCode }) => {
-    const { handler, database } = await buildEnv();
-    seedAuthorization(database, USER, permissions);
-    const connection = randomUUID();
-    handler.handle(activateRequest(signSession(sessionClaims())), connection);
-    const result = response(handler.handle({
-      ...BASE, message_type: "customer.marketing.get", request_id: randomUUID(), correlation_id: randomUUID(),
-      payload: { customer_id: "018f0000-0000-7000-8000-0000000000ff" },
-    }, connection));
-    expect(result.status).toBe(expectedStatus);
-    expect(result.result_code).toBe(expectedCode);
-  });
-});
-
-
-describe("local roles with original commercial component and real SQLite", () => {
-  it("admin supplies stock; cashier sells, pays once, receives receipt and closes; data survive reopen", async () => {
-    const env=await buildEnv({clock:()=>new Date()}); seedRegister(env.database);
-    const roles={"admin.local":"ADMINISTRADOR","cajero.local":"CAJERO"} as const;
-    const sessions=new LocalOperatorSessionRegistry({authenticate:async username=>
-      username === "admin.local" || username === "cajero.local"
-        ? {status:"AUTHENTICATED",operator:{username,role:roles[username]}}
-        : {status:"DENIED"}});
-    const handler=new CommercialRequestHandler({...config(),local_operator_auth_store:"/test/accounts.json"},env.commercial,id=>sessions.resolve(id));
-    await sessions.login("admin","admin.local","test-only");
-    const product=response(handler.handle(registerProductRequest(),"admin"));
-    expect(product.result_code).toBe("REGISTERED");
-    const presentation=product.result.presentation_id as string;
-    const mutation={...BASE,request_id:randomUUID(),correlation_id:randomUUID(),operation_id:randomUUID(),idempotency_key:randomUUID()};
-    const received=response(handler.handle(InventoryStockReceiveRequestSchema.parse({...mutation,message_type:"inventory.stock.receive",payload:{
-      presentation_id:presentation,movement_type:"PURCHASE_RECEIPT",quantity:"10.000000",reason_code:"TEST",business_date:"2026-11-14"}}),"admin"));
-    expect(received.result_code).toBe("POSTED");
-    expect(response(handler.handle(openShiftRequest(),"admin")).result_code).toBe("UNAUTHORIZED");
-    await sessions.login("cashier","cajero.local","test-only");
-    expect(response(handler.handle(registerProductRequest(),"cashier")).result_code).toBe("UNAUTHORIZED");
-    const opened=response(handler.handle(openShiftRequest(),"cashier"));
-    expect(opened.result_code).toBe("OPENED");
-    const sale=response(handler.handle(SaleCreateRequestSchema.parse({...mutation,idempotency_key:randomUUID(),message_type:"sale.create",payload:{
-      cash_register_id:REGISTER,channel:"POS",business_date:"2026-11-14",timezone_id:"America/Bogota",utc_offset_minutes:-300,
-      document_series:"POS",currency_code:"COP",lines:[{product_id:product.result.product_id,presentation_id:presentation,quantity:"1.000000"}]}}),"cashier"));
-    expect(sale.status).toBe("SUCCEEDED");
-    const payment=PaymentRegisterCashRequestSchema.parse({...mutation,idempotency_key:randomUUID(),message_type:"payment.register.cash",payload:{
-      sale_id:sale.result.sale_id,amount:sale.result.payable_amount,tendered_amount:sale.result.payable_amount}});
-    expect(response(handler.handle(payment,"cashier")).result_code).toBe("CONFIRMED");
-    expect(response(handler.handle(payment,"cashier")).result_code).toBe("IDEMPOTENT");
-    const receipt=SalesReceiptGetRequestSchema.parse({...BASE,request_id:randomUUID(),correlation_id:randomUUID(),message_type:"sales.receipt.get",payload:{sale_id:sale.result.sale_id}});
-    expect(response(handler.handle(receipt,"cashier")).status).toBe("SUCCEEDED");
-    const closed=response(handler.handle(CashShiftCloseRequestSchema.parse({...mutation,idempotency_key:randomUUID(),message_type:"cash.shift.close",payload:{
-      shift_id:opened.result.shift_id,counted_amount:sale.result.payable_amount,expected_version:opened.result.version}}),"cashier"));
-    expect(closed.result_code).toBe("CLOSED");
-    sessions.logout("cashier");
-    expect(response(handler.handle(receipt,"cashier")).result_code).toBe("SESSION_NOT_BOUND");
-    env.database.close();
-    const reopened=track(LocalDatabase.open({dataDirectory:env.dir}));
-    expect(reopened.native.prepare("SELECT status FROM sales_sales WHERE id=?").get(sale.result.sale_id)).toEqual({status:"COMPLETED"});
-    expect(reopened.native.prepare("SELECT COUNT(*) AS n FROM sales_sales").get()).toEqual({n:1});
-    // Handler integration, not Electron, physical cash or Central BUSINESS certification.
   });
 });

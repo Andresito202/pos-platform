@@ -26,6 +26,8 @@ export type HardwareJobState=z.infer<typeof HardwareJobStateSchema>;
 export const HardwareCommandSchema=z.discriminatedUnion("action",[
   z.strictObject({action:z.literal("diagnose")}),
   z.strictObject({action:z.literal("list")}),
+  z.strictObject({action:z.literal("capture_weight"),cash_register_id:UuidSchema,presentation_id:UuidSchema}),
+  z.strictObject({action:z.literal("print_receipt"),job_id:UuidSchema,sale_id:UuidSchema}),
   z.strictObject({action:z.literal("associate"),binding_id:UuidSchema,cash_register_id:UuidSchema,device_id:z.string().min(1).max(160),profile_id:z.string().min(1).max(80)}),
   z.strictObject({action:z.literal("enqueue"),job_id:UuidSchema,binding_id:UuidSchema,kind:z.enum(["PRINT_TEST","PRINT_RECEIPT","DRAWER_OPEN","CUT"]),sale_id:UuidSchema.nullable(),reason:z.string().trim().min(3).max(200)}),
   z.strictObject({action:z.literal("dispatch"),job_id:UuidSchema}),

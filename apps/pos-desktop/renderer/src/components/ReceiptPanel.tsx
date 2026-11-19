@@ -1,5 +1,5 @@
-import { formatScale6Display, formatQuantityDisplay } from "../money-display.js";
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
+import { callCommercial } from "../pos-service.js";
 import { useReceipt } from "../hooks/useReceipt.js";
 
 /**
@@ -17,19 +17,31 @@ import { useReceipt } from "../hooks/useReceipt.js";
  * valor inventado mientras no haya identidad de compañía en local ni consumidor
  * del adapter fiscal.
  */
-export function ReceiptPanel({ initialSaleId = null }: { initialSaleId?: string | null }): React.JSX.Element {
+export function ReceiptPanel({ canPrint = false }: { canPrint?: boolean }): React.JSX.Element {
   const receipt = useReceipt();
   const [saleId, setSaleId] = useState("");
-  useEffect(() => {
-    if (initialSaleId !== null) { setSaleId(initialSaleId); void receipt.load(initialSaleId); }
-  }, [initialSaleId, receipt.load]);
+  const [printStatus, setPrintStatus] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
+  const inFlight = useRef(false);
+  async function printReceipt(id: string): Promise<void> {
+    if (inFlight.current || !canPrint) return;
+    inFlight.current = true; setPrinting(true); setPrintStatus(null);
+    const jobId = crypto.randomUUID();
+    try {
+      const response = await callCommercial<{kind:string;reason:string|null}>("hardware.command", {action:"print_receipt",job_id:jobId,sale_id:id});
+      setPrintStatus(response.result?.kind === "TRANSPORT_ACCEPTED"
+        ? "Trabajo aceptado por la impresora; salida física no confirmada."
+        : "Trabajo " + jobId + ": " + (response.result?.reason ?? response.result_code) + ". Verifique antes de repetir.");
+    } catch {
+      setPrintStatus("Resultado incierto del trabajo " + jobId + ". No repetir sin verificar la impresora.");
+    } finally { inFlight.current = false; setPrinting(false); }
+  }
 
   return (
     <section data-testid="receipt-panel">
       <h2>Recibo</h2>
       <input
         data-testid="receipt-sale-id-input"
-        aria-label="ID de la venta"
         value={saleId}
         onChange={(e) => { setSaleId(e.target.value); }}
         placeholder="ID de la venta"
@@ -84,44 +96,46 @@ export function ReceiptPanel({ initialSaleId = null }: { initialSaleId?: string 
                 {" · "}
                 <span data-testid="receipt-line-presentation">{line.presentation_name}</span>
                 {" · "}
-                <span data-testid="receipt-line-quantity">{formatQuantityDisplay(line.quantity, null)}</span>
+                <span data-testid="receipt-line-quantity">{line.quantity}</span>
                 {" "}{line.unit_code}{" × "}
-                <span data-testid="receipt-line-unit-price">{formatScale6Display(line.unit_price_amount)}</span>
+                <span data-testid="receipt-line-unit-price">{line.unit_price_amount}</span>
                 {" = "}
-                <span data-testid="receipt-line-total">{formatScale6Display(line.line_total_amount)}</span>
+                <span data-testid="receipt-line-total">{line.line_total_amount}</span>
               </li>
             ))}
           </ul>
 
           <div>
-            Subtotal <span data-testid="receipt-subtotal">{formatScale6Display(receipt.receipt.subtotal_amount)}</span>
+            Subtotal <span data-testid="receipt-subtotal">{receipt.receipt.subtotal_amount}</span>
             {" · descuento "}
-            <span data-testid="receipt-discount">{formatScale6Display(receipt.receipt.discount_amount)}</span>
+            <span data-testid="receipt-discount">{receipt.receipt.discount_amount}</span>
             {" · impuesto "}
-            <span data-testid="receipt-tax">{formatScale6Display(receipt.receipt.tax_amount)}</span>
+            <span data-testid="receipt-tax">{receipt.receipt.tax_amount}</span>
           </div>
           <div>
             {/* El ajuste de redondeo se muestra en vez de absorberse: es la
                 diferencia entre lo que suman las líneas y lo que se cobró. */}
             Redondeo{" "}
             <span data-testid="receipt-rounding">
-              {formatScale6Display(receipt.receipt.commercial_rounding_adjustment)}
+              {receipt.receipt.commercial_rounding_adjustment}
             </span>
           </div>
           <div>
             Total pagado{" "}
-            <strong data-testid="receipt-payable">{formatScale6Display(receipt.receipt.payable_amount)}</strong>
+            <strong data-testid="receipt-payable">{receipt.receipt.payable_amount}</strong>
             {" "}<span data-testid="receipt-currency">{receipt.receipt.currency_code}</span>
           </div>
 
+          {canPrint && receipt.receipt.sale_id !== null && <button type="button" disabled={printing} onClick={() => { const id = receipt.receipt?.sale_id; if (id) void printReceipt(id); }}>Imprimir comprobante</button>}
+          {printStatus && <p role="status">{printStatus}</p>}
           <ul data-testid="receipt-payments">
             {(receipt.receipt.payments ?? []).map((payment, index) => (
               <li key={`${payment.payment_method}-${String(index)}`} data-testid="receipt-payment">
                 <span data-testid="receipt-payment-method">{payment.payment_method}</span>
                 {" "}
-                <span data-testid="receipt-payment-amount">{formatScale6Display(payment.confirmed_amount)}</span>
+                <span data-testid="receipt-payment-amount">{payment.confirmed_amount}</span>
                 {payment.change_amount !== null && (
-                  <> · cambio <span data-testid="receipt-payment-change">{formatScale6Display(payment.change_amount)}</span></>
+                  <> · cambio <span data-testid="receipt-payment-change">{payment.change_amount}</span></>
                 )}
               </li>
             ))}

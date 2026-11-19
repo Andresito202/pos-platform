@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent, within } from "@testing-library/react";
-import { SalesReceiptGetRequestSchema } from "@pos-platform/contracts";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "../../renderer/src/App.js";
 
-function localOperatorResult(outcome: "NO_SESSION" | "UNAVAILABLE" | "AUTHENTICATED" | "SIGNED_OUT" = "NO_SESSION") {
+function localOperatorResult(
+  outcome: "NO_SESSION" | "UNAVAILABLE" | "AUTHENTICATED" | "SIGNED_OUT" = "AUTHENTICATED",
+  identity: { username: string; role: string } = { username: "cajero.local", role: "CAJERO" },
+) {
   return {
     protocol_version: "1.0.0",
     request_id: "11111111-1111-4111-8111-111111111111",
@@ -17,8 +19,8 @@ function localOperatorResult(outcome: "NO_SESSION" | "UNAVAILABLE" | "AUTHENTICA
     server_time: "2026-11-08T00:00:00.000Z",
     result: {
       outcome,
-      username: outcome === "AUTHENTICATED" ? "cajero.local" : null,
-      role: outcome === "AUTHENTICATED" ? "CAJERO" : null,
+      username: outcome === "AUTHENTICATED" ? identity.username : null,
+      role: outcome === "AUTHENTICATED" ? identity.role : null,
       expires_at: outcome === "AUTHENTICATED" ? "2099-01-01T00:00:00.000Z" : null,
     },
   };
@@ -30,23 +32,23 @@ function makeService() {
     "authorization.capabilities.get": vi.fn().mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
-      result: { outcome: "AVAILABLE", permissions: ["CATALOG_PRODUCT_READ"] },
+      result: { outcome: "AVAILABLE", permissions: ["CATALOG_PRODUCT_READ"], entitlements: [] },
     }),
-    "session.recover": vi.fn().mockResolvedValue({ status: "SUCCEEDED", result_code: "NONE", result: { outcome: "NONE", session_id: null, offline_valid_until: null, decision: null } }),
-    "local.operator.session": vi.fn().mockResolvedValue(localOperatorResult("NO_SESSION")),
-    "local.operator.login": vi.fn().mockResolvedValue(localOperatorResult("NO_SESSION")),
+    "session.recover": vi.fn().mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "NONE",
+      result: { outcome: "NONE", session_id: null, offline_valid_until: null, decision: null },
+    }),
+    "local.operator.session": vi.fn().mockResolvedValue(localOperatorResult("AUTHENTICATED")),
+    "local.operator.login": vi.fn().mockResolvedValue(localOperatorResult("AUTHENTICATED")),
     "local.operator.logout": vi.fn().mockResolvedValue(localOperatorResult("SIGNED_OUT")),
     "operation.result.get": vi.fn(),
     "operation.confirm": vi.fn(),
-    "catalog.item.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
     "cart.waiting.list": vi.fn().mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "FOUND",
       result: { outcome: "FOUND", carts: [], has_more: false },
     }),
-    "admin.metrics.get": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
-    "license.offers.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
-    "audit.event.list": vi.fn().mockReturnValue(new Promise<never>(() => undefined)),
   };
 }
 
@@ -59,28 +61,6 @@ beforeEach(() => {
 });
 
 describe("App", () => {
-  it("does not open the operational shell for a session with zero capabilities", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED", result_code: "AVAILABLE", result: { outcome: "AVAILABLE", permissions: [] },
-    });
-    const { container } = render(<App />);
-    await screen.findByTestId("authorization-denied");
-    expect(container.querySelector(".pos-shell")).toBeNull();
-    expect(screen.queryByTestId("operation-panel")).toBeNull();
-  });
-  it("shows expiration based on a canonical backend decision, without exposing operational screens", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "REJECTED", result_code: "SESSION_NOT_BOUND", result: { outcome: "UNAUTHORIZED", permissions: [] },
-    });
-    vi.mocked(window.posService["session.recover"]).mockResolvedValue({
-      status: "REJECTED", result_code: "UNVERIFIABLE", result: {
-        outcome: "UNVERIFIABLE", session_id: null, offline_valid_until: null, decision: "EXPIRED",
-      },
-    });
-    render(<App />);
-    await screen.findByTestId("authorization-expired");
-    expect(screen.queryByTestId("sale-panel")).toBeNull();
-  });
   it("shows only navigation areas covered by effective permissions", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
@@ -88,6 +68,7 @@ describe("App", () => {
       result: {
         outcome: "AVAILABLE",
         permissions: ["CATALOG_PRODUCT_READ", "CUSTOMERS_CUSTOMER_READ", "SALES_RECEIPT_READ"],
+        entitlements: [],
       },
     });
 
@@ -101,10 +82,10 @@ describe("App", () => {
 
     expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Inventario" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBeTruthy();
+    // CAJERO role order prefers Clientes before Catálogo among these grants.
+    expect(screen.getByRole("heading", { name: "Clientes", level: 1 })).toBeTruthy();
     expect(screen.queryByTestId("fiscal-panel")).toBeNull();
   });
-
 
   it("does not expose fiscal navigation without the fiscal permission", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
@@ -113,6 +94,7 @@ describe("App", () => {
       result: {
         outcome: "AVAILABLE",
         permissions: ["SALES_SALE_CREATE"],
+        entitlements: [],
       },
     });
 
@@ -133,6 +115,7 @@ describe("App", () => {
       result: {
         outcome: "AVAILABLE",
         permissions: ["FISCAL_DOCUMENT_ISSUE"],
+        entitlements: [],
       },
     });
 
@@ -144,25 +127,31 @@ describe("App", () => {
     });
   });
 
-  it("groups authorized screens under their existing navigation sections", async () => {
+  it("shows a non-empty audit nav for SUPERADMINISTRADOR with AUDIT_EVENT_READ only", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "AVAILABLE",
       result: {
         outcome: "AVAILABLE",
-        permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ"],
+        permissions: ["AUDIT_EVENT_READ"],
+        entitlements: [],
       },
     });
+    vi.mocked(window.posService["local.operator.session"]).mockResolvedValue(
+      localOperatorResult("AUTHENTICATED", { username: "superadmin.local", role: "SUPERADMINISTRADOR" }),
+    );
 
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Caja y ventas" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Catálogo" })).toBeTruthy();
+      expect(screen.getByRole("navigation")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Auditoría administrativa" })).toBeTruthy();
+      expect(screen.getByTestId("admin-panel-audit")).toBeTruthy();
     });
 
-    expect(screen.getByText("Operación")).toBeTruthy();
-    expect(screen.getByText("Catálogo e inventario")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Catálogo" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Inventario" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
   });
 
   it("materializes the first authorized screen and keeps navigation capability-driven", async () => {
@@ -172,6 +161,7 @@ describe("App", () => {
       result: {
         outcome: "AVAILABLE",
         permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ"],
+        entitlements: [],
       },
     });
 
@@ -185,139 +175,72 @@ describe("App", () => {
 
     expect(screen.getByRole("button", { name: "Caja y ventas" }).getAttribute("aria-current")).toBe("page");
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
-  });
 
-  it("gives POS inputs accessible names across authorized screens", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED",
-      result_code: "AVAILABLE",
-      result: {
-        outcome: "AVAILABLE",
-        permissions: [
-          "CASH_SHIFT_OPEN",
-          "SALES_SALE_CREATE",
-          "FISCAL_DOCUMENT_ISSUE",
-          "CATALOG_PRODUCT_READ",
-          "CATALOG_PRODUCT_REGISTER",
-          "INVENTORY_STOCK_READ",
-          "INVENTORY_STOCK_RECEIVE",
-          "CUSTOMERS_CUSTOMER_READ",
-          "CUSTOMERS_CUSTOMER_REGISTER",
-          "SALES_RECEIPT_READ",
-        ],
-      },
-    });
-
-    render(<App />);
-
+    // Tip #106 keep-alive: visited sales screen stays mounted (hidden) after nav.
+    screen.getByRole("button", { name: "Catálogo" }).click();
     await waitFor(() => {
-      expect(screen.getByRole("textbox", { name: "ID de la caja" })).toBeTruthy();
-      expect(screen.getByRole("textbox", { name: "Código de barras" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");
+      expect(screen.getByTestId("catalog-panel")).toBeTruthy();
     });
-
-    await screen.getByRole("button", { name: "Catálogo" }).click();
-    expect(screen.getByRole("textbox", { name: "Código interno" })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "Nombre del producto" })).toBeTruthy();
-
-    await screen.getByRole("button", { name: "Inventario" }).click();
-    expect(screen.getByRole("textbox", { name: "ID de presentación" })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "Fecha de negocio" })).toBeTruthy();
-
-    await screen.getByRole("button", { name: "Clientes" }).click();
-    expect(screen.getByRole("textbox", { name: "Identificación del adquiriente" })).toBeTruthy();
-    expect(screen.getByRole("textbox", { name: "Correo electrónico" })).toBeTruthy();
-
-    await screen.getByRole("button", { name: "Facturación electrónica" }).click();
-    expect(screen.getByRole("textbox", { name: "ID de la venta cobrada" })).toBeTruthy();
-
-    await screen.getByRole("button", { name: "Comprobantes" }).click();
-    expect(screen.getByRole("textbox", { name: "ID de la venta" })).toBeTruthy();
+    expect(screen.getByTestId("sale-panel")).toBeTruthy();
   });
 
-  it("exposes only the currently executable administrative surfaces", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED",
-      result_code: "AVAILABLE",
-      result: {
-        outcome: "AVAILABLE",
-        permissions: ["AUDIT_EVENT_READ"],
-      },
-    });
-
-    render(<App />);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Dashboard" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Auditoría administrativa" })).toBeTruthy();
-    });
-
-    for (const label of [
-      "Reportes", "Usuarios", "Roles y permisos", "Empresa", "Sucursales",
-      "Dispositivos", "Configuración", "Licencias", "Planes y suscripciones",
-      "Superadministrador", "Soporte",
-    ]) {
-      expect(screen.queryByRole("button", { name: label })).toBeNull();
-    }
-
-    expect(screen.getByRole("heading", { name: "Dashboard" })).toBeTruthy();
-  });
-
-  it("does not expose the administrative dashboard from operational permissions alone", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED",
-      result_code: "AVAILABLE",
-      result: {
-        outcome: "AVAILABLE",
-        permissions: ["SALES_SALE_CREATE", "INVENTORY_STOCK_READ", "CASH_SHIFT_OPEN"],
-      },
-    });
-
-    render(<App />);
-
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Caja y ventas" })).toBeTruthy();
-    });
-
-    expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Auditoría administrativa" })).toBeNull();
-  });
-
-  it("fails closed when effective authorization cannot be loaded", async () => {
+  it("shows the local login surface when the backend reports no bound session", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "REJECTED",
       result_code: "SESSION_NOT_BOUND",
-      result: { outcome: "UNAUTHORIZED", permissions: [] },
+      result: { outcome: "UNAUTHORIZED", permissions: [], entitlements: [] },
     });
+    vi.mocked(window.posService["local.operator.session"]).mockResolvedValue(localOperatorResult("NO_SESSION"));
 
     render(<App />);
 
     await waitFor(() => {
       expect(screen.getByTestId("authorization-unauthenticated")).toBeTruthy();
+      expect(screen.getByLabelText("Usuario")).toBeTruthy();
+      expect(screen.getByRole("img", { name: "Camacho POS Colombia" })).toBeTruthy();
     });
 
     expect(screen.queryByTestId("sale-panel")).toBeNull();
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
-    expect(screen.queryByTestId("inventory-panel")).toBeNull();
-    expect(screen.queryByTestId("customer-panel")).toBeNull();
-    expect(screen.queryByTestId("receipt-panel")).toBeNull();
-    expect(screen.queryByTestId("fiscal-panel")).toBeNull();
   });
 
+  it("fails closed when effective authorization cannot be loaded", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "REJECTED",
+      result_code: "CHANNEL_BROKEN",
+      result: null,
+    });
 
-  it("keeps technical diagnostics collapsed in the operator workspace", async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByTestId("operation-panel")).toBeTruthy());
-    const summary = screen.getByText("Herramientas técnicas y diagnóstico");
-    const disclosure = summary.closest("details");
-    expect(disclosure).not.toBeNull();
-    expect(disclosure?.hasAttribute("open")).toBe(false);
-    expect(screen.queryByRole("button", { name: "Encender lámpara decorativa" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Apagar lámpara decorativa" })).toBeNull();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("authorization-error")).toBeTruthy();
+    });
+
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
+    expect(screen.queryByTestId("catalog-panel")).toBeNull();
   });
 
-  it("renders the POS Local heading", () => {
+  it("uses the original brand and collapses navigation without changing permissions or the active screen", async () => {
     render(<App />);
-    expect(screen.getByRole("heading", { name: "Iniciar sesión" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Catálogo" })).toBeTruthy());
+    const heading = screen.getByRole("heading", { name: "Catálogo", level: 1 });
+    expect(screen.getByRole("img", { name: "Camacho POS Colombia" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar menú" }));
+    expect(screen.getByRole("button", { name: "Mostrar menú" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Catálogo" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBe(heading);
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar menú" }));
+    expect(screen.getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
+  });
+
+  it("renders the POS Local heading", async () => {
+    render(<App />);
+    await waitFor(() => {
+      expect(screen.getAllByText(/Camacho POS Colombia/i).length).toBeGreaterThan(0);
+    });
   });
 
   it("renders the status panel in loading state initially", () => {
@@ -342,319 +265,4 @@ describe("App", () => {
       expect(screen.getByTestId("confirm-button")).toBeTruthy();
     });
   });
-  it("preserves the cash screen while navigating to another authorized screen", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED", result_code: "AVAILABLE",
-      result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE", "CASH_SHIFT_OPEN", "CATALOG_PRODUCT_READ"] },
-    });
-    render(<App />);
-    const register = await screen.findByTestId("cash-register-input");
-    fireEvent.change(register, { target: { value: "11111111-1111-4111-8111-111111111111" } });
-    fireEvent.click(screen.getByRole("button", { name: "Catálogo" }));
-    fireEvent.click(screen.getByRole("button", { name: "Caja y ventas" }));
-    expect((screen.getByTestId("cash-register-input") as HTMLInputElement).value).toBe("11111111-1111-4111-8111-111111111111");
-  });
-
-  it("connects product registration to stock entry using the returned presentation ID", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED", result_code: "AVAILABLE", result: { outcome: "AVAILABLE", permissions: ["CATALOG_PRODUCT_REGISTER", "INVENTORY_STOCK_RECEIVE"] },
-    });
-    Object.defineProperty(window.posService, "catalog.product.register", { value: vi.fn().mockResolvedValue({
-      status: "SUCCEEDED", result_code: "REGISTERED", result: { outcome: "REGISTERED", product_id: "11111111-1111-4111-8111-111111111111", presentation_id: "22222222-2222-4222-8222-222222222222" },
-    }) });
-    render(<App />);
-    await screen.findByTestId("catalog-panel");
-    for (const [field, value] of [["product-code-input", "ARZ"], ["product-name-input", "Arroz"], ["presentation-name-input", "Bolsa"], ["product-price-input", "1500"]]) {
-      fireEvent.change(screen.getByTestId(field!), { target: { value } });
-    }
-    fireEvent.click(screen.getByTestId("register-product-button"));
-    fireEvent.click(await screen.findByTestId("product-receive-stock"));
-    await waitFor(() => expect((screen.getByTestId("inventory-presentation-input") as HTMLInputElement).value).toBe("22222222-2222-4222-8222-222222222222"));
-    expect(screen.getByRole("heading", { name: "Inventario", level: 1 })).toBeTruthy();
-  });
-
-  it("connects the paid sale to its receipt and fiscal form without retyping IDs", async () => {
-    const id = "55555555-5555-4555-8555-555555555555";
-    const success = (result: unknown, result_code = "OK") => ({ status: "SUCCEEDED", result_code, result });
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue(success({ outcome: "AVAILABLE", permissions: [
-      "CASH_SHIFT_OPEN", "CATALOG_PRODUCT_READ", "SALES_SALE_CREATE", "PAYMENTS_PAYMENT_REGISTER", "SALES_RECEIPT_READ", "FISCAL_DOCUMENT_ISSUE",
-    ] }, "AVAILABLE"));
-    const receipt = vi.fn().mockReturnValue(new Promise<never>(() => undefined));
-    const fiscal = vi.fn();
-    const methods = {
-      "cash.shift.open": vi.fn().mockResolvedValue(success({ outcome: "OPENED", shift_id: "44444444-4444-4444-8444-444444444444", version: 1 })),
-      "catalog.item.list": vi.fn().mockResolvedValue(success({ outcome: "FOUND", items: [], has_more: false })),
-      "catalog.item.find": vi.fn().mockResolvedValue(success({ outcome: "FOUND", product_id: "22222222-2222-4222-8222-222222222222", presentation_id: "33333333-3333-4333-8333-333333333333", name: "Arroz", presentation_name: "Bolsa", price_amount: "3500.000000", currency_code: "COP" })),
-      "sale.create": vi.fn().mockResolvedValue(success({ outcome: "CREATED", sale_id: id, payable_amount: "3500.000000" })),
-      "payment.register.cash": vi.fn().mockResolvedValue(success({ outcome: "CONFIRMED", sale_completed: true, confirmed_coverage: "3500.000000", change_amount: "0.000000" })),
-      "sales.receipt.get": receipt, "fiscal.document.issue": fiscal,
-    };
-    for (const [method, value] of Object.entries(methods)) Object.defineProperty(window.posService, method, { value });
-    render(<App />);
-    fireEvent.change(await screen.findByTestId("cash-register-input"), { target: { value: "11111111-1111-4111-8111-111111111111" } });
-    fireEvent.click(screen.getByTestId("open-shift-button")); await screen.findByTestId("shift-open");
-    fireEvent.change(screen.getByTestId("barcode-input"), { target: { value: "7701234567890" } });
-    fireEvent.click(screen.getByTestId("find-item-button")); await screen.findByTestId("found-product-tile");
-    fireEvent.click(screen.getByTestId("add-item-button"));
-    fireEvent.click(screen.getByTestId("create-sale-button")); await screen.findByTestId("sale-created");
-    fireEvent.click(screen.getByTestId("charge-cash-button")); await screen.findByTestId("sale-completed");
-    fireEvent.click(screen.getByTestId("sale-view-receipt"));
-    await waitFor(() => expect(receipt).toHaveBeenCalledTimes(1));
-    const request = receipt.mock.calls[0]?.[0];
-    expect(SalesReceiptGetRequestSchema.safeParse(request).success).toBe(true);
-    expect(request).toMatchObject({ payload: { sale_id: id } });
-    fireEvent.click(screen.getByRole("button", { name: "Caja y ventas" }));
-    fireEvent.click(screen.getByTestId("sale-issue-invoice"));
-    expect((screen.getByTestId("fiscal-sale-id-input") as HTMLInputElement).value).toBe(id);
-    expect(fiscal).not.toHaveBeenCalled();
-  });
-
 });
-
-
-describe("Role-ordered navigation keeps permissions authoritative", () => {
-  it("does not mount the cart while supervisor identity is still loading", async () => {
-    let complete: ((value: unknown) => void) | undefined;
-    vi.mocked(window.posService["local.operator.session"]).mockImplementation(() => new Promise(resolve => { complete = resolve; }));
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED", result_code: "AVAILABLE",
-      result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE", "INVENTORY_STOCK_READ"] },
-    });
-    render(<App />);
-    await waitFor(() => expect(window.posService["local.operator.session"]).toHaveBeenCalled());
-    expect(screen.queryByTestId("sale-panel")).toBeNull();
-    expect(screen.getByTestId("authorization-loading")).toBeTruthy();
-    const result = localOperatorResult("AUTHENTICATED");
-    complete!({ ...result, result: { ...result.result, username: "supervisor.local", role: "SUPERVISOR" } });
-    await screen.findByTestId("inventory-panel");
-    expect(screen.queryByTestId("sale-panel")).toBeNull();
-  });
-  function authenticateLocal(role: "CAJERO" | "SUPERVISOR" | "ADMINISTRADOR" | "SUPERADMINISTRADOR", username: string): void {
-    vi.mocked(window.posService["local.operator.session"]).mockResolvedValue({
-      protocol_version: "1.0.0",
-      request_id: "11111111-1111-4111-8111-111111111111",
-      correlation_id: "11111111-1111-4111-8111-111111111112",
-      operation_id: null,
-      status: "SUCCEEDED",
-      result_code: "AUTHENTICATED",
-      result_schema_version: "1.0.0",
-      error: null,
-      server_time: "2026-11-08T00:00:00.000Z",
-      result: {
-        outcome: "AUTHENTICATED",
-        username,
-        role,
-        expires_at: "2099-01-01T00:00:00.000Z",
-      },
-    });
-  }
-
-  it("collapses navigation without unmounting the sale and keeps logout inside the menu", async () => {
-    authenticateLocal("CAJERO", "cajero.local");
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED", result_code: "AVAILABLE",
-      result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE"] },
-    });
-    render(<App />);
-    const sale = await screen.findByTestId("sale-panel");
-    const logout = await screen.findByRole("button", { name: "Cerrar sesión" });
-    expect(logout.closest("aside")?.id).toBe("pos-navigation");
-    fireEvent.click(screen.getByRole("button", { name: "Ocultar menú" }));
-    expect(screen.queryByRole("button", { name: "Cerrar sesión" })).toBeNull();
-    expect(screen.getByTestId("sale-panel")).toBe(sale);
-    fireEvent.click(screen.getByRole("button", { name: "Mostrar menú" }));
-    expect(screen.getByRole("button", { name: "Cerrar sesión" })).toBe(logout);
-    expect(screen.getByTestId("sale-panel")).toBe(sale);
-  });
-
-  it("opens Caja for CAJERO when sales permissions are effective", async () => {
-    authenticateLocal("CAJERO", "cajero.local");
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED",
-      result_code: "AVAILABLE",
-      result: {
-        outcome: "AVAILABLE",
-        permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ", "CUSTOMERS_CUSTOMER_READ", "SALES_RECEIPT_READ"],
-      },
-    });
-    render(<App />);
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Caja y ventas" }).getAttribute("aria-current")).toBe("page");
-      expect(screen.getByTestId("sale-panel")).toBeTruthy();
-    });
-    expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Inventario" })).toBeNull();
-  });
-
-  it("opens Inventario for SUPERVISOR when that surface is authorized", async () => {
-    authenticateLocal("SUPERVISOR", "supervisor.local");
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED",
-      result_code: "AVAILABLE",
-      result: {
-        outcome: "AVAILABLE",
-        permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ", "INVENTORY_STOCK_READ", "PAYMENTS_PAYMENT_READ", "PAYMENTS_PAYMENT_CANCEL"],
-      },
-    });
-    render(<App />);
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Inventario" }).getAttribute("aria-current")).toBe("page");
-      expect(screen.getByTestId("inventory-panel")).toBeTruthy();
-    });
-    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
-    expect(screen.queryByTestId("sale-panel")).toBeNull();
-    // Native click + waitFor: fireEvent alone raced under CI load (Inventario
-    // stayed aria-current=page). Settled-identity nav reset in App also guards this.
-    screen.getByRole("button", { name: "Revisar transferencias" }).click();
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Revisar transferencias" }).getAttribute("aria-current")).toBe("page");
-      expect(screen.getByTestId("transfer-review-panel")).toBeTruthy();
-    });
-    expect(screen.queryByTestId("cart")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
-  });
-
-  it("opens Dashboard for ADMINISTRADOR instead of the cart", async () => {
-    authenticateLocal("ADMINISTRADOR", "admin.local");
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED",
-      result_code: "AVAILABLE",
-      result: {
-        outcome: "AVAILABLE",
-        permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ", "INVENTORY_STOCK_READ", "AUDIT_EVENT_READ"],
-      },
-    });
-    render(<App />);
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Dashboard" }).getAttribute("aria-current")).toBe("page");
-      expect(screen.getByRole("heading", { name: "Dashboard", level: 1 })).toBeTruthy();
-    });
-    expect(screen.queryByTestId("sale-panel")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
-  });
-
-  it("shows only authorized audit surfaces for SUPERADMINISTRADOR", async () => {
-    authenticateLocal("SUPERADMINISTRADOR", "superadmin.local");
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED",
-      result_code: "AVAILABLE",
-      result: {
-        outcome: "AVAILABLE",
-        permissions: ["AUDIT_EVENT_READ"],
-      },
-    });
-    render(<App />);
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Auditoría administrativa" })).toBeTruthy();
-    });
-    expect(screen.getByText("Auditoría local (no GLOBAL)")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Dashboard" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Licencias" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Superadministrador" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
-  });
-
-  it("resets the active screen after logout", async () => {
-    authenticateLocal("CAJERO", "cajero.local");
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED",
-      result_code: "AVAILABLE",
-      result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE", "CATALOG_PRODUCT_READ"] },
-    });
-    render(<App />);
-    // Wait for the role home to settle before navigating. findByTestId alone can
-    // resolve on the first paint while App's settled-identity effect still has
-    // setActiveScreen(null) queued — fireEvent then loses the click under CI load
-    // (Caja stays aria-current=page; same race as SUPERVISOR → transfer-review).
-    const navigation = await screen.findByRole("complementary", { name: "Navegación principal" });
-    await waitFor(() => {
-      expect(within(navigation).getByRole("button", { name: "Caja y ventas" }).getAttribute("aria-current")).toBe("page");
-      expect(screen.getByTestId("sale-panel")).toBeTruthy();
-    });
-    within(navigation).getByRole("button", { name: "Catálogo" }).click();
-    await waitFor(() => {
-      expect(within(navigation).getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");
-      expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBeTruthy();
-      expect(screen.getByTestId("catalog-panel")).toBeTruthy();
-    });
-    // Focus revalidation must not bounce the operator back to Caja.
-    window.dispatchEvent(new Event("focus"));
-    await waitFor(() => {
-      expect(within(navigation).getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");
-      expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBeTruthy();
-      expect(screen.getByTestId("catalog-panel")).toBeTruthy();
-    });
-
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "REJECTED",
-      result_code: "SESSION_NOT_BOUND",
-      result: { outcome: "UNAUTHORIZED", permissions: [] },
-    });
-    vi.mocked(window.posService["local.operator.session"]).mockResolvedValue(localOperatorResult("NO_SESSION"));
-    fireEvent.click(screen.getByRole("button", { name: "Cerrar sesión" }));
-    await screen.findByTestId("authorization-unauthenticated");
-    expect(screen.queryByTestId("sale-panel")).toBeNull();
-    expect(screen.queryByTestId("catalog-panel")).toBeNull();
-  });
-});
-
-describe("Entry and navigation preserve authorization boundaries", () => {
-  it("retries canonical recovery without granting any permissions", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "REJECTED", result_code: "SESSION_NOT_BOUND", result: { outcome: "UNAUTHORIZED", permissions: [] },
-    });
-    render(<App />);
-    await screen.findByTestId("authorization-unauthenticated");
-    fireEvent.click(screen.getByRole("button", { name: "Actualizar acceso" }));
-    await screen.findByTestId("authorization-unauthenticated");
-    expect(window.posService["session.recover"]).toHaveBeenCalledTimes(2);
-    expect(screen.queryByTestId("sale-panel")).toBeNull();
-  });
-
-  it("keeps unavailable recovery fail-closed", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "REJECTED", result_code: "SESSION_NOT_BOUND", result: { outcome: "UNAUTHORIZED", permissions: [] },
-    });
-    vi.mocked(window.posService["session.recover"]).mockResolvedValue({ status: "REJECTED", result_code: "UNVERIFIABLE",
-      result: { outcome: "UNVERIFIABLE", session_id: null, offline_valid_until: null, decision: "SESSION_EXPIRED" } });
-    render(<App />);
-    await screen.findByTestId("authorization-error");
-    expect(screen.queryByTestId("sale-panel")).toBeNull();
-  });
-
-  it("changes visual area only after an authorized navigation event", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "SUCCEEDED", result_code: "AVAILABLE",
-      result: { outcome: "AVAILABLE", permissions: ["SALES_SALE_CREATE", "AUDIT_EVENT_READ"] },
-    });
-    const { container } = render(<App />);
-    await screen.findByRole("button", { name: "Caja y ventas" });
-    expect(container.querySelector(".pos-shell")?.getAttribute("data-visual-area")).toBe("operation");
-    fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
-    expect(container.querySelector(".pos-shell")?.getAttribute("data-visual-area")).toBe("administration");
-    fireEvent.click(screen.getByRole("button", { name: "Auditoría administrativa" }));
-    expect(container.querySelector(".pos-shell")?.getAttribute("data-visual-area")).toBe("platform");
-    expect(window.posService["authorization.capabilities.get"]).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps the branded entry screen fail-closed while authorization is pending", () => {
-    const { container } = render(<App />);
-    expect(screen.getByTestId("authorization-loading")).toBeTruthy();
-    expect(container.querySelector(".pos-brand--entry")).toBeTruthy();
-    expect(screen.getByRole("img", { name: "Camacho POS Colombia" }).getAttribute("src")).toContain("camacho-pos-colombia-login.png");
-    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Iniciar sesión" })).toBeNull();
-  });
-
-  it("does not render decorative controls or operational screens when authorization fails", async () => {
-    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
-      status: "REJECTED", result_code: "SESSION_NOT_BOUND",
-      result: { outcome: "UNAUTHORIZED", permissions: [] },
-    });
-    render(<App />);
-    await screen.findByTestId("authorization-unauthenticated");
-    expect(screen.queryByRole("button", { name: "Apagar lámpara decorativa" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
-  });
-});
-

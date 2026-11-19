@@ -1,7 +1,7 @@
 import { InventoryBatchPanel } from "./InventoryBatchPanel.js";
-import { InventoryTransformPanel } from "./InventoryTransformPanel.js";
 import { InventoryConversionPanel } from "./InventoryConversionPanel.js";
 import { InventoryCsvImport } from "./InventoryCsvImport.js";
+import { InventoryTransformPanel } from "./InventoryTransformPanel.js";
 import { CanonicalPermission, LicenseSectorEntitlement } from "@pos-platform/contracts";
 import { useEffect, useState } from "react";
 import {

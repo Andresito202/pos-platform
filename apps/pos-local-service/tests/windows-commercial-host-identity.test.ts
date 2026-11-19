@@ -55,30 +55,4 @@ describe("Windows commercial process identity", () => {
   });
 });
 
-describe("Windows SCM commercial service-context gate", () => {
-  it("rejects non-Windows hosts without an environment bypass", () => {
-    expect(() => assertWindowsScmCommercialCertification("linux", () => ({
-      status: 0,
-      stdout: "SCM_COMMERCIAL_SERVICE_CONTEXT_VERIFIED",
-    }))).toThrow("SCM_COMMERCIAL_WINDOWS_REQUIRED");
-  });
-
-  it("rejects interactive or non-service hosts (no env/provision bypass)", () => {
-    expect(() => assertWindowsScmCommercialCertification("win32", () => ({
-      status: 22,
-      stdout: "PRIVATE_SID_SHOULD_NOT_ESCAPE",
-    }))).toThrow("SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED");
-    expect(() => assertWindowsScmCommercialCertification()).toThrow(
-      process.platform === "win32"
-        ? "SCM_COMMERCIAL_SERVICE_CONTEXT_REQUIRED"
-        : "SCM_COMMERCIAL_WINDOWS_REQUIRED",
-    );
-  });
-
-  it("accepts only the attested NT SERVICE Session-0 receipt", () => {
-    expect(() => assertWindowsScmCommercialCertification("win32", () => ({
-      status: 0,
-      stdout: "SCM_COMMERCIAL_SERVICE_CONTEXT_VERIFIED\r\n",
-    }))).not.toThrow();
-  });
-});
+it("retains the unconditional commercial SCM release gate despite an implemented adapter",()=>{expect(()=>assertWindowsScmCommercialCertification()).toThrow("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");});

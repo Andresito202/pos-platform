@@ -16,11 +16,11 @@ export class ChannelBridge {
     // The service validates the rest of the canonical envelope.
     const messageType = ipcChannel.slice("pos:".length);
     if (
-      typeof payload !== "object" ||
-      payload === null ||
-      Array.isArray(payload) ||
-      !("message_type" in payload) ||
-      payload.message_type !== messageType
+      typeof payload !== "object"
+      || payload === null
+      || Array.isArray(payload)
+      || !("message_type" in payload)
+      || payload.message_type !== messageType
     ) {
       throw new Error(`IPC message type does not match channel: ${ipcChannel}`);
     }

@@ -6,7 +6,7 @@ import {TLSSocket} from "node:tls";
 import {LicenseActivationProvisionSchema,validateCommercialHttpsOrigin} from "@pos-platform/contracts";
 import type {Pool} from "@pos-platform/database-postgres";
 import {LicenseCapacityAuthority,LICENSE_ACTIVATION_PATH} from "./license-capacity-authority.js";
-import {inspectCommercialHeaders,readCommercialJsonBody,sendCommercialJson} from "./isolated-commercial-https.js";
+import {inspectCommercialHeaders,readCommercialJsonBody,sendCommercialJson} from "./commercial-https-request-boundary.js";
 import {FixedWindowRateLimiter} from "./fixed-window-rate-limiter.js";
 function managed(path:string,max:number){
   if(!isAbsolute(path))throw Error("LICENSE_MANAGED_ABSOLUTE_FILE_REQUIRED");

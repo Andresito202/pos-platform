@@ -1,5 +1,7 @@
-import { SqliteWaitingCartStore } from "../sales/sqlite-waiting-cart-store.js";
-import type {PublicLicenseCatalog} from "@pos-platform/contracts";
+import { HardwareService } from "../hardware/hardware-service.js";
+import { HardwareStore } from "../hardware/hardware-store.js";
+import { loadHardwareRegistry, loadAutomaticDrawerPolicy } from "../hardware/platform-transports.js";
+import { WindowsCh340Transport, loadWindowsScaleProfile } from "../hardware/windows-ch340-transport.js";
 import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
@@ -12,14 +14,7 @@ import { SessionAssertionVerifier } from "../security/session-assertion-verifier
 import { SqliteSessionAssertionStore } from "../session/sqlite-session-assertion-store.js";
 import { SessionActivationService } from "../session/session-activation.js";
 import { SessionBindingRegistry } from "../session/session-binding-registry.js";
-import {boundIdentityFromClaims} from "../session/session-binding-registry.js";
-import {SignedSessionAssertionSchema,SignedAuthorizationSnapshotSchema} from "@pos-platform/contracts";
 import { SqliteAuthorizationSnapshotStore } from "../authorization/sqlite-authorization-snapshot-store.js";
-import {AuthorizationSnapshotVerifier} from "../security/authorization-snapshot-verifier.js";
-import {assertAuthorizationTrustSeparated} from "../security/authorization-trust-separation.js";
-import {SnapshotAcquisitionService} from "../authorization/snapshot-acquisition.js";
-import type {SnapshotProvider} from "../authorization/snapshot-provider.js";
-import type {SnapshotBinding} from "../authorization/authorization-snapshot-store.js";
 import { SqliteMasterSnapshotStore } from "../master-data/sqlite-master-snapshot-store.js";
 import { SqliteCashShiftStore } from "../cash/sqlite-cash-shift-store.js";
 import { OpenCashShiftUseCase } from "../cash/open-cash-shift-use-case.js";
@@ -27,9 +22,8 @@ import { CloseCashShiftUseCase } from "../cash/close-cash-shift-use-case.js";
 import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
 import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
-import { AddPresentationUseCase, UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
-import { ListCatalogItemsUseCase } from "../catalog/list-catalog-items-use-case.js";
+import { AddPresentationUseCase, UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
 import { ExecuteTransformUseCase } from "../inventory/execute-transform-use-case.js";
 import { SqlitePharmacyStore } from "../pharmacy/sqlite-pharmacy-store.js";
 import {
@@ -54,6 +48,10 @@ import {
   ReleaseBakeryFinishedLotUseCase,
   GetBakeryProductionTraceUseCase,
 } from "../bakery/bakery-use-cases.js";
+import type { CashRegisterLicenseGate, SectorLicenseGate } from "../security/license-capacity-gate.js";
+import type { SyncScope } from "../sync/durable-sync-store.js";
+
+import { SqliteWaitingCartStore } from "../sales/sqlite-waiting-cart-store.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
@@ -64,19 +62,19 @@ import { CreateInventoryReservationUseCase,ReleaseInventoryReservationUseCase } 
 import { GetReceiptUseCase } from "../receipts/get-receipt-use-case.js";
 import { SqliteReceiptStore } from "../receipts/sqlite-receipt-store.js";
 import { SqlitePaymentStore } from "../payments/sqlite-payment-store.js";
+import { RegisterFactusPayCollectionUseCase } from "../payments/register-factus-pay-collection-use-case.js";
+import { VerifyFactusPayCollectionUseCase } from "../payments/verify-factus-pay-collection-use-case.js";
+import { ResumeFactusPayCollectionUseCase } from "../payments/resume-factus-pay-collection-use-case.js";
+import { FactusPayClient } from "../payments/factus-pay-client.js";
+import { FactusPayCredentialStore } from "../payments/factus-pay-credential-store.js";
 import { RegisterCashPaymentUseCase } from "../payments/register-cash-payment-use-case.js";
 import { RegisterTransferPaymentUseCase } from "../payments/register-transfer-payment-use-case.js";
 import { ConfirmTransferPaymentUseCase } from "../payments/confirm-transfer-payment-use-case.js";
 import { CancelPaymentUseCase } from "../payments/cancel-payment-use-case.js";
 import { GetPaymentUseCase } from "../payments/get-payment-use-case.js";
-import { RegisterFactusPayCollectionUseCase } from "../payments/register-factus-pay-collection-use-case.js";
-import { VerifyFactusPayCollectionUseCase } from "../payments/verify-factus-pay-collection-use-case.js";
-import { FactusPayClient } from "../payments/factus-pay-client.js";
-import { FactusPayCredentialStore } from "../payments/factus-pay-credential-store.js";
 import { SqliteCustomerStore } from "../customers/sqlite-customer-store.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
 import { GetCustomerUseCase } from "../customers/get-customer-use-case.js";
-import { CustomerMarketingSubscriptionStore } from "../customers/customer-marketing-subscription.js";
 import { FiscalCredentialStore } from "../fiscal/fiscal-credential-store.js";
 import { SecretStoreFactusCredentialResolver } from "../fiscal/factus-credential-resolver.js";
 import { SqliteFiscalDocumentStore } from "../fiscal/sqlite-fiscal-document-store.js";
@@ -84,15 +82,6 @@ import { SqliteFiscalSaleSource } from "../fiscal/fiscal-sale-source.js";
 import { IssueElectronicDocumentUseCase } from "../fiscal/issue-electronic-document-use-case.js";
 import { SynchronizeNumberingRangesUseCase } from "../fiscal/synchronize-numbering-ranges-use-case.js";
 import type { CredentialReference, NumberingRangePort } from "@pos-platform/fiscal-adapters";
-import { SqliteAuditStore } from "../audit/sqlite-audit-store.js";
-import { ListAuditEventsUseCase } from "../audit/list-audit-events-use-case.js";
-import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js";
-import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
-import { HardwareService } from "../hardware/hardware-service.js";
-import type { CashRegisterLicenseGate, SectorLicenseGate } from "../security/license-capacity-gate.js";
-import type { SyncScope } from "../sync/durable-sync-store.js";
-import { HardwareStore } from "../hardware/hardware-store.js";
-import { loadHardwareRegistry,loadAutomaticDrawerPolicy } from "../hardware/platform-transports.js";
 
 /**
  * Componente que reúne la superficie comercial V1 — `DEC-014` / `DEC-015`.
@@ -111,8 +100,16 @@ import { loadHardwareRegistry,loadAutomaticDrawerPolicy } from "../hardware/plat
  * fabricar una confianza que nadie ha provisto.
  */
 export class CommercialComponent implements RuntimeComponent {
-  private hardwareInstance:HardwareService|null=null;
-  get hardware():HardwareService {if(!this.hardwareInstance)throw new Error("HARDWARE_RUNTIME_NOT_STARTED");return this.hardwareInstance;}
+  private hardwareInstance: HardwareService | null = null;
+  private scaleInstance: WindowsCh340Transport | null = null;
+  get scale(): WindowsCh340Transport | null { return this.scaleInstance; }
+  hasOpenScaleRegister(registerId: string): boolean {
+    return this.localDatabase.database.native.prepare("SELECT 1 FROM cash_shift WHERE tenant_id=? AND company_id=? AND branch_id=? AND cash_register_id=? AND status='OPEN'").get(this.config.tenant_id,this.config.company_id,this.config.branch_id,registerId) !== undefined;
+  }
+  get hardware(): HardwareService {
+    if (!this.hardwareInstance) throw new Error("HARDWARE_RUNTIME_NOT_STARTED");
+    return this.hardwareInstance;
+  }
   readonly name = "commercial";
 
   private state:
@@ -123,35 +120,28 @@ export class CommercialComponent implements RuntimeComponent {
         readonly openCashShift: OpenCashShiftUseCase;
         readonly closeCashShift: CloseCashShiftUseCase;
         readonly createSale: CreateSaleUseCase;
-        readonly fiscalSaleSource: SqliteFiscalSaleSource;
-        readonly waitingCarts: SqliteWaitingCartStore;
         readonly registerCashPayment: RegisterCashPaymentUseCase;
         readonly registerTransferPayment: RegisterTransferPaymentUseCase;
         readonly confirmTransferPayment: ConfirmTransferPaymentUseCase;
-        readonly cancelPayment: CancelPaymentUseCase;
-        readonly getPayment: GetPaymentUseCase;
         readonly registerFactusPayCollection: RegisterFactusPayCollectionUseCase;
         readonly verifyFactusPayCollection: VerifyFactusPayCollectionUseCase;
+        readonly resumeFactusPayCollection: ResumeFactusPayCollectionUseCase;
+        readonly cancelPayment: CancelPaymentUseCase;
+        readonly getPayment: GetPaymentUseCase;
         readonly registerCustomer: RegisterCustomerUseCase;
         readonly getCustomer: GetCustomerUseCase;
-        readonly customerMarketing: CustomerMarketingSubscriptionStore;
         readonly registerProduct: RegisterProductUseCase;
-        readonly addPresentation: AddPresentationUseCase;
-        readonly upsertFoodPolicy: UpsertFoodPolicyUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
-        readonly listCatalogItems: ListCatalogItemsUseCase;
-        readonly listAuditEvents: ListAuditEventsUseCase;
-        readonly getAdminMetrics: GetAdminMetricsUseCase;
         readonly receiveStock: ReceiveStockUseCase;
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
-        readonly listBatches:ListBatchesUseCase;
-        readonly changeBatchStatus:ChangeBatchStatusUseCase;
-        readonly approvePresentationConversion:ApprovePresentationConversionUseCase;
-        readonly convertPresentation:ConvertPresentationUseCase;
-        readonly createInventoryReservation:CreateInventoryReservationUseCase;
-        readonly releaseInventoryReservation:ReleaseInventoryReservationUseCase;
-        readonly executeTransform:ExecuteTransformUseCase;
+        readonly listBatches: ListBatchesUseCase;
+        readonly changeBatchStatus: ChangeBatchStatusUseCase;
+        readonly approvePresentationConversion: ApprovePresentationConversionUseCase;
+        readonly convertPresentation: ConvertPresentationUseCase;
+        readonly createInventoryReservation: CreateInventoryReservationUseCase;
+        readonly releaseInventoryReservation: ReleaseInventoryReservationUseCase;
+        readonly executeTransform: ExecuteTransformUseCase;
         readonly pharmacyStore: SqlitePharmacyStore;
         readonly upsertPharmacyEstablishment: UpsertPharmacyEstablishmentUseCase;
         readonly upsertPharmacyProfile: UpsertPharmacyProfileUseCase;
@@ -171,6 +161,9 @@ export class CommercialComponent implements RuntimeComponent {
         readonly confirmBakeryProduction: ConfirmBakeryProductionUseCase;
         readonly releaseBakeryFinishedLot: ReleaseBakeryFinishedLotUseCase;
         readonly getBakeryProductionTrace: GetBakeryProductionTraceUseCase;
+        readonly addPresentation: AddPresentationUseCase;
+        readonly upsertFoodPolicy: UpsertFoodPolicyUseCase;
+        readonly waitingCarts: SqliteWaitingCartStore;
         readonly getReceipt: GetReceiptUseCase;
         /**
          * `null` cuando la emisión fiscal no está configurada en este equipo:
@@ -180,20 +173,13 @@ export class CommercialComponent implements RuntimeComponent {
          * significa «esta pieza no está lista», no un error de arranque.
          */
         readonly issueElectronicDocument: IssueElectronicDocumentUseCase | null;
+        readonly fiscalSaleSource: SqliteFiscalSaleSource;
         readonly synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null;
         readonly fiscalCredentialReference: CredentialReference | null;
-        readonly fiscalNumberingPort: NumberingRangePort | null;
       }
     | undefined;
 
   readonly bindings: SessionBindingRegistry;
-  private nativeSessionCloser:((connections:readonly string[],initiator:string)=>void)|undefined;
-
-  registerNativeSessionCloser(close:(connections:readonly string[],initiator:string)=>void):()=>void{
-    if(this.nativeSessionCloser)throw Error("NATIVE_SESSION_CLOSER_ALREADY_REGISTERED");
-    this.nativeSessionCloser=close;
-    return ()=>{if(this.nativeSessionCloser===close)this.nativeSessionCloser=undefined;};
-  }
 
   constructor(
     private readonly config: ServiceConfig,
@@ -212,13 +198,14 @@ export class CommercialComponent implements RuntimeComponent {
     private readonly fiscalSecretStore: EncryptedFileSecretStore | undefined = undefined,
     /** Inyección para pruebas: sin ella, producción construye `FactusAdapter` real. */
     private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
-    /** Separately provisioned authorization trust. SSA keys never imply SAS trust. */
-    private readonly authorizationSigningKeys:ReadonlyMap<string,TrustedSigningKey>=new Map(),
-    private readonly factusPaySecretStore: EncryptedFileSecretStore | undefined = undefined,
     private readonly licenseGate?: CashRegisterLicenseGate,
-    private readonly publicLicenseCatalog?:()=>Promise<PublicLicenseCatalog>,
     private readonly sectorLicenseGate?: SectorLicenseGate,
     private readonly licenseEntitlementsReader?: (scope: SyncScope) => readonly string[],
+    /**
+     * Almacén abierto con `factusPayCredentialContext` (AAD distinto del fiscal).
+     * `undefined` → Caja responde `FACTUS_PAY_NOT_CONFIGURED` sin inventar cliente.
+     */
+    private readonly factusPaySecretStore: EncryptedFileSecretStore | undefined = undefined,
   ) {
     this.bindings = new SessionBindingRegistry(now);
   }
@@ -252,78 +239,34 @@ export class CommercialComponent implements RuntimeComponent {
     return this.state;
   }
 
-  get fiscalSaleSource(): SqliteFiscalSaleSource { return this.ready.fiscalSaleSource; }
   get sessionStore(): SqliteSessionAssertionStore { return this.ready.sessionStore; }
   get sessionActivation(): SessionActivationService { return this.ready.sessionActivation; }
   get authorizationStore(): SqliteAuthorizationSnapshotStore { return this.ready.authorizationStore; }
-  verifyNativeAuthorization(assertion:unknown,snapshot:unknown){
-    assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);
-    const ssa=SignedSessionAssertionSchema.parse(assertion),sas=SignedAuthorizationSnapshotSchema.parse(snapshot);
-    if(this.sessionStore.isClosed(ssa.claims.session_id))throw Error("LOCAL_BUSINESS_SESSION_CLOSED");
-    const binding={...this.deviceBinding(),userId:ssa.claims.user_id};
-    const identity=new SessionAssertionVerifier(this.sessionSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now)
-      .verify(ssa,binding);
-    if(identity.decision!=="VALID")throw Error("NATIVE_SSA_REJECTED");
-    const checked=new AuthorizationSnapshotVerifier(this.authorizationSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now).verify(sas,binding);
-    if(checked.decision!=="VALID")throw Error("NATIVE_SAS_REJECTED");
-    return {ssa,sas,binding};
-  }
-  activateNativeAuthorization(assertion:unknown,snapshot:unknown,connectionId:string){
-    const {ssa,sas,binding}=this.verifyNativeAuthorization(assertion,snapshot);
-    this.localDatabase.database.native.transaction(()=>{
-      if(this.sessionActivation.activate(ssa,binding).kind!=="ACTIVATED")throw Error("NATIVE_SSA_REJECTED");
-      if(this.authorizationStore.activate(sas,binding).kind!=="ACTIVATED")throw Error("NATIVE_SAS_SEQUENCE_REJECTED");
-    })();
-    this.bindings.bind(connectionId,boundIdentityFromClaims(ssa.claims));
-  }
-  closeNativeSession(connectionId:string):string|null{
-    const bound=this.bindings.resolve(connectionId);if(!bound)return null;
-    this.sessionStore.close(bound.ssaSessionId);
-    const connections=this.bindings.releaseSession(bound.ssaSessionId);
-    // The durable tombstone above commits before bindings or sockets are
-    // released. Already committed effects remain subject to idempotency.
-    this.nativeSessionCloser?.(connections,connectionId);
-    return bound.ssaSessionId;
-  }
-  loadVerifiedAuthorization(binding:SnapshotBinding){
-    try{assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);}catch{return null;}
-    const stored=this.authorizationStore.loadActive(binding);if(!stored)return null;
-    const verified=new AuthorizationSnapshotVerifier(this.authorizationSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now)
-      .verify({claims:stored.claims,signature:stored.signature},binding);
-    return verified.decision==="VALID"?stored:null;
-  }
-  async refreshAuthorization(provider:SnapshotProvider){
-    assertAuthorizationTrustSeparated(this.authorizationSigningKeys,this.sessionSigningKeys);
-    const {installationId,deviceId}=this.deviceBinding();
-    const found=this.sessionStore.loadActiveByDevice(installationId,deviceId);
-    if(found.kind!=="FOUND")throw Error("AUTHORIZATION_ACTIVE_SESSION_REQUIRED");
-    const binding={installationId,deviceId,userId:found.session.claims.user_id};
-    const verifier=new SessionAssertionVerifier(this.sessionSigningKeys,new TrustedClockGuard(this.localDatabase.database),this.now);
-    if(verifier.verify({claims:found.session.claims,signature:found.session.signature},binding).decision!=="VALID")throw Error("AUTHORIZATION_VERIFIED_SESSION_REQUIRED");
-    return new SnapshotAcquisitionService(provider,new AuthorizationSnapshotVerifier(this.authorizationSigningKeys,
-      new TrustedClockGuard(this.localDatabase.database),this.now),this.authorizationStore).acquire(binding);
-  }
   get openCashShift(): OpenCashShiftUseCase { return this.ready.openCashShift; }
   get closeCashShift(): CloseCashShiftUseCase { return this.ready.closeCashShift; }
-  get waitingCarts(): SqliteWaitingCartStore { return this.ready.waitingCarts; }
   get createSale(): CreateSaleUseCase { return this.ready.createSale; }
   get registerCashPayment(): RegisterCashPaymentUseCase { return this.ready.registerCashPayment; }
   get registerTransferPayment(): RegisterTransferPaymentUseCase { return this.ready.registerTransferPayment; }
   get confirmTransferPayment(): ConfirmTransferPaymentUseCase { return this.ready.confirmTransferPayment; }
+  get registerFactusPayCollection(): RegisterFactusPayCollectionUseCase { return this.ready.registerFactusPayCollection; }
+  get verifyFactusPayCollection(): VerifyFactusPayCollectionUseCase { return this.ready.verifyFactusPayCollection; }
+  get resumeFactusPayCollection(): ResumeFactusPayCollectionUseCase { return this.ready.resumeFactusPayCollection; }
   get cancelPayment(): CancelPaymentUseCase { return this.ready.cancelPayment; }
   get getPayment(): GetPaymentUseCase { return this.ready.getPayment; }
-  get registerFactusPayCollection(): RegisterFactusPayCollectionUseCase {
-    return this.ready.registerFactusPayCollection;
-  }
-  get verifyFactusPayCollection(): VerifyFactusPayCollectionUseCase {
-    return this.ready.verifyFactusPayCollection;
-  }
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
-  get customerMarketing(): CustomerMarketingSubscriptionStore { return this.ready.customerMarketing; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
-  get addPresentation(): AddPresentationUseCase { return this.ready.addPresentation; }
-  get upsertFoodPolicy(): UpsertFoodPolicyUseCase { return this.ready.upsertFoodPolicy; }
+  get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
+  get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
+  get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
+  get getStock(): GetStockUseCase { return this.ready.getStock; }
+  get listBatches(): ListBatchesUseCase { return this.ready.listBatches; }
+  get changeBatchStatus(): ChangeBatchStatusUseCase { return this.ready.changeBatchStatus; }
+  get approvePresentationConversion(): ApprovePresentationConversionUseCase { return this.ready.approvePresentationConversion; }
+  get convertPresentation(): ConvertPresentationUseCase { return this.ready.convertPresentation; }
+  get createInventoryReservation(): CreateInventoryReservationUseCase { return this.ready.createInventoryReservation; }
+  get releaseInventoryReservation(): ReleaseInventoryReservationUseCase { return this.ready.releaseInventoryReservation; }
+  get executeTransform(): ExecuteTransformUseCase { return this.ready.executeTransform; }
   get pharmacyStore(): SqlitePharmacyStore { return this.ready.pharmacyStore; }
   get upsertPharmacyEstablishment(): UpsertPharmacyEstablishmentUseCase { return this.ready.upsertPharmacyEstablishment; }
   get upsertPharmacyProfile(): UpsertPharmacyProfileUseCase { return this.ready.upsertPharmacyProfile; }
@@ -339,30 +282,16 @@ export class CommercialComponent implements RuntimeComponent {
   get createBakeryProductionOrder(): CreateBakeryProductionOrderUseCase { return this.ready.createBakeryProductionOrder; }
   get planBakeryProductionOrder(): PlanBakeryProductionOrderUseCase { return this.ready.planBakeryProductionOrder; }
   get cancelBakeryProductionOrder(): CancelBakeryProductionOrderUseCase { return this.ready.cancelBakeryProductionOrder; }
-  get authorizeBakeryProductionDeviation(): AuthorizeBakeryProductionDeviationUseCase {
-    return this.ready.authorizeBakeryProductionDeviation;
-  }
+  get authorizeBakeryProductionDeviation(): AuthorizeBakeryProductionDeviationUseCase { return this.ready.authorizeBakeryProductionDeviation; }
   get confirmBakeryProduction(): ConfirmBakeryProductionUseCase { return this.ready.confirmBakeryProduction; }
   get releaseBakeryFinishedLot(): ReleaseBakeryFinishedLotUseCase { return this.ready.releaseBakeryFinishedLot; }
   get getBakeryProductionTrace(): GetBakeryProductionTraceUseCase { return this.ready.getBakeryProductionTrace; }
-  get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
-  get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
-  get listAuditEvents(): ListAuditEventsUseCase { return this.ready.listAuditEvents; }
-  readPublicLicenseCatalog(){if(!this.publicLicenseCatalog)throw Error("LICENSE_CATALOG_NOT_CONFIGURED");return this.publicLicenseCatalog();}
-
-  get getAdminMetrics(): GetAdminMetricsUseCase { return this.ready.getAdminMetrics; }
-  get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
-  get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
-  get getStock(): GetStockUseCase { return this.ready.getStock; }
-  get listBatches():ListBatchesUseCase{return this.ready.listBatches;}
-  get changeBatchStatus():ChangeBatchStatusUseCase{return this.ready.changeBatchStatus;}
-  get approvePresentationConversion():ApprovePresentationConversionUseCase{return this.ready.approvePresentationConversion;}
-  get convertPresentation():ConvertPresentationUseCase{return this.ready.convertPresentation;}
-  get createInventoryReservation():CreateInventoryReservationUseCase{return this.ready.createInventoryReservation;}
-  get releaseInventoryReservation():ReleaseInventoryReservationUseCase{return this.ready.releaseInventoryReservation;}
-  get executeTransform():ExecuteTransformUseCase{return this.ready.executeTransform;}
+  get addPresentation(): AddPresentationUseCase { return this.ready.addPresentation; }
+  get upsertFoodPolicy(): UpsertFoodPolicyUseCase { return this.ready.upsertFoodPolicy; }
+  get waitingCarts(): SqliteWaitingCartStore { return this.ready.waitingCarts; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
+  get fiscalSaleSource(): SqliteFiscalSaleSource { return this.ready.fiscalSaleSource; }
   get synchronizeNumberingRanges(): SynchronizeNumberingRangesUseCase | null { return this.ready.synchronizeNumberingRanges; }
   get fiscalCredentialReference(): CredentialReference | null { return this.ready.fiscalCredentialReference; }
 
@@ -379,24 +308,17 @@ export class CommercialComponent implements RuntimeComponent {
 
     const cashShiftStore = new SqliteCashShiftStore(database, sync, this.now);
     const masterSnapshotStore = new SqliteMasterSnapshotStore(database, this.now);
-    const saleStore = new SqliteSaleStore(database, sync, this.now, this.licenseGate);
+    const saleStore = new SqliteSaleStore(database, sync, this.now);
     // `SqliteCashShiftStore` satisface `CashPort` estructuralmente: Payments no
     // escribe caja, y `cash/` no importa de `payments/` (`DEC-016` §10).
     const customerStore = new SqliteCustomerStore(database, sync, this.now);
     const catalogStore = new SqliteCatalogStore(database, sync, this.now);
-    const auditStore = new SqliteAuditStore(database);
-    const adminMetricsStore = new SqliteAdminMetricsStore(database);
     // `SqliteInventoryStore` satisface `InventoryPort` por la misma razón: la
     // venta saca la mercancía sin que `inventory/` conozca a `payments/`.
     const pharmacyStore = new SqlitePharmacyStore(database, sync, this.now);
     const inventoryStore = new SqliteInventoryStore(database, sync, this.now);
     const bakeryStore = new SqliteBakeryStore(database, sync, inventoryStore, this.now);
-    const paymentStore = new SqlitePaymentStore(
-      database, sync, cashShiftStore, inventoryStore, this.now, pharmacyStore,
-    );
-    const hardwareStore=new HardwareStore(database);
-    hardwareStore.recoverInterrupted();
-    this.hardwareInstance=new HardwareService(hardwareStore,new GetReceiptUseCase(new SqliteReceiptStore(database)),loadHardwareRegistry(this.config.hardware_profiles_file),undefined,loadAutomaticDrawerPolicy(this.config.hardware_automatic_drawer_policy_file));
+    const paymentStore = new SqlitePaymentStore(database, sync, cashShiftStore, inventoryStore, this.now, pharmacyStore);
 
     // `DEC-021` F5. Sin almacén de secretos fiscal o sin ambiente configurado,
     // la pieza no se construye — `fiscal.document.issue` falla cerrado con un
@@ -408,13 +330,11 @@ export class CommercialComponent implements RuntimeComponent {
     let issueElectronicDocument: IssueElectronicDocumentUseCase | null = null;
     let synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null = null;
     let fiscalCredentialReference: CredentialReference | null = null;
-    let fiscalNumberingPort: NumberingRangePort | null = null;
     if (this.fiscalSecretStore !== undefined && this.config.fiscal_environment !== undefined) {
       const environment = this.config.fiscal_environment;
-      const fiscalCredentialStore = new FiscalCredentialStore(this.fiscalSecretStore, this.config.company_id);
+      const fiscalCredentialStore = new FiscalCredentialStore(this.fiscalSecretStore);
       if (fiscalCredentialStore.has("FACTUS", environment)) {
         const credential = fiscalCredentialStore.reference("FACTUS", environment);
-        const fiscalDocumentStore = new SqliteFiscalDocumentStore(database, this.now);
         const issuancePort = this.issuancePortOverride ?? new FactusAdapter(
           new FetchHttpTransport(),
           new SecretStoreFactusCredentialResolver(fiscalCredentialStore),
@@ -424,40 +344,41 @@ export class CommercialComponent implements RuntimeComponent {
         issueElectronicDocument = new IssueElectronicDocumentUseCase(
           fiscalSaleSource,
           catalogStore,
-          fiscalDocumentStore,
+          new SqliteFiscalDocumentStore(database, this.now),
           issuancePort,
           credential,
           this.now,
         );
-        // FactusAdapter implements NumberingRangePort; test overrides may not.
+        fiscalCredentialReference = credential;
         if ("synchronizeRanges" in issuancePort) {
-          fiscalNumberingPort = issuancePort as NumberingRangePort;
-          synchronizeNumberingRanges = new SynchronizeNumberingRangesUseCase(
-            fiscalNumberingPort,
-            fiscalDocumentStore,
-            this.now,
-          );
-          fiscalCredentialReference = credential;
+          synchronizeNumberingRanges = new SynchronizeNumberingRangesUseCase(issuancePort as NumberingRangePort,new SqliteFiscalDocumentStore(database,this.now),this.now);
         }
       }
     }
 
+    const hardwareStore = new HardwareStore(database);
+    hardwareStore.recoverInterrupted();
+    this.hardwareInstance = new HardwareService(hardwareStore, new GetReceiptUseCase(new SqliteReceiptStore(database)), loadHardwareRegistry(this.config.hardware_profiles_file), undefined, loadAutomaticDrawerPolicy(this.config.hardware_automatic_drawer_policy_file));
+    const scaleProfile = loadWindowsScaleProfile(this.config.windows_scale_profile_file);
+    this.scaleInstance = scaleProfile ? new WindowsCh340Transport(scaleProfile) : null;
     const factusPayClient = this.factusPaySecretStore === undefined
       ? null
-      : new FactusPayClient(new FactusPayCredentialStore(this.factusPaySecretStore, this.config.company_id), "SANDBOX", this.now);
+      : new FactusPayClient(
+        new FactusPayCredentialStore(this.factusPaySecretStore, this.config.company_id),
+        "SANDBOX",
+        this.now,
+      );
 
     this.state = {
-      fiscalSaleSource,
       issueElectronicDocument,
+      fiscalSaleSource,
       synchronizeNumberingRanges,
       fiscalCredentialReference,
-      fiscalNumberingPort,
       sessionStore,
       sessionActivation: new SessionActivationService(verifier, sessionStore),
       authorizationStore: new SqliteAuthorizationSnapshotStore(database, this.now),
-      openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now, this.licenseGate),
+      openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
-      waitingCarts: new SqliteWaitingCartStore(database, this.now),
       createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now, pharmacyStore),
       upsertPharmacyEstablishment: new UpsertPharmacyEstablishmentUseCase(pharmacyStore),
       upsertPharmacyProfile: new UpsertPharmacyProfileUseCase(pharmacyStore),
@@ -481,40 +402,42 @@ export class CommercialComponent implements RuntimeComponent {
       receiveStock: new ReceiveStockUseCase(inventoryStore),
       adjustStock: new AdjustStockUseCase(inventoryStore),
       getStock: new GetStockUseCase(inventoryStore),
-       listBatches:new ListBatchesUseCase(inventoryStore),
-       changeBatchStatus:new ChangeBatchStatusUseCase(inventoryStore),
-       approvePresentationConversion:new ApprovePresentationConversionUseCase(inventoryStore),
-       convertPresentation:new ConvertPresentationUseCase(inventoryStore),
-       createInventoryReservation:new CreateInventoryReservationUseCase(inventoryStore),
-       releaseInventoryReservation:new ReleaseInventoryReservationUseCase(inventoryStore),
-       executeTransform:new ExecuteTransformUseCase(inventoryStore),
+      listBatches: new ListBatchesUseCase(inventoryStore),
+      changeBatchStatus: new ChangeBatchStatusUseCase(inventoryStore),
+      approvePresentationConversion: new ApprovePresentationConversionUseCase(inventoryStore),
+      convertPresentation: new ConvertPresentationUseCase(inventoryStore),
+      createInventoryReservation: new CreateInventoryReservationUseCase(inventoryStore),
+      releaseInventoryReservation: new ReleaseInventoryReservationUseCase(inventoryStore),
+      executeTransform: new ExecuteTransformUseCase(inventoryStore),
+      waitingCarts: new SqliteWaitingCartStore(database, this.now),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct: new RegisterProductUseCase(catalogStore),
       addPresentation: new AddPresentationUseCase(catalogStore),
       upsertFoodPolicy: new UpsertFoodPolicyUseCase(catalogStore),
       findCatalogItem: new FindCatalogItemUseCase(catalogStore),
-      listCatalogItems: new ListCatalogItemsUseCase(catalogStore),
-      listAuditEvents: new ListAuditEventsUseCase(auditStore),
-      getAdminMetrics: new GetAdminMetricsUseCase(adminMetricsStore),
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),
-      cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),
-      getPayment: new GetPaymentUseCase(paymentStore, this.now),
       registerFactusPayCollection: new RegisterFactusPayCollectionUseCase(paymentStore, factusPayClient, this.now),
       verifyFactusPayCollection: new VerifyFactusPayCollectionUseCase(paymentStore, factusPayClient, this.now),
+      resumeFactusPayCollection: new ResumeFactusPayCollectionUseCase(paymentStore, factusPayClient, this.now),
+      cancelPayment: new CancelPaymentUseCase(paymentStore, this.now),
+      getPayment: new GetPaymentUseCase(paymentStore, this.now),
       registerCustomer: new RegisterCustomerUseCase(customerStore),
       getCustomer: new GetCustomerUseCase(customerStore),
-      customerMarketing: new CustomerMarketingSubscriptionStore(database, this.now),
     };
+    this.scaleInstance?.start();
   }
 
   async stop(): Promise<void> {
+    await this.scaleInstance?.stop();
+    this.scaleInstance = null;
     // Los vínculos mueren con el componente: no existe sesión vinculada a un
     // servicio detenido.
     this.bindings.clear();
     this.state = undefined;
+    this.hardwareInstance = null;
   }
 
   /** Binding de dispositivo derivado de la configuración local, nunca del llamador. */

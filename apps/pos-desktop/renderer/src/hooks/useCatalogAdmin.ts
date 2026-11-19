@@ -1,8 +1,6 @@
 import { useCallback, useState } from "react";
 import type {
   CatalogFoodPolicyUpsertResult,
-  CatalogItemListItem,
-  CatalogPresentationRegisterResult,
   CatalogProductRegisterResult,
 } from "@pos-platform/contracts";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
@@ -23,6 +21,15 @@ export interface RegisteredProduct {
   readonly outcome: CatalogProductRegisterResult["outcome"];
 }
 
+export interface CatalogFiscalAttributesInput {
+  readonly codeReference: string;
+  readonly unitMeasureCode: string;
+  readonly standardCode: string;
+  readonly taxCode: string;
+  /** Operator-typed rate; normalized to scale-6 before IPC. */
+  readonly taxRate: string;
+}
+
 export interface CatalogAdminInput {
   readonly code: string;
   readonly name: string;
@@ -34,20 +41,8 @@ export interface CatalogAdminInput {
   /** Tal como lo teclea el operador: `1500`, `1500,50`. */
   readonly price: string;
   readonly currencyCode: string;
-  readonly fiscalAttributes?: {
-    readonly codeReference: string; readonly unitMeasureCode: string; readonly standardCode: string;
-    readonly taxCode: string; readonly taxRate: string;
-  };
-}
-
-export interface SecondaryPresentationInput {
-  readonly productId: string;
-  readonly presentationName: string;
-  readonly unitCode: string;
-  readonly unitPrecision: number;
-  readonly barcode: string;
-  readonly price: string;
-  readonly currencyCode: string;
+  /** Optional DIAN attributes required before electronic issuance. */
+  readonly fiscalAttributes?: CatalogFiscalAttributesInput;
 }
 
 export interface FoodPolicyInput {
@@ -63,7 +58,6 @@ export interface CatalogAdminState {
   readonly product: RegisteredProduct | null;
   /** Desenlace del contrato cuando no hubo alta: `UNAUTHORIZED`, conflicto… */
   readonly outcome: CatalogProductRegisterResult["outcome"] | null;
-  readonly presentationOutcome: CatalogPresentationRegisterResult["outcome"] | null;
   readonly foodPolicyOutcome: CatalogFoodPolicyUpsertResult["outcome"] | null;
   readonly foodPolicyVersion: number | null;
   readonly error: string | null;
@@ -71,37 +65,14 @@ export interface CatalogAdminState {
 
 export function useCatalogAdmin(): CatalogAdminState & {
   registerProduct(input: CatalogAdminInput): Promise<void>;
-  registerPresentation(input: SecondaryPresentationInput): Promise<void>;
   upsertFoodPolicy(input: FoodPolicyInput): Promise<void>;
-  items: readonly CatalogItemListItem[];
-  hasMore: boolean;
-  listItems(query: string, offset?: number): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const [product, setProduct] = useState<RegisteredProduct | null>(null);
   const [outcome, setOutcome] = useState<CatalogProductRegisterResult["outcome"] | null>(null);
-  const [presentationOutcome, setPresentationOutcome] = useState<CatalogPresentationRegisterResult["outcome"] | null>(null);
   const [foodPolicyOutcome, setFoodPolicyOutcome] = useState<CatalogFoodPolicyUpsertResult["outcome"] | null>(null);
   const [foodPolicyVersion, setFoodPolicyVersion] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [items, setItems] = useState<readonly CatalogItemListItem[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-
-  const listItems = useCallback(async (query: string, offset = 0): Promise<void> => {
-    setBusy(true); setError(null);
-    try {
-      const response = await callCommercial<{ outcome: string; items: CatalogItemListItem[]; has_more: boolean }>(
-        "catalog.item.list", { query, limit: 24, offset },
-      );
-      if (response.status !== "SUCCEEDED" || response.result?.outcome !== "FOUND") {
-        setError(response.result_code); return;
-      }
-      setItems((previous) => offset === 0 ? response.result!.items : [...previous, ...response.result!.items]);
-      setHasMore(response.result.has_more);
-    } catch (thrown) {
-      setError(thrown instanceof Error ? thrown.message : String(thrown));
-    } finally { setBusy(false); }
-  }, []);
 
   const registerProduct = useCallback(async (input: CatalogAdminInput): Promise<void> => {
     setBusy(true);
@@ -117,9 +88,28 @@ export function useCatalogAdmin(): CatalogAdminState & {
         setError("PRICE_NOT_SCALE6");
         return;
       }
-      const fiscal = input.fiscalAttributes;
-      const taxRate = fiscal === undefined ? null : toScale6(fiscal.taxRate);
-      if (fiscal !== undefined && taxRate === null) { setError("TAX_RATE_NOT_SCALE6"); return; }
+
+      let fiscal_attributes: {
+        code_reference: string;
+        unit_measure_code: string;
+        standard_code: string;
+        tax_code: string;
+        tax_rate: string;
+      } | undefined;
+      if (input.fiscalAttributes !== undefined) {
+        const taxRate = toScale6(input.fiscalAttributes.taxRate);
+        if (taxRate === null) {
+          setError("TAX_RATE_NOT_SCALE6");
+          return;
+        }
+        fiscal_attributes = {
+          code_reference: input.fiscalAttributes.codeReference.trim(),
+          unit_measure_code: input.fiscalAttributes.unitMeasureCode.trim(),
+          standard_code: input.fiscalAttributes.standardCode.trim(),
+          tax_code: input.fiscalAttributes.taxCode.trim(),
+          tax_rate: taxRate,
+        };
+      }
 
       const response = await callCommercial<CatalogProductRegisterResult>(
         "catalog.product.register",
@@ -135,10 +125,7 @@ export function useCatalogAdmin(): CatalogAdminState & {
           barcode: input.barcode.trim() === "" ? null : input.barcode.trim(),
           price_amount: price,
           currency_code: input.currencyCode,
-          ...(fiscal === undefined ? {} : { fiscal_attributes: {
-            code_reference: fiscal.codeReference, unit_measure_code: fiscal.unitMeasureCode,
-            standard_code: fiscal.standardCode, tax_code: fiscal.taxCode, tax_rate: taxRate!,
-          } }),
+          ...(fiscal_attributes === undefined ? {} : { fiscal_attributes }),
         },
         newIdempotencyKey(),
       );
@@ -151,45 +138,6 @@ export function useCatalogAdmin(): CatalogAdminState & {
       const { product_id: productId, presentation_id: presentationId } = response.result;
       if (productId !== null && presentationId !== null) {
         setProduct({ productId, presentationId, outcome: response.result.outcome });
-      }
-    } catch (thrown) {
-      setError(thrown instanceof Error ? thrown.message : String(thrown));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
-  const registerPresentation = useCallback(async (input: SecondaryPresentationInput): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    setPresentationOutcome(null);
-    try {
-      const price = toScale6(input.price);
-      if (price === null) {
-        setError("PRICE_NOT_SCALE6");
-        return;
-      }
-      const response = await callCommercial<CatalogPresentationRegisterResult>(
-        "catalog.presentation.register",
-        {
-          product_id: input.productId,
-          presentation_name: input.presentationName,
-          unit_code: input.unitCode,
-          unit_precision: input.unitPrecision,
-          barcode: input.barcode.trim() === "" ? null : input.barcode.trim(),
-          price_amount: price,
-          currency_code: input.currencyCode,
-        },
-        newIdempotencyKey(),
-      );
-      if (response.result === null) {
-        setError(response.result_code);
-        return;
-      }
-      setPresentationOutcome(response.result.outcome);
-      const { product_id: productId, presentation_id: presentationId } = response.result;
-      if (productId !== null && presentationId !== null) {
-        setProduct({ productId, presentationId, outcome: response.result.outcome === "IDEMPOTENT" ? "IDEMPOTENT" : "REGISTERED" });
       }
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
@@ -229,7 +177,13 @@ export function useCatalogAdmin(): CatalogAdminState & {
   }, []);
 
   return {
-    busy, product, outcome, presentationOutcome, foodPolicyOutcome, foodPolicyVersion, error,
-    registerProduct, registerPresentation, upsertFoodPolicy, items, hasMore, listItems,
+    busy,
+    product,
+    outcome,
+    foodPolicyOutcome,
+    foodPolicyVersion,
+    error,
+    registerProduct,
+    upsertFoodPolicy,
   };
 }

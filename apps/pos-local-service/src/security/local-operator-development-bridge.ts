@@ -14,6 +14,7 @@ import type { ServiceConfig } from "../config.js";
  * Nothing from this projection is persisted as a SignedAuthorizationSnapshot.
  */
 const CASHIER = [
+  CanonicalPermission.HARDWARE_PRINT,
   CanonicalPermission.CASH_SHIFT_OPEN,
   CanonicalPermission.CASH_SHIFT_CLOSE,
   CanonicalPermission.SALES_SALE_CREATE,
@@ -39,6 +40,8 @@ const SUPERVISOR = [
 
 const ADMINISTRATOR = [
   ...SUPERVISOR,
+  CanonicalPermission.HARDWARE_READ,
+  CanonicalPermission.HARDWARE_CONFIGURE,
   // Stock and customer/catalog changes belong to business administration.
   CanonicalPermission.INVENTORY_STOCK_RECEIVE,
   CanonicalPermission.INVENTORY_STOCK_ADJUST,
@@ -49,10 +52,13 @@ const ADMINISTRATOR = [
   CanonicalPermission.BAKERY_PRODUCTION_EXECUTE,
   // Explicit — not implied by BAKERY_PRODUCTION_EXECUTE (see permission-codes).
   CanonicalPermission.BAKERY_PRODUCTION_DEVIATE,
+  // Wave 7 — fiscal issuance/sync panel (FACTUS). Still fail-closed without
+  // deposited credential + POS_FISCAL_ENVIRONMENT; does not open production DIAN.
+  CanonicalPermission.FISCAL_DOCUMENT_ISSUE,
 ] as const;
 
-// No local permission to provision commercial BUSINESS licences, issue fiscal
-// documents against FACTUS, or control hardware without physical certification.
+// No local permission to provision commercial BUSINESS licences.
+// Physical printing remains gated by the verified device profile and persisted completed sale.
 export const LOCAL_OPERATOR_PERMISSIONS: Readonly<Record<LocalOperator["role"], readonly string[]>> = Object.freeze({
   CAJERO: CASHIER,
   SUPERVISOR,

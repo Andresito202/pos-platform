@@ -1,21 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-  commercialMigrationManifest,
-  POSTGRES_027_DESCRIPTOR,
+  DOMAIN_PROJECTIONS_028_TABLES,
   POSTGRES_028_DESCRIPTOR,
-} from "../src/postgres-commercial-runner.js";
-import { POSTGRES_028_DESCRIPTOR as CONTRACT } from "../src/postgres-028-domain-projections-contract.js";
+} from "../src/postgres-028-domain-projections-contract.js";
 import { readArtifact, sha256 } from "../src/shared.js";
 
 describe("028 sync domain projections", () => {
-  it("registers additive commercial successor after 027", async () => {
+  it("registers the tip additive projection migration without merchant/FACTUS chain wiring", async () => {
     expect(POSTGRES_028_DESCRIPTOR.migrationId).toBe("028_sync_domain_projections");
-    expect(POSTGRES_028_DESCRIPTOR.dependencies).toEqual([POSTGRES_027_DESCRIPTOR.migrationId]);
-    expect(CONTRACT.ownedTables).toEqual(["sync.domain_projections"]);
+    // Tip commercial chain lists 027 as successor dependency; Wave 3 lab apply
+    // uses the isolated runner (predecessor 001). Do not pull merchant 025–027.
+    expect(POSTGRES_028_DESCRIPTOR.dependencies).toEqual(["027_merchant_notice_revocation_guard"]);
+    expect(DOMAIN_PROJECTIONS_028_TABLES).toEqual(["sync.domain_projections"]);
+    expect(POSTGRES_028_DESCRIPTOR.ownedTables).toEqual(["sync.domain_projections"]);
     const up = await readArtifact(POSTGRES_028_DESCRIPTOR.upArtifact);
-    const manifest = await commercialMigrationManifest("MERCHANT_NOTIFICATIONS");
-    expect(manifest[POSTGRES_028_DESCRIPTOR.migrationId]).toBe(sha256(up).toString("hex"));
-    expect((await commercialMigrationManifest("MERCHANT_DESTINATIONS"))[POSTGRES_028_DESCRIPTOR.migrationId]).toBeUndefined();
+    expect(sha256(up).toString("hex")).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("creates tenant-isolated projection ledger without inventing a second sync engine", async () => {

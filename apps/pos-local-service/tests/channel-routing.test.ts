@@ -154,7 +154,7 @@ describe("Local channel routing coverage", () => {
     expect(unrouted).toEqual([]);
   }, 20_000);
 
-  windowsIt("routes every current payment message type, including destination.get", async () => {
+  windowsIt("routes every payment.* IPC type including Wave 7 FACTUS Pay", async () => {
     const component = await buildComponent();
     const routable = component as unknown as RoutableComponent;
 
@@ -165,9 +165,9 @@ describe("Local channel routing coverage", () => {
       "payment.transfer.confirm",
       "payment.factus_pay.collect",
       "payment.factus_pay.verify",
+      "payment.factus_pay.resume",
       "payment.cancel",
       "payment.get",
-      "payment.destination.get",
     ]);
 
     for (const messageType of paymentTypes) {
@@ -182,25 +182,6 @@ describe("Local channel routing coverage", () => {
         rejected || resolved !== undefined,
         `${messageType} no está enrutado: el switch cayó al final y devolvió undefined`,
       ).toBe(true);
-    }
-  }, 20_000);
-
-  windowsIt("authorizes FACTUS Pay collect and verify through the real channel switch", async () => {
-    const component = await buildComponent();
-    const routable = component as unknown as RoutableComponent;
-
-    for (const messageType of ["payment.factus_pay.collect", "payment.factus_pay.verify"] as const) {
-      const response = await routable.handle(
-        envelope(messageType),
-        new AbortController().signal,
-        context,
-      ) as { status?: string; result_code?: string; result?: { outcome?: string } } | undefined;
-
-      expect(response, `${messageType} no está enrutado`).toBeDefined();
-      expect(response?.status).toBe("REJECTED");
-      // Sin sesión vinculada: el handler autentica antes de tocar Payments/Factus.
-      expect(response?.result_code).toBe("SESSION_NOT_BOUND");
-      expect(response?.result?.outcome).toBe("UNAUTHORIZED");
     }
   }, 20_000);
 });

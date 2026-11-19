@@ -1,5 +1,0 @@
-{
-  "extends": "../tsconfig.renderer.json",
-  "compilerOptions": { "types": ["node"] },
-  "include": ["./visual-components.tsx"]
-}

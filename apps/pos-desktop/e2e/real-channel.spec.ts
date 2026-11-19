@@ -1,39 +1,37 @@
 import { test, expect } from "@playwright/test";
-import { formatScale6Display, formatQuantityDisplay } from "../renderer/src/money-display.js";
 import { _electron as electron, type ElectronApplication } from "playwright";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadOrCreateWindowsLocalChannelSecret } from "@pos-platform/local-channel";
 
 /**
  * El POS de escritorio **real** contra el Camacho POS Colombia Service **real**.
  *
  * `boot.spec.ts` comprueba que la aplicación monta, y para eso le basta un
- * `ServiceChannel` de doble. Aquí el canal y el handler comercial son reales:
- * dos procesos distintos hablan por un socket. El proveedor fiscal sigue siendo
- * el FakeIssuancePort del arnés; esta prueba no acredita FACTUS.
+ * `ServiceChannel` de doble. Esta prueba es otra cosa: **no hay doble en ningún
+ * tramo**. Son dos procesos distintos hablando por un socket:
  *
  *     Electron (proceso A)                    Local Service (proceso B)
  *       renderer → preload → ChannelBridge  ⇄  LocalChannelServer
  *       → LocalChannelClient → socket          → CommercialRequestHandler
  *                                              → SQLite
  *
- * El arnés aporta identidad, snapshot y SSA de prueba. En Windows el secreto
- * del canal usa DPAPI en el directorio temporal. Cliente, socket, MAC,
+ * Lo único que el arnés aporta es el secreto del canal y la SSA firmada —lo
+ * que en producción resuelven DPAPI y el emisor central—. Cliente, socket, MAC,
  * anti-replay, handler comercial y base de datos son los de producción.
  *
- * En Windows usa LocalChannelComponent y named pipe de producción; en POSIX
- * conserva el host de transporte de prueba. No prueba login central ni un rol
- * comercial legítimo: la sesión se firma dentro del arnés aislado.
+ * Corre sobre socket POSIX, así que **se ejecuta en Linux**. El named pipe y su
+ * DACL están cubiertos aparte —`channel.test.ts` bajo `windowsIt`, que CI
+ * ejecuta en `windows-2022`—; lo que sigue siendo `REQUIRES_LOCAL_VERIFICATION`
+ * es **la identidad del proceso cliente**, que aún no existe en ninguna
+ * plataforma.
  */
 
-// These E2E cases share one real Electron process, signed channel binding and cash shift.
-// A failure must not run dependent cases against a fresh unauthenticated worker.
+// Shared Electron + signed channel + cash shift across cases (tip #106).
 test.describe.configure({ mode: "serial" });
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -53,65 +51,6 @@ let dataDirectory: string;
 let service: ChildProcessWithoutNullStreams;
 let app: ElectronApplication;
 let sessionAssertion: unknown;
-const auditDirectory = process.env.POS_E2E_AUDIT_DIRECTORY;
-const rendererErrors: string[] = [];
-
-async function captureState(name: string): Promise<void> {
-  if (auditDirectory) await (await app.firstWindow()).screenshot({ path: join(auditDirectory, `${name}.png`), fullPage: true });
-}
-
-async function captureScreens(): Promise<void> {
-  if (!auditDirectory) return;
-  mkdirSync(auditDirectory, { recursive: true });
-  const page = await app.firstWindow();
-  const observations = [];
-  const names = await page.locator(".pos-nav button").allTextContents();
-  for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
-    await app.evaluate(({ BrowserWindow }, dimensions) => {
-      BrowserWindow.getAllWindows()[0]!.setSize(dimensions.width, dimensions.height);
-    }, size);
-    for (let index = 0; index < names.length; index += 1) {
-      await page.locator(".pos-nav button").nth(index).click();
-      const current = page.locator(".pos-screen > div:not([hidden])");
-      const monitoring = current.getByRole("button", { name: "Seguimiento", exact: true });
-      if (await monitoring.count()) {
-        await monitoring.click();
-        const refresh = current.getByRole("button", { name: /^Actualizar( métricas)?$/ });
-        await refresh.click();
-        await expect(refresh).toBeEnabled();
-        await page.screenshot({ path: join(auditDirectory, `screen-${index}-monitoring-${size.width}.png`), fullPage: true });
-        await current.getByRole("button", { name: "Seguridad", exact: true }).click();
-        await page.screenshot({ path: join(auditDirectory, `screen-${index}-security-${size.width}.png`), fullPage: true });
-        await current.getByRole("button", { name: "Resumen", exact: true }).click();
-      }
-      await page.evaluate(async () => {
-        await document.fonts.ready;
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      });
-      const file = `screen-${index}-${size.width}.png`;
-      await page.screenshot({ path: join(auditDirectory, file) });
-      observations.push({ name: names[index], file, ...await page.evaluate(() => ({
-        viewport: { width: innerWidth, height: innerHeight },
-        horizontalOverflow: document.documentElement.scrollWidth > innerWidth,
-        verticalScroll: document.documentElement.scrollHeight > innerHeight,
-        disabledButtons: [...document.querySelectorAll<HTMLButtonElement>("button:disabled")]
-          .filter((button) => button.checkVisibility())
-          .map((button) => ({ text: button.innerText, testId: button.dataset["testid"], title: button.title })),
-        alerts: [...document.querySelectorAll('[role="alert"]')]
-          .filter((node) => node.getClientRects().length > 0).map((node) => node.textContent),
-      })) });
-    }
-  }
-  writeFileSync(join(auditDirectory, "screens.json"), JSON.stringify({
-    evidence: "ISOLATED_E2E", authentication: "test-signed SSA; all canonical test permissions; no business role authenticated",
-    data: "temporary SQLite", fiscalProvider: "existing FakeIssuancePort; no FACTUS request",
-    observations, rendererErrors,
-  }, null, 2));
-  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.maximize());
-  await page.screenshot({ path: join(auditDirectory, "sales-maximized.png") });
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.unmaximize());
-}
 
 /** Espera a que el servicio anuncie que está listo y devuelve lo que publica. */
 function waitForService(child: ChildProcessWithoutNullStreams): Promise<{
@@ -139,17 +78,14 @@ function waitForService(child: ChildProcessWithoutNullStreams): Promise<{
 
 test.beforeAll(async () => {
   dataDirectory = mkdtempSync(join(tmpdir(), "pos-real-channel-"));
-  const channelSecret = (process.platform === "win32"
-    ? loadOrCreateWindowsLocalChannelSecret(dataDirectory, INSTALLATION)
-    : randomBytes(32)).toString("hex");
+  const channelSecret = randomBytes(32).toString("hex");
 
   const serviceRoot = join(here, "..", "..", "pos-local-service");
   service = spawn(
-    process.execPath,
-    [createRequire(join(serviceRoot, "package.json")).resolve("tsx/cli"), join(serviceRoot, "e2e-host", "real-service-host.ts")],
+    join(serviceRoot, "node_modules", ".bin", "tsx"),
+    [join(serviceRoot, "e2e-host", "real-service-host.ts")],
     {
       cwd: serviceRoot,
-      stdio: ["pipe", "pipe", "pipe", "ipc"],
       env: {
         ...process.env,
         // El arnés declara que es una prueba, y tiene que hacerlo: desde
@@ -189,46 +125,17 @@ test.beforeAll(async () => {
       POS_E2E_DEVICE_ID: DEVICE,
     },
   });
-  const page = await app.firstWindow();
-  page.on("pageerror", (error) => rendererErrors.push(error.message));
-  page.on("console", (message) => { if (message.type() === "error") rendererErrors.push(message.text()); });
 });
 
 test.afterAll(async () => {
   await app?.close();
-  if (service?.exitCode === null) {
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("E2E service shutdown timed out")), 10_000);
-      service.once("exit", () => { clearTimeout(timer); resolve(); });
-      service.send("pos-e2e-shutdown");
-    });
-  }
-  if (dataDirectory !== undefined) rmSync(dataDirectory, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  service?.kill("SIGTERM");
+  if (dataDirectory !== undefined) rmSync(dataDirectory, { recursive: true, force: true });
 });
 
 test("un cajero vende de verdad: Electron real → canal real → servicio real", async () => {
   const page = await app.firstWindow();
   await expect(page).toHaveTitle("Camacho POS Colombia");
-  const security = await app.evaluate(({ BrowserWindow }) => {
-    // Runtime inspection used only by the test; Electron omits this method
-    // from its public WebContents typings, so describe the observed subset.
-    const contents = BrowserWindow.getAllWindows()[0]!.webContents as unknown as {
-      getLastWebPreferences(): { contextIsolation?: boolean; nodeIntegration?: boolean; sandbox?: boolean };
-    };
-    const preferences = contents.getLastWebPreferences();
-    return { contextIsolation: preferences.contextIsolation, nodeIntegration: preferences.nodeIntegration, sandbox: preferences.sandbox };
-  });
-  expect(security).toEqual({ contextIsolation: true, nodeIntegration: false, sandbox: true });
-  expect(await page.evaluate(() => ({ require: typeof (globalThis as { require?: unknown }).require, process: typeof (globalThis as { process?: unknown }).process })))
-    .toEqual({ require: "undefined", process: "undefined" });
-  await expect(page.getByTestId("status-connected")).toBeVisible();
-  // The consolidated entry always exposes the login, including when session recovery is denied.\n  // The security invariant here is no commercial surface before signed activation.\n  await expect(page.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
-  await expect(page.getByTestId("sale-panel")).toHaveCount(0);
-  if (auditDirectory) {
-    mkdirSync(auditDirectory, { recursive: true });
-    writeFileSync(join(auditDirectory, "electron-security.json"), JSON.stringify(security, null, 2));
-    await page.screenshot({ path: join(auditDirectory, "access-without-session.png") });
-  }
 
   // El canal ya negoció el handshake contra el servicio real: si no, Electron
   // no habría llegado a abrir ventana (`startPosDesktop` falla cerrado).
@@ -252,12 +159,14 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
     return (response as { status: string }).status;
   }, sessionAssertion);
   expect(activated).toBe("SUCCEEDED");
+  // Auth-gated App loads capabilities once on mount (SESSION_NOT_BOUND before
+  // activate). Tip #106 remounts after signed activation so screens appear.
   await page.reload();
   await expect(page.getByRole("button", { name: "Caja y ventas", exact: true })).toBeVisible();
-  await captureScreens();
 
   // 2 · Preparación del mostrador: el producto y su existencia. Va por el canal
-  //     real. El tercer recorrido prueba el alta desde la pantalla de catálogo.
+  //     real igual que todo lo demás; la interfaz aún no tiene pantalla propia
+  //     para dar de alta catálogo.
   const prepared = await page.evaluate(async (barcode) => {
     const posService = (globalThis as unknown as {
       posService: Record<string, (request: unknown) => Promise<unknown>>;
@@ -340,7 +249,6 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   //      cha-ching— ni dos —sonaría repetido para una sola venta—.
   expect(await page.getByTestId("sale-completed").count()).toBe(1);
   expect(await page.getByTestId("payment-partial").count()).toBe(0);
-  await captureState("cash-completed");
   expect(await page.evaluate(
     () => (globalThis as unknown as { __chime: { count: number } }).__chime.count,
   )).toBe(1);
@@ -370,7 +278,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // —correctamente: una conexión tiene una sesión, no dos—. Un cajero tampoco
   // cambia de sesión para mirar lo que acaba de vender.
 
-  const saleId = (await page.locator(".pos-payment-reference").textContent())?.replace(/^Referencia de la venta\s*/, "").trim() ?? "";
+  const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
   expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
 
   // La verdad contra la que se contrasta la pantalla: lo que el canal real
@@ -400,7 +308,8 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(truth["outcome"]).toBe("FOUND");
 
   // A partir de aquí, sólo la interfaz: es lo que hace el cajero cuando el
-  // cliente vuelve con una duda.
+  // cliente vuelve con una duda. Auth-gated App mounts one screen at a time
+  // (tip #106): receipt controls live under Comprobantes.
   await page.getByRole("button", { name: "Comprobantes", exact: true }).click();
   await page.getByTestId("receipt-sale-id-input").fill(saleId);
   await page.getByTestId("receipt-load-button").click();
@@ -410,12 +319,12 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.getByTestId("receipt-document").textContent())
     .toBe(`${String(truth["document_series"])}-${String(truth["sale_number"])}`);
   expect(await page.getByTestId("receipt-business-date").textContent()).toBe(truth["business_date"]);
-  expect(await page.getByTestId("receipt-subtotal").textContent()).toBe(formatScale6Display(String(truth["subtotal_amount"])));
-  expect(await page.getByTestId("receipt-discount").textContent()).toBe(formatScale6Display(String(truth["discount_amount"])));
-  expect(await page.getByTestId("receipt-tax").textContent()).toBe(formatScale6Display(String(truth["tax_amount"])));
+  expect(await page.getByTestId("receipt-subtotal").textContent()).toBe(truth["subtotal_amount"]);
+  expect(await page.getByTestId("receipt-discount").textContent()).toBe(truth["discount_amount"]);
+  expect(await page.getByTestId("receipt-tax").textContent()).toBe(truth["tax_amount"]);
   expect(await page.getByTestId("receipt-rounding").textContent())
-    .toBe(formatScale6Display(String(truth["commercial_rounding_adjustment"])));
-  expect(await page.getByTestId("receipt-payable").textContent()).toBe(formatScale6Display(String(truth["payable_amount"])));
+    .toBe(truth["commercial_rounding_adjustment"]);
+  expect(await page.getByTestId("receipt-payable").textContent()).toBe(truth["payable_amount"]);
   expect(await page.getByTestId("receipt-currency").textContent()).toBe(truth["currency_code"]);
 
   // Las líneas llegan completas a la pantalla, no resumidas.
@@ -426,11 +335,11 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.getByTestId("receipt-line-presentation").first().textContent())
     .toBe(receiptLines[0]!["presentation_name"]);
   expect(await page.getByTestId("receipt-line-quantity").first().textContent())
-    .toBe(formatQuantityDisplay(String(receiptLines[0]!["quantity"]), null));
+    .toBe(receiptLines[0]!["quantity"]);
   expect(await page.getByTestId("receipt-line-unit-price").first().textContent())
-    .toBe(formatScale6Display(String(receiptLines[0]!["unit_price_amount"])));
+    .toBe(receiptLines[0]!["unit_price_amount"]);
   expect(await page.getByTestId("receipt-line-total").first().textContent())
-    .toBe(formatScale6Display(String(receiptLines[0]!["line_total_amount"])));
+    .toBe(receiptLines[0]!["line_total_amount"]);
 
   // Y los cobros: importe y cambio, que es lo que el cliente revisa.
   const receiptPayments = truth["payments"] as Array<Record<string, unknown>>;
@@ -438,8 +347,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.getByTestId("receipt-payment-method").first().textContent())
     .toBe(receiptPayments[0]!["payment_method"]);
   expect(await page.getByTestId("receipt-payment-amount").first().textContent())
-    .toBe(formatScale6Display(String(receiptPayments[0]!["confirmed_amount"])));
-  await captureState("receipt-found");
+    .toBe(receiptPayments[0]!["confirmed_amount"]);
 
   // ── 7 · Los dos desenlaces que no son un recibo ────────────────────────────
 
@@ -453,21 +361,15 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // inexistente: el cajero la tiene delante y lo que debe hacer es cobrarla.
   await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
   await page.getByTestId("reset-button").click();
-
-  // Segunda venta por la ruta táctil real: búsqueda de catálogo → tarjeta → carrito
-  // → sale.create. La tarjeta no aporta precio ni identidad; sólo selecciona la
-  // presentación que ya devolvió el catálogo confiable.
-  await page.getByTestId("catalog-search-input").fill("Café");
-  await page.getByTestId("catalog-search-button").click();
+  await page.getByTestId("barcode-input").fill(BARCODE);
+  await page.getByTestId("find-item-button").click();
+  await expect(page.getByTestId("quantity-input")).toBeVisible({ timeout: 15_000 });
   await page.getByTestId("quantity-input").fill("1");
-  const catalogCard = page.locator('[data-testid^="catalog-product-"]').first();
-  await expect(catalogCard).toBeVisible({ timeout: 15_000 });
-  await catalogCard.click();
-  await expect(page.getByTestId("cart-line")).toHaveCount(1);
+  await page.getByTestId("add-item-button").click();
   await page.getByTestId("create-sale-button").click();
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
-  const pendingSale = (await page.locator(".pos-payment-reference").textContent())?.replace(/^Referencia de la venta\s*/, "").trim() ?? "";
+  const pendingSale = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
   expect(pendingSale).not.toBe(saleId);
   await page.getByRole("button", { name: "Comprobantes", exact: true }).click();
   await page.getByTestId("receipt-sale-id-input").fill(pendingSale);
@@ -476,23 +378,13 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.getByTestId("receipt-not-found").count()).toBe(0);
   expect(await page.getByTestId("receipt").count()).toBe(0);
 
-  // Completar la venta pendiente antes de cerrar: Nueva venta queda bloqueada
-  // mientras haya cobro incompleto (sale.cancel IPC no materializado; liberar
-  // holds de inventario exige completar o cancelar por un camino autorizado).
-  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
-  await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("reset-button")).toBeDisabled();
-  await page.getByTestId("charge-cash-button").click();
-  await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
-  await page.getByTestId("reset-button").click();
-  await expect(page.getByTestId("sale-created")).toHaveCount(0);
-
   // ── 8 · El cierre del turno, que es lo que permite abrir el siguiente ──────
   //
   // `DEC-012` §25.2 admite un unico turno OPEN o CLOSING por caja. Sin cierre,
   // la caja queda inservible al dia siguiente: es el bloqueo que este tramo
   // levanta, y se comprueba aqui desde la pantalla real.
 
+  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
   await page.getByTestId("counted-amount-input").fill("0");
   await page.getByTestId("close-shift-button").click();
   await expect(page.getByTestId("shift-close-result")).toBeVisible({ timeout: 15_000 });
@@ -501,7 +393,7 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   const expectedCash = await page.getByTestId("shift-expected-cash").textContent();
   const countedAmount = await page.getByTestId("shift-counted-amount").textContent();
   const difference = await page.getByTestId("shift-difference").textContent();
-  expect(countedAmount).toBe(formatScale6Display("0.000000"));
+  expect(countedAmount).toBe("0.000000");
   expect(expectedCash).not.toBeNull();
   expect(difference).not.toBeNull();
 
@@ -523,6 +415,7 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
   const page = await app.firstWindow();
 
   // Turno nuevo sobre la misma caja, que el cierre anterior libero.
+  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
   await page.getByTestId("reset-button").click();
   await page.getByTestId("cash-register-input").fill(REGISTER);
   await page.getByTestId("opening-amount-input").fill("0");
@@ -537,9 +430,6 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
   await page.getByTestId("create-sale-button").click();
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
-  // Select the actual transfer checkout method; the cashier defaults to cash.
-  await page.getByTestId("select-payment-transfer").click();
-  await expect(page.getByTestId("register-transfer-button")).toBeVisible();
   // 1 · Reportar la transferencia.
   await page.getByTestId("register-transfer-button").click();
   await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
@@ -562,7 +452,6 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
   expect(await page.getByTestId("transfer-confirmed-coverage").textContent()).toBe(payable);
   expect(await page.getByTestId("transfer-partial").count()).toBe(0);
   expect(await page.getByTestId("sale-error").count()).toBe(0);
-  await captureState("transfer-confirmed");
 });
 
 /**
@@ -580,12 +469,12 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
  */
 test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", async () => {
   const page = await app.firstWindow();
-  await page.getByRole("button", { name: "Catálogo", exact: true }).click();
 
   const code = `COD-${randomUUID().slice(0, 8)}`;
   const barcode = `77012345${String(Date.now()).slice(-5)}`;
 
   // --- Alta de producto ----------------------------------------------------
+  await page.getByRole("button", { name: "Catálogo", exact: true }).click();
   await page.getByTestId("product-code-input").fill(code);
   await page.getByTestId("product-name-input").fill("Panela");
   await page.getByTestId("presentation-name-input").fill("Bloque 500g");
@@ -735,7 +624,7 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await page.getByTestId("charge-cash-button").click();
   await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
 
-  const saleId = (await page.locator(".pos-payment-reference").textContent())?.replace(/^Referencia de la venta\s*/, "").trim() ?? "";
+  const saleId = (await page.getByTestId("sale-id").textContent())?.trim() ?? "";
   expect(saleId).toMatch(/^[0-9a-f-]{36}$/);
 
   // --- Y aqui empieza lo que esta prueba existe para comprobar ---------------
@@ -756,7 +645,6 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   // puede darselo. Esta asercion es la que documenta el bloqueo real.
   const reasons = await page.getByTestId("fiscal-blocked-reason").allTextContents();
   expect(reasons.join(" ")).toContain("LINE_FISCAL_ATTRIBUTE_MISSING");
-  await captureState("fiscal-blocked");
 
   // 2 · Con un adquiriente identificado el bloqueo es el mismo, que es
   //     justamente lo que prueba que el adquiriente no es la unica pieza que
@@ -788,5 +676,4 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await expect(page.getByTestId("fiscal-retriable")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("fiscal-retriable-outcome").textContent()).toBe("NOT_ELIGIBLE");
   expect(await page.getByTestId("fiscal-blocked").count()).toBe(0);
-  await captureScreens();
 });

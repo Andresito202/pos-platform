@@ -343,21 +343,6 @@ export class DurableSyncStore {
     ).get(operationId) as OutboxRow | undefined) ?? null;
   }
 
-  /** DEC-007 outbox_depth: operations still awaiting durable Central acknowledgement. */
-  outboxDepth(): { pending_count: number; dead_letter_count: number } {
-    const pending = this.database.native.prepare(
-      `SELECT COUNT(*) AS count FROM local_sync_outbox
-        WHERE status IN ('PENDING','IN_FLIGHT','RETRY_WAIT')`,
-    ).get() as { count: number };
-    const dead = this.database.native.prepare(
-      `SELECT COUNT(*) AS count FROM local_sync_outbox WHERE status='DEAD_LETTER'`,
-    ).get() as { count: number };
-    return {
-      pending_count: pending.count,
-      dead_letter_count: dead.count,
-    };
-  }
-
   private scheduleRetry(operationId: string, attemptCount: number, errorCode: string, at: string): void {
     if (attemptCount >= this.retryPolicy.maxAttempts) {
       this.deadLetter(operationId, attemptCount, errorCode, at);

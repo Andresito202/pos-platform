@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { CanonicalPermission, AuthorizationCapabilitiesGetResponseSchema, CatalogProductRegisterRequestSchema, CustomerRegisterRequestSchema, InventoryStockReceiveRequestSchema, InventoryStockAdjustRequestSchema, CashShiftOpenRequestSchema, CashShiftCloseRequestSchema, PaymentRegisterCashRequestSchema } from "@pos-platform/contracts";
+import { CanonicalPermission, CatalogFoodPolicyUpsertRequestSchema, CatalogFoodPolicyUpsertResponseSchema, LicenseSectorEntitlement, AuthorizationCapabilitiesGetResponseSchema, CatalogProductRegisterRequestSchema, CustomerRegisterRequestSchema, InventoryStockReceiveRequestSchema, InventoryStockAdjustRequestSchema, CashShiftOpenRequestSchema, CashShiftCloseRequestSchema, PaymentRegisterCashRequestSchema } from "@pos-platform/contracts";
 import type { ServiceConfig } from "../config.js";
 import type { CommercialComponent } from "./commercial-component.js";
 import { CommercialRequestHandler } from "./commercial-request-handler.js";
@@ -8,6 +8,7 @@ import { LocalOperatorSessionRegistry } from "../security/local-operator-session
 import type { LocalOperator } from "../security/local-operator-password.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 
+import { UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
 import { RegisterCustomerUseCase } from "../customers/register-customer-use-case.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
@@ -16,9 +17,8 @@ import { AdjustStockUseCase } from "../inventory/adjust-stock-use-case.js";
 import { OpenCashShiftUseCase } from "../cash/open-cash-shift-use-case.js";
 import { CloseCashShiftUseCase } from "../cash/close-cash-shift-use-case.js";
 import { RegisterCashPaymentUseCase } from "../payments/register-cash-payment-use-case.js";
-import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 
-function setup(role: LocalOperator["role"], now: () => number = Date.now) {
+function setup(role: LocalOperator["role"], now: () => number = Date.now, foodLicenseDenial: string | null = null) {
   const config={
     local_operator_auth_store:"/home/operator/accounts.v1.json",
     tenant_id:randomUUID(),company_id:randomUUID(),branch_id:randomUUID(),
@@ -36,6 +36,8 @@ function setup(role: LocalOperator["role"], now: () => number = Date.now) {
     closeCashShift: new CloseCashShiftUseCase(null as never),
     registerCashPayment: new RegisterCashPaymentUseCase(null as never),
     registerProduct: new RegisterProductUseCase(null as never),
+    upsertFoodPolicy: new UpsertFoodPolicyUseCase(null as never),
+    requireSectorEntitlement: (entitlement: string) => entitlement === LicenseSectorEntitlement.SALSAMENTARIA ? foodLicenseDenial : null,
     registerCustomer: new RegisterCustomerUseCase(null as never),
     receiveStock: new ReceiveStockUseCase(null as never),
     adjustStock: new AdjustStockUseCase(null as never),
@@ -43,7 +45,6 @@ function setup(role: LocalOperator["role"], now: () => number = Date.now) {
     // Real use case must reject before any store access. A permission regression
     // reaches these absent stores and fails this test instead of writing data.
     createSale: new CreateSaleUseCase(null as never, null as never, null as never, null as never),
-    getAdminMetrics: new GetAdminMetricsUseCase(null as never),
   } as unknown as CommercialComponent;
   const handler=new CommercialRequestHandler(config,commercial,id=>sessions.resolve(id));
   const req={
@@ -58,6 +59,35 @@ function setup(role: LocalOperator["role"], now: () => number = Date.now) {
   return {sessions,read,handler};
 }
 describe("local operator backend authorization",()=>{
+  it.each(["LICENSE_ENTITLEMENT_MISSING", "LICENSE_CAPACITY_NOT_PROVISIONED", "LICENSE_REVOKED"])(
+    "rejects food policy before accessing storage when %s", async code => {
+      const { sessions, handler } = setup("ADMINISTRADOR", Date.now, code);
+      await sessions.login("A", "admin.local", "valid");
+      const request = CatalogFoodPolicyUpsertRequestSchema.parse({
+        protocol_version: "1.0.0", message_type: "catalog.food_policy.upsert",
+        request_id: randomUUID(), correlation_id: randomUUID(), operation_id: randomUUID(),
+        idempotency_key: randomUUID(), payload_schema_version: "1.0.0",
+        payload: { product_id: randomUUID(), conservation_code: "CHILLED", requires_lot_tracking: true, requires_expiry: true, notes: null },
+      });
+      const response = CatalogFoodPolicyUpsertResponseSchema.parse(handler.handle(request, "A"));
+      expect(response).toMatchObject({ status: "REJECTED", result_code: code, result: { outcome: "LICENSE_BLOCKED", version: null } });
+    },
+  );
+  it.each(["CAJERO", "SUPERVISOR", "SUPERADMINISTRADOR"] as const)(
+    "rejects food policy write for %s even with a sector licence", async role => {
+      const { sessions, handler } = setup(role);
+      await sessions.login("A", "operator", "valid");
+      const request = CatalogFoodPolicyUpsertRequestSchema.parse({
+        protocol_version: "1.0.0", message_type: "catalog.food_policy.upsert",
+        request_id: randomUUID(), correlation_id: randomUUID(), operation_id: randomUUID(),
+        idempotency_key: randomUUID(), payload_schema_version: "1.0.0",
+        payload: { product_id: randomUUID(), conservation_code: "CHILLED", requires_lot_tracking: true, requires_expiry: true, notes: null },
+      });
+      const response = CatalogFoodPolicyUpsertResponseSchema.parse(handler.handle(request, "A"));
+      expect(response).toMatchObject({ status: "REJECTED", result_code: "UNAUTHORIZED" });
+    },
+  );
+
   it.each(["SUPERVISOR", "ADMINISTRADOR", "SUPERADMINISTRADOR"] as const)(
     "rejects forged shift open/close and cash collection for %s", async role => {
       const {sessions,handler}=setup(role); await sessions.login("A","operator","valid");
@@ -201,7 +231,7 @@ describe("local operator backend authorization",()=>{
       expect(permissions).not.toContain(code);
     }
   });
-  it("administrator can register stock, but local credentials cannot issue fiscal invoices",async()=>{
+  it("administrator can register stock and issue fiscal documents locally (Wave 7 FACTUS panel)",async()=>{
     const {sessions,read}=setup("ADMINISTRADOR");
     await sessions.login("A","admin.local","valid");
     const permissions=read("A").result!.permissions;
@@ -209,7 +239,9 @@ describe("local operator backend authorization",()=>{
     expect(permissions).toContain(CanonicalPermission.INVENTORY_STOCK_RECEIVE);
     expect(permissions).toContain(CanonicalPermission.INVENTORY_STOCK_ADJUST);
     expect(permissions).toContain(CanonicalPermission.CUSTOMERS_CUSTOMER_REGISTER);
-    expect(permissions).not.toContain(CanonicalPermission.FISCAL_DOCUMENT_ISSUE);
+    // Wave 7: local ADMINISTRADOR may open the fiscal issuance panel. Runtime still
+    // fail-closes without deposited FACTUS credential + POS_FISCAL_ENVIRONMENT.
+    expect(permissions).toContain(CanonicalPermission.FISCAL_DOCUMENT_ISSUE);
     expect(permissions).not.toContain(CanonicalPermission.LICENSE_PLAN_MANAGE);
   });
   it("superadmin local is not silently promoted to a cashier",async()=>{
@@ -220,16 +252,28 @@ describe("local operator backend authorization",()=>{
     expect(permissions).not.toContain(CanonicalPermission.CATALOG_PRODUCT_REGISTER);
     expect(permissions).not.toContain(CanonicalPermission.LICENSE_PLAN_MANAGE);
   });
-  it("cajero cannot forge admin.metrics.get", async () => {
+  it("cajero cannot forge inventory.stock.adjust", async () => {
     const {sessions,handler,read}=setup("CAJERO");
     await sessions.login("A","cajero.local","valid");
     const permissions=read("A").result!.permissions;
     expect(permissions).not.toContain(CanonicalPermission.AUDIT_EVENT_READ);
     expect(permissions).not.toContain(CanonicalPermission.INVENTORY_STOCK_READ);
-    const response=handler.handle({
-      protocol_version:"1.0.0",message_type:"admin.metrics.get",
-      request_id:randomUUID(),correlation_id:randomUUID(),payload_schema_version:"1.0.0",payload:{},
-    },"A");
+    const response=handler.handle(InventoryStockAdjustRequestSchema.parse({
+      protocol_version:"1.0.0",
+      message_type:"inventory.stock.adjust",
+      request_id:randomUUID(),
+      correlation_id:randomUUID(),
+      operation_id:randomUUID(),
+      idempotency_key:randomUUID(),
+      payload_schema_version:"1.0.0",
+      payload:{
+        presentation_id:randomUUID(),
+        quantity:"1.000000",
+        reason_code:"TEST",
+        business_date:"2026-11-13",
+        movement_type:"ADJUSTMENT_NEGATIVE",
+      },
+    }),"A");
     expect(response).toMatchObject({status:"REJECTED",result_code:"UNAUTHORIZED"});
   });
 });

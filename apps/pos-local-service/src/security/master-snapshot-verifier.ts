@@ -50,8 +50,6 @@ export interface MasterSnapshotScope {
   readonly tenantId: string;
   readonly companyId: string;
   readonly branchId: string;
-  /** Installation identity scopes the central acknowledged floor (DEC-013 §27.4). */
-  readonly installationId: string;
   readonly environment: MasterSnapshotEnvironment;
 }
 

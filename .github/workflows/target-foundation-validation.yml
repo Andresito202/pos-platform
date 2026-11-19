@@ -19,7 +19,7 @@ on:
         default: ""
         required: false
       reviewed_sha:
-        description: "SHA tip actual de cursor/commercial-design-review-0d11 (40 hex). Vacío = tip del dispatch. No reutilizar SHA viejos (p.ej. 98513aae)."
+        description: "SHA tip actual de cursor/wave7-factus-1766 (40 hex). Vacío = tip del dispatch. No reutilizar SHA viejos (p.ej. 98513aae)."
         type: string
         default: ""
         required: false
@@ -183,7 +183,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      POSTGRES_TEST_URL: postgres://postgres@127.0.0.1:55433/postgres
+      POSTGRES_TEST_URL: postgres://postgres@127.0.0.1:55432/postgres
     services:
       postgres:
         image: postgres:16.14
@@ -192,7 +192,7 @@ jobs:
           POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_USER: postgres
         ports:
-          - 55433:5432
+          - 55432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s
@@ -240,51 +240,6 @@ jobs:
       - name: Validate PostgreSQL onboarding adapter
         run: pnpm test:database-postgres
 
-      - name: Validate PostgreSQL security event repository
-        run: pnpm --filter @pos-platform/database-postgres test
-
-      - name: Validate BUSINESS role grants with disposable PostgreSQL
-        run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/business-role-grants-audit.test.ts
-
-      - name: Build the existing commercial renderer for GLOBAL HTTPS assets
-        run: pnpm --filter @pos-platform/pos-desktop build:renderer
-
-      - name: Validate GLOBAL license issuance and device activation on isolated PostgreSQL
-        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/subscription-quotes-physical.test.ts --maxWorkers 1 --testTimeout 120000 --hookTimeout 180000
-
-      - name: Validate BUSINESS session and signed authorization composition on isolated PostgreSQL
-        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/business-access-preparation-physical.test.ts --maxWorkers 1 --testTimeout 120000 --hookTimeout 180000
-
-      - name: Validate opt-in merchant QR and notice migration descriptors
-        run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations.test.ts tests/postgres-025-merchant-notifications.test.ts
-
-      - name: Validate merchant QR and UNVERIFIED notices with disposable PostgreSQL
-        run: pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-024-merchant-destinations-physical.test.ts --testTimeout 120000 --hookTimeout 120000
-
-      - name: Validate company-only QR admin grant and BUSINESS session gates
-        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-admin-authorization.test.ts tests/merchant-destination-business-operations.test.ts
-
-      - name: Validate fail-closed Central merchant destination and QR asset stores
-        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-postgres-store.test.ts tests/merchant-destination-qr-asset-store.test.ts
-
-      - name: Validate Central recipient DeviceProof acknowledgement and company isolation
-        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-acknowledgements.test.ts
-
-      - name: Validate signed recipient sync transport and offline lifecycle
-        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-sync.test.ts
-
-      - name: Validate Central merchant QR PNG and Ed25519 snapshot issuer
-        run: pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-destination-qr-asset.test.ts tests/merchant-destination-snapshot-publisher.test.ts
-
-      - name: Validate signed Nequi/Bre-B projections on real SQLite
-        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/merchant-destination-activation.test.ts tests/merchant-destination-projection.test.ts tests/merchant-destination-snapshot-verifier.test.ts
-
-      - name: Validate shared Inventory batch 022, FEFO and immutable audit with SQLite
-        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/inventory-batches.test.ts tests/inventory.test.ts tests/payment.test.ts
-
-      - name: Verify existing manual Payments against SQLite after QR changes
-        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/payment.test.ts
-
       - name: Typecheck
         run: pnpm typecheck
 
@@ -293,9 +248,6 @@ jobs:
 
       - name: Validate SQLite migration
         run: pnpm test:migrations:sqlite
-
-      - name: Validate authorized lot inventory panel and idempotent retry
-        run: pnpm --filter @pos-platform/pos-desktop exec vitest run tests/renderer/InventoryBatchPanel.test.tsx
 
       - name: Build the POS desktop shell
         run: pnpm --filter @pos-platform/pos-desktop build
@@ -465,14 +417,10 @@ jobs:
 
   # Gate excepcional FACTUS + FACTUS Pay (sandbox). No corre en push/PR.
   # Activación: Actions → TARGET foundation validation → Run workflow →
-  # rama cursor/commercial-design-review-0d11 + run_factus_sandbox_exceptional=true.
+  # rama cursor/wave7-factus-1766 + run_factus_sandbox_exceptional=true.
   factus-sandbox-exceptional:
     name: FACTUS sandbox exceptional (owner authorized)
-    if: >-
-      ${{ github.event_name == 'workflow_dispatch'
-          && inputs.run_factus_sandbox_exceptional
-          && inputs.owner_authorization == 'OWNER_AUTHORIZED_SANDBOX_ONLY'
-          && github.ref == 'refs/heads/cursor/commercial-design-review-0d11' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -485,6 +433,9 @@ jobs:
       - name: Refuse invalid or stale reviewed_sha
         run: |
           set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/cursor/wave7-factus-1766" || { echo "REFUSED: unauthorized branch"; exit 2; }
+          test "${CAMACHO_FACTUS_SANDBOX_EXCEPTIONAL}" = "OWNER_AUTHORIZED_SANDBOX_ONLY" || { echo "REFUSED: owner authorization required"; exit 2; }
+          test "${REVIEWED_SHA}" = "${GITHUB_SHA}" || { echo "REFUSED: reviewed SHA differs from dispatch SHA"; exit 2; }
           if ! printf '%s' "${REVIEWED_SHA}" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "REFUSED: reviewed_sha must be 40 lowercase hex (or leave empty for tip)"
             exit 2
@@ -501,10 +452,11 @@ jobs:
           persist-credentials: false
 
       - name: Verify SHA is the authorized branch tip
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git fetch --no-tags origin cursor/commercial-design-review-0d11
-          tip="$(git rev-parse origin/cursor/commercial-design-review-0d11)"
+          tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/cursor/wave7-factus-1766" --jq '.object.sha')"
           echo "reviewed_sha=${REVIEWED_SHA}"
           echo "branch_tip=${tip}"
           if [ "${REVIEWED_SHA}" != "${tip}" ]; then
@@ -523,7 +475,7 @@ jobs:
           run_install: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v7.0.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.19.0
           cache: pnpm

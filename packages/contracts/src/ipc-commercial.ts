@@ -319,8 +319,6 @@ export const WaitingCartLineSchema = z.strictObject({
   name: z.string().max(200), presentationName: z.string().max(200),
   priceAmount: NonNegativeScale6Schema, currencyCode: CurrencyCodeSchema,
   quantity: PositiveScale6Schema, identifier: z.string().max(200),
-  /** Optional pharmacy prescription binding preserved across hold/resume. */
-  pharmacyPrescriptionId: UuidSchema.nullable().optional(),
 });
 export const WaitingCartPayloadSchema = z.strictObject({
   customer_id: UuidSchema.nullable().optional(),
@@ -688,6 +686,39 @@ export const PaymentFactusPayVerifyResultSchema = z.strictObject({
 
 export const PaymentFactusPayVerifyResponseSchema = createResponseEnvelopeSchema(PaymentFactusPayVerifyResultSchema);
 
+
+// ── payment.factus_pay.resume ────────────────────────────────────────────────
+
+export const PaymentFactusPayResumeRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+  }),
+).safeExtend({ message_type: z.literal("payment.factus_pay.resume") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+  });
+
+export const PaymentFactusPayResumeOutcomeSchema = z.enum([
+  "FOUND",
+  "NOT_FOUND",
+  "UNAUTHORIZED",
+  "FACTUS_PAY_NOT_CONFIGURED",
+]);
+
+export const PaymentFactusPayResumeResultSchema = z.strictObject({
+  outcome: PaymentFactusPayResumeOutcomeSchema,
+  payment_id: UuidSchema.nullable(),
+  version: ExpectedVersionSchema.nullable(),
+  status: StableCodeSchema.nullable(),
+  expected_amount: NonNegativeScale6Schema.nullable(),
+  reference_code: z.string().min(1).max(100).nullable(),
+  qr: z.string().max(1_048_576).nullable(),
+  provider_status: z.string().min(1).max(32).nullable(),
+});
+
+export const PaymentFactusPayResumeResponseSchema = createResponseEnvelopeSchema(PaymentFactusPayResumeResultSchema);
+
+
 // ── payment.cancel ───────────────────────────────────────────────────────────
 
 /** Cancela un pago no confirmado. Un pago confirmado es inmutable (`DEC-002`). */
@@ -1009,13 +1040,6 @@ export const FiscalDocumentIssueResultSchema = z.strictObject({
 
 export const FiscalDocumentIssueResponseSchema = createResponseEnvelopeSchema(FiscalDocumentIssueResultSchema);
 
-// ── fiscal.numbering.sync ────────────────────────────────────────────────────
-
-/**
- * Sincroniza rangos de numeración del proveedor fiscal hacia SQLite local.
- * Usa `SynchronizeNumberingRangesUseCase` existente; no inventa endpoints.
- * Requiere el mismo permiso de emisión fiscal: es configuración administrativa.
- */
 export const FiscalNumberingSyncRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({}),
 ).safeExtend({ message_type: z.literal("fiscal.numbering.sync") })
@@ -1392,6 +1416,191 @@ export const InventoryReservationReleaseResultSchema=z.strictObject({
 export const InventoryReservationReleaseResponseSchema=
   createResponseEnvelopeSchema(InventoryReservationReleaseResultSchema);
 
+// ── sales.receipt.get ────────────────────────────────────────────────────────
+
+/**
+ * El recibo de una venta cobrada — `DEC-019`.
+ *
+ * **Es una proyección, no un artefacto guardado.** Cada cifra de este resultado
+ * sale ya congelada de `sales_sales` y `sales_sale_items`; el servicio no
+ * recalcula ninguna. Reimprimir es determinista porque sus entradas lo son.
+ *
+ * `NOT_FOUND` y `NOT_COMPLETED` no se colapsan. «Esa venta no es de esta caja» y
+ * «esa venta todavía no está cobrada» piden dos reacciones distintas del cajero,
+ * y un único error le haría buscar un problema donde no lo hay.
+ *
+ * **No lleva cabecera fiscal, ni CUFE, ni QR.** No es un olvido: no existe
+ * identidad de compañía en local y el adapter fiscal no tiene consumidor. El
+ * contrato no admite esos campos precisamente para que nadie los rellene con un
+ * valor inventado — un NIT fabricado en un documento que se entrega a un cliente
+ * es un problema legal, no un hueco de interfaz.
+ */
+export const SalesReceiptGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ sale_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("sales.receipt.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+/** El ajuste de redondeo comercial es el único importe del recibo que puede ser negativo. */
+const SignedScale6Schema = z.string().regex(/^-?(?:0|[1-9]\d{0,14})\.\d{6}$/);
+
+export const ReceiptLineSchema = z.strictObject({
+  line_number: z.number().int().positive(),
+  product_name: z.string().min(1),
+  presentation_name: z.string().min(1),
+  identifier: z.string().nullable(),
+  unit_code: z.string().min(1),
+  unit_precision: z.number().int().nonnegative(),
+  quantity: NonNegativeScale6Schema,
+  unit_price_amount: NonNegativeScale6Schema,
+  gross_amount: NonNegativeScale6Schema,
+  discount_amount: NonNegativeScale6Schema,
+  taxable_amount: NonNegativeScale6Schema,
+  tax_amount: NonNegativeScale6Schema,
+  line_total_amount: NonNegativeScale6Schema,
+});
+
+/** `change_amount` sólo tiene sentido en efectivo: una transferencia no devuelve cambio. */
+export const ReceiptPaymentSchema = z.strictObject({
+  payment_method: z.string().min(1),
+  confirmed_amount: NonNegativeScale6Schema,
+  tendered_amount: NonNegativeScale6Schema.nullable(),
+  change_amount: NonNegativeScale6Schema.nullable(),
+  currency_code: z.string().length(3),
+  confirmed_at: z.string().min(1),
+});
+
+export const SalesReceiptGetResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "NOT_COMPLETED", "UNAUTHORIZED"]),
+  sale_id: UuidSchema.nullable(),
+  document_series: z.string().min(1).nullable(),
+  sale_number: z.number().int().positive().nullable(),
+  currency_code: z.string().length(3).nullable(),
+  business_date: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  lines: z.array(ReceiptLineSchema).nullable(),
+  subtotal_amount: NonNegativeScale6Schema.nullable(),
+  discount_amount: NonNegativeScale6Schema.nullable(),
+  tax_amount: NonNegativeScale6Schema.nullable(),
+  fiscal_total_amount: NonNegativeScale6Schema.nullable(),
+  commercial_rounding_adjustment: SignedScale6Schema.nullable(),
+  payable_amount: NonNegativeScale6Schema.nullable(),
+  payments: z.array(ReceiptPaymentSchema).nullable(),
+  calculation_checksum: z.string().length(64).regex(/^[a-f0-9]{64}$/).nullable(),
+});
+
+export const SalesReceiptGetResponseSchema =
+  createResponseEnvelopeSchema(SalesReceiptGetResultSchema);
+
+// ── admin.metrics.get ───────────────────────────────────────────────────────
+
+export const LicenseOffersListRequestSchema=createRequestEnvelopeSchema(z.strictObject({})).safeExtend({message_type:z.literal("license.offers.list")}).superRefine(forbidCallerAssertedIdentity);
+export const LicenseOffersListResultSchema=z.strictObject({outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),catalog:PublicLicenseCatalogSchema.nullable()});
+export const LicenseOffersListResponseSchema=createResponseEnvelopeSchema(LicenseOffersListResultSchema);
+export const AdminMetricsGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({ message_type: z.literal("admin.metrics.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const AdminMetricsGetResultSchema = z.strictObject({
+  outcome: z.literal("AVAILABLE"),
+  sales_completed_count: z.number().int().nonnegative().nullable(),
+  sales_completed_amount: NonNegativeScale6Schema.nullable(),
+  inventory_tracked_count: z.number().int().nonnegative().nullable(),
+  cash_open_shift_count: z.number().int().nonnegative().nullable(),
+});
+
+export const AdminMetricsGetResponseSchema =
+  createResponseEnvelopeSchema(AdminMetricsGetResultSchema);
+
+// ── audit.event.list ──────────────────────────────────────────────────────────
+
+/**
+ * Read-only local audit projection. The renderer can filter evidence, but it
+ * cannot assert tenant/company/branch identity. Sensitive JSON evidence is not
+ * returned by this V1 contract.
+ */
+export const AuditEventListRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    query: z.string().max(200),
+    action_code: StableCodeSchema.nullable(),
+    resource_type: StableCodeSchema.nullable(),
+    actor_type: z.enum(["USER", "DEVICE", "SYSTEM"]).nullable(),
+    from: UtcDateTimeSchema.nullable(),
+    to: UtcDateTimeSchema.nullable(),
+    limit: z.number().int().min(1).max(100),
+    offset: z.number().int().min(0).max(100000),
+  }),
+).safeExtend({ message_type: z.literal("audit.event.list") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    if (request.payload.from !== null && request.payload.to !== null &&
+        request.payload.from > request.payload.to) {
+      context.addIssue({
+        code: "custom",
+        path: ["payload", "from"],
+        message: "from must be earlier than or equal to to",
+      });
+    }
+  });
+
+export const AuditEventListItemSchema = z.strictObject({
+  sequence: z.number().int().positive(),
+  actor_type: z.enum(["USER", "DEVICE", "SYSTEM"]),
+  actor_id: UuidSchema.nullable(),
+  session_id: UuidSchema,
+  action_code: StableCodeSchema,
+  resource_type: StableCodeSchema,
+  resource_id: UuidSchema.nullable(),
+  correlation_id: UuidSchema,
+  causation_id: UuidSchema.nullable(),
+  reason_code: StableCodeSchema.nullable(),
+  created_at: UtcDateTimeSchema,
+});
+
+export const AuditEventListResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "UNAUTHORIZED"]),
+  events: z.array(AuditEventListItemSchema).max(100),
+  has_more: z.boolean(),
+});
+
+export const AuditEventListResponseSchema =
+  createResponseEnvelopeSchema(AuditEventListResultSchema);
+
+// ── payment.destination.get — QR-001 ─────────────────────────────────────────
+// A strictly read-only authenticated projection. The renderer cannot supply
+// any tenant, company, image URL, account or authorization context.
+export const MerchantDestinationsGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({}),
+).safeExtend({message_type:z.literal("payment.destination.get")})
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const MerchantDestinationsGetResultSchema = z.strictObject({
+  outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),
+  sequence:z.number().int().positive().nullable(),
+  destinations:z.array(z.strictObject({
+    kind:z.enum(["NEQUI_NUMBER","BREB_KEY","NEQUI_BUSINESS_QR"]),
+    label:z.string().min(1).max(80),
+    destination_reference:z.string().min(4).max(160),
+    qr_asset_id:z.string().uuid().nullable(),
+    qr_sha256:z.string().regex(/^[a-f0-9]{64}$/).nullable(),
+    qr_png_base64:z.string().min(76).max(1_400_000)
+      .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).optional(),
+    version:z.number().int().positive(),
+  })).max(3),
+});
+export const MerchantDestinationsGetResponseSchema=createResponseEnvelopeSchema(MerchantDestinationsGetResultSchema);
+export type MerchantDestinationsGetResult=z.infer<typeof MerchantDestinationsGetResultSchema>;
+
+// ── Registro canónico de métodos ─────────────────────────────────────────────
+
+/**
+ * `message_type` de la capa POS Local Service. Sin prefijo, igual que
+ * `runtime.handshake` y `operation.confirm`.
+ *
+ * El prefijo `pos:` pertenece a la otra frontera —los canales Electron del
+ * allowlist de `RT-007`— y las dos nomenclaturas no deben mezclarse. La
+ * correspondencia está tabulada en `DEC-014` §3.2.
+ */
 // ── catalog.presentation.register · catalog.food_policy.upsert ───────────────
 
 export const CatalogPresentationRegisterRequestSchema = createRequestEnvelopeSchema(
@@ -1440,13 +1649,15 @@ export const CatalogFoodPolicyUpsertRequestSchema = createRequestEnvelopeSchema(
 
 export const CatalogFoodPolicyUpsertResultSchema = z.strictObject({
   outcome: z.enum([
-    "SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "PRODUCT_NOT_FOUND",
+    "SAVED", "IDEMPOTENT", "UNAUTHORIZED", "IDEMPOTENCY_CONFLICT", "PRODUCT_NOT_FOUND", "LICENSE_BLOCKED",
   ]),
   version: z.number().int().nonnegative().nullable(),
 });
 
 export const CatalogFoodPolicyUpsertResponseSchema =
   createResponseEnvelopeSchema(CatalogFoodPolicyUpsertResultSchema);
+
+export type CatalogFoodPolicyUpsertResult = z.infer<typeof CatalogFoodPolicyUpsertResultSchema>;
 
 // ── inventory.transform.execute ──────────────────────────────────────────────
 
@@ -1492,6 +1703,8 @@ export const InventoryTransformExecuteResultSchema = z.strictObject({
   order_id: UuidSchema.nullable(),
   available: NonNegativeScale6Schema.nullable(),
 });
+
+export type InventoryTransformExecuteResult = z.infer<typeof InventoryTransformExecuteResultSchema>;
 
 export const InventoryTransformExecuteResponseSchema =
   createResponseEnvelopeSchema(InventoryTransformExecuteResultSchema);
@@ -1883,191 +2096,6 @@ export const BakeryProductionTraceGetResultSchema = z.strictObject({
 export const BakeryProductionTraceGetResponseSchema =
   createResponseEnvelopeSchema(BakeryProductionTraceGetResultSchema);
 
-// ── sales.receipt.get ────────────────────────────────────────────────────────
-
-/**
- * El recibo de una venta cobrada — `DEC-019`.
- *
- * **Es una proyección, no un artefacto guardado.** Cada cifra de este resultado
- * sale ya congelada de `sales_sales` y `sales_sale_items`; el servicio no
- * recalcula ninguna. Reimprimir es determinista porque sus entradas lo son.
- *
- * `NOT_FOUND` y `NOT_COMPLETED` no se colapsan. «Esa venta no es de esta caja» y
- * «esa venta todavía no está cobrada» piden dos reacciones distintas del cajero,
- * y un único error le haría buscar un problema donde no lo hay.
- *
- * **No lleva cabecera fiscal, ni CUFE, ni QR.** No es un olvido: no existe
- * identidad de compañía en local y el adapter fiscal no tiene consumidor. El
- * contrato no admite esos campos precisamente para que nadie los rellene con un
- * valor inventado — un NIT fabricado en un documento que se entrega a un cliente
- * es un problema legal, no un hueco de interfaz.
- */
-export const SalesReceiptGetRequestSchema = createRequestEnvelopeSchema(
-  z.strictObject({ sale_id: UuidSchema }),
-).safeExtend({ message_type: z.literal("sales.receipt.get") })
-  .superRefine(forbidCallerAssertedIdentity);
-
-/** El ajuste de redondeo comercial es el único importe del recibo que puede ser negativo. */
-const SignedScale6Schema = z.string().regex(/^-?(?:0|[1-9]\d{0,14})\.\d{6}$/);
-
-export const ReceiptLineSchema = z.strictObject({
-  line_number: z.number().int().positive(),
-  product_name: z.string().min(1),
-  presentation_name: z.string().min(1),
-  identifier: z.string().nullable(),
-  unit_code: z.string().min(1),
-  unit_precision: z.number().int().nonnegative(),
-  quantity: NonNegativeScale6Schema,
-  unit_price_amount: NonNegativeScale6Schema,
-  gross_amount: NonNegativeScale6Schema,
-  discount_amount: NonNegativeScale6Schema,
-  taxable_amount: NonNegativeScale6Schema,
-  tax_amount: NonNegativeScale6Schema,
-  line_total_amount: NonNegativeScale6Schema,
-});
-
-/** `change_amount` sólo tiene sentido en efectivo: una transferencia no devuelve cambio. */
-export const ReceiptPaymentSchema = z.strictObject({
-  payment_method: z.string().min(1),
-  confirmed_amount: NonNegativeScale6Schema,
-  tendered_amount: NonNegativeScale6Schema.nullable(),
-  change_amount: NonNegativeScale6Schema.nullable(),
-  currency_code: z.string().length(3),
-  confirmed_at: z.string().min(1),
-});
-
-export const SalesReceiptGetResultSchema = z.strictObject({
-  outcome: z.enum(["FOUND", "NOT_FOUND", "NOT_COMPLETED", "UNAUTHORIZED"]),
-  sale_id: UuidSchema.nullable(),
-  document_series: z.string().min(1).nullable(),
-  sale_number: z.number().int().positive().nullable(),
-  currency_code: z.string().length(3).nullable(),
-  business_date: z.string().nullable(),
-  completed_at: z.string().nullable(),
-  lines: z.array(ReceiptLineSchema).nullable(),
-  subtotal_amount: NonNegativeScale6Schema.nullable(),
-  discount_amount: NonNegativeScale6Schema.nullable(),
-  tax_amount: NonNegativeScale6Schema.nullable(),
-  fiscal_total_amount: NonNegativeScale6Schema.nullable(),
-  commercial_rounding_adjustment: SignedScale6Schema.nullable(),
-  payable_amount: NonNegativeScale6Schema.nullable(),
-  payments: z.array(ReceiptPaymentSchema).nullable(),
-  calculation_checksum: z.string().length(64).regex(/^[a-f0-9]{64}$/).nullable(),
-});
-
-export const SalesReceiptGetResponseSchema =
-  createResponseEnvelopeSchema(SalesReceiptGetResultSchema);
-
-// ── admin.metrics.get ───────────────────────────────────────────────────────
-
-export const LicenseOffersListRequestSchema=createRequestEnvelopeSchema(z.strictObject({})).safeExtend({message_type:z.literal("license.offers.list")}).superRefine(forbidCallerAssertedIdentity);
-export const LicenseOffersListResultSchema=z.strictObject({outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),catalog:PublicLicenseCatalogSchema.nullable()});
-export const LicenseOffersListResponseSchema=createResponseEnvelopeSchema(LicenseOffersListResultSchema);
-export const AdminMetricsGetRequestSchema = createRequestEnvelopeSchema(
-  z.strictObject({}),
-).safeExtend({ message_type: z.literal("admin.metrics.get") })
-  .superRefine(forbidCallerAssertedIdentity);
-
-export const AdminMetricsGetResultSchema = z.strictObject({
-  outcome: z.literal("AVAILABLE"),
-  sales_completed_count: z.number().int().nonnegative().nullable(),
-  sales_completed_amount: NonNegativeScale6Schema.nullable(),
-  inventory_tracked_count: z.number().int().nonnegative().nullable(),
-  cash_open_shift_count: z.number().int().nonnegative().nullable(),
-});
-
-export const AdminMetricsGetResponseSchema =
-  createResponseEnvelopeSchema(AdminMetricsGetResultSchema);
-
-// ── audit.event.list ──────────────────────────────────────────────────────────
-
-/**
- * Read-only local audit projection. The renderer can filter evidence, but it
- * cannot assert tenant/company/branch identity. Sensitive JSON evidence is not
- * returned by this V1 contract.
- */
-export const AuditEventListRequestSchema = createRequestEnvelopeSchema(
-  z.strictObject({
-    query: z.string().max(200),
-    action_code: StableCodeSchema.nullable(),
-    resource_type: StableCodeSchema.nullable(),
-    actor_type: z.enum(["USER", "DEVICE", "SYSTEM"]).nullable(),
-    from: UtcDateTimeSchema.nullable(),
-    to: UtcDateTimeSchema.nullable(),
-    limit: z.number().int().min(1).max(100),
-    offset: z.number().int().min(0).max(100000),
-  }),
-).safeExtend({ message_type: z.literal("audit.event.list") })
-  .superRefine((request, context) => {
-    forbidCallerAssertedIdentity(request, context);
-    if (request.payload.from !== null && request.payload.to !== null &&
-        request.payload.from > request.payload.to) {
-      context.addIssue({
-        code: "custom",
-        path: ["payload", "from"],
-        message: "from must be earlier than or equal to to",
-      });
-    }
-  });
-
-export const AuditEventListItemSchema = z.strictObject({
-  sequence: z.number().int().positive(),
-  actor_type: z.enum(["USER", "DEVICE", "SYSTEM"]),
-  actor_id: UuidSchema.nullable(),
-  session_id: UuidSchema,
-  action_code: StableCodeSchema,
-  resource_type: StableCodeSchema,
-  resource_id: UuidSchema.nullable(),
-  correlation_id: UuidSchema,
-  causation_id: UuidSchema.nullable(),
-  reason_code: StableCodeSchema.nullable(),
-  created_at: UtcDateTimeSchema,
-});
-
-export const AuditEventListResultSchema = z.strictObject({
-  outcome: z.enum(["FOUND", "UNAUTHORIZED"]),
-  events: z.array(AuditEventListItemSchema).max(100),
-  has_more: z.boolean(),
-});
-
-export const AuditEventListResponseSchema =
-  createResponseEnvelopeSchema(AuditEventListResultSchema);
-
-// ── payment.destination.get — QR-001 ─────────────────────────────────────────
-// A strictly read-only authenticated projection. The renderer cannot supply
-// any tenant, company, image URL, account or authorization context.
-export const MerchantDestinationsGetRequestSchema = createRequestEnvelopeSchema(
-  z.strictObject({}),
-).safeExtend({message_type:z.literal("payment.destination.get")})
-  .superRefine(forbidCallerAssertedIdentity);
-
-export const MerchantDestinationsGetResultSchema = z.strictObject({
-  outcome:z.enum(["AVAILABLE","UNAVAILABLE","UNAUTHORIZED"]),
-  sequence:z.number().int().positive().nullable(),
-  destinations:z.array(z.strictObject({
-    kind:z.enum(["NEQUI_NUMBER","BREB_KEY","NEQUI_BUSINESS_QR"]),
-    label:z.string().min(1).max(80),
-    destination_reference:z.string().min(4).max(160),
-    qr_asset_id:z.string().uuid().nullable(),
-    qr_sha256:z.string().regex(/^[a-f0-9]{64}$/).nullable(),
-    qr_png_base64:z.string().min(76).max(1_400_000)
-      .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/).optional(),
-    version:z.number().int().positive(),
-  })).max(3),
-});
-export const MerchantDestinationsGetResponseSchema=createResponseEnvelopeSchema(MerchantDestinationsGetResultSchema);
-export type MerchantDestinationsGetResult=z.infer<typeof MerchantDestinationsGetResultSchema>;
-
-// ── Registro canónico de métodos ─────────────────────────────────────────────
-
-/**
- * `message_type` de la capa POS Local Service. Sin prefijo, igual que
- * `runtime.handshake` y `operation.confirm`.
- *
- * El prefijo `pos:` pertenece a la otra frontera —los canales Electron del
- * allowlist de `RT-007`— y las dos nomenclaturas no deben mezclarse. La
- * correspondencia está tabulada en `DEC-014` §3.2.
- */
 export const CommercialIpcMessageTypeSchema = z.enum([
   "hardware.command",
   "authorization.capabilities.get",
@@ -2085,6 +2113,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "payment.transfer.confirm",
   "payment.factus_pay.collect",
   "payment.factus_pay.verify",
+  "payment.factus_pay.resume",
   "payment.cancel",
   "payment.get",
   "payment.destination.get",
@@ -2109,6 +2138,22 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "audit.event.list",
   "admin.metrics.get",
   "license.offers.list",
+  "catalog.presentation.register",
+  "catalog.food_policy.upsert",
+  "inventory.transform.execute",
+  "pharmacy.establishment.upsert",
+  "pharmacy.profile.upsert",
+  "pharmacy.prescription.register",
+  "pharmacy.technical_receipt.register",
+  "pharmacy.sanitary_alert.register",
+  "bakery.recipe.draft.create",
+  "bakery.recipe.approve",
+  "bakery.production.order.create",
+  "bakery.production.order.plan",
+  "bakery.production.release",
+  "bakery.production.deviation.authorize",
+  "bakery.production.confirm",
+  "bakery.production.trace.get",
 ]);
 
 /**
@@ -2133,6 +2178,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:payment.transfer.confirm",
   "pos:payment.factus_pay.collect",
   "pos:payment.factus_pay.verify",
+  "pos:payment.factus_pay.resume",
   "pos:payment.cancel",
   "pos:payment.get",
   "pos:payment.destination.get",
@@ -2157,6 +2203,22 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:audit.event.list",
   "pos:admin.metrics.get",
   "pos:license.offers.list",
+  "pos:catalog.presentation.register",
+  "pos:catalog.food_policy.upsert",
+  "pos:inventory.transform.execute",
+  "pos:pharmacy.establishment.upsert",
+  "pos:pharmacy.profile.upsert",
+  "pos:pharmacy.prescription.register",
+  "pos:pharmacy.technical_receipt.register",
+  "pos:pharmacy.sanitary_alert.register",
+  "pos:bakery.recipe.draft.create",
+  "pos:bakery.recipe.approve",
+  "pos:bakery.production.order.create",
+  "pos:bakery.production.order.plan",
+  "pos:bakery.production.release",
+  "pos:bakery.production.deviation.authorize",
+  "pos:bakery.production.confirm",
+  "pos:bakery.production.trace.get",
 ] as const;
 
 export type CommercialIpcMessageType = z.infer<typeof CommercialIpcMessageTypeSchema>;
@@ -2171,6 +2233,7 @@ export type PaymentRegisterTransferResult = z.infer<typeof PaymentRegisterTransf
 export type PaymentTransferConfirmResult = z.infer<typeof PaymentTransferConfirmResultSchema>;
 export type PaymentFactusPayCollectResult = z.infer<typeof PaymentFactusPayCollectResultSchema>;
 export type PaymentFactusPayVerifyResult = z.infer<typeof PaymentFactusPayVerifyResultSchema>;
+export type PaymentFactusPayResumeResult = z.infer<typeof PaymentFactusPayResumeResultSchema>;
 export type PaymentCancelResult = z.infer<typeof PaymentCancelResultSchema>;
 export type PaymentGetResult = z.infer<typeof PaymentGetResultSchema>;
 export type CustomerRegisterResult = z.infer<typeof CustomerRegisterResultSchema>;
@@ -2181,8 +2244,6 @@ export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResult
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
 export type FiscalNumberingSyncResult = z.infer<typeof FiscalNumberingSyncResultSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
-export type CatalogPresentationRegisterResult = z.infer<typeof CatalogPresentationRegisterResultSchema>;
-export type CatalogFoodPolicyUpsertResult = z.infer<typeof CatalogFoodPolicyUpsertResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
 export type CatalogItemListItem = z.infer<typeof CatalogItemListItemSchema>;
 export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
@@ -2190,6 +2251,5 @@ export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;
 export type InventoryMovementResult = z.infer<typeof InventoryMovementResultSchema>;
 export type InventoryStockGetResult = z.infer<typeof InventoryStockGetResultSchema>;
-export type InventoryTransformExecuteResult = z.infer<typeof InventoryTransformExecuteResultSchema>;
 export type AuditEventListResult = z.infer<typeof AuditEventListResultSchema>;
 export type AdminMetricsGetResult = z.infer<typeof AdminMetricsGetResultSchema>;

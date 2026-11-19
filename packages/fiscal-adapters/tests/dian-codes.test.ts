@@ -75,6 +75,15 @@ describe("traducción del código documental del proveedor", () => {
     expect(fiscalDocumentTypeForCode("22")).toBe("CREDIT_NOTE");
     expect(fiscalDocumentTypeForCode("Nota Crédito")).toBe("CREDIT_NOTE");
     expect(fiscalDocumentTypeForCode("Factura de Venta")).toBe("SALES_INVOICE");
+    expect(fiscalDocumentTypeForCode("Factura electrónica de venta")).toBe("SALES_INVOICE");
+    expect(fiscalDocumentTypeForCode("23")).toBe("DEBIT_NOTE");
+    expect(fiscalDocumentTypeForCode("Nota Débito")).toBe("DEBIT_NOTE");
+    expect(fiscalDocumentTypeForCode("24")).toBe("SUPPORT_DOCUMENT");
+    expect(fiscalDocumentTypeForCode("Documento Soporte")).toBe("SUPPORT_DOCUMENT");
+    expect(fiscalDocumentTypeForCode("25")).toBe("SUPPORT_DOCUMENT_ADJUSTMENT_NOTE");
+    expect(fiscalDocumentTypeForCode("Nota de Ajuste Documento Soporte")).toBe("SUPPORT_DOCUMENT_ADJUSTMENT_NOTE");
+    expect(fiscalDocumentTypeForCode("Nota Crédito desconocida")).toBeNull();
+    expect(fiscalDocumentTypeForCode("30")).toBeNull();
   });
 
   it("NO traduce códigos DIAN no verificados para emisión", () => {
@@ -99,6 +108,9 @@ describe("dirección inversa: tipo canónico → código del proveedor", () => {
   it("expone códigos de rango de numeración FACTUS verificados", () => {
     expect(numberingDocumentTypeCode("SALES_INVOICE")).toBe("21");
     expect(numberingDocumentTypeCode("CREDIT_NOTE")).toBe("22");
+    expect(numberingDocumentTypeCode("DEBIT_NOTE")).toBe("23");
+    expect(numberingDocumentTypeCode("SUPPORT_DOCUMENT")).toBe("24");
+    expect(numberingDocumentTypeCode("SUPPORT_DOCUMENT_ADJUSTMENT_NOTE")).toBe("25");
   });
 
   it("es la inversa exacta de `fiscalDocumentTypeForCode` para lo verificado en factura", () => {

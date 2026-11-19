@@ -8,7 +8,6 @@ describe("preload-api", () => {
 
   it("exposes exactly the ratified methods", () => {
     expect(Array.from(RENDERER_API_METHODS)).toEqual([
-      "hardware.command",
       "runtime.status.get",
       "authorization.capabilities.get",
       "operation.result.get",
@@ -18,6 +17,7 @@ describe("preload-api", () => {
       "local.operator.login",
       "local.operator.session",
       "local.operator.logout",
+      "hardware.command",
       "cash.shift.open",
       "cash.shift.close",
       "sale.create",
@@ -30,15 +30,12 @@ describe("preload-api", () => {
       "payment.transfer.confirm",
       "payment.factus_pay.collect",
       "payment.factus_pay.verify",
+      "payment.factus_pay.resume",
       "payment.cancel",
       "payment.get",
-      "payment.destination.get",
       "customer.register",
       "customer.get",
       "customer.find",
-      "customer.marketing.subscribe",
-      "customer.marketing.unsubscribe",
-      "customer.marketing.get",
       "fiscal.document.issue",
       "fiscal.numbering.sync",
       "catalog.product.register",
@@ -59,7 +56,6 @@ describe("preload-api", () => {
       "bakery.production.trace.get",
       "catalog.item.find",
       "catalog.item.get",
-      "catalog.item.list",
       "inventory.stock.receive",
       "inventory.stock.adjust",
       "inventory.stock.get",
@@ -71,9 +67,6 @@ describe("preload-api", () => {
       "inventory.reservation.release",
       "inventory.transform.execute",
       "sales.receipt.get",
-      "audit.event.list",
-      "admin.metrics.get",
-      "license.offers.list",
     ]);
   });
 

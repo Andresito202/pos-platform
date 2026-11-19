@@ -13,7 +13,6 @@ import {
   OperationResultRequestSchema,
   RuntimeHandshakeRequestSchema,
   RuntimeStatusRequestSchema,
-  RuntimeStatusResultSchema,
 } from "../src/index.js";
 
 const metadata = {
@@ -30,30 +29,6 @@ describe("TECH-003 IPC contracts", () => {
   });
   it("rejects unexpected runtime status payload fields", () => {
     expect(RuntimeStatusRequestSchema.safeParse({ ...metadata, message_type: "runtime.status.get", payload: { shell: true } }).success).toBe(false);
-  });
-  it("requires real outbox depth fields on runtime.status results", () => {
-    expect(RuntimeStatusResultSchema.safeParse({
-      service_version: "1.0.0",
-      protocol_version: "1.0.0",
-      service_state: "READY",
-      schema_version: "5",
-      outbox_pending_count: 2,
-      outbox_dead_letter_count: 0,
-    }).success).toBe(true);
-    expect(RuntimeStatusResultSchema.safeParse({
-      service_version: "1.0.0",
-      protocol_version: "1.0.0",
-      service_state: "READY",
-      schema_version: "5",
-    }).success).toBe(false);
-    expect(RuntimeStatusResultSchema.safeParse({
-      service_version: "1.0.0",
-      protocol_version: "1.0.0",
-      service_state: "READY",
-      schema_version: "5",
-      outbox_pending_count: -1,
-      outbox_dead_letter_count: 0,
-    }).success).toBe(false);
   });
   it("requires both identities when querying an uncertain operation", () => {
     expect(OperationResultRequestSchema.safeParse({

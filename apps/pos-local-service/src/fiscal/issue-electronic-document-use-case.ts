@@ -213,7 +213,7 @@ export class IssueElectronicDocumentUseCase {
     }
 
     const related = this.documentStore.findAcceptedInvoiceForSale(input.scope, input.saleId);
-    if (related === null || related.issuedNumber === null) {
+    if (related === null || related.issuedNumber === null || related.provider !== input.provider || related.environment !== input.environment) {
       return { kind: "BLOCKED", code: "RELATED_INVOICE_REQUIRED" };
     }
 

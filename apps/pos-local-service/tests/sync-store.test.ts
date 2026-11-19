@@ -94,7 +94,6 @@ describe("DurableSyncStore", () => {
     };
     expect(() => store.enqueue(collision)).toThrow("idempotency conflict");
     expect(database.native.prepare("SELECT count(*) AS count FROM local_sync_outbox").get()).toEqual({ count: 1 });
-    expect(store.outboxDepth()).toEqual({ pending_count: 1, dead_letter_count: 0 });
     database.close();
   });
 

@@ -3,56 +3,13 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { collectDependencyGraphKeys, collectDirectDependencies, generateDependencyInventory, isInstalledPackageManifest } from "./generate-dependency-inventory.mjs";
+import { collectDirectDependencies, generateDependencyInventory } from "./generate-dependency-inventory.mjs";
 import { discoverWorkspaceManifestPaths } from "./workspace-manifests.mjs";
 
 function writeManifest(root, relativePath, manifest) {
   mkdirSync(path.dirname(path.join(root, relativePath)), { recursive: true });
   writeFileSync(path.join(root, relativePath), JSON.stringify(manifest));
 }
-
-test("uses exact third-party identities from the recursive pnpm dependency graph", () => {
-  const keys = collectDependencyGraphKeys([{
-    name: "root",
-    dependencies: {
-      "@babel/parser": {
-        from: "@babel/parser",
-        version: "7.29.8",
-        dependencies: {
-          "@babel/types": { from: "@babel/types", version: "7.29.8" },
-        },
-      },
-      "@pos-platform/domain": {
-        from: "@pos-platform/domain",
-        version: "link:packages/domain",
-      },
-    },
-  }]);
-  assert.deepEqual([...keys].sort(), ["@babel/parser@7.29.8", "@babel/types@7.29.8"]);
-  assert.throws(() => collectDependencyGraphKeys([{ name: "root", dependencies: { broken: { from: "broken" } } }]), /missing an exact version/);
-});
-
-test("inventory excludes stale physical package versions absent from the pnpm graph", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "pos-dependency-inventory-stale-"));
-  try {
-    writeManifest(root, "package.json", { name: "root", version: "1.0.0" });
-    writeManifest(root, "node_modules/.pnpm/@babel+parser@7.29.8/node_modules/@babel/parser/package.json", {
-      name: "@babel/parser", version: "7.29.8", license: "MIT",
-    });
-    writeManifest(root, "node_modules/.pnpm/@babel+parser@7.29.9/node_modules/@babel/parser/package.json", {
-      name: "@babel/parser", version: "7.29.9", license: "MIT",
-    });
-    const inventory = generateDependencyInventory(
-      root,
-      { REVIEWED_SHA: "a".repeat(40) },
-      new Set(["@babel/parser@7.29.8"]),
-    );
-    assert.deepEqual(inventory.packages.map(({ name, version }) => [name, version]), [["@babel/parser", "7.29.8"]]);
-    assert.equal(inventory.reviewFindingCount, 0);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
 
 test("collects direct dependency scopes from root, apps, packages and tools", () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "pos-dependency-inventory-"));
@@ -105,46 +62,26 @@ test("fails closed when a discovered workspace manifest is invalid JSON", () => 
   }
 });
 
-test("excludes nested dependency fixtures and benchmarks from installed package inventory", () => {
-  const store = path.join("root", "node_modules", ".pnpm");
-  assert.equal(
-    isInstalledPackageManifest(path.join(store, "pino@10.3.1", "node_modules", "pino", "package.json"), store),
-    true,
-  );
-  assert.equal(
-    isInstalledPackageManifest(path.join(store, "pino@10.3.1", "node_modules", "pino", "test", "fixtures", "transport", "package.json"), store),
-    false,
-  );
-  assert.equal(
-    isInstalledPackageManifest(path.join(store, "secure-json-parse@4.1.0", "node_modules", "secure-json-parse", "benchmarks", "package.json"), store),
-    false,
-  );
-  assert.equal(
-    isInstalledPackageManifest(path.join(store, "scope@1.0.0", "node_modules", "@scope", "pkg", "package.json"), store),
-    true,
-  );
-});
-
-test("inventory ignores package.json files nested inside installed packages", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "pos-dependency-inventory-fixtures-"));
+test("ignores nested package.json fixtures under an installed package tree", () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "pos-dependency-inventory-nested-"));
   try {
-    writeManifest(root, "package.json", { name: "root", version: "1.0.0" });
-    writeManifest(root, "node_modules/.pnpm/pino@10.3.1/node_modules/pino/package.json", {
-      name: "pino", version: "10.3.1", license: "MIT",
+    writeManifest(root, "package.json", { name: "root" });
+    writeManifest(root, "node_modules/.pnpm/fast-uri@3.1.9/node_modules/fast-uri/package.json", {
+      name: "fast-uri",
+      version: "3.1.9",
+      license: "BSD-3-Clause",
     });
-    writeManifest(root, "node_modules/.pnpm/pino@10.3.1/node_modules/pino/test/fixtures/transport/package.json", {
-      name: "transport", version: "0.0.1",
+    writeManifest(root, "node_modules/.pnpm/fast-uri@3.1.9/node_modules/fast-uri/benchmark/package.json", {
+      name: "benchmark",
+      version: "1.0.0",
+      license: "ISC",
+      private: true,
     });
-    writeManifest(root, "node_modules/.pnpm/secure-json-parse@4.1.0/node_modules/secure-json-parse/package.json", {
-      name: "secure-json-parse", version: "4.1.0", license: "MIT",
-    });
-    writeManifest(root, "node_modules/.pnpm/secure-json-parse@4.1.0/node_modules/secure-json-parse/benchmarks/package.json", {
-      name: "benchmarks", version: "1.0.0",
-    });
-    const inventory = generateDependencyInventory(root, { REVIEWED_SHA: "a".repeat(40) });
-    assert.equal(inventory.packageCount, 2);
-    assert.deepEqual(inventory.reviewFindings, []);
-    assert.deepEqual(inventory.packages.map(({ name }) => name), ["pino", "secure-json-parse"]);
+
+    const inventory = generateDependencyInventory(root, {});
+    const names = inventory.packages.map((item) => `${item.name}@${item.version}`);
+    assert.deepEqual(names, ["fast-uri@3.1.9"]);
+    assert.equal(names.includes("benchmark@1.0.0"), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

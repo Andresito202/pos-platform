@@ -127,6 +127,21 @@ describe("hardware execution, durable SQLite and canonical authorization",()=>{
     const result=await service.execute(scope,auth(),actor,{action:"enqueue",job_id:randomUUID(),binding_id:binding,kind:"PRINT_RECEIPT",sale_id:randomUUID(),reason:"Receipt test"});
     expect(result.reason).toBe("NOT_FOUND");expect(store.list(scope).jobs).toHaveLength(0);
   });
+  it("denies cashier print-test or cut requests and permits no raw actuator access",async()=>{
+    const permissions=[CanonicalPermission.HARDWARE_PRINT,CanonicalPermission.SALES_RECEIPT_READ];
+    for(const kind of ["PRINT_TEST","CUT","DRAWER_OPEN"] as const){
+      const result=await service.execute(scope,auth(permissions),actor,{action:"enqueue",job_id:randomUUID(),binding_id:binding,kind,sale_id:null,reason:"Unauthorized actuator"});
+      expect(result.kind).toBe("UNAUTHORIZED");
+    }
+    expect(transport.writes).toHaveLength(0);
+    expect(store.list(scope).jobs).toHaveLength(0);
+  });
+  it("rejects direct receipt printing if no completed sale exists",async()=>{
+    const result=await service.execute(scope,auth([CanonicalPermission.HARDWARE_PRINT,CanonicalPermission.SALES_RECEIPT_READ]),actor,{action:"print_receipt",job_id:randomUUID(),sale_id:randomUUID()});
+    expect(result.kind).toBe("REJECTED");
+    expect(result.reason).toBe("NOT_FOUND");
+    expect(transport.writes).toHaveLength(0);
+  });
   it("rejects a profile without a model-specific drawer pulse",()=>{
     expect(()=>HardwareProfileSchema.parse({...profile,drawer_pulse:null})).toThrow();
     expect(()=>drawerPulse({...profile,drawer:"UNKNOWN",drawer_pulse:null})).toThrow("DRAWER_PROFILE_UNSUPPORTED");

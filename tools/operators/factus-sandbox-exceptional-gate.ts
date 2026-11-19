@@ -19,11 +19,12 @@ import {
   FetchHttpTransport,
   FACTUS_SANDBOX_ENV,
   authorizesIssuance,
+  selectRangesForDocumentType,
   type CredentialReference,
   type FactusCredential,
   type FactusCredentialResolver,
   type NumberingRangeSnapshot,
-} from "@pos-platform/fiscal-adapters";
+} from "../../packages/fiscal-adapters/src/index.js";
 import { EncryptedFileSecretStore } from "../../apps/pos-local-service/src/security/encrypted-secret-store.js";
 import { InsecureDerivedKeyProvider } from "../../apps/pos-local-service/src/security/insecure-derived-key-provider.js";
 import { FactusPayCredentialStore } from "../../apps/pos-local-service/src/payments/factus-pay-credential-store.js";
@@ -85,100 +86,52 @@ function pickActiveRange(
   ranges: readonly NumberingRangeSnapshot[],
   documentType: "SALES_INVOICE" | "CREDIT_NOTE",
 ): NumberingRangeSnapshot | null {
-  const matching = ranges.filter((range) => {
-    if (range.documentType !== documentType) return false;
-    if (range.rangeId.startsWith("derived:")) return false;
-    if (range.providerExpired === true) return false;
-    if (range.providerActive === false) return false;
-    return true;
-  });
-  return matching[0] ?? null;
+  const { matching } = selectRangesForDocumentType(ranges, documentType);
+  const candidates = matching.filter((range) =>
+    range.documentType === documentType &&
+    range.authority === "PROVIDER" &&
+    /^[1-9]\d*$/.test(range.rangeId) && Number.isSafeInteger(Number(range.rangeId)) &&
+    range.providerActive === true && range.providerExpired === false);
+  // Sólo para el gate sandbox: determinismo independiente del orden API.
+  return candidates.sort((left, right) => Number(left.rangeId) - Number(right.rangeId))[0] ?? null;
 }
 
-function buildBillPayload(rangeId: string, referenceCode: string): Record<string, unknown> {
-  const numericRange = Number(rangeId);
+// Mismo contrato que la factura y NC validadas manualmente el 2026-11-18.
+// Sin cliente real ni envío de correo; el rango se resuelve, nunca se fija.
+function sandboxCustomer(): Record<string, unknown> {
   return {
-    reference_code: referenceCode,
-    document: "01",
-    numbering_range_id: Number.isFinite(numericRange) ? numericRange : rangeId,
-    operation_type: "10",
-    observation: "Camacho POS exceptional sandbox gate",
-    cash_rounding_amount: "0.00",
-    payment_details: [{
-      payment_form: "1",
-      payment_method_code: "10",
-      amount: "1190.00",
-      due_date: null,
-    }],
-    customer: {
-      identification_document_code: "13",
-      identification: "1020304050",
-      dv: null,
-      legal_organization_code: "2",
-      company: null,
-      names: "Ana Restrepo Sandbox",
-      tribute_code: "ZZ",
-      responsibilities: ["R-99-PN"],
-      address: "Calle 1 # 2-3",
-      email: "sandbox-customer@example.invalid",
-      phone: "3001234567",
-      country_code: "CO",
-      municipality_code: "05001",
-    },
-    items: [{
-      code_reference: "SANDBOX-ITEM-1",
-      name: "Producto sandbox Camacho",
-      quantity: "1.00",
-      price: "1000.00",
-      unit_measure_code: "94",
-      standard_code: "999",
-      taxes: [{ code: "01", rate: "19.00" }],
-    }],
+    identification_document_code: "13", identification: "222222222222",
+    names: "Consumidor final", legal_organization_code: "2", tribute_code: "ZZ",
+    country_code: "CO", municipality_code: "11001", responsibilities: ["R-99-PN"],
   };
 }
 
-function buildCreditNotePayload(
-  rangeId: string,
-  referenceCode: string,
-  billNumber: string,
-): Record<string, unknown> {
-  const numericRange = Number(rangeId);
+function sandboxItems(): readonly Record<string, unknown>[] {
+  return [{
+    code_reference: "TEST001", name: "Producto de prueba", quantity: "1.00",
+    discount_rate: "0.00", price: "10000.00", unit_measure_code: "94",
+    standard_code: "999", taxes: [{ code: "01", rate: "19.00" }],
+  }];
+}
+
+function sandboxPayments(): readonly Record<string, unknown>[] {
+  return [{ payment_form: "1", payment_method_code: "10", amount: "11900.00" }];
+}
+
+function buildBillPayload(rangeId: string, referenceCode: string): Record<string, unknown> {
   return {
-    reference_code: referenceCode,
-    correction_concept_code: "2",
-    customization_id: "20",
-    bill_number: billNumber,
-    numbering_range_id: Number.isFinite(numericRange) ? numericRange : rangeId,
-    observation: "Camacho POS exceptional sandbox credit note",
-    payment_details: [{
-      payment_form: "1",
-      payment_method_code: "10",
-      amount: "1190.00",
-    }],
-    customer: {
-      identification_document_code: "13",
-      identification: "1020304050",
-      dv: null,
-      legal_organization_code: "2",
-      company: null,
-      names: "Ana Restrepo Sandbox",
-      tribute_code: "ZZ",
-      responsibilities: ["R-99-PN"],
-      address: "Calle 1 # 2-3",
-      email: "sandbox-customer@example.invalid",
-      phone: "3001234567",
-      country_code: "CO",
-      municipality_code: "05001",
-    },
-    items: [{
-      code_reference: "SANDBOX-ITEM-1",
-      name: "Producto sandbox Camacho",
-      quantity: "1.00",
-      price: "1000.00",
-      unit_measure_code: "94",
-      standard_code: "999",
-      taxes: [{ code: "01", rate: "19.00" }],
-    }],
+    reference_code: referenceCode, document: "01", numbering_range_id: Number(rangeId),
+    operation_type: "10", observation: "Camacho POS exceptional sandbox gate", send_email: false,
+    payment_details: sandboxPayments(), customer: sandboxCustomer(), items: sandboxItems(),
+  };
+}
+
+function buildCreditNotePayload(rangeId: string, referenceCode: string, billNumber: string): Record<string, unknown> {
+  return {
+    reference_code: referenceCode, correction_concept_code: "2", customization_id: "20",
+    bill_number: billNumber, numbering_range_id: Number(rangeId),
+    observation: "Camacho POS exceptional sandbox credit note", send_email: false,
+    payment_details: sandboxPayments(), customer: sandboxCustomer(), items: sandboxItems(),
   };
 }
 
@@ -207,6 +160,7 @@ async function probeFactusOAuthEncodings(
     if (encoding === "urlencoded_adapter") {
       response = await fetch(url, {
         method: "POST",
+        redirect: "error",
         headers: {
           Accept: "application/json",
           "Content-Type": "application/x-www-form-urlencoded",
@@ -219,6 +173,7 @@ async function probeFactusOAuthEncodings(
       for (const [key, value] of fields) form.append(key, value);
       response = await fetch(url, {
         method: "POST",
+        redirect: "error",
         headers: { Accept: "application/json" },
         body: form,
         signal,
@@ -373,11 +328,13 @@ async function runFactus(credential: FactusCredential, signal: AbortSignal): Pro
       },
     }, signal);
 
-    if (issuance.kind !== "EVIDENCED" || issuance.normalizedResult !== "ACCEPTED") {
+    if (issuance.kind !== "EVIDENCED" || issuance.normalizedResult !== "ACCEPTED" ||
+        !issuance.externalIdentity.number || !issuance.externalIdentity.cufe ||
+        issuance.externalIdentity.providerOperationId !== referenceCode) {
       const diagnostic = "diagnostic" in issuance
         ? String((issuance as { diagnostic?: { code?: string } }).diagnostic?.code ?? issuance.kind)
         : issuance.kind;
-      record("FACTUS", "document_issuance", "OBSERVED_FAIL", `kind=${issuance.kind};detail=${diagnostic}`);
+      record("FACTUS", "document_issuance", "OBSERVED_FAIL", `kind=${issuance.kind};detail=${diagnostic};http=${issuance.providerStatus?.httpStatus ?? "none"}`);
       record("FACTUS", "document_status_query", "NOT_RUN", "issuance did not evidence ACCEPTED");
       record("FACTUS", "artifact_pdf", "NOT_RUN", "no accepted document");
       record("FACTUS", "artifact_xml", "NOT_RUN", "no accepted document");
@@ -399,8 +356,11 @@ async function runFactus(credential: FactusCredential, signal: AbortSignal): Pro
       credential: REFERENCE,
       reference: { by: "EXTERNAL", providerOperationId },
     }, signal);
-    if (status.kind === "FOUND") {
-      record("FACTUS", "document_status_query", "OBSERVED_PASS", `normalized=${status.normalizedResult}`);
+    if (status.kind === "FOUND" && status.normalizedResult === "ACCEPTED" &&
+        status.externalIdentity.providerOperationId === providerOperationId &&
+        status.externalIdentity.number === billNumber &&
+        status.externalIdentity.cufe === issuance.externalIdentity.cufe) {
+      record("FACTUS", "document_status_query", "OBSERVED_PASS", `normalized=${status.normalizedResult};identity_match=true`);
     } else {
       record("FACTUS", "document_status_query", "OBSERVED_FAIL", `kind=${status.kind}`);
     }
@@ -452,7 +412,8 @@ async function runFactus(credential: FactusCredential, signal: AbortSignal): Pro
         checksumSha256: cnChecksum,
       },
     }, signal);
-    if (creditNote.kind === "EVIDENCED") {
+    if (creditNote.kind === "EVIDENCED" && creditNote.normalizedResult === "ACCEPTED" &&
+        !!creditNote.externalIdentity.number && creditNote.externalIdentity.providerOperationId === cnReference) {
       record(
         "FACTUS",
         "credit_note_issuance",
@@ -463,7 +424,7 @@ async function runFactus(credential: FactusCredential, signal: AbortSignal): Pro
       const diagnostic = "diagnostic" in creditNote
         ? String((creditNote as { diagnostic?: { code?: string } }).diagnostic?.code ?? creditNote.kind)
         : creditNote.kind;
-      record("FACTUS", "credit_note_issuance", "OBSERVED_FAIL", `kind=${creditNote.kind};detail=${diagnostic}`);
+      record("FACTUS", "credit_note_issuance", "OBSERVED_FAIL", `kind=${creditNote.kind};detail=${diagnostic};http=${creditNote.providerStatus?.httpStatus ?? "none"}`);
     }
   } finally {
     adapter.close();
@@ -556,7 +517,7 @@ async function runFactusPay(signal: AbortSignal): Promise<void> {
   } catch (error) {
     const code = error instanceof Error && "code" in error
       ? String((error as { code: unknown }).code)
-      : error instanceof Error ? error.message : "UNKNOWN";
+      : error instanceof Error ? error.name : "UNKNOWN";
     record("FACTUS_PAY", "authentication_and_collection_create", "OBSERVED_FAIL", `error_code=${code}`);
     record("FACTUS_PAY", "collection_status_query", "NOT_RUN", "create failed");
     record("FACTUS_PAY", "reconciliation_get", "NOT_RUN", "create failed");
@@ -601,7 +562,7 @@ async function main(): Promise<void> {
     await runFactus(credential, signal);
     await runFactusPay(signal);
   } catch (error) {
-    crashMessage = error instanceof Error ? error.message : "UNKNOWN";
+    crashMessage = error instanceof Error ? error.name : "UNKNOWN";
     failed = true;
     console.error(`GATE_CRASH:${crashMessage}`);
   }
@@ -643,7 +604,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  const message = error instanceof Error ? error.message : "UNKNOWN";
+  const message = error instanceof Error ? error.name : "UNKNOWN";
   console.error(`GATE_CRASH:${message}`);
   // Last-resort evidence so the upload step is never empty on unexpected throws.
   try {

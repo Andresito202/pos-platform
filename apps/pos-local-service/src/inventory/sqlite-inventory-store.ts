@@ -115,6 +115,32 @@ export type SaleDeductionOutcome =
   | { readonly kind: "IDEMPOTENT" }
   | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string };
 
+export type AppendMovementOutcome =
+  | { readonly kind: "POSTED"; readonly stockSequence: number; readonly quantityAfter: string }
+  | { readonly kind: "IDEMPOTENT"; readonly stockSequence: number; readonly quantityAfter: string }
+  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "PRESENTATION_NOT_FOUND" }
+  | { readonly kind: "INVALID_QUANTITY" }
+  | { readonly kind: "QUANTITY_PRECISION_EXCEEDED" }
+  | { readonly kind: "STOCK_QUANTITY_OVERFLOW" }
+  | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string }
+  | { readonly kind: "LOT_TRACKING_REQUIRED" }
+  | { readonly kind: "LEGACY_STOCK_RECONCILIATION_REQUIRED" }
+  | { readonly kind: "LOT_NOT_FOUND" }
+  | { readonly kind: "LOT_NOT_SELLABLE" };
+
+interface StockRow {
+  quantity_on_hand: string;
+  last_movement_sequence: number;
+  version: number;
+}
+interface MovementRow {
+  stock_sequence: number;
+  quantity_after: string;
+}
+interface OperationRow { payload_checksum: string }
+interface NextSequenceRow { next_sequence: number }
+
 /** Multi-output transform (despiece) on the shared lot ledger. */
 export interface TransformOrderInput {
   readonly scope: SyncScope;
@@ -197,32 +223,6 @@ function quantityToCanonicalMass(
   if (code === "KG" || code === "KGM") return quantity * 1000n;
   return null;
 }
-
-export type AppendMovementOutcome =
-  | { readonly kind: "POSTED"; readonly stockSequence: number; readonly quantityAfter: string }
-  | { readonly kind: "IDEMPOTENT"; readonly stockSequence: number; readonly quantityAfter: string }
-  | { readonly kind: "IDEMPOTENCY_CONFLICT" }
-  | { readonly kind: "PRESENTATION_NOT_FOUND" }
-  | { readonly kind: "INVALID_QUANTITY" }
-  | { readonly kind: "QUANTITY_PRECISION_EXCEEDED" }
-  | { readonly kind: "STOCK_QUANTITY_OVERFLOW" }
-  | { readonly kind: "INSUFFICIENT_STOCK"; readonly available: string }
-  | { readonly kind: "LOT_TRACKING_REQUIRED" }
-  | { readonly kind: "LEGACY_STOCK_RECONCILIATION_REQUIRED" }
-  | { readonly kind: "LOT_NOT_FOUND" }
-  | { readonly kind: "LOT_NOT_SELLABLE" };
-
-interface StockRow {
-  quantity_on_hand: string;
-  last_movement_sequence: number;
-  version: number;
-}
-interface MovementRow {
-  stock_sequence: number;
-  quantity_after: string;
-}
-interface OperationRow { payload_checksum: string }
-interface NextSequenceRow { next_sequence: number }
 
 export class SqliteInventoryStore {
   constructor(
@@ -752,9 +752,8 @@ export class SqliteInventoryStore {
         return {kind:"LOT_NOT_SELLABLE"} as AppendMovementOutcome;
       if(!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
         return {kind:"INVALID_QUANTITY"} as AppendMovementOutcome;
-      const free=scale6ToBigInt(record.quantity_on_hand)-this.reservedUnitsForLot(input.scope,lotId);
-      if(free<scale6ToBigInt(input.quantity))
-        return {kind:"INSUFFICIENT_STOCK",available:bigIntToScale6(free>0n?free:0n)} as AppendMovementOutcome;
+      if(scale6ToBigInt(record.quantity_on_hand)<scale6ToBigInt(input.quantity))
+        return {kind:"INSUFFICIENT_STOCK",available:record.quantity_on_hand} as AppendMovementOutcome;
       const result=this.appendMovement(input,true);
       if(result.kind!=="POSTED")return result;
       const entryType=input.movementType==="SHRINKAGE"?"SHRINKAGE":
@@ -978,8 +977,7 @@ export class SqliteInventoryStore {
       if(source.status!=="AVAILABLE"||
          (source.expiry_date!==null&&source.expiry_date<this.now().toISOString().slice(0,10)))
         return {kind:"LOT_NOT_SELLABLE"};
-      const freeSource=scale6ToBigInt(source.quantity_on_hand)-this.reservedUnitsForLot(input.scope,input.sourceLotId);
-      if(freeSource<sourceUnits)return {kind:"INSUFFICIENT_STOCK"};
+      if(scale6ToBigInt(source.quantity_on_hand)<sourceUnits)return {kind:"INSUFFICIENT_STOCK"};
       const destinationStock=this.getStock(input.scope,rule.target_presentation_id);
       if(!this.isLotTracked(input.scope,rule.target_presentation_id)&&
          destinationStock&&scale6ToBigInt(destinationStock.quantityOnHand)>0n)
@@ -1467,7 +1465,26 @@ export class SqliteInventoryStore {
     });
   }
 
-  /**
+  createReservationInTransaction(
+    input:Parameters<SqliteInventoryStore["createReservation"]>[0],
+  ):ReturnType<SqliteInventoryStore["createReservation"]> {
+    return this.database.native.transaction(()=>this.createReservation(input))();
+  }
+
+  releaseReservationInTransaction(
+    input:Parameters<SqliteInventoryStore["releaseReservation"]>[0],
+  ):ReturnType<SqliteInventoryStore["releaseReservation"]> {
+    return this.database.native.transaction(()=>this.releaseReservation(input))();
+  }
+
+  /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */
+  appendMovementInTransaction(input: AppendMovementInput): AppendMovementOutcome {
+    return this.database.native.transaction(
+      (): AppendMovementOutcome => this.appendMovement(input),
+    )();
+  }
+
+/**
    * Atomic multi-output transform (despiece): consume input lots once, credit
    * outputs, document merma without a second physical debit. One SQLite writer
    * transaction. Cross-unit production requires measured mass reconciliation;
@@ -1819,24 +1836,5 @@ export class SqliteInventoryStore {
       if(error instanceof AbortTransform)return error.result;
       throw error;
     }
-  }
-
-  createReservationInTransaction(
-    input:Parameters<SqliteInventoryStore["createReservation"]>[0],
-  ):ReturnType<SqliteInventoryStore["createReservation"]> {
-    return this.database.native.transaction(()=>this.createReservation(input))();
-  }
-
-  releaseReservationInTransaction(
-    input:Parameters<SqliteInventoryStore["releaseReservation"]>[0],
-  ):ReturnType<SqliteInventoryStore["releaseReservation"]> {
-    return this.database.native.transaction(()=>this.releaseReservation(input))();
-  }
-
-  /** Abre la transacción que `appendMovement` no abre. Para las entradas y los ajustes. */
-  appendMovementInTransaction(input: AppendMovementInput): AppendMovementOutcome {
-    return this.database.native.transaction(
-      (): AppendMovementOutcome => this.appendMovement(input),
-    )();
   }
 }

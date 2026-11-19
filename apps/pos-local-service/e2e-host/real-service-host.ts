@@ -1,4 +1,3 @@
-import { LOCAL_OPERATOR_PERMISSIONS } from "../src/security/local-operator-development-bridge.js";
 import { createPublicKey, generateKeyPairSync, sign } from "node:crypto";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/local-channel";
@@ -8,35 +7,14 @@ import {
   unsignedSessionAssertionBytes,
   type TrustedSigningKey,
 } from "../src/index.js";
+import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteAuthorizationSnapshotStore } from "../src/authorization/sqlite-authorization-snapshot-store.js";
 import { CommercialComponent } from "../src/commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../src/commercial/commercial-request-handler.js";
-import { LocalDatabaseComponent } from "../src/local-database-component.js";
-import { DurableSyncComponent } from "../src/sync/durable-sync-component.js";
-import { OperationConfirmationComponent } from "../src/operations/operation-confirmation-component.js";
-import { LocalChannelComponent } from "../src/channel/local-channel-component.js";
 import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/security/index.js";
 import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
-import { CanonicalPermission,uuidV7 } from "@pos-platform/contracts";
-import {SessionTrustKeyVerifier} from "../src/security/session-trust-key-verifier.js";
-import {IsolatedHttpsSnapshotProvider} from "../src/authorization/isolated-https-snapshot-provider.js";
-import {mkdirSync} from "node:fs";
-import {join} from "node:path";
-import {WindowsDpapiKeyProvider} from "../src/security/windows-dpapi-key-provider.js";
-import {AuthorizationTrustCandidateStore} from "../src/security/authorization-trust-candidate.js";
-import {AuthorizationTrustLifecycle} from "../src/security/authorization-trust-lifecycle.js";
-import {refreshIsolatedAuthorizationTrust} from "../src/security/isolated-authorization-trust-fetcher.js";
-import {TrustedClockGuard} from "../src/security/trusted-clock.js";
-import {LocalSecurityComponent,deviceIdentityContext} from "../src/security/local-security-component.js";
-import {DeviceTrustCredentialStore} from "../src/security/device-trust-credential-store.js";
-import {DeviceEnrollmentService} from "../src/security/device-enrollment-service.js";
-import {DeviceTrustVerifier} from "@pos-platform/device-trust";
-import {CommercialDeviceCredentialProvider} from "../src/security/commercial-device-credential.js";
-import {NativeCommercialCoordinator} from "../src/security/native-commercial-coordinator.js";
-import {IsolatedNativeCommercialHttps} from "../src/security/native-commercial-https.js";
-import type {NativeClientRegistration} from "@pos-platform/contracts";
 import {
   FACTUS_ADAPTER_DECLARATION,
   type DocumentIssuanceOutcome,
@@ -49,17 +27,19 @@ import {
  * POS Local Service **real** como proceso independiente, para verificar el
  * canal contra un Electron real.
  *
- * Levanta CommercialComponent y SQLite reales. En Windows reutiliza
- * LocalChannelComponent con DPAPI; en POSIX conecta LocalChannelServer al
- * handler comercial. Identidad, SSA, snapshot, caja y rango son fixtures.
- * El proveedor fiscal es FakeIssuancePort: no se acredita FACTUS ni login.
+ * No es un doble ni un simulador: levanta `LocalChannelServer`,
+ * `CommercialComponent` y SQLite de producción, y los puentea igual que
+ * `local-channel-component.ts`. Lo único que aporta el arnés es el secreto del
+ * canal y el material criptográfico de la sesión, que en producción resuelven
+ * DPAPI y el emisor central —piezas que aquí no existen y que **no se simulan**:
+ * simplemente se inyectan desde fuera.
  *
  * Vive fuera de `src/` a propósito. No forma parte del servicio distribuible:
  * es andamiaje de verificación, y mezclarlo con el runtime sería exactamente el
  * tipo de confusión que este proyecto persigue.
  *
- * TODO EL MATERIAL CRIPTOGRÁFICO ES EXCLUSIVO DE VERIFICACIÓN: las claves de
- * firma viven en memoria; el secreto DPAPI queda sólo en el directorio temporal.
+ * TODO EL MATERIAL CRIPTOGRÁFICO ES EXCLUSIVO DE VERIFICACIÓN: se genera en
+ * memoria, no se persiste y no sustituye a un trust anchor de producción.
  *
  * Protocolo con el proceso que lo lanza: imprime una línea JSON en `stdout`
  * —`{"ready":true,...}`— con lo que la prueba necesita, y se apaga con SIGTERM.
@@ -71,53 +51,48 @@ function required(name: string): string {
   return value;
 }
 
-if(process.env.NODE_ENV!=="test")throw Error("E2E_HOST_REQUIRES_TEST_ENVIRONMENT");
-const WITHOUT_SESSION=process.env.POS_E2E_SESSION_MODE==="NONE";
-if(WITHOUT_SESSION&&process.platform!=="win32")throw Error("UNAUTHENTICATED_PRODUCTION_ENTRY_TEST_REQUIRES_WINDOWS");
-const PERSISTENT_DEV=process.env.POS_E2E_PERSISTENT_DEV==="1";
-if(PERSISTENT_DEV&&(
-  process.platform!=="win32"||process.env.NODE_ENV!=="test"||
-  (process.env.CI&&!process.env.POS_E2E_PERSISTENCE_SMOKE)||process.env.POS_E2E_ROLE===undefined||
-  process.env.POS_E2E_SESSION_MODE==="NONE"||
-  !process.env.POS_E2E_DATA_DIR?.includes("CamachoPOS")
-))throw Error("PERSISTENT_DEV_PROFILE_SCOPE_REJECTED");
 const DATA_DIRECTORY = required("POS_E2E_DATA_DIR");
-const SECRET = WITHOUT_SESSION?Buffer.alloc(0):Buffer.from(required("POS_E2E_CHANNEL_SECRET"), "hex");
+const SECRET = Buffer.from(required("POS_E2E_CHANNEL_SECRET"), "hex");
 const TENANT = required("POS_E2E_TENANT_ID");
 const COMPANY = required("POS_E2E_COMPANY_ID");
 const BRANCH = required("POS_E2E_BRANCH_ID");
 const INSTALLATION = required("POS_E2E_INSTALLATION_ID");
 const DEVICE = required("POS_E2E_DEVICE_ID");
-const USER = WITHOUT_SESSION?"":required("POS_E2E_USER_ID");
-const REGISTER = WITHOUT_SESSION?"":required("POS_E2E_REGISTER_ID");
+const USER = required("POS_E2E_USER_ID");
+const REGISTER = required("POS_E2E_REGISTER_ID");
 
 const MEMBERSHIP = "018f0000-0000-7000-8000-0000000000b1";
-let SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
-let SESSION_SEQUENCE = 1;
-let SNAPSHOT_SEQUENCE = 1;
+const SSA_SESSION = "018f0000-0000-7000-8000-0000000000b0";
 const SESSION_KEY_ID = "SESSION_KEY_1";
-const NOW = process.env.POS_E2E_PERSISTENT_DEV==="1"?new Date():new Date("2026-09-03T12:00:00.000Z");
-const clock=()=>PERSISTENT_DEV?new Date():NOW;
+const NOW = new Date("2026-09-03T12:00:00.000Z");
 
-// Explicit test-only role views. These are NOT Central's role assignments;
-// the signer is ephemeral, the database temporary and the host rejects
-// NODE_ENV other than test. No production runtime reads POS_E2E_ROLE.
-// Reuse the tested LOCAL grant projection; this fixture signs it only inside
-// the isolated harness. It neither issues nor simulates production GLOBAL grants.
-const ROLE_PERMISSIONS = LOCAL_OPERATOR_PERMISSIONS;
-const requestedRole=process.env.POS_E2E_ROLE;
-if(requestedRole!==undefined&&!Object.prototype.hasOwnProperty.call(ROLE_PERMISSIONS,requestedRole))
-  throw Error("E2E_ROLE_UNRECOGNIZED");
-const PERMISSIONS:readonly string[]=requestedRole===undefined?Object.values(CanonicalPermission):
-  ROLE_PERMISSIONS[requestedRole as keyof typeof ROLE_PERMISSIONS];
+const PERMISSIONS = [
+  "CASH_SHIFT_OPEN",
+  "CATALOG_PRODUCT_REGISTER",
+  "CATALOG_PRODUCT_READ",
+  "INVENTORY_STOCK_RECEIVE",
+  "INVENTORY_STOCK_READ",
+  "SALES_SALE_CREATE",
+  "PAYMENTS_PAYMENT_REGISTER",
+  "SALES_RECEIPT_READ",
+  "CASH_SHIFT_CLOSE",
+  "PAYMENTS_TRANSFER_REPORT",
+  "PAYMENTS_TRANSFER_CONFIRM",
+  "PAYMENTS_PAYMENT_READ",
+  // Anadidos con las pantallas de administracion: ajustar existencia y el
+  // adquiriente no eran alcanzables desde el producto y por tanto no hacian
+  // falta aqui.
+  "INVENTORY_STOCK_ADJUST",
+  "CUSTOMERS_CUSTOMER_REGISTER",
+  "CUSTOMERS_CUSTOMER_READ",
+  // `DEC-021` F5: la pantalla de emision fiscal.
+  "FISCAL_DOCUMENT_ISSUE",
+];
 
-const keyPair = WITHOUT_SESSION?null:generateKeyPairSync("ed25519");
-const authorizationKeyPair=WITHOUT_SESSION?null:generateKeyPairSync("ed25519");
+const keyPair = generateKeyPairSync("ed25519");
 
 function config(): ServiceConfig {
   return {
-    data_directory: DATA_DIRECTORY,
-    service_version: "1.0.0",
     tenant_id: TENANT,
     company_id: COMPANY,
     branch_id: BRANCH,
@@ -127,8 +102,8 @@ function config(): ServiceConfig {
     protocol_max: "1.0.0",
     // `DEC-021` F5. En produccion lo pone `POS_FISCAL_ENVIRONMENT`; aqui va
     // fijo a SANDBOX porque la credencial que deposita el arnes es de prueba.
-    ...(WITHOUT_SESSION?{}:{fiscal_environment:"SANDBOX" as const}),
-  };
+    fiscal_environment: "SANDBOX",
+  } as ServiceConfig;
 }
 
 /**
@@ -188,20 +163,20 @@ function seedFiscalRange(database: LocalDatabase): void {
 
 function authorizationClaims(): AuthorizationSnapshotClaims {
   return {
-    snapshot_id: PERSISTENT_DEV?uuidV7():"018f0000-0000-7000-8000-0000000000c0",
+    snapshot_id: "018f0000-0000-7000-8000-0000000000c0",
     user_id: USER,
     installation_id: INSTALLATION,
     device_id: DEVICE,
-    sequence: SNAPSHOT_SEQUENCE,
-    issued_at: PERSISTENT_DEV?new Date(NOW.getTime()-30_000).toISOString():"2026-09-03T00:00:00.000Z",
-    expires_at: PERSISTENT_DEV?new Date(NOW.getTime()+8*3600_000).toISOString():"2026-09-04T00:00:00.000Z",
+    sequence: 1,
+    issued_at: "2026-09-03T00:00:00.000Z",
+    expires_at: "2026-09-04T00:00:00.000Z",
     assignments: [
       {
         tenant_id: TENANT,
         company_id: COMPANY,
         branch_id: BRANCH,
         status: "ACTIVE",
-        valid_from: PERSISTENT_DEV?new Date(NOW.getTime()-60_000).toISOString():"2026-09-01T00:00:00.000Z",
+        valid_from: "2026-09-01T00:00:00.000Z",
         valid_until: null,
         role_status: "ACTIVE",
         permissions: PERMISSIONS.map((code) => ({ code, status: "ACTIVE" as const })),
@@ -218,9 +193,9 @@ function sessionClaims(): SessionAssertionClaims {
     tenant_membership_id: MEMBERSHIP,
     installation_id: INSTALLATION,
     device_id: DEVICE,
-    issued_at: PERSISTENT_DEV?new Date(NOW.getTime()-30_000).toISOString():"2026-09-03T00:00:00.000Z",
-    offline_valid_until: PERSISTENT_DEV?new Date(NOW.getTime()+8*3600_000).toISOString():"2026-09-04T00:00:00.000Z",
-    sequence: SESSION_SEQUENCE,
+    issued_at: "2026-09-03T00:00:00.000Z",
+    offline_valid_until: "2026-09-04T00:00:00.000Z",
+    sequence: 1,
     key_id: SESSION_KEY_ID,
   } as SessionAssertionClaims;
 }
@@ -243,156 +218,52 @@ function seedRegister(database: LocalDatabase): void {
 }
 
 async function main(): Promise<void> {
-  // Fixture provisioning comes from the parent test directly to Service, never
-  // Electron. Production main does not accept this control message.
-  const custody=process.env.POS_E2E_NATIVE_CUSTODY==="1"?await new Promise<{
-    activation:unknown;result:unknown;rootPublicPem:string;operational:unknown;registration:NativeClientRegistration;port:number;
-    binding:{devicePrivatePem:string;ca:string};accessV2?:{audience:string;maximumRetentionMs:number};
-  }>(resolve=>process.once("message",packet=>{if(packet&&typeof packet==="object"&&"type" in packet&&packet.type==="pos-e2e-native-provision")resolve(packet as never);else throw Error("NATIVE_TEST_PROVISION_REQUIRED");})):undefined;
-  const localDatabase = new LocalDatabaseComponent(DATA_DIRECTORY);
-  await localDatabase.start();
-  const database = localDatabase.database;
-  if(PERSISTENT_DEV){
-    // Reissue a new short-lived test credential on every successful password-
-    // gated launch. SQLite business data survives; old SSA/SAS do not become
-    // permanently trusted. Monotonic sequences prevent replay after restart.
-    const prevSession=database.native.prepare(
-      "SELECT sequence FROM local_session_assertion WHERE user_id=? AND installation_id=? AND device_id=?"
-    ).get(USER,INSTALLATION,DEVICE) as {sequence:number}|undefined;
-    const prevAuth=database.native.prepare(
-      "SELECT sequence FROM local_authorization_snapshot WHERE user_id=? AND installation_id=? AND device_id=?"
-    ).get(USER,INSTALLATION,DEVICE) as {sequence:number}|undefined;
-    SESSION_SEQUENCE=(prevSession?.sequence??0)+1;
-    SNAPSHOT_SEQUENCE=(prevAuth?.sequence??0)+1;
-    SSA_SESSION=uuidV7();
-  }
+  const database = LocalDatabase.open({ dataDirectory: DATA_DIRECTORY });
 
-  const durableSync = new DurableSyncComponent(localDatabase);
-  await durableSync.start();
-  const operations = new OperationConfirmationComponent(localDatabase, durableSync);
-  await operations.start();
+  new SqliteAuthorizationSnapshotStore(database, () => NOW).activate(
+    {
+      claims: authorizationClaims(),
+      signature: sign(null, unsignedAuthorizationSnapshotBytes(authorizationClaims()), keyPair.privateKey)
+        .toString("base64url"),
+    },
+    { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
+  );
+  seedRegister(database);
+  seedFiscalRange(database);
 
-  let commercial: CommercialComponent;
-  let authorizationTrust:AuthorizationTrustLifecycle|undefined;
-  let externalSigningKeyCount=0;
-  if (WITHOUT_SESSION) {
-    // Empty canonical storage; optional Central public trust only. No private
-    // signer, seeded SSA/snapshot/user, cash seed or fake provider in this mode.
-    const externalKeys=new Map<string,TrustedSigningKey>();
-    if(process.env.POS_E2E_SSA_PUBLIC_TRUST){
-      const trust=JSON.parse(process.env.POS_E2E_SSA_PUBLIC_TRUST) as {rootPublicPem:string;artifact:unknown};
-      const verifier=new SessionTrustKeyVerifier(createPublicKey(trust.rootPublicPem),"isolated-validation");
-      const checked=verifier.verify(trust.artifact);
-      if(checked.decision!=="VALID"||!checked.claims)throw Error("E2E_EXTERNAL_SSA_TRUST_REJECTED");
-      externalKeys.set(checked.claims.key_id,verifier.toTrustedSigningKey(checked.claims));
-    }
-    externalSigningKeyCount=externalKeys.size;
-    let authorizationKeys:ReadonlyMap<string,TrustedSigningKey>=new Map();
-    if(process.env.POS_E2E_SAS_TRUST_CANDIDATE){
-      if(process.env.POS_E2E_SAS_PUBLIC_TRUST)throw Error("SAS_TRUST_SOURCE_AMBIGUOUS");
-      const trust=JSON.parse(process.env.POS_E2E_SAS_TRUST_CANDIDATE) as {issuer:string;authorityId:string;minimumGeneration:number;rootPublicPem:string;url:string;ca:string};
-      const directory=join(DATA_DIRECTORY,"sas-trust-candidate");mkdirSync(directory,{recursive:true});
-      const encrypted=new EncryptedFileSecretStore(directory,new WindowsDpapiKeyProvider(directory),"dec011-sas-lab-only");
-      const store=new AuthorizationTrustCandidateStore(encrypted,{mode:"ISOLATED_VALIDATION",environment:"isolated-validation",
-        issuer:trust.issuer,authorityId:trust.authorityId,minimumGeneration:trust.minimumGeneration,root:createPublicKey(trust.rootPublicPem)},
-        externalKeys,new TrustedClockGuard(database,0),()=>new Date());
-      authorizationTrust=new AuthorizationTrustLifecycle({installationId:INSTALLATION,deviceId:DEVICE},{refreshIntervalMs:60000,
-        create:()=>({binding:{installationId:INSTALLATION,deviceId:DEVICE},readKeys:()=>store.resolve(),destroy:()=>encrypted.destroy(),
-          refresh:async signal=>{await refreshIsolatedAuthorizationTrust({mode:"ISOLATED_VALIDATION",url:trust.url,ca:trust.ca,timeoutMs:5000,store,signal});}}),
-      },()=>{});
-      authorizationKeys=authorizationTrust.keys;
-    }
-    if(process.env.POS_E2E_SAS_PUBLIC_TRUST){
-      const trust=JSON.parse(process.env.POS_E2E_SAS_PUBLIC_TRUST) as {mode:string;environment:string;purpose:string;keyId:string;status:string;publicPem:string;validFrom:string;validUntil:string};
-      if(trust.mode!=="ISOLATED_VALIDATION"||trust.environment!=="isolated-validation"||trust.purpose!=="AUTHORIZATION_SNAPSHOT"||trust.status!=="ACTIVE"||!/^SAS_TEST_[A-Z0-9_]+$/.test(trust.keyId))throw Error("E2E_SAS_TRUST_REJECTED");
-      authorizationKeys=new Map([[trust.keyId,{key:createPublicKey(trust.publicPem),status:"ACTIVE",validFrom:trust.validFrom,validUntil:trust.validUntil}]]);
-    }
-    commercial = new CommercialComponent(config(), localDatabase, durableSync,externalKeys,undefined,undefined,undefined,authorizationKeys);
-  } else {
-    if(!keyPair||!authorizationKeyPair)throw Error("SIGNED_E2E_AUTHORITY_MISSING");
-    // The signed bytes and persisted claims MUST be identical. A per-boot
-    // UUIDv7 snapshot cannot be recomputed between signing and storage.
-    const claims=authorizationClaims();
-    const result=new SqliteAuthorizationSnapshotStore(database, clock).activate(
-      {
-        claims,
-        signature: sign(null, unsignedAuthorizationSnapshotBytes(claims), authorizationKeyPair.privateKey)
-          .toString("base64url"),
-      },
-      { userId: USER, installationId: INSTALLATION, deviceId: DEVICE },
-    );
-    if(result.kind!=="ACTIVATED")throw Error("DEV_AUTHORIZATION_SNAPSHOT_REJECTED");
-    seedRegister(database);
-    seedFiscalRange(database);
+  const keys = new Map<string, TrustedSigningKey>([
+    [SESSION_KEY_ID, { key: createPublicKey(keyPair.privateKey), status: "ACTIVE" }],
+  ]);
 
-    const keys = new Map<string, TrustedSigningKey>([
-      [SESSION_KEY_ID, { key: createPublicKey(keyPair.privateKey), status: "ACTIVE" }],
-    ]);
+  // Credencial fiscal depositada por la misma via que usa el operador en `F2`.
+  // El valor es de prueba y no sale de este directorio temporal.
+  const fiscalSecretStore = new EncryptedFileSecretStore(
+    DATA_DIRECTORY,
+    new InsecureDerivedKeyProvider(DATA_DIRECTORY),
+    fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE }),
+  );
+  new FiscalCredentialStore(fiscalSecretStore).deposit(
+    {
+      provider: "FACTUS", environment: "SANDBOX",
+      fields: { client_id: "e2e", client_secret: "e2e", username: "e2e", password: "e2e" },
+    },
+    FACTUS_ADAPTER_DECLARATION.credential,
+  );
 
-    // Credencial fiscal depositada por la misma via que usa el operador en `F2`.
-    // El valor es de prueba y no sale de este directorio temporal.
-    const fiscalSecretStore = new EncryptedFileSecretStore(
-      DATA_DIRECTORY,
-      new InsecureDerivedKeyProvider(DATA_DIRECTORY),
-      fiscalCredentialContext({ installationId: INSTALLATION, deviceId: DEVICE, companyId: COMPANY }),
-    );
-    new FiscalCredentialStore(fiscalSecretStore, COMPANY).deposit(
-      {
-        provider: "FACTUS", environment: "SANDBOX",
-        fields: { client_id: "e2e", client_secret: "e2e", username: "e2e", password: "e2e" },
-      },
-      FACTUS_ADAPTER_DECLARATION.credential,
-    );
-
-    commercial = new CommercialComponent(
-      config(),
-      localDatabase,
-      durableSync,
-      keys,
-      clock,
-      fiscalSecretStore,
-      new FakeIssuancePort(),
-      new Map([["AUTHZ_KEY_1",{key:authorizationKeyPair.publicKey,status:"ACTIVE" as const}]]),
-    );
-  }
-  await authorizationTrust?.start();
+  const commercial = new CommercialComponent(
+    config(),
+    { database } as never,
+    { store: new DurableSyncStore(database) } as never,
+    keys,
+    () => NOW,
+    fiscalSecretStore,
+    new FakeIssuancePort(),
+  );
   await commercial.start();
-  let nativeCommercial:NativeCommercialCoordinator|undefined,localSecurity:LocalSecurityComponent|undefined,enrollmentSecrets:EncryptedFileSecretStore|undefined,commercialSecrets:EncryptedFileSecretStore|undefined;
-  if(custody){
-    if(!WITHOUT_SESSION||process.platform!=="win32"||process.env.NODE_ENV!=="test")throw Error("NATIVE_TEST_PROVISION_FORBIDDEN");
-    const b={tenantId:TENANT,companyId:COMPANY,installationId:INSTALLATION,deviceId:DEVICE},directory=join(DATA_DIRECTORY,"security");
-    mkdirSync(directory,{recursive:true});const provider=new WindowsDpapiKeyProvider(directory);
-    const identitySecrets=new EncryptedFileSecretStore(directory,provider,deviceIdentityContext(b));
-    const bytes=Buffer.from(custody.binding.devicePrivatePem);custody.binding.devicePrivatePem="";
-    try{identitySecrets.write("device-identity",bytes);}finally{bytes.fill(0);identitySecrets.destroy();}
-    localSecurity=new LocalSecurityComponent(localDatabase,b,provider,directory);await localSecurity.start();
-    enrollmentSecrets=new EncryptedFileSecretStore(directory,provider,`device-trust:${INSTALLATION}:${DEVICE}`);
-    const credentials=new DeviceTrustCredentialStore(enrollmentSecrets),keys=new Map();
-    const verifier=new DeviceTrustVerifier(createPublicKey(custody.rootPublicPem),keys,{now:()=>new Date(),accept:at=>new TrustedClockGuard(database).accept(at)});
-    const operational=verifier.verifyOperationalKey(custody.operational);if(operational.decision!=="VALID"||!operational.value)throw Error("NATIVE_TEST_TRUST_REJECTED");
-    keys.set(operational.value.key_id,{key:createPublicKey(operational.value.public_key_pem),status:operational.value.status,validFrom:operational.value.valid_from});
-    const enrollment=new DeviceEnrollmentService(database,localSecurity.identity,b,()=>new Date(),credentials);
-    if(enrollment.prepare(custody.activation).decision!=="READY")throw Error("NATIVE_TEST_ENROLLMENT_PREPARE_REJECTED");enrollment.complete(custody.result,verifier);
-    if(custody.accessV2)commercialSecrets=new EncryptedFileSecretStore(directory,provider,`commercial-v2:${INSTALLATION}:${DEVICE}`);
-    nativeCommercial=new NativeCommercialCoordinator(new CommercialDeviceCredentialProvider(localSecurity,localDatabase,credentials,verifier,b),custody.registration,
-      new IsolatedNativeCommercialHttps(custody.registration,{mode:"ISOLATED_VALIDATION",port:custody.port,ca:Buffer.from(custody.binding.ca),timeoutMs:4000}),commercial,
-      {mode:"ISOLATED_VALIDATION",attemptLifetimeMs:60000,...(custody.accessV2?{accessV2:custody.accessV2}:{})},undefined,
-      commercialSecrets&&custody.accessV2?{store:commercialSecrets,maximumRetentionMs:custody.accessV2.maximumRetentionMs}:undefined);
-    if(custody.accessV2){
-      const coordinator=nativeCommercial,handle=coordinator.handle.bind(coordinator);
-      coordinator.handle=async(raw,connectionId,signal)=>{
-        const response=await handle(raw,connectionId,signal);
-        if(response.result?.outcome==="ACTIVATED"&&!await coordinator.renewAuthorization(connectionId,signal))throw Error("V2_E2E_REAL_RENEWAL_FAILED");
-        return response;
-      };
-    }
-  }
   const handler = new CommercialRequestHandler(config(), commercial);
 
   const endpoint = localChannelEndpoint(INSTALLATION, process.platform, DATA_DIRECTORY);
-  const server = process.platform === "win32"
-    ? new LocalChannelComponent(config(), localDatabase, () => "READY", operations, commercial,nativeCommercial)
-    : new LocalChannelServer(
+  const server = new LocalChannelServer(
     endpoint,
     // Reloj del sistema, no `NOW`: el autenticador valida la marca temporal de
     // cada trama contra una ventana de deriva, y el Electron del otro extremo
@@ -416,35 +287,31 @@ async function main(): Promise<void> {
           result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
         };
       }
-      // The consolidated renderer always probes the local operator session.
-      // This POSIX harness has no password-backed local operator registry:
-      // report NO_SESSION without inventing identity or commercial permissions.
-      // Windows delegates this operation to the production LocalChannelComponent.
-      if (envelope.message_type === "local.operator.session") {
+      // Local-operator IPC is owned by LocalChannelComponent in production.
+      // This e2e host bypasses that component, so it must still return a schema-
+      // valid envelope: undefined/invalid responses destroy the channel socket
+      // before session.activate can run (real-channel Linux e2e).
+      if (
+        envelope.message_type === "local.operator.session"
+        || envelope.message_type === "local.operator.login"
+        || envelope.message_type === "local.operator.logout"
+      ) {
+        const outcome = envelope.message_type === "local.operator.logout"
+          ? "SIGNED_OUT"
+          : envelope.message_type === "local.operator.login"
+            ? "UNAVAILABLE"
+            : "NO_SESSION";
         return {
-          protocol_version: "1.0.0", request_id: envelope.request_id,
-          correlation_id: envelope.correlation_id, operation_id: null,
-          status: "SUCCEEDED", result_code: "NO_SESSION",
-          result_schema_version: "1.0.0", error: null,
+          protocol_version: "1.0.0",
+          request_id: envelope.request_id,
+          correlation_id: envelope.correlation_id,
+          operation_id: null,
+          status: "SUCCEEDED",
+          result_code: outcome,
+          result_schema_version: "1.0.0",
+          error: null,
           server_time: new Date().toISOString(),
-          result: { outcome: "NO_SESSION", username: null, role: null, expires_at: null },
-        };
-      }
-      // POSIX harness metadata only; Windows uses the production component.
-      if (envelope.message_type === "runtime.status.get") {
-        return {
-          protocol_version: "1.0.0", request_id: envelope.request_id,
-          correlation_id: envelope.correlation_id, operation_id: null,
-          status: "SUCCEEDED", result_code: "OK", result_schema_version: "1.0.0",
-          error: null, server_time: NOW.toISOString(),
-          result: {
-            service_version: "1.0.0",
-            protocol_version: "1.0.0",
-            service_state: "READY",
-            schema_version: "5",
-            outbox_pending_count: 0,
-            outbox_dead_letter_count: 0,
-          },
+          result: { outcome, username: null, role: null, expires_at: null },
         };
       }
       // El servidor ya validó el sobre; el handshake quedó atendido arriba.
@@ -459,25 +326,21 @@ async function main(): Promise<void> {
 
   await server.start();
 
-  const claims = WITHOUT_SESSION?null:sessionClaims();
+  const claims = sessionClaims();
   process.stdout.write(`${JSON.stringify({
     ready: true,
     endpoint,
-    sessionAssertion: keyPair&&claims?{
+    sessionAssertion: {
       claims,
       signature: sign(null, unsignedSessionAssertionBytes(claims), keyPair.privateKey).toString("base64url"),
-    }:null,
+    },
   })}\n`);
 
   const shutdown = (): void => {
     void (async () => {
       try {
         await server.stop();
-          commercialSecrets?.destroy();enrollmentSecrets?.destroy();await localSecurity?.stop();
         await commercial.stop();
-        await authorizationTrust?.stop();
-        await operations.stop();
-        await durableSync.stop();
       } finally {
         database.close();
         process.exit(0);
@@ -486,23 +349,6 @@ async function main(): Promise<void> {
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
-  if (process.connected && process.env.NODE_ENV === "test") {
-    process.on("message", (message: unknown) => {
-      if(WITHOUT_SESSION&&message&&typeof message==="object"&&"type" in message&&message.type==="pos-e2e-sas-acquire"){
-        const packet=message as {type:string;id:string;input:Omit<ConstructorParameters<typeof IsolatedHttpsSnapshotProvider>[0],"ca"> & {ca:string}};
-        void commercial.refreshAuthorization(new IsolatedHttpsSnapshotProvider({...packet.input,ca:Buffer.from(packet.input.ca)})).then(
-          outcome=>process.send?.({type:"pos-e2e-sas-result",id:packet.id,outcome:{kind:outcome.kind,...(outcome.kind==="ACQUIRED"?{sequence:outcome.sequence}:{})}}),
-          ()=>process.send?.({type:"pos-e2e-sas-result",id:packet.id,outcome:{kind:"FAILED"}}));
-      }
-      if (message === "pos-e2e-shutdown") shutdown();
-      if(WITHOUT_SESSION&&message==="pos-e2e-empty-state"){
-        const count=(table:string)=>database.native.prepare(`SELECT count(*) AS n FROM ${table}`).get() as {n:number};
-        process.send?.({type:"pos-e2e-empty-state",sessions:count("local_session_assertion").n,
-          snapshots:count("local_authorization_snapshot").n,sales:count("sales_sales").n,cashShifts:count("cash_shift").n,
-          signingKeys:externalSigningKeyCount,authority:externalSigningKeyCount?"EXTERNAL_TEST_PUBLIC_TRUST":"NONE"});
-      }
-    });
-  }
 }
 
 main().catch((error: unknown) => {

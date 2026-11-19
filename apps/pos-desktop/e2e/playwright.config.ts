@@ -18,5 +18,8 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   workers: 1,
   reporter: [["list"]],
-  timeout: 30_000,
+  // Real-channel serial case covers sale + receipt + shift close over a live
+  // socket; 30s was starving the final shift-close step under CI load after
+  // auth remount. Tip local-operator live uses a higher per-suite budget.
+  timeout: 90_000,
 });
