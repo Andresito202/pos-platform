@@ -48,8 +48,10 @@ test("el proceso principal compilado arranca y abre una ventana", async () => {
 
 test("el renderer compilado monta la aplicación", async () => {
   const window = await app.firstWindow();
-  // Auth entry gate recovered from baseline: brand eyebrow + login heading.
-  await expect(window.getByText("CAMACHO POS COLOMBIA")).toBeVisible();
+  // The original identity replaces the hidden text eyebrow with the actual logo.
+  const brand = window.getByRole("img", { name: "Camacho POS Colombia", exact: true });
+  await expect(brand).toBeVisible();
+  await expect.poll(() => brand.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
   await expect(window.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
 });
 
