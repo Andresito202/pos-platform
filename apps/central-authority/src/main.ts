@@ -5,6 +5,8 @@ import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
 import { createPostgresPool, PostgresDeviceRegistryRepository } from "@pos-platform/database-postgres";
 import { SessionTrustPublication } from "./session-trust-publication.js";
+import { prepareFactusPayRuntime } from "./factus-pay-runtime.js";
+import { FACTUS_PAY_COLLECTION_WEBHOOK_PATH } from "./factus-pay-webhook-handler.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -104,6 +106,11 @@ const handler = new DeviceEnrollmentHttpHandler(issuer, {
 });
 const limiter = new FixedWindowRateLimiter();
 
+const factusPayProvision = process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
+const factusPayHandler = factusPayProvision === undefined
+  ? undefined
+  : await prepareFactusPayRuntime(pool, factusPayProvision);
+
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, async (request, response) => {
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
@@ -111,6 +118,15 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
 
   if (request.method === "GET" && request.url === "/health") {
     send(response, 200, { status: "OK", service: "central-authority", protocol_version: "1.0.0" });
+    return;
+  }
+
+  if (request.method === "POST" && request.url === FACTUS_PAY_COLLECTION_WEBHOOK_PATH) {
+    if (factusPayHandler === undefined) {
+      send(response, 503, { status: "REJECTED", result_code: "FACTUS_PAY_NOT_PROVISIONED" });
+      return;
+    }
+    await factusPayHandler(request, response);
     return;
   }
 

@@ -53,3 +53,8 @@ export {
 } from "./postgres-028-domain-projections-contract.js";
 export { applyPostgres028 } from "./postgres-028-runner.js";
 export type { Postgres028RunnerConfig, Postgres028ApplyResult } from "./postgres-028-runner.js";
+
+export {
+  FACTUS_PAY_018_TABLES,
+  POSTGRES_018_DESCRIPTOR,
+} from "./postgres-018-factus-pay-contract.js";

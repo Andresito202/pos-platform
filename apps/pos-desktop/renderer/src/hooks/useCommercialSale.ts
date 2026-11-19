@@ -5,6 +5,9 @@ import type {
   PaymentGetResult,
   PaymentRegisterTransferResult,
   PaymentTransferConfirmResult,
+  PaymentFactusPayCollectResult,
+  PaymentFactusPayVerifyResult,
+  PaymentFactusPayResumeResult,
   CatalogItemResult,
   PaymentRegisterCashResult,
   SaleCreateResult,
@@ -52,6 +55,16 @@ export interface RegisteredTransfer {
   readonly expectedAmount: string;
 }
 
+export interface RegisteredFactusPay {
+  readonly paymentId: string;
+  readonly version: number;
+  readonly status: string;
+  readonly expectedAmount: string;
+  readonly referenceCode: string;
+  readonly qr: string | null;
+  readonly providerStatus: string | null;
+}
+
 export interface CommercialSaleState {
   readonly busy: boolean;
   readonly error: string | null;
@@ -66,6 +79,8 @@ export interface CommercialSaleState {
   readonly transfer: RegisteredTransfer | null;
   /** Resultado de confirmar la transferencia. Sólo aquí puede sonar el cha-ching. */
   readonly transferConfirmation: PaymentTransferConfirmResult | null;
+  readonly factusPay: RegisteredFactusPay | null;
+  readonly factusPayConfirmation: PaymentFactusPayVerifyResult | null;
 }
 
 /**
@@ -107,6 +122,9 @@ export function useCommercialSale(): CommercialSaleState & {
   chargeCash(): Promise<void>;
   registerTransfer(): Promise<void>;
   confirmTransfer(): Promise<void>;
+  collectFactusPay(): Promise<void>;
+  verifyFactusPay(): Promise<void>;
+  resumeFactusPay(): Promise<void>;
   closeShift(countedAmount: string): Promise<void>;
   reset(): void;
 } {
@@ -121,6 +139,9 @@ export function useCommercialSale(): CommercialSaleState & {
   const [transfer, setTransfer] = useState<RegisteredTransfer | null>(null);
   const [transferConfirmation, setTransferConfirmation] =
     useState<PaymentTransferConfirmResult | null>(null);
+  const [factusPay, setFactusPay] = useState<RegisteredFactusPay | null>(null);
+  const [factusPayConfirmation, setFactusPayConfirmation] =
+    useState<PaymentFactusPayVerifyResult | null>(null);
 
   /**
    * Un rechazo del servicio no es una excepción: el sobre lo trae como
@@ -397,6 +418,109 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [transfer, run]);
 
+  /**
+   * FACTUS Pay — Generar QR. No cobra la venta; sólo crea cobro pendiente
+   * tras respuesta del proveedor. Verificar exige GET al proveedor con estado paid.
+   */
+  const collectFactusPay = useCallback(async (): Promise<void> => {
+    const current = sale;
+    if (current === null) return;
+    setFactusPayConfirmation(null);
+    let registeredId: string | null = null;
+    let collectQr: string | null = null;
+    let collectReference: string | null = null;
+    let collectStatus: string | null = null;
+    await run<PaymentFactusPayCollectResult>(
+      () => callCommercial("payment.factus_pay.collect", {
+        sale_id: current.saleId,
+        amount: current.payableAmount,
+        expiration_seconds: 900,
+      }, newIdempotencyKey()),
+      (result) => {
+        if (result.payment_id === null) {
+          setError(result.outcome);
+          return;
+        }
+        registeredId = result.payment_id;
+        collectQr = result.qr;
+        collectReference = result.reference_code;
+        collectStatus = result.provider_status;
+      },
+    );
+    if (registeredId === null) return;
+
+    await run<PaymentGetResult>(
+      () => callCommercial("payment.get", { payment_id: registeredId }),
+      (result) => {
+        if (
+          result.payment_id === null
+          || result.version === null
+          || result.status === null
+          || result.expected_amount === null
+        ) {
+          setError(result.outcome);
+          return;
+        }
+        setFactusPay({
+          paymentId: result.payment_id,
+          version: result.version,
+          status: result.status,
+          expectedAmount: result.expected_amount,
+          referenceCode: collectReference ?? "",
+          qr: collectQr,
+          providerStatus: collectStatus,
+        });
+      },
+    );
+  }, [sale, run]);
+
+  const verifyFactusPay = useCallback(async (): Promise<void> => {
+    const current = factusPay;
+    if (current === null) return;
+    await run<PaymentFactusPayVerifyResult>(
+      () => callCommercial("payment.factus_pay.verify", {
+        payment_id: current.paymentId,
+        expected_version: current.version,
+      }, newIdempotencyKey()),
+      (result) => {
+        setFactusPayConfirmation(result);
+        if (shouldPlayChime(result)) playConfirmationChime();
+      },
+    );
+  }, [factusPay, run]);
+
+  /** After POS restart: recover durable pending FACTUS Pay for the open sale. */
+  const resumeFactusPay = useCallback(async (): Promise<void> => {
+    const current = sale;
+    if (current === null) return;
+    setFactusPayConfirmation(null);
+    await run<PaymentFactusPayResumeResult>(
+      () => callCommercial("payment.factus_pay.resume", { sale_id: current.saleId }),
+      (result) => {
+        if (
+          result.outcome !== "FOUND"
+          || result.payment_id === null
+          || result.version === null
+          || result.status === null
+          || result.expected_amount === null
+          || result.reference_code === null
+        ) {
+          setError(result.outcome);
+          return;
+        }
+        setFactusPay({
+          paymentId: result.payment_id,
+          version: result.version,
+          status: result.status,
+          expectedAmount: result.expected_amount,
+          referenceCode: result.reference_code,
+          qr: result.qr,
+          providerStatus: result.provider_status,
+        });
+      },
+    );
+  }, [sale, run]);
+
   const reset = useCallback((): void => {
     setLines([]);
     setSale(null);
@@ -404,13 +528,16 @@ export function useCommercialSale(): CommercialSaleState & {
     setFoundItem(null);
     setTransfer(null);
     setTransferConfirmation(null);
+    setFactusPay(null);
+    setFactusPayConfirmation(null);
     setError(null);
   }, []);
 
   return {
     busy, error, shift, foundItem, lines, sale, payment, closedShift,
-    transfer, transferConfirmation,
+    transfer, transferConfirmation, factusPay, factusPayConfirmation,
     openShift, findItem, addFoundItem, captureWeight, createSale, chargeCash,
-    registerTransfer, confirmTransfer, closeShift, reset,
+    registerTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
+    closeShift, reset,
   };
 }

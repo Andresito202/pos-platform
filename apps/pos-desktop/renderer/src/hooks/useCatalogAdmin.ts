@@ -21,6 +21,15 @@ export interface RegisteredProduct {
   readonly outcome: CatalogProductRegisterResult["outcome"];
 }
 
+export interface CatalogFiscalAttributesInput {
+  readonly codeReference: string;
+  readonly unitMeasureCode: string;
+  readonly standardCode: string;
+  readonly taxCode: string;
+  /** Operator-typed rate; normalized to scale-6 before IPC. */
+  readonly taxRate: string;
+}
+
 export interface CatalogAdminInput {
   readonly code: string;
   readonly name: string;
@@ -32,6 +41,8 @@ export interface CatalogAdminInput {
   /** Tal como lo teclea el operador: `1500`, `1500,50`. */
   readonly price: string;
   readonly currencyCode: string;
+  /** Optional DIAN attributes required before electronic issuance. */
+  readonly fiscalAttributes?: CatalogFiscalAttributesInput;
 }
 
 export interface FoodPolicyInput {
@@ -78,6 +89,28 @@ export function useCatalogAdmin(): CatalogAdminState & {
         return;
       }
 
+      let fiscal_attributes: {
+        code_reference: string;
+        unit_measure_code: string;
+        standard_code: string;
+        tax_code: string;
+        tax_rate: string;
+      } | undefined;
+      if (input.fiscalAttributes !== undefined) {
+        const taxRate = toScale6(input.fiscalAttributes.taxRate);
+        if (taxRate === null) {
+          setError("TAX_RATE_NOT_SCALE6");
+          return;
+        }
+        fiscal_attributes = {
+          code_reference: input.fiscalAttributes.codeReference.trim(),
+          unit_measure_code: input.fiscalAttributes.unitMeasureCode.trim(),
+          standard_code: input.fiscalAttributes.standardCode.trim(),
+          tax_code: input.fiscalAttributes.taxCode.trim(),
+          tax_rate: taxRate,
+        };
+      }
+
       const response = await callCommercial<CatalogProductRegisterResult>(
         "catalog.product.register",
         {
@@ -92,6 +125,7 @@ export function useCatalogAdmin(): CatalogAdminState & {
           barcode: input.barcode.trim() === "" ? null : input.barcode.trim(),
           price_amount: price,
           currency_code: input.currencyCode,
+          ...(fiscal_attributes === undefined ? {} : { fiscal_attributes }),
         },
         newIdempotencyKey(),
       );

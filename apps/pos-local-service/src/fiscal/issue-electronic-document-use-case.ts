@@ -1,7 +1,9 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
 import { createHash } from "node:crypto";
 import { createActor, createOperationScope, evaluatePermission, toRoleAssignments } from "@pos-platform/application";
 import {
   canonicalDocumentTypeCode,
+  numberingDocumentTypeCode,
   type CredentialReference,
   type DocumentIssuancePort,
   type FiscalCustomerResolution,
@@ -18,6 +20,7 @@ import {
   type BillLineSource,
   type BillPaymentSource,
 } from "./factus-bill-assembly.js";
+import { assembleFactusCreditNote } from "./factus-credit-note-assembly.js";
 import type { FiscalSaleSource, SqliteFiscalSaleSource } from "./fiscal-sale-source.js";
 import { mapPaymentMethodToDian } from "./payment-method-mapping.js";
 import {
@@ -46,7 +49,7 @@ import {
  * `assembleFactusBill`.
  */
 
-export const PERMISSION_FISCAL_DOCUMENT_ISSUE = "FISCAL_DOCUMENT_ISSUE";
+export const PERMISSION_FISCAL_DOCUMENT_ISSUE = CanonicalPermission.FISCAL_DOCUMENT_ISSUE;
 
 export interface IssueElectronicDocumentInput {
   readonly scope: DocumentScope;
@@ -65,7 +68,9 @@ export type IssueElectronicDocumentResult =
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string }
   /** Ya había un documento `COMPLETED` para esta venta y tipo: no se reintenta. */
   | { readonly kind: "ALREADY_ISSUED"; readonly document: StoredElectronicDocument }
-  /** Se transmitió en esta llamada y el proveedor evidenció el resultado. */
+  /** El proveedor completó el envío, pero rechazó fiscalmente el documento. */
+  | { readonly kind: "FISCAL_REJECTED"; readonly document: StoredElectronicDocument }
+  /** Se transmitió en esta llamada y el proveedor evidenció aceptación. */
   | { readonly kind: "ISSUED"; readonly document: StoredElectronicDocument }
   /**
    * Ya existe un documento `IN_PROGRESS` o `UNKNOWN_OUTCOME`. Regla 6-7: antes
@@ -77,7 +82,11 @@ export type IssueElectronicDocumentResult =
   /** La venta no existe en este alcance, o existe pero no está cobrada. */
   | { readonly kind: "NOT_ELIGIBLE" }
   /** No se pudo ensamblar un payload transmisible. Nada se creó ni se tocó. */
-  | { readonly kind: "BLOCKED"; readonly code: string; readonly reasons?: readonly BillBlockReason[] }
+  | {
+      readonly kind: "BLOCKED";
+      readonly code: string;
+      readonly reasons?: readonly { readonly code: string; readonly path: string; readonly detail?: readonly string[] }[];
+    }
   /** Se transmitió y falló técnicamente. Retriable: no es terminal. */
   | { readonly kind: "TRANSPORT_FAILED"; readonly document: StoredElectronicDocument }
   /** Regla 5: timeout después de transmitir. Exige reconciliación, no reintento. */
@@ -116,7 +125,9 @@ export class IssueElectronicDocumentUseCase {
     // atributos de negocio, no la identidad fiscal del intento.
     const idempotencyKey = `${input.saleId}:${input.documentType}`;
 
-    const existing = this.documentStore.findOpenForSale(input.scope, input.saleId, input.documentType);
+    const existing = this.documentStore.findByIdempotencyKey(
+      input.scope, input.provider, input.environment, idempotencyKey,
+    ) ?? this.documentStore.findOpenForSale(input.scope, input.saleId, input.documentType);
     if (existing !== null) {
       const resumed = this.resume(existing);
       if (resumed !== null) return resumed;
@@ -128,6 +139,10 @@ export class IssueElectronicDocumentUseCase {
 
     const sale = this.saleSource.read(input.scope, input.saleId);
     if (sale === null) return { kind: "NOT_ELIGIBLE" };
+
+    if (input.documentType === "CREDIT_NOTE") {
+      return this.issueCreditNote(input, sale, idempotencyKey, signal);
+    }
 
     const documentCode = canonicalDocumentTypeCode(input.documentType);
     if (documentCode === null) {
@@ -184,11 +199,86 @@ export class IssueElectronicDocumentUseCase {
   }
 
   /**
+   * Nota crédito comercial: exige factura aceptada de la misma venta y rango
+   * de numeración `22` sincronizado. Emite por `/v2/credit-notes/validate`.
+   */
+  private async issueCreditNote(
+    input: IssueElectronicDocumentInput,
+    sale: FiscalSaleSource,
+    idempotencyKey: string,
+    signal: AbortSignal,
+  ): Promise<IssueElectronicDocumentResult> {
+    if (numberingDocumentTypeCode("CREDIT_NOTE") === null) {
+      return { kind: "BLOCKED", code: "DOCUMENT_TYPE_CODE_NOT_VERIFIED" };
+    }
+
+    const related = this.documentStore.findAcceptedInvoiceForSale(input.scope, input.saleId);
+    if (related === null || related.issuedNumber === null || related.provider !== input.provider || related.environment !== input.environment) {
+      return { kind: "BLOCKED", code: "RELATED_INVOICE_REQUIRED" };
+    }
+
+    const range = this.documentStore.selectRange(
+      input.scope, input.provider, input.environment, "CREDIT_NOTE", this.now().toISOString(),
+    );
+    if (range.kind !== "FOUND") {
+      return {
+        kind: "BLOCKED",
+        code: range.kind === "NOT_SYNCHRONIZED" ? "NUMBERING_RANGE_NOT_SYNCHRONIZED" : "NUMBERING_RANGE_NOT_VALID",
+      };
+    }
+
+    const lineMapping = this.toBillLines(input.scope, sale);
+    if (lineMapping.kind === "BLOCKED") return lineMapping.result;
+    const paymentMapping = toBillPayments(sale);
+    if (paymentMapping.kind === "BLOCKED") return paymentMapping.result;
+
+    const billNumber = related.issuedPrefix === null
+      ? related.issuedNumber
+      : `${related.issuedPrefix}${related.issuedNumber}`;
+
+    const assembly = assembleFactusCreditNote({
+      referenceCode: idempotencyKey,
+      idempotencyKey,
+      numberingRangeId: range.range.rangeId,
+      billNumber,
+      observation: input.observation,
+      customer: input.customer,
+      lines: lineMapping.lines,
+      payments: paymentMapping.payments,
+    });
+    if (assembly.kind === "BLOCKED") {
+      return { kind: "BLOCKED", code: "PAYLOAD_ASSEMBLY_BLOCKED", reasons: assembly.reasons };
+    }
+
+    const payloadJson = canonicalJson(assembly.payload);
+    const document = this.documentStore.create({
+      scope: input.scope,
+      saleId: input.saleId,
+      provider: input.provider,
+      environment: input.environment,
+      documentType: "CREDIT_NOTE",
+      numberingRangeId: range.range.rangeId,
+      idempotencyKey,
+      payloadJson,
+      payloadChecksum: createHash("sha256").update(payloadJson).digest("hex"),
+    });
+
+    return this.attempt(document, input.scope, signal);
+  }
+
+  /**
    * Resuelve un documento ya existente que no necesita transmitirse de nuevo.
    * `null` si en cambio hay que intentarlo (`CREATED` o `FAILED`).
    */
   private resume(document: StoredElectronicDocument): IssueElectronicDocumentResult | null {
-    if (document.transportStatus === "COMPLETED") return { kind: "ALREADY_ISSUED", document };
+    if (document.transportStatus === "CANCELLED") {
+      return { kind: "BLOCKED", code: "CANCELLED_DOCUMENT_REQUIRES_REVIEW" };
+    }
+    if (document.transportStatus === "COMPLETED") {
+      if (document.normalizedResult === "ACCEPTED") return { kind: "ALREADY_ISSUED", document };
+      if (document.normalizedResult === "REJECTED") return { kind: "FISCAL_REJECTED", document };
+      return { kind: "REQUIRES_RECONCILIATION", document };
+    }
     if (document.transportStatus === "IN_PROGRESS" || document.transportStatus === "UNKNOWN_OUTCOME") {
       return { kind: "REQUIRES_RECONCILIATION", document };
     }
@@ -232,7 +322,7 @@ export class IssueElectronicDocumentUseCase {
         providerStatus: outcome.providerStatus.providerStatus,
         providerHttpStatus: outcome.providerStatus.httpStatus,
       });
-      return { kind: "ISSUED", document: this.reload(scope, document) };
+      return { kind: outcome.normalizedResult === "ACCEPTED" ? "ISSUED" : "FISCAL_REJECTED", document: this.reload(scope, document) };
     }
 
     if (outcome.kind === "TECHNICAL_FAILURE") {

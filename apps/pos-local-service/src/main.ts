@@ -15,6 +15,7 @@ import { OperationConfirmationComponent } from "./operations/operation-confirmat
 import { LicenseCapacityGate, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
+import { factusPayCredentialContext } from "./payments/factus-pay-credential-store.js";
 import { LocalOperatorPasswordGate } from "./security/local-operator-password-gate.js";
 import { LocalOperatorSessionRegistry } from "./security/local-operator-session-registry.js";
 import {
@@ -128,6 +129,15 @@ try {
     keyProvider,
     fiscalCredentialContext({ installationId: config.installation_id, deviceId: config.device_id }),
   );
+  const factusPaySecretStore = new EncryptedFileSecretStore(
+    securityDirectory,
+    keyProvider,
+    factusPayCredentialContext({
+      installationId: config.installation_id,
+      deviceId: config.device_id,
+      companyId: config.company_id,
+    }),
+  );
 
   const sessionTrustKeys = (() => {
     if (
@@ -173,6 +183,7 @@ try {
       return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path))
         .listEntitlements(scope);
     },
+    factusPaySecretStore,
   );
   let localChannel: LocalChannelComponent | undefined;
   const components: RuntimeComponent[] = [

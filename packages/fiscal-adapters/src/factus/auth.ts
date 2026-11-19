@@ -136,14 +136,23 @@ export class FactusAuthenticator {
     }
 
     if (response.status === 401 || response.status === 400) {
-      // El cuerpo puede contener eco de la credencial enviada. No se adjunta.
-      throw new FactusAuthError("factus rejected the credential", "CREDENTIAL_REJECTED", true);
+      // El cuerpo puede contener eco de la credencial enviada. Sólo se conserva
+      // el código OAuth allowlisted (`invalid_client`, `invalid_grant`, …).
+      throw new FactusAuthError(
+        "factus rejected the credential",
+        "CREDENTIAL_REJECTED",
+        true,
+        response.status,
+        extractSafeOAuthError(response.body),
+      );
     }
     if (response.status !== 200) {
       throw new FactusAuthError(
         `factus authentication returned ${response.status}`,
         "UNEXPECTED_STATUS",
         false,
+        response.status,
+        extractSafeOAuthError(response.body),
       );
     }
 
@@ -153,6 +162,8 @@ export class FactusAuthenticator {
         "factus token response did not match the documented shape",
         "MALFORMED_TOKEN_RESPONSE",
         false,
+        response.status,
+        null,
       );
     }
 
@@ -177,10 +188,35 @@ export class FactusAuthError extends Error {
     message: string,
     readonly code: string,
     readonly retryableByReauthentication: boolean,
+    readonly httpStatus: number | null = null,
+    readonly oauthError: string | null = null,
   ) {
     super(message);
     this.name = "FactusAuthError";
   }
+}
+
+/** Códigos OAuth2 RFC 6749 §5.2 — seguros de registrar sin cuerpo ni secretos. */
+const SAFE_OAUTH_ERRORS = new Set([
+  "invalid_request",
+  "invalid_client",
+  "invalid_grant",
+  "unauthorized_client",
+  "unsupported_grant_type",
+  "invalid_scope",
+]);
+
+/**
+ * Extrae sólo el `error` OAuth allowlisted. Nunca `error_description`, tokens ni
+ * eco de credenciales.
+ */
+export function extractSafeOAuthError(body: string): string | null {
+  const parsed = safeJson(body);
+  if (typeof parsed !== "object" || parsed === null || !("error" in parsed)) return null;
+  const value = (parsed as { error: unknown }).error;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return SAFE_OAUTH_ERRORS.has(normalized) ? normalized : null;
 }
 
 function safeJson(body: string): unknown {

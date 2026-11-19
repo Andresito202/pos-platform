@@ -147,6 +147,20 @@ export function SalePanel(): React.JSX.Element {
           >
             Transferencia
           </button>
+          <button
+            data-testid="factus-pay-collect-button"
+            onClick={() => { void sale.collectFactusPay(); }}
+            disabled={sale.busy || sale.factusPay !== null}
+          >
+            Generar QR FACTUS Pay
+          </button>
+          <button
+            data-testid="factus-pay-resume-button"
+            onClick={() => { void sale.resumeFactusPay(); }}
+            disabled={sale.busy || sale.factusPay !== null}
+          >
+            Recuperar FACTUS Pay
+          </button>
         </div>
       )}
 
@@ -196,6 +210,55 @@ export function SalePanel(): React.JSX.Element {
         ) : (
           <div data-testid="transfer-partial">
             Transferencia {sale.transferConfirmation.outcome} · la venta aún no está cobrada
+          </div>
+        )
+      )}
+
+      {sale.factusPay !== null && (
+        <div data-testid="factus-pay-registered">
+          FACTUS Pay · pago{" "}
+          <span data-testid="factus-pay-payment-id">{sale.factusPay.paymentId}</span>
+          {" · ref "}
+          <span data-testid="factus-pay-reference">{sale.factusPay.referenceCode}</span>
+          {" · importe "}
+          <span data-testid="factus-pay-amount">{sale.factusPay.expectedAmount}</span>
+          {sale.factusPay.providerStatus !== null && (
+            <>
+              {" · proveedor "}
+              <span data-testid="factus-pay-provider-status">{sale.factusPay.providerStatus}</span>
+            </>
+          )}
+          <div data-testid="factus-pay-pending">Pendiente de verificación con el proveedor</div>
+          {sale.factusPay.qr !== null && (
+            <img
+              data-testid="factus-pay-qr"
+              src={sale.factusPay.qr}
+              alt="Código QR FACTUS Pay"
+              width={240}
+              height={240}
+            />
+          )}
+          <button
+            data-testid="factus-pay-verify-button"
+            onClick={() => { void sale.verifyFactusPay(); }}
+            disabled={sale.busy}
+          >
+            Verificar FACTUS Pay
+          </button>
+        </div>
+      )}
+
+      {sale.factusPayConfirmation !== null && (
+        sale.factusPayConfirmation.sale_completed ? (
+          <div data-testid="factus-pay-sale-completed">
+            Venta cobrada por FACTUS Pay · cobertura{" "}
+            <span data-testid="factus-pay-confirmed-coverage">
+              {sale.factusPayConfirmation.confirmed_coverage}
+            </span>
+          </div>
+        ) : (
+          <div data-testid="factus-pay-partial">
+            FACTUS Pay {sale.factusPayConfirmation.outcome} · la venta aún no está cobrada
           </div>
         )
       )}

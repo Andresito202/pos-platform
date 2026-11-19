@@ -154,12 +154,21 @@ describe("Local channel routing coverage", () => {
     expect(unrouted).toEqual([]);
   }, 20_000);
 
-  windowsIt("routes the five payment message types that BLOQUE 4E left unwired", async () => {
+  windowsIt("routes every payment.* IPC type including Wave 7 FACTUS Pay", async () => {
     const component = await buildComponent();
     const routable = component as unknown as RoutableComponent;
 
     const paymentTypes = IpcMessageTypeSchema.options.filter((type) => type.startsWith("payment."));
-    expect(paymentTypes).toHaveLength(5);
+    expect(paymentTypes).toEqual([
+      "payment.register.cash",
+      "payment.register.transfer",
+      "payment.transfer.confirm",
+      "payment.factus_pay.collect",
+      "payment.factus_pay.verify",
+      "payment.factus_pay.resume",
+      "payment.cancel",
+      "payment.get",
+    ]);
 
     for (const messageType of paymentTypes) {
       let resolved: unknown;

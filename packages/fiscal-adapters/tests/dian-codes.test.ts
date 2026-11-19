@@ -10,6 +10,7 @@ import {
   UNIT_MEASURE_CODES,
   DianCodeSchema,
   canonicalDocumentTypeCode,
+  numberingDocumentTypeCode,
   fiscalDocumentTypeForCode,
   isVerifiedCode,
   lookupCode,
@@ -69,9 +70,23 @@ describe("traducción del código documental del proveedor", () => {
     expect(fiscalDocumentTypeForCode("01")).toBe("SALES_INVOICE");
   });
 
-  it("NO traduce notas ni documento soporte: su código DIAN no está verificado", () => {
-    // Inventar la correspondencia emitiría bajo el tipo equivocado, que es un
-    // error fiscal, no un error de programa.
+  it("traduce códigos de numeración FACTUS verificados (21 factura, 22 nota crédito)", () => {
+    expect(fiscalDocumentTypeForCode("21")).toBe("SALES_INVOICE");
+    expect(fiscalDocumentTypeForCode("22")).toBe("CREDIT_NOTE");
+    expect(fiscalDocumentTypeForCode("Nota Crédito")).toBe("CREDIT_NOTE");
+    expect(fiscalDocumentTypeForCode("Factura de Venta")).toBe("SALES_INVOICE");
+    expect(fiscalDocumentTypeForCode("Factura electrónica de venta")).toBe("SALES_INVOICE");
+    expect(fiscalDocumentTypeForCode("23")).toBe("DEBIT_NOTE");
+    expect(fiscalDocumentTypeForCode("Nota Débito")).toBe("DEBIT_NOTE");
+    expect(fiscalDocumentTypeForCode("24")).toBe("SUPPORT_DOCUMENT");
+    expect(fiscalDocumentTypeForCode("Documento Soporte")).toBe("SUPPORT_DOCUMENT");
+    expect(fiscalDocumentTypeForCode("25")).toBe("SUPPORT_DOCUMENT_ADJUSTMENT_NOTE");
+    expect(fiscalDocumentTypeForCode("Nota de Ajuste Documento Soporte")).toBe("SUPPORT_DOCUMENT_ADJUSTMENT_NOTE");
+    expect(fiscalDocumentTypeForCode("Nota Crédito desconocida")).toBeNull();
+    expect(fiscalDocumentTypeForCode("30")).toBeNull();
+  });
+
+  it("NO traduce códigos DIAN no verificados para emisión", () => {
     for (const code of ["02", "03", "04", "91", "92"]) {
       expect(fiscalDocumentTypeForCode(code)).toBeNull();
     }
@@ -80,19 +95,25 @@ describe("traducción del código documental del proveedor", () => {
 });
 
 describe("dirección inversa: tipo canónico → código del proveedor", () => {
-  it("devuelve el código del único tipo verificado", () => {
+  it("devuelve el código DIAN de factura para el cuerpo de emisión", () => {
     expect(canonicalDocumentTypeCode("SALES_INVOICE")).toBe("01");
   });
 
-  it("no inventa código para un tipo canónico sin correspondencia verificada", () => {
-    // `CREDIT_NOTE`, `DEBIT_NOTE`, `SUPPORT_DOCUMENT` y su nota de ajuste existen
-    // en el contrato canónico, pero ningún código DIAN suyo está verificado.
+  it("no inventa código de cuerpo de factura para tipos sin document field", () => {
     for (const type of ["CREDIT_NOTE", "DEBIT_NOTE", "SUPPORT_DOCUMENT", "SUPPORT_DOCUMENT_ADJUSTMENT_NOTE"] as const) {
       expect(canonicalDocumentTypeCode(type)).toBeNull();
     }
   });
 
-  it("es la inversa exacta de `fiscalDocumentTypeForCode` para lo verificado", () => {
+  it("expone códigos de rango de numeración FACTUS verificados", () => {
+    expect(numberingDocumentTypeCode("SALES_INVOICE")).toBe("21");
+    expect(numberingDocumentTypeCode("CREDIT_NOTE")).toBe("22");
+    expect(numberingDocumentTypeCode("DEBIT_NOTE")).toBe("23");
+    expect(numberingDocumentTypeCode("SUPPORT_DOCUMENT")).toBe("24");
+    expect(numberingDocumentTypeCode("SUPPORT_DOCUMENT_ADJUSTMENT_NOTE")).toBe("25");
+  });
+
+  it("es la inversa exacta de `fiscalDocumentTypeForCode` para lo verificado en factura", () => {
     const code = canonicalDocumentTypeCode("SALES_INVOICE");
     expect(code).not.toBeNull();
     expect(fiscalDocumentTypeForCode(code)).toBe("SALES_INVOICE");

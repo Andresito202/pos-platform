@@ -8,6 +8,21 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      run_factus_sandbox_exceptional:
+        description: "true = ejecutar SÓLO el gate sandbox FACTUS/Pay (no CI ordinario)"
+        type: boolean
+        default: false
+      owner_authorization:
+        description: "Escriba exactamente OWNER_AUTHORIZED_SANDBOX_ONLY"
+        type: string
+        default: ""
+        required: false
+      reviewed_sha:
+        description: "SHA tip actual de cursor/wave7-factus-1766 (40 hex). Vacío = tip del dispatch. No reutilizar SHA viejos (p.ej. 98513aae)."
+        type: string
+        default: ""
+        required: false
 
 permissions:
   contents: read
@@ -72,6 +87,7 @@ jobs:
 
   supply-chain-baseline:
     name: Repository policy, dependency inventory and vulnerability audit
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -163,6 +179,7 @@ jobs:
 
   validate:
     name: TypeScript, SQLite and PostgreSQL 16.14
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -302,6 +319,7 @@ jobs:
 
   runtime-windows:
     name: Windows local runtime platform checks
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
     runs-on: windows-2022
     timeout-minutes: 15
 
@@ -343,6 +361,7 @@ jobs:
 
   provenance:
     name: Provenance evidence
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
     needs:
       - supply-chain-baseline
       - validate
@@ -395,3 +414,129 @@ jobs:
             artifacts/ci/provenance-source-index.json
           if-no-files-found: error
           retention-days: 90
+
+  # Gate excepcional FACTUS + FACTUS Pay (sandbox). No corre en push/PR.
+  # Activación: Actions → TARGET foundation validation → Run workflow →
+  # rama cursor/wave7-factus-1766 + run_factus_sandbox_exceptional=true.
+  factus-sandbox-exceptional:
+    name: FACTUS sandbox exceptional (owner authorized)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      CAMACHO_FACTUS_SANDBOX_EXCEPTIONAL: ${{ inputs.owner_authorization }}
+      # Vacío en el input → tip del dispatch (github.sha). Evita reutilizar SHA viejos.
+      REVIEWED_SHA: ${{ inputs.reviewed_sha || github.sha }}
+      CAMACHO_SANDBOX_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/factus-sandbox-exceptional
+
+    steps:
+      - name: Refuse invalid or stale reviewed_sha
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/cursor/wave7-factus-1766" || { echo "REFUSED: unauthorized branch"; exit 2; }
+          test "${CAMACHO_FACTUS_SANDBOX_EXCEPTIONAL}" = "OWNER_AUTHORIZED_SANDBOX_ONLY" || { echo "REFUSED: owner authorization required"; exit 2; }
+          test "${REVIEWED_SHA}" = "${GITHUB_SHA}" || { echo "REFUSED: reviewed SHA differs from dispatch SHA"; exit 2; }
+          if ! printf '%s' "${REVIEWED_SHA}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "REFUSED: reviewed_sha must be 40 lowercase hex (or leave empty for tip)"
+            exit 2
+          fi
+          # Checkout tip first to compare; refuse lagging SHAs that re-run old gate code.
+          echo "reviewed_sha=${REVIEWED_SHA}"
+          echo "dispatch_sha=${GITHUB_SHA}"
+
+      - name: Checkout exact reviewed SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REVIEWED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify SHA is the authorized branch tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/cursor/wave7-factus-1766" --jq '.object.sha')"
+          echo "reviewed_sha=${REVIEWED_SHA}"
+          echo "branch_tip=${tip}"
+          if [ "${REVIEWED_SHA}" != "${tip}" ]; then
+            echo "REFUSED: reviewed_sha must equal the authorized branch tip"
+            echo "REFUSED: tip=${tip}"
+            echo "REFUSED: got=${REVIEWED_SHA}"
+            echo "REFUSED: leave reviewed_sha empty or paste the tip above"
+            exit 2
+          fi
+          test "$(git rev-parse HEAD)" = "${REVIEWED_SHA}"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck fiscal adapters and POS local service
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/fiscal-adapters typecheck
+          pnpm --filter @pos-platform/pos-local-service typecheck
+
+      - name: Execute exceptional sandbox gate (redacted)
+        env:
+          # Lab-only: InsecureDerivedKeyProvider for FACTUS Pay ephemeral store.
+          NODE_ENV: test
+          FACTUS_SANDBOX_CLIENT_ID: ${{ secrets.FACTUS_SANDBOX_CLIENT_ID }}
+          FACTUS_SANDBOX_CLIENT_SECRET: ${{ secrets.FACTUS_SANDBOX_CLIENT_SECRET }}
+          FACTUS_SANDBOX_USERNAME: ${{ secrets.FACTUS_SANDBOX_USERNAME }}
+          FACTUS_SANDBOX_PASSWORD: ${{ secrets.FACTUS_SANDBOX_PASSWORD }}
+          FACTUS_PAY_SANDBOX_EMAIL: ${{ secrets.FACTUS_PAY_SANDBOX_EMAIL }}
+          FACTUS_PAY_SANDBOX_PASSWORD: ${{ secrets.FACTUS_PAY_SANDBOX_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in FACTUS_SANDBOX_CLIENT_ID FACTUS_SANDBOX_CLIENT_SECRET FACTUS_SANDBOX_USERNAME FACTUS_SANDBOX_PASSWORD FACTUS_PAY_SANDBOX_EMAIL FACTUS_PAY_SANDBOX_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "MISSING_SECRET_NAME=${name}"
+              missing=1
+            else
+              echo "SECRET_PRESENT_NAME=${name}"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 2
+          fi
+          mkdir -p "${CAMACHO_SANDBOX_EVIDENCE_DIR}"
+          set +e
+          pnpm --filter @pos-platform/pos-local-service exec tsx ../../tools/operators/factus-sandbox-exceptional-gate.ts
+          gate_status=$?
+          set -e
+          if [ -z "$(find "${CAMACHO_SANDBOX_EVIDENCE_DIR}" -type f -name 'evidence-*.json' | head -n 1)" ]; then
+            echo "REFUSED: sandbox gate produced no redacted evidence artifact"
+            exit 2
+          fi
+          exit "${gate_status}"
+
+      - name: Upload redacted evidence artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: factus-sandbox-exceptional-${{ env.REVIEWED_SHA }}
+          path: artifacts/factus-sandbox-exceptional/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Boundary reminder
+        if: always()
+        run: |
+          echo "claim_level=OBSERVED_ONLY"
+          echo "sandbox_verified_declared=false"
+          echo "production_calls=forbidden"

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import { describe, expect, it } from "vitest";
 import {
   FACTUS_ADAPTER_DECLARATION,
@@ -14,6 +15,7 @@ import {
   normalizedResultOf,
   overallVerification,
   requiresReconciliationBeforeRetry,
+  selectRangesForDocumentType,
   validateAdapterDeclaration,
   type DocumentIssuanceRequest,
   type FrozenDocumentPayload,
@@ -138,10 +140,13 @@ describe("emisión: evidencia, fallo técnico e incertidumbre", () => {
     expect(outcome.providerStatus.providerStatus).toBe("Created");
   });
 
-  it("`is_validated: false` produce evidencia REJECTED, no un fallo técnico", async () => {
+  it("is_validated false es pendiente; exige conciliación y no autoriza reemisión", async () => {
     const { adapter: subject } = adapter(() =>
       json(201, { status: "Created", data: { reference_code: "POS-1", is_validated: false } }));
-    expect(normalizedResultOf(await subject.issue(ISSUE, signal))).toBe("REJECTED");
+    const outcome = await subject.issue(ISSUE, signal);
+    expect(outcome.kind).toBe("UNCERTAIN");
+    expect(normalizedResultOf(outcome)).toBeNull();
+    expect(requiresReconciliationBeforeRetry(outcome)).toBe(true);
   });
 
   it("`errors` de la DIAN con `is_validated: true` sigue siendo ACCEPTED", async () => {
@@ -269,14 +274,14 @@ describe("consulta de estado", () => {
     expect(transport.requests).toHaveLength(0);
   });
 
-  it("un 404 por referencia externa sí autoriza reemitir", async () => {
+  it("un 404 del listado por referencia externa no autoriza reemitir", async () => {
     const { adapter: subject } = adapter(() => json(404, {}));
     const outcome = await subject.queryStatus(
       { reference: { by: "EXTERNAL", providerOperationId: "POS-1" }, environment: "SANDBOX", credential: FAKE_REFERENCE },
       signal,
     );
-    expect(outcome.kind).toBe("NOT_FOUND");
-    expect(authorizesReissue(outcome)).toBe(true);
+    expect(outcome.kind).toBe("INDETERMINATE");
+    expect(authorizesReissue(outcome)).toBe(false);
   });
 
   it("un fallo de transporte es INDETERMINATE, jamás NOT_FOUND", async () => {
@@ -290,34 +295,89 @@ describe("consulta de estado", () => {
   });
 });
 
+// Fixture sintético basado en la forma V2 documentada y observada el 2026-11-18.
+const observedBill = { reference_code: "POS-1", number: "SETP123", cufe: "a".repeat(96), is_validated: true };
+function billResponder(next: Responder): Responder {
+  return (request) => {
+    if (request.url.includes("/v2/bills?filter%5Breference_code%5D=")) {
+      return json(200, { data: { data: [observedBill], pagination: { last_page: 1 } } });
+    }
+    if (request.url.endsWith("/v2/bills/SETP123")) return json(200, { data: observedBill });
+    return next(request);
+  };
+}
+
+describe("consulta V2 por referencia", () => {
+  it("resuelve referencia exacta y consulta detalle por número", async () => {
+    const { adapter: subject, transport } = adapter(billResponder(() => json(500, {})));
+    const result = await subject.queryStatus({ reference: { by: "EXTERNAL", providerOperationId: "POS-1" }, environment: "SANDBOX", credential: FAKE_REFERENCE }, signal);
+    expect(result.kind).toBe("FOUND");
+    if (result.kind !== "FOUND") throw new Error("rama imposible");
+    expect(result.externalIdentity.number).toBe("SETP123");
+    expect(result.externalIdentity.cufe).toBe(observedBill.cufe);
+    expect(transport.requests[1]?.url).toContain("/v2/bills?filter%5Breference_code%5D=POS-1");
+    expect(transport.requests[2]?.url).toContain("/v2/bills/SETP123");
+  });
+  it("una coincidencia parcial o lista vacía no autoriza reemisión", async () => {
+    const { adapter: subject } = adapter(() => json(200, { data: { data: [{ ...observedBill, reference_code: "POS-10" }] } }));
+    const result = await subject.queryStatus({ reference: { by: "EXTERNAL", providerOperationId: "POS-1" }, environment: "SANDBOX", credential: FAKE_REFERENCE }, signal);
+    expect(result.kind).toBe("INDETERMINATE");
+    expect(authorizesReissue(result)).toBe(false);
+  });
+  it("un detalle pendiente no es rechazo ni autoriza reemisión", async () => {
+    const { adapter: subject } = adapter(() => json(200, { data: { ...observedBill, is_validated: false, validated_at: null } }));
+    const result = await subject.queryStatus({ reference: { by: "NUMBER", prefix: "SETP", number: "123" }, environment: "SANDBOX", credential: FAKE_REFERENCE }, signal);
+    expect(result.kind).toBe("INDETERMINATE");
+    expect(authorizesReissue(result)).toBe(false);
+  });
+});
+
 describe("artefactos", () => {
-  it("recupera XML y calcula su checksum", async () => {
-    const { adapter: subject } = adapter(() => ({
-      status: 200,
-      headers: { "content-type": "application/xml" },
-      body: "<Invoice/>",
-    }));
+  it("decodifica XML Base64 por CUFE y calcula checksum de los bytes, no del JSON", async () => {
+    const bytes = Buffer.from("<Invoice></Invoice>");
+    const { adapter: subject, transport } = adapter(billResponder(() => json(200, { data: { xml_base_64_encoded: bytes.toString("base64") } })));
     const outcome = await subject.fetchArtifact(
       { electronicDocumentId: "doc-1", providerOperationId: "POS-1", artifactType: "XML", environment: "SANDBOX", credential: FAKE_REFERENCE },
       signal,
     );
     expect(isStorableAsEvidence(outcome)).toBe(true);
     if (outcome.kind !== "RETRIEVED") throw new Error("rama imposible");
-    expect(outcome.artifact.checksumSha256).toHaveLength(64);
-    expect(outcome.artifact.byteLength).toBe(10);
+    expect(outcome.artifact.checksumSha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+    expect(Buffer.from(outcome.artifact.bytes)).toEqual(bytes);
+    expect(transport.requests.at(-1)?.url).toContain(`/v2/documents/${observedBill.cufe}/download-xml`);
+  });
+
+  it("decodifica PDF V2 por número de factura", async () => {
+    const bytes = Buffer.from("%PDF-1.7\nfixture");
+    const { adapter: subject, transport } = adapter(billResponder(() => json(200, { data: { pdf_base_64_encoded: bytes.toString("base64") } })));
+    const outcome = await subject.fetchArtifact(
+      { electronicDocumentId: "doc-1", providerOperationId: "POS-1", artifactType: "PDF", environment: "SANDBOX", credential: FAKE_REFERENCE },
+      signal,
+    );
+    expect(outcome.kind).toBe("RETRIEVED");
+    if (outcome.kind !== "RETRIEVED") throw new Error("rama imposible");
+    expect(Buffer.from(outcome.artifact.bytes)).toEqual(bytes);
+    expect(transport.requests.at(-1)?.url).toContain("/v2/bills/SETP123/download-pdf");
   });
 
   it("un tipo de medio distinto del esperado no se archiva como evidencia", async () => {
-    const { adapter: subject } = adapter(() => ({
-      status: 200,
-      headers: { "content-type": "text/html" },
-      body: "<html>error</html>",
-    }));
+    const { adapter: subject } = adapter(billResponder(() => ({
+      status: 200, headers: { "content-type": "text/html" }, body: "<html>error</html>",
+    })));
     const outcome = await subject.fetchArtifact(
       { electronicDocumentId: "doc-1", providerOperationId: "POS-1", artifactType: "PDF", environment: "SANDBOX", credential: FAKE_REFERENCE },
       signal,
     );
     expect(outcome.kind).toBe("MEDIA_TYPE_MISMATCH");
+    expect(isStorableAsEvidence(outcome)).toBe(false);
+  });
+
+  it.each(["!!!!", Buffer.from("not a pdf").toString("base64")])("no admite artefacto inválido (%s)", async (encoded) => {
+    const { adapter: subject } = adapter(billResponder(() => json(200, { data: { pdf_base_64_encoded: encoded } })));
+    const outcome = await subject.fetchArtifact(
+      { electronicDocumentId: "doc-1", providerOperationId: "POS-1", artifactType: "PDF", environment: "SANDBOX", credential: FAKE_REFERENCE }, signal,
+    );
+    expect(outcome.kind).toBe("UNAVAILABLE");
     expect(isStorableAsEvidence(outcome)).toBe(false);
   });
 
@@ -335,7 +395,7 @@ describe("artefactos", () => {
 describe("rangos de numeración", () => {
   it("la autoridad es siempre del proveedor, nunca local", async () => {
     const { adapter: subject } = adapter(() =>
-      json(200, { data: [{ id: 8, prefix: "SETP", resolution_number: "18760000001", from: 990000000, to: 995000000, start_date: "2026-01-01T00:00:00Z", end_date: "2026-12-31T23:59:59Z" }] }));
+      json(200, { data: [{ id: 8, document: "Factura de Venta", prefix: "SETP", resolution_number: "18760000001", from: 990000000, to: 995000000, start_date: "2026-01-01T00:00:00Z", end_date: "2026-12-31T23:59:59Z" }] }));
 
     const outcome = await subject.synchronizeRanges(
       { documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE },
@@ -346,6 +406,26 @@ describe("rangos de numeración", () => {
     const range = outcome.ranges[0];
     expect(range?.authority).toBe("PROVIDER");
     expect(range && mayAllocateLocally(range)).toBe(false);
+  });
+
+  it("no confunde notas débito, ajustes ni documentos soporte con factura o nota crédito", async () => {
+    const records = [
+      { id: 391, document: "Nota Débito", prefix: "ND" },
+      { id: 392, document: "Nota de Ajuste Documento Soporte", prefix: "NA" },
+      { id: 2058, document: "Documento Soporte", prefix: "SEDS" },
+      { id: 1776, document: "Nota Crédito", prefix: "CRTE" },
+      { id: 390, document: "Nota Crédito", prefix: "NC" },
+      { id: 389, document: "Factura de Venta", prefix: "SETP" },
+      { id: 999, document: "Tipo no reconocido", prefix: "X" },
+    ].map((record) => ({ ...record, is_active: true, is_expired: false }));
+    const { adapter: subject } = adapter(() => json(200, { data: { data: records } }));
+    const outcome = await subject.synchronizeRanges({ documentType: "SALES_INVOICE", environment: "SANDBOX", credential: FAKE_REFERENCE }, signal);
+    if (outcome.kind !== "SYNCHRONIZED") throw new Error("rama imposible");
+    expect(outcome.ranges.find((range) => range.prefix === "ND")?.documentType).toBe("DEBIT_NOTE");
+    expect(selectRangesForDocumentType(outcome.ranges, "SALES_INVOICE").matching.map((range) => range.rangeId)).toEqual(["389"]);
+    expect(selectRangesForDocumentType(outcome.ranges, "CREDIT_NOTE").matching.map((range) => range.rangeId)).toEqual(["1776", "390"]);
+    expect(outcome.ranges.find((range) => range.rangeId === "999")?.authority).toBe("UNKNOWN");
+    expect(selectRangesForDocumentType(outcome.ranges, "SALES_INVOICE").unclassified.map((range) => range.rangeId)).toEqual(["999"]);
   });
 
   it("acepta la forma REAL observada contra el sandbox, que no trae `id`", async () => {
@@ -554,6 +634,7 @@ describe("rangos de numeración", () => {
     expect(range?.currentNumber).toBeNull();
     expect(range?.providerActive).toBeNull();
     expect(range?.providerDocumentCode).toBeNull();
+    expect(range?.authority).toBe("UNKNOWN");
   });
 
   it("interpreta banderas de vigencia sin usar truthiness", async () => {
@@ -657,6 +738,9 @@ describe("validación de configuración", () => {
     expect(outcome.kind).toBe("INCOMPLETE");
     if (outcome.kind !== "INCOMPLETE") throw new Error("rama imposible");
     expect(outcome.findings[0]?.code).toBe("CREDENTIAL_REJECTED_BY_PROVIDER");
+    expect(outcome.findings[0]?.diagnosticReference).toContain("http=401");
+    expect(outcome.findings[0]?.diagnosticReference).toContain("oauth_error=invalid_client");
+    expect(JSON.stringify(outcome)).not.toContain("fake-client-secret");
   });
 
   it("un fallo de transporte deja la configuración UNDETERMINED, ni válida ni inválida", async () => {

@@ -171,6 +171,23 @@ export class SqliteFiscalDocumentStore {
    * intentar insertar, y así convertir la violación de índice en una decisión
    * legible en vez de una excepción de SQLite.
    */
+  /** Factura aceptada de la venta — prerrequisito de nota crédito con customization 20. */
+  findAcceptedInvoiceForSale(
+    scope: DocumentScope,
+    saleId: string,
+  ): StoredElectronicDocument | null {
+    const row = this.database.native.prepare(
+      `${SELECT_DOCUMENT}
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND sale_id=?
+          AND document_type='SALES_INVOICE'
+          AND transport_status='COMPLETED' AND normalized_result='ACCEPTED'
+          AND issued_number IS NOT NULL
+        ORDER BY resolved_at DESC
+        LIMIT 1`,
+    ).get(scope.tenantId, scope.companyId, scope.branchId, saleId) as DocumentRow | undefined;
+    return row === undefined ? null : toDocument(row);
+  }
+
   findOpenForSale(
     scope: DocumentScope,
     saleId: string,
@@ -178,10 +195,10 @@ export class SqliteFiscalDocumentStore {
   ): StoredElectronicDocument | null {
     const row = this.database.native.prepare(
       `${SELECT_DOCUMENT}
-        WHERE tenant_id=? AND sale_id=? AND document_type=?
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND sale_id=? AND document_type=?
           AND transport_status<>'CANCELLED'
           AND (normalized_result IS NULL OR normalized_result<>'REJECTED')`,
-    ).get(scope.tenantId, saleId, documentType) as DocumentRow | undefined;
+    ).get(scope.tenantId, scope.companyId, scope.branchId, saleId, documentType) as DocumentRow | undefined;
     return row === undefined ? null : toDocument(row);
   }
 
@@ -193,8 +210,8 @@ export class SqliteFiscalDocumentStore {
   ): StoredElectronicDocument | null {
     const row = this.database.native.prepare(
       `${SELECT_DOCUMENT}
-        WHERE tenant_id=? AND provider=? AND environment=? AND idempotency_key=?`,
-    ).get(scope.tenantId, provider, environment, idempotencyKey) as DocumentRow | undefined;
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND provider=? AND environment=? AND idempotency_key=?`,
+    ).get(scope.tenantId, scope.companyId, scope.branchId, provider, environment, idempotencyKey) as DocumentRow | undefined;
     return row === undefined ? null : toDocument(row);
   }
 
