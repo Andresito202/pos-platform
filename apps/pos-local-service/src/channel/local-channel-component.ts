@@ -215,6 +215,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "bakery.production.trace.get":
       case "catalog.item.find":
       case "catalog.item.get":
+      case "catalog.item.list":
       case "inventory.stock.receive":
       case "inventory.stock.adjust":
       case "inventory.stock.get":

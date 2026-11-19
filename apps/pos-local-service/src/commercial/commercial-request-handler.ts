@@ -28,7 +28,7 @@ type CommercialRequest = Extract<
       | "payment.transfer.confirm" | "payment.factus_pay.collect" | "payment.factus_pay.verify" | "payment.factus_pay.resume" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
       | "fiscal.document.issue" | "fiscal.numbering.sync"
-      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get"
+      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.batch.list" | "inventory.batch.status"
       | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
@@ -252,6 +252,7 @@ export class CommercialRequestHandler {
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
+      case "catalog.item.list": return this.listCatalogItems(request, connectionId);
       case "inventory.stock.receive":
       case "inventory.stock.adjust": return this.moveStock(request, connectionId);
       case "inventory.stock.get": return this.getStock(request, connectionId);
@@ -1052,6 +1053,53 @@ export class CommercialRequestHandler {
       return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
     }
     return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+  }
+
+  // ── catalog.item.list ─────────────────────────────────────────────────────
+
+  /** Lista sólo presentaciones activas con precio activo; el catálogo sigue siendo autoridad. */
+  private listCatalogItems(
+    request: Extract<CommercialRequest, { message_type: "catalog.item.list" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { items: [], has_more: false };
+
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    const result = this.commercial.listCatalogItems.execute(
+      this.scope(),
+      authenticated.snapshot,
+      {
+        query: request.payload.query,
+        limit: request.payload.limit,
+        offset: request.payload.offset,
+      },
+    );
+
+    if (result.kind === "UNAUTHORIZED") {
+      return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    }
+
+    return succeeded(request, "FOUND", {
+      outcome: "FOUND",
+      items: result.items.map(({ product, presentation, price }) => ({
+        product_id: product.id,
+        presentation_id: presentation.id,
+        code: product.code,
+        name: product.name,
+        presentation_name: presentation.name,
+        unit_code: presentation.unitCode,
+        unit_precision: presentation.unitPrecision,
+        barcode: presentation.barcode,
+        stock_controlled: product.stockControlled,
+        price_amount: price.amount,
+        currency_code: price.currencyCode,
+      })),
+      has_more: result.hasMore,
+    });
   }
 
   // ── Inventario — `MIGRATION_015` ───────────────────────────────────────────

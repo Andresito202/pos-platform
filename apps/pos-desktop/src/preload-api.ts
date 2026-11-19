@@ -49,6 +49,7 @@ export const RENDERER_API_METHODS = [
   "bakery.production.trace.get",
   "catalog.item.find",
   "catalog.item.get",
+  "catalog.item.list",
   "inventory.stock.receive",
   "inventory.stock.adjust",
   "inventory.stock.get",

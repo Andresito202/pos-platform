@@ -23,6 +23,7 @@ import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
 import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
+import { ListCatalogItemsUseCase } from "../catalog/list-catalog-items-use-case.js";
 import { AddPresentationUseCase, UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
 import { ExecuteTransformUseCase } from "../inventory/execute-transform-use-case.js";
 import { SqlitePharmacyStore } from "../pharmacy/sqlite-pharmacy-store.js";
@@ -132,6 +133,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
+        readonly listCatalogItems: ListCatalogItemsUseCase;
         readonly receiveStock: ReceiveStockUseCase;
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
@@ -257,6 +259,7 @@ export class CommercialComponent implements RuntimeComponent {
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
+  get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
   get getStock(): GetStockUseCase { return this.ready.getStock; }
@@ -416,6 +419,7 @@ export class CommercialComponent implements RuntimeComponent {
       addPresentation: new AddPresentationUseCase(catalogStore),
       upsertFoodPolicy: new UpsertFoodPolicyUseCase(catalogStore),
       findCatalogItem: new FindCatalogItemUseCase(catalogStore),
+      listCatalogItems: new ListCatalogItemsUseCase(catalogStore),
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),

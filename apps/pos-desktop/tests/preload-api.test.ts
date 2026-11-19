@@ -56,6 +56,7 @@ describe("preload-api", () => {
       "bakery.production.trace.get",
       "catalog.item.find",
       "catalog.item.get",
+      "catalog.item.list",
       "inventory.stock.receive",
       "inventory.stock.adjust",
       "inventory.stock.get",
