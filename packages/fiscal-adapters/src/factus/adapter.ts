@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Buffer } from "node:buffer";
 import * as z from "zod";
 import type { CredentialReference } from "../credential.js";
 import type { FiscalEnvironment } from "../provider.js";
@@ -104,10 +105,10 @@ const FactusBillResponseSchema = z.object({
   data: z.object({
     reference_code: z.string().optional(),
     number: z.string().optional(),
-    cufe: z.string().optional(),
-    /** `true` si la DIAN validó el documento. Es la evidencia fiscal. */
+    cufe: z.string().nullish(),
+    /** `true` si la DIAN validó el documento. `false` indica pendiente. */
     is_validated: z.boolean().optional(),
-    validated_at: z.string().optional(),
+    validated_at: z.string().nullish(),
     /**
      * Notificaciones de la DIAN (FAJ44b, RUT01…). **No implican rechazo**: la
      * documentación es explícita en que hay que mirar `is_validated`. Tratarlas
@@ -123,6 +124,23 @@ const FactusBillResponseSchema = z.object({
       total: z.string().optional(),
     }).loose().optional(),
   }).loose().optional(),
+}).loose();
+
+const FactusBillListResponseSchema = z.object({
+  data: z.object({
+    data: z.array(z.object({
+      reference_code: z.string().nullish(),
+      number: z.string().nullish(),
+    }).loose()),
+    pagination: z.object({ last_page: z.number().int().positive().optional() }).loose().optional(),
+  }).loose(),
+}).loose();
+
+const FactusArtifactResponseSchema = z.object({
+  data: z.object({
+    pdf_base_64_encoded: z.string().optional(),
+    xml_base_64_encoded: z.string().optional(),
+  }).loose(),
 }).loose();
 
 export interface FactusAdapterOptions {
@@ -294,11 +312,18 @@ implements
     if (bill?.is_validated === undefined) {
       return uncertain("VALIDATION_FLAG_ABSENT", request.electronicDocumentId);
     }
+    if (bill.reference_code !== undefined && bill.reference_code !== request.idempotencyKey) {
+      return uncertain("REFERENCE_CODE_MISMATCH", request.electronicDocumentId);
+    }
+    // FACTUS V2 documenta false como pendiente, no como rechazo fiscal.
+    if (!bill.is_validated) {
+      return uncertain("PROVIDER_VALIDATION_PENDING", request.electronicDocumentId);
+    }
 
     return {
       kind: "EVIDENCED",
       transportStatus: "COMPLETED",
-      normalizedResult: bill.is_validated ? "ACCEPTED" : "REJECTED",
+      normalizedResult: "ACCEPTED",
       externalIdentity: {
         providerOperationId: bill.reference_code ?? request.idempotencyKey,
         providerDocumentId: bill.number ?? null,
@@ -333,16 +358,49 @@ implements
       return { kind: "INDETERMINATE", reasonCode: "AUTHENTICATION_FAILURE", providerStatus: null };
     }
 
-    const reference = query.reference.by === "EXTERNAL"
+    // El detalle V2 exige el número, no reference_code. Resolver por el
+    // listado filtrado, comprobar igualdad exacta y después consultar detalle.
+    const externalReference = query.reference.by === "EXTERNAL"
       ? query.reference.providerOperationId
-      : `${query.reference.prefix}${query.reference.number}`;
+      : null;
+    let number: string;
+    const headers = { authorization: `Bearer ${token}`, accept: "application/json" };
+    if (query.reference.by === "EXTERNAL") {
+      try {
+        const listed = await this.transport.send({
+          method: "GET",
+          url: `${factusBaseUrl(this.environment)}/v2/bills?filter%5Breference_code%5D=${encodeURIComponent(query.reference.providerOperationId)}`,
+          headers,
+          body: undefined,
+          signal,
+        });
+        if (listed.status !== 200) {
+          return { kind: "INDETERMINATE", reasonCode: `REFERENCE_LOOKUP_HTTP_${listed.status}`, providerStatus: null };
+        }
+        const list = FactusBillListResponseSchema.safeParse(safeJson(listed.body));
+        if (!list.success || (list.data.data.pagination?.last_page ?? 1) > 1) {
+          return { kind: "INDETERMINATE", reasonCode: "REFERENCE_LOOKUP_UNRESOLVED", providerStatus: null };
+        }
+        const exact = list.data.data.data.filter((item) => item.reference_code === externalReference);
+        const candidate = exact.length === 1 ? exact[0]?.number : null;
+        // Una lista vacía o parcial no prueba que nunca se emitió el documento.
+        if (!candidate) {
+          return { kind: "INDETERMINATE", reasonCode: "REFERENCE_LOOKUP_UNRESOLVED", providerStatus: null };
+        }
+        number = candidate;
+      } catch {
+        return { kind: "INDETERMINATE", reasonCode: "TRANSPORT_FAILURE", providerStatus: null };
+      }
+    } else {
+      number = `${query.reference.prefix}${query.reference.number}`;
+    }
 
     let response: HttpResponse;
     try {
       response = await this.transport.send({
         method: "GET",
-        url: `${factusBaseUrl(this.environment)}${FACTUS_PATH.validateBill}/${encodeURIComponent(reference)}`,
-        headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+        url: `${factusBaseUrl(this.environment)}/v2/bills/${encodeURIComponent(number)}`,
+        headers,
         body: undefined,
         signal,
       });
@@ -350,7 +408,7 @@ implements
       return { kind: "INDETERMINATE", reasonCode: "TRANSPORT_FAILURE", providerStatus: null };
     }
 
-    if (response.status === 404) return { kind: "NOT_FOUND", providerStatus: null };
+    // Un 404 aislado no demuestra ausencia de emisión ni autoriza reintentar.
     if (response.status !== 200) {
       return { kind: "INDETERMINATE", reasonCode: `HTTP_${response.status}`, providerStatus: null };
     }
@@ -366,18 +424,22 @@ implements
       providerStatus: parsed.data.status ?? "",
       httpStatus: 200,
     };
-    if (bill?.is_validated === undefined) {
-      return { kind: "INDETERMINATE", reasonCode: "VALIDATION_FLAG_ABSENT", providerStatus };
+    if (bill?.number !== number || !bill.reference_code ||
+        (externalReference !== null && bill.reference_code !== externalReference)) {
+      return { kind: "INDETERMINATE", reasonCode: "DOCUMENT_IDENTITY_MISMATCH", providerStatus };
+    }
+    if (bill.is_validated !== true) {
+      return { kind: "INDETERMINATE", reasonCode: bill.is_validated === false ? "PROVIDER_VALIDATION_PENDING" : "VALIDATION_FLAG_ABSENT", providerStatus };
     }
 
     return {
       kind: "FOUND",
-      normalizedResult: bill.is_validated ? "ACCEPTED" : "REJECTED",
+      normalizedResult: "ACCEPTED",
       externalIdentity: {
-        providerOperationId: bill.reference_code ?? reference,
-        providerDocumentId: bill.number ?? null,
+        providerOperationId: bill.reference_code,
+        providerDocumentId: bill.number,
         prefix: null,
-        number: bill.number ?? null,
+        number: bill.number,
         cufe: bill.cufe ?? null,
       },
       providerStatus,
@@ -401,12 +463,27 @@ implements
       return { kind: "UNAVAILABLE", reasonCode: "AUTHENTICATION_FAILURE" };
     }
 
-    const suffix = request.artifactType === "XML" ? "xml" : "pdf";
+    // Resolver reference_code a las identidades reales de la factura:
+    // PDF por número y XML por CUFE; ambos endpoints V2 devuelven JSON Base64.
+    const identity = await this.queryStatus({
+      environment: request.environment,
+      credential: request.credential,
+      reference: { by: "EXTERNAL", providerOperationId: request.providerOperationId },
+    }, signal);
+    if (identity.kind !== "FOUND" || identity.normalizedResult !== "ACCEPTED") {
+      return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_DOCUMENT_UNRESOLVED" };
+    }
+    const isXml = request.artifactType === "XML";
+    const key = isXml ? identity.externalIdentity.cufe : identity.externalIdentity.number;
+    if (!key) return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_DOCUMENT_ID_MISSING" };
+    const path = isXml
+      ? `/v2/documents/${encodeURIComponent(key)}/download-xml`
+      : `/v2/bills/${encodeURIComponent(key)}/download-pdf`;
     let response: HttpResponse;
     try {
       response = await this.transport.send({
         method: "GET",
-        url: `${factusBaseUrl(this.environment)}/v2/bills/download-${suffix}/${encodeURIComponent(request.providerOperationId)}`,
+        url: `${factusBaseUrl(this.environment)}${path}`,
         headers: { authorization: `Bearer ${token}`, accept: "application/json" },
         body: undefined,
         signal,
@@ -414,18 +491,38 @@ implements
     } catch {
       return { kind: "UNAVAILABLE", reasonCode: "TRANSPORT_FAILURE" };
     }
-
     if (response.status !== 200) {
       return { kind: "UNAVAILABLE", reasonCode: `HTTP_${response.status}` };
     }
 
-    const expectedMediaType = request.artifactType === "XML" ? "application/xml" : "application/pdf";
-    const actualMediaType = (response.headers["content-type"] ?? "").split(";")[0]?.trim() ?? "";
-    if (actualMediaType !== "" && actualMediaType !== expectedMediaType) {
+    const expectedMediaType = isXml ? "application/xml" : "application/pdf";
+    const actualMediaType = (response.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+    if (actualMediaType !== "application/json") {
       return { kind: "MEDIA_TYPE_MISMATCH", expectedMediaType, actualMediaType };
     }
+    const parsed = FactusArtifactResponseSchema.safeParse(safeJson(response.body));
+    if (!parsed.success) return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_RESPONSE_INVALID" };
+    const encoded = isXml ? parsed.data.data.xml_base_64_encoded : parsed.data.data.pdf_base_64_encoded;
+    if (!encoded || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) {
+      return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_BASE64_INVALID" };
+    }
+    const bytes = Buffer.from(encoded, "base64");
+    if (bytes.length === 0 || bytes.toString("base64") !== encoded) {
+      return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_BASE64_INVALID" };
+    }
+    let validFormat = false;
+    if (isXml) {
+      try {
+        const xml = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        validFormat = /^\s*(?:<\?xml[^?]*\?>\s*)?<(?:[\w.-]+:)?Invoice(?:\s|>)/u.test(xml);
+      } catch {
+        validFormat = false;
+      }
+    } else {
+      validFormat = bytes.subarray(0, 5).toString("ascii") === "%PDF-";
+    }
+    if (!validFormat) return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_CONTENT_INVALID" };
 
-    const bytes = new TextEncoder().encode(response.body);
     return {
       kind: "RETRIEVED",
       artifact: {
@@ -478,15 +575,16 @@ implements
         // marcada con prefijo `derived:` para que nadie la envíe como
         // `numbering_range_id` creyendo que es del proveedor.
         const providerDocumentCode = toNullableString(range.document);
-        // Clasificar por código/nombre del proveedor cuando está verificado;
-        // si no, conservar el tipo de la consulta (comportamiento histórico).
-        const documentType = fiscalDocumentTypeForCode(providerDocumentCode) ?? query.documentType;
+        // Conservar evidencia cruda no clasificada sin atribuirle autoridad
+        // fiscal. documentType es obligatorio en el snapshot histórico; sólo
+        // los tipos resueltos por el catálogo pueden ser candidatos de emisión.
+        const resolvedDocumentType = fiscalDocumentTypeForCode(providerDocumentCode);
         return {
           rangeId: toNullableString(range.id)
             ?? `derived:${toNullableString(range.resolution_number) ?? "sin-resolucion"}:${range.prefix ?? ""}`,
-          documentType,
+          documentType: resolvedDocumentType ?? query.documentType,
           prefix: range.prefix ?? "",
-          authority: "PROVIDER" as const,
+          authority: resolvedDocumentType === null ? "UNKNOWN" as const : "PROVIDER" as const,
           resolutionNumber: toNullableString(range.resolution_number),
           rangeFrom: toInteger(range.from),
           rangeTo: toInteger(range.to),
@@ -617,10 +715,8 @@ const FactusRangeItemSchema = z.object({
   start_date: z.string().nullish(),
   end_date: z.string().nullish(),
   /**
-   * Código de tipo documental **del proveedor**. No se traduce a
-   * `FiscalDocumentType`: hacerlo exige la tabla de códigos DIAN, que no
-   * existe todavía (`D-9`). Se conserva en crudo para que un consumidor con
-   * esa tabla pueda filtrar sin que el adapter invente la correspondencia.
+   * Código o etiqueta documental del proveedor; se conserva en crudo y se
+   * traduce sólo cuando existe una correspondencia verificada.
    */
   document: z.union([z.string(), z.number()]).nullish(),
   /**
