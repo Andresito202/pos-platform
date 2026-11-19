@@ -197,6 +197,52 @@ describe("SalePanel — vertical comercial", () => {
     }
   });
 
+  it("keeps denomination counting optional and preserves its amount when collapsed", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift(); await addProduct(); await createSale();
+    const toggle = screen.getByRole("button", { name: "Ver billetes y monedas" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Añadir billete de $5.000" })).toBeNull();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Añadir billete de $5.000" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("$5.000");
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar billetes y monedas" }));
+    expect(screen.queryByRole("button", { name: "Añadir billete de $5.000" })).toBeNull();
+    expect(screen.getByTestId("tendered-display").textContent).toBe("$5.000");
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+  });
+
+  it("normalizes typed cash before sending the payment contract", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
+    render(<SalePanel />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByRole("button", { name: "4" }));
+    fireEvent.click(screen.getByRole("button", { name: "00" }));
+    fireEvent.click(screen.getByRole("button", { name: "0" }));
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("sale-completed");
+    const request = calls.get("payment.register.cash")![0];
+    expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
+    expect((request as { payload: { tendered_amount: string } }).payload.tendered_amount).toBe("4000.000000");
+  });
+
+
+  it("supports a partial cash payment without calculating a new total in the renderer", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", false) });
+    render(<SalePanel />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.change(screen.getByTestId("payment-amount-input"), { target: { value: "2000" } });
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("payment-partial");
+    const request = calls.get("payment.register.cash")![0];
+    expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
+    expect(request).toMatchObject({ payload: { amount: "2000.000000", tendered_amount: "2000.000000" } });
+    expect(screen.getByTestId("payable-amount").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("payable-amount").textContent).toBe("3500.000000");
+    expect(chime).not.toHaveBeenCalled();
+  });
+
   it("el cobro en efectivo usa el contrato y el importe emitido por el servicio", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
     render(<SalePanel />);

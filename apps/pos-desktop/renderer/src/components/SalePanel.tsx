@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { formatCopMicros, formatCopPesos, parseCopMicros, remainingPayableScale6 } from "../money-display.js";
+import { toScale6 } from "../scale6.js";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
 
 /**
@@ -9,6 +11,24 @@ import { useCommercialSale } from "../hooks/useCommercialSale.js";
  * mostrado es el que emitió el servicio, y la confirmación sonora la decide
  * `shouldPlayChime`, no esta vista.
  */
+const calculatorKeys = ["1","2","3","4","5","6","7","8","9","0","00","Borrar"] as const;
+
+// Denomination selection only records what the cashier counted locally.
+// The authoritative amount and change are still calculated by the payments service.
+const cashDenominations = [
+  { value: 2000, kind: "billetes", label: "Billete de $2.000" },
+  { value: 5000, kind: "billetes", label: "Billete de $5.000" },
+  { value: 10000, kind: "billetes", label: "Billete de $10.000" },
+  { value: 20000, kind: "billetes", label: "Billete de $20.000" },
+  { value: 50000, kind: "billetes", label: "Billete de $50.000" },
+  { value: 100000, kind: "billetes", label: "Billete de $100.000" },
+  { value: 50, kind: "monedas", label: "Moneda de $50" },
+  { value: 100, kind: "monedas", label: "Moneda de $100" },
+  { value: 200, kind: "monedas", label: "Moneda de $200" },
+  { value: 500, kind: "monedas", label: "Moneda de $500" },
+  { value: 1000, kind: "monedas", label: "Moneda de $1.000" },
+] as const;
+
 export function SalePanel(): React.JSX.Element {
   const sale = useCommercialSale();
   const [registerId, setRegisterId] = useState("");
@@ -16,6 +36,41 @@ export function SalePanel(): React.JSX.Element {
   const [barcode, setBarcode] = useState("");
   const [quantity, setQuantity] = useState("1.000000");
   const [counted, setCounted] = useState("");
+  const [manualTendered, setManualTendered] = useState("");
+  const [denominationCounts, setDenominationCounts] = useState<Record<number, number>>({});
+  const [showDenominations, setShowDenominations] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const completed = sale.payment?.sale_completed === true || sale.transferConfirmation?.sale_completed === true || sale.factusPayConfirmation?.sale_completed === true;
+  const confirmedCoverage = [sale.payment?.confirmed_coverage, sale.transferConfirmation?.confirmed_coverage, sale.factusPayConfirmation?.confirmed_coverage]
+    .reduce<string | null>((max, value) => {
+      if (value == null) return max;
+      const parsed = parseCopMicros(value);
+      return parsed !== null && parsed > (max === null ? 0n : (parseCopMicros(max) ?? 0n)) ? value : max;
+    }, null);
+  const remainingAmount = sale.sale === null ? null : remainingPayableScale6(sale.sale.payableAmount, confirmedCoverage);
+  useEffect(() => {
+    if (confirmedCoverage !== null && remainingAmount !== null && !completed) setPaymentAmount(remainingAmount);
+  }, [confirmedCoverage, remainingAmount, completed]);
+  useEffect(() => {
+    if (sale.payment !== null) { setManualTendered(""); setDenominationCounts({}); }
+  }, [sale.payment]);
+  const selectedDenominationTotal = cashDenominations.reduce((total, denomination) =>
+    total + BigInt(denomination.value) * BigInt(denominationCounts[denomination.value] ?? 0), 0n);
+  const receivedTotal = BigInt(manualTendered || "0") + selectedDenominationTotal;
+  const tendered = manualTendered !== "" || selectedDenominationTotal > 0n ? receivedTotal.toString() : "";
+  const previewSource = paymentAmount.trim() !== "" ? (toScale6(paymentAmount) ?? paymentAmount) : (remainingAmount ?? sale.sale?.payableAmount ?? "");
+  const previewPayable = parseCopMicros(previewSource);
+  const previewDelta = receivedTotal > 0n && previewPayable !== null ? receivedTotal * 1_000_000n - previewPayable : null;
+  const appendTendered = (key: string): void => {
+    if (key === "Borrar") { setManualTendered(""); setDenominationCounts({}); return; }
+    setManualTendered(current => {
+      const value = `${current}${key}`.replace(/^0+(?=\d)/, "");
+      return value.length <= 12 ? value : current;
+    });
+  };
+  const changeDenominationCount = (value: number, direction: 1 | -1): void => {
+    setDenominationCounts(counts => ({ ...counts, [value]: Math.max(0, Math.min(99, (counts[value] ?? 0) + direction)) }));
+  };
 
   return (
     <section data-testid="sale-panel">
@@ -124,16 +179,81 @@ export function SalePanel(): React.JSX.Element {
 
       {sale.sale !== null && (
         <div data-testid="sale-created">
-          Total a pagar: <span data-testid="payable-amount">{sale.sale.payableAmount}</span>
+          Total a pagar: <span data-testid="payable-amount" data-amount={sale.sale.payableAmount}>{sale.sale.payableAmount}</span>
           {/* El identificador se muestra porque el cajero lo necesita para pedir
               el recibo: el cliente vuelve con una duda y hay que recuperarla. */}
           {" · venta "}<span data-testid="sale-id">{sale.sale.saleId}</span>
-          <button
+          <label>Importe de este pago en efectivo<input data-testid="payment-amount-input" aria-label="Importe de este pago en efectivo" value={paymentAmount} placeholder={remainingAmount ?? sale.sale.payableAmount} onChange={event => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} inputMode="decimal" /></label>
+              <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
+                <label>Efectivo recibido (COP)<input aria-label="Efectivo recibido (COP)" inputMode="numeric" value={manualTendered}
+                  onChange={event=>{const value=event.target.value; if (/^\d{0,12}$/.test(value)) setManualTendered(value.replace(/^0+(?=\d)/, ""));}}
+                  disabled={sale.busy || completed} placeholder="0" /></label>
+                <strong data-testid="tendered-display">{formatCopPesos(receivedTotal)}</strong>
+                <button type="button" aria-expanded={showDenominations} aria-controls="pos-denominations"
+                  onClick={()=>setShowDenominations(open=>!open)}>{showDenominations ? "Ocultar billetes y monedas" : "Ver billetes y monedas"}</button>
+                <div id="pos-denominations" hidden={!showDenominations}>
+                <p>El conteo de billetes se suma al importe ingresado manualmente.</p>
+                {(["billetes", "monedas"] as const).map((kind) => (
+                  <div className="pos-denomination-section" key={kind}>
+                    <h4>{kind === "billetes" ? "Billetes" : "Monedas"}</h4>
+                    <div className="pos-denomination-grid" data-testid={`denominations-${kind}`}>
+                      {cashDenominations.filter((item) => item.kind === kind).map((denomination) => (
+                        <div className="pos-denomination-item" key={denomination.value}>
+                          <button
+                            type="button"
+                            className="pos-denomination-add"
+                            data-testid={`denomination-add-${denomination.value}`}
+                            aria-label={`Añadir ${denomination.label.toLowerCase()}`}
+                            onClick={() => changeDenominationCount(denomination.value, 1)}
+                            disabled={sale.busy || completed || (denominationCounts[denomination.value] ?? 0) >= 99}
+                          >
+                            <img
+                              src={`./payment-denominations/${kind}/${kind === "billetes" ? "billete" : "moneda"}_${denomination.value}_cop.png`}
+                              alt=""
+                              aria-hidden="true"
+                              onError={(event) => { event.currentTarget.hidden = true; }}
+                            />
+                            <span>{formatCopPesos(BigInt(denomination.value))}</span>
+                          </button>
+                          <div className="pos-denomination-quantity">
+                            <span data-testid={`denomination-count-${denomination.value}`}>× {denominationCounts[denomination.value] ?? 0}</span>
+                            <button type="button" aria-label={`Quitar ${denomination.label.toLowerCase()}`}
+                              data-testid={`denomination-remove-${denomination.value}`}
+                              onClick={() => changeDenominationCount(denomination.value, -1)}
+                              disabled={sale.busy || completed || (denominationCounts[denomination.value] ?? 0) === 0}>−</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                </div>
+                <details className="pos-cash-keypad"><summary>Teclado numérico</summary>
+                <p className="pos-cash-keypad-label">Importe adicional o ingreso manual (COP)</p>
+                <div className="pos-calculator-grid">
+                  {calculatorKeys.map((key) => (
+                    <button key={key} type="button" onClick={() => { appendTendered(key); }}
+                      disabled={sale.busy || completed}>{key}</button>
+                  ))}
+                </div>
+                </details>
+                <div className="pos-cash-summary">
+                  <div><span>Dinero recibido</span><strong>{formatCopPesos(receivedTotal)}</strong></div>
+                  <div><span>A cobrar en este pago</span><strong>{previewPayable !== null ? formatCopMicros(previewPayable) : "No disponible"}</strong></div>
+                  {previewDelta !== null && !completed && (
+                    <div data-testid="cash-change-estimate" role="status">
+                      <span>{previewDelta >= 0n ? "Cambio estimado" : "Falta para cubrir"}</span>
+                      <strong>{formatCopMicros(previewDelta >= 0n ? previewDelta : -previewDelta)}</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+          <button className="pos-primary-action" type="button"
             data-testid="charge-cash-button"
-            onClick={() => { void sale.chargeCash(); }}
-            disabled={sale.busy}
+            onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
+            disabled={sale.busy || completed || (confirmedCoverage !== null && !paymentAmount.trim())}
           >
-            Cobrar en efectivo
+            Confirmar cobro en efectivo
           </button>
           {/* Reportar la transferencia y atestiguarla son dos actos distintos,
               con dos permisos distintos (`UC-PAY-002` y `UC-PAY-003`). La
@@ -281,7 +401,7 @@ export function SalePanel(): React.JSX.Element {
       )}
 
       {sale.error !== null && <div data-testid="sale-error">{sale.error}</div>}
-      <button data-testid="reset-button" onClick={() => { sale.reset(); }} disabled={sale.busy}>
+      <button data-testid="reset-button" onClick={() => { sale.reset(); setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); setShowDenominations(false); }} disabled={sale.busy}>
         Nueva venta
       </button>
     </section>

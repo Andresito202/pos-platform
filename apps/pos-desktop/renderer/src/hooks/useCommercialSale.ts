@@ -15,6 +15,7 @@ import type {
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 import { playConfirmationChime, shouldPlayChime } from "../confirmation-sound.js";
 import { toScale6 } from "../scale6.js";
+import { parseCopMicros } from "../money-display.js";
 
 /** Una línea del carrito, tal y como la devolvió el catálogo. */
 export interface CartLine {
@@ -119,7 +120,7 @@ export function useCommercialSale(): CommercialSaleState & {
   addFoundItem(quantity: string): void;
   captureWeight(): Promise<void>;
   createSale(): Promise<void>;
-  chargeCash(): Promise<void>;
+  chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
   registerTransfer(): Promise<void>;
   confirmTransfer(): Promise<void>;
   collectFactusPay(): Promise<void>;
@@ -277,22 +278,32 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [lines, shift, run]);
 
-  const chargeCash = useCallback(async (): Promise<void> => {
+  const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;
-    if (current === null) return;
+    if (current === null || busy || payment?.sale_completed || transferConfirmation?.sale_completed || factusPayConfirmation?.sale_completed) return;
+    // The service returns cumulative confirmed coverage. Never sum overlapping snapshots.
+    const coverage = [payment?.confirmed_coverage, transferConfirmation?.confirmed_coverage, factusPayConfirmation?.confirmed_coverage]
+      .reduce<bigint>((max, value) => {
+        const parsed = value == null ? null : parseCopMicros(value);
+        return parsed !== null && parsed > max ? parsed : max;
+      }, 0n);
+    if (coverage > 0n && !paymentAmount?.trim()) { setError("PAYMENT_AMOUNT_REQUIRED"); return; }
+    const amount = toScale6(paymentAmount ?? current.payableAmount);
+    if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
+    const tendered = toScale6(tenderedAmount ?? amount);
+    if (tendered === null) { setError("INVALID_TENDERED_AMOUNT"); return; }
     await run<PaymentRegisterCashResult>(
       () => callCommercial("payment.register.cash", {
         sale_id: current.saleId,
-        // Se cobra exactamente el importe que emitió la capa confiable.
-        amount: current.payableAmount,
-        tendered_amount: current.payableAmount,
+        amount,
+        tendered_amount: tendered,
       }, newIdempotencyKey()),
       (result) => {
         setPayment(result);
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [sale, run]);
+  }, [sale, busy, payment, transferConfirmation, factusPayConfirmation, run]);
 
   /**
    * Cerrar el turno con el efectivo contado.
