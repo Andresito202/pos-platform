@@ -23,6 +23,7 @@ import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
 import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
+import { ListCatalogItemsUseCase } from "../catalog/list-catalog-items-use-case.js";
 import { AddPresentationUseCase, UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
 import { ExecuteTransformUseCase } from "../inventory/execute-transform-use-case.js";
 import { SqlitePharmacyStore } from "../pharmacy/sqlite-pharmacy-store.js";
@@ -51,6 +52,8 @@ import {
 import type { CashRegisterLicenseGate, SectorLicenseGate } from "../security/license-capacity-gate.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 
+import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js";
+import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 import { SqliteWaitingCartStore } from "../sales/sqlite-waiting-cart-store.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
@@ -132,6 +135,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
+        readonly listCatalogItems: ListCatalogItemsUseCase;
         readonly receiveStock: ReceiveStockUseCase;
         readonly adjustStock: AdjustStockUseCase;
         readonly getStock: GetStockUseCase;
@@ -163,6 +167,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getBakeryProductionTrace: GetBakeryProductionTraceUseCase;
         readonly addPresentation: AddPresentationUseCase;
         readonly upsertFoodPolicy: UpsertFoodPolicyUseCase;
+        readonly getAdminMetrics: GetAdminMetricsUseCase;
         readonly waitingCarts: SqliteWaitingCartStore;
         readonly getReceipt: GetReceiptUseCase;
         /**
@@ -257,6 +262,7 @@ export class CommercialComponent implements RuntimeComponent {
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
+  get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
   get adjustStock(): AdjustStockUseCase { return this.ready.adjustStock; }
   get getStock(): GetStockUseCase { return this.ready.getStock; }
@@ -288,6 +294,7 @@ export class CommercialComponent implements RuntimeComponent {
   get getBakeryProductionTrace(): GetBakeryProductionTraceUseCase { return this.ready.getBakeryProductionTrace; }
   get addPresentation(): AddPresentationUseCase { return this.ready.addPresentation; }
   get upsertFoodPolicy(): UpsertFoodPolicyUseCase { return this.ready.upsertFoodPolicy; }
+  get getAdminMetrics(): GetAdminMetricsUseCase { return this.ready.getAdminMetrics; }
   get waitingCarts(): SqliteWaitingCartStore { return this.ready.waitingCarts; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
@@ -409,6 +416,7 @@ export class CommercialComponent implements RuntimeComponent {
       createInventoryReservation: new CreateInventoryReservationUseCase(inventoryStore),
       releaseInventoryReservation: new ReleaseInventoryReservationUseCase(inventoryStore),
       executeTransform: new ExecuteTransformUseCase(inventoryStore),
+      getAdminMetrics: new GetAdminMetricsUseCase(new SqliteAdminMetricsStore(database)),
       waitingCarts: new SqliteWaitingCartStore(database, this.now),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
@@ -416,6 +424,7 @@ export class CommercialComponent implements RuntimeComponent {
       addPresentation: new AddPresentationUseCase(catalogStore),
       upsertFoodPolicy: new UpsertFoodPolicyUseCase(catalogStore),
       findCatalogItem: new FindCatalogItemUseCase(catalogStore),
+      listCatalogItems: new ListCatalogItemsUseCase(catalogStore),
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),

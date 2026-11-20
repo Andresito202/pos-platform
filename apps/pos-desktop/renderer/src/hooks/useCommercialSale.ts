@@ -1,4 +1,5 @@
-import { useCallback, useState } from "react";
+import { CatalogItemListResultSchema, WaitingCartResultSchema, type WaitingCart } from "@pos-platform/contracts";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CashShiftCloseResult,
   CashShiftOpenResult,
@@ -9,12 +10,16 @@ import type {
   PaymentFactusPayVerifyResult,
   PaymentFactusPayResumeResult,
   CatalogItemResult,
+  CatalogItemListItem,
+  PaymentCancelResult,
   PaymentRegisterCashResult,
   SaleCreateResult,
+  SalesReceiptGetResult,
 } from "@pos-platform/contracts";
-import { callCommercial, newIdempotencyKey } from "../pos-service.js";
+import { buildEnvelope, callCommercial, callCommercialEnvelope, newIdempotencyKey, type CommercialEnvelope } from "../pos-service.js";
 import { playConfirmationChime, shouldPlayChime } from "../confirmation-sound.js";
 import { toScale6 } from "../scale6.js";
+import { parseCopMicros } from "../money-display.js";
 
 /** Una línea del carrito, tal y como la devolvió el catálogo. */
 export interface CartLine {
@@ -25,6 +30,7 @@ export interface CartLine {
   readonly priceAmount: string;
   readonly currencyCode: string;
   readonly quantity: string;
+  readonly identifier: string;
 }
 
 export interface OpenShift {
@@ -77,6 +83,8 @@ export interface CommercialSaleState {
   readonly closedShift: CashShiftCloseResult | null;
   /** Transferencia reportada, a la espera de atestiguación. */
   readonly transfer: RegisteredTransfer | null;
+  /** Importe del comprobante consultado al actualizar una confirmación externa. */
+  readonly transferReceiptAmount: string | null;
   /** Resultado de confirmar la transferencia. Sólo aquí puede sonar el cha-ching. */
   readonly transferConfirmation: PaymentTransferConfirmResult | null;
   readonly factusPay: RegisteredFactusPay | null;
@@ -113,22 +121,55 @@ function operationTime(now: Date): {
  * `caja → CashShift → cash_shift_id` vive en `CreateSaleUseCase` (`DEC-012`
  * §25.2). El renderer no conoce esa regla y no debe conocerla.
  */
-export function useCommercialSale(): CommercialSaleState & {
+export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?: boolean } = {}): CommercialSaleState & {
+  catalogItems: readonly CatalogItemListItem[];
+  catalogBusy: boolean;
+  catalogHasMore: boolean;
+  listCatalogItems(query?: string): Promise<void>;
+  loadMoreCatalogItems(): Promise<void>;
+  addCatalogItem(item: CatalogItemListItem, quantity: string): void;
+  removeLine(index: number): void;
+  waitingCarts: readonly WaitingCart[];
+  waitingLabel: string;
+  setWaitingLabel(label: string): void;
+  customerId: string | null;
+  selectCustomer(id: string | null): void;
+  listWaiting(): Promise<void>;
+  holdCart(): Promise<void>;
+  resumeCart(cart: WaitingCart): Promise<void>;
+  discardWaiting(cart: WaitingCart): Promise<void>;
+  loadTransfer(paymentId: string): Promise<void>;
+  cancelTransfer(): Promise<void>;
+  unresolved: boolean;
+  retryPending(): Promise<void>;
   openShift(cashRegisterId: string, openingAmount: string): Promise<void>;
   findItem(barcode: string): Promise<void>;
   addFoundItem(quantity: string): void;
   captureWeight(): Promise<void>;
   createSale(): Promise<void>;
-  chargeCash(): Promise<void>;
+  chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
+  refreshTransfer(): Promise<void>;
   registerTransfer(): Promise<void>;
   confirmTransfer(): Promise<void>;
   collectFactusPay(): Promise<void>;
   verifyFactusPay(): Promise<void>;
   resumeFactusPay(): Promise<void>;
   closeShift(countedAmount: string): Promise<void>;
-  reset(): void;
+  reset(): boolean;
 } {
+  const [waitingCarts, setWaitingCarts] = useState<WaitingCart[]>([]);
+  const [waitingLabel, setWaitingLabel] = useState("");
+  const [activeWaiting, setActiveWaiting] = useState<WaitingCart | null>(null);
+  const [customerId, selectCustomer] = useState<string | null>(null);
+  const [catalogItems, setCatalogItems] = useState<readonly CatalogItemListItem[]>([]);
+  const [catalogHasMore, setCatalogHasMore] = useState(false);
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const catalogInFlight = useRef(false);
+  const catalogQuery = useRef("");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const pendingChange = useRef<(() => Promise<void>) | null>(null);
+  const [unresolved, setUnresolved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shift, setShift] = useState<OpenShift | null>(null);
   const [foundItem, setFoundItem] = useState<CatalogItemResult | null>(null);
@@ -137,6 +178,7 @@ export function useCommercialSale(): CommercialSaleState & {
   const [payment, setPayment] = useState<PaymentRegisterCashResult | null>(null);
   const [closedShift, setClosedShift] = useState<CashShiftCloseResult | null>(null);
   const [transfer, setTransfer] = useState<RegisteredTransfer | null>(null);
+  const [transferReceiptAmount, setTransferReceiptAmount] = useState<string | null>(null);
   const [transferConfirmation, setTransferConfirmation] =
     useState<PaymentTransferConfirmResult | null>(null);
   const [factusPay, setFactusPay] = useState<RegisteredFactusPay | null>(null);
@@ -152,6 +194,8 @@ export function useCommercialSale(): CommercialSaleState & {
     work: () => Promise<{ status: string; result_code: string; result: T | null }>,
     onSuccess: (result: T) => void,
   ): Promise<void> => {
+    if (busyRef.current || pendingChange.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -164,9 +208,49 @@ export function useCommercialSale(): CommercialSaleState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }, []);
+
+  // Preserve the original idempotency key when a write loses its response.
+  const runChange = useCallback(async <T,>(
+    messageType: CommercialEnvelope["message_type"],
+    payload: unknown,
+    onSuccess: (result: T) => void | false,
+  ): Promise<void> => {
+    if (busyRef.current || pendingChange.current) return;
+    const envelope = buildEnvelope(messageType, payload, newIdempotencyKey());
+    let uncertain = false;
+    const attempt = async (): Promise<void> => {
+      if (busyRef.current) return;
+      busyRef.current = true;
+      setBusy(true);
+      setError(null);
+      try {
+        const response = await callCommercialEnvelope<T>(envelope);
+        if (response.status !== "SUCCEEDED" || response.result === null) {
+          setError(response.result_code);
+          if (response.status !== "REJECTED" || response.result === null) uncertain = true;
+          if (uncertain) return;
+        } else if (onSuccess(response.result) === false) {
+          uncertain = true;
+          return;
+        }
+        pendingChange.current = null;
+      } catch (thrown) {
+        uncertain = true;
+        setError(thrown instanceof Error ? thrown.message : String(thrown));
+      } finally {
+        setUnresolved(pendingChange.current !== null);
+        busyRef.current = false;
+        setBusy(false);
+      }
+    };
+    pendingChange.current = attempt;
+    await attempt();
+  }, []);
+  const retryPending = useCallback(async () => { await pendingChange.current?.(); }, []);
 
   const openShift = useCallback(async (
     cashRegisterId: string,
@@ -193,6 +277,49 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [run]);
 
+  const listCatalogItems = useCallback(async (query = "", offset = 0): Promise<void> => {
+    if (!canReadCatalog || catalogInFlight.current) return;
+    catalogInFlight.current = true;
+    setCatalogBusy(true);
+    try {
+      const response = await callCommercial("catalog.item.list", { query, limit: 24, offset });
+      const parsed = CatalogItemListResultSchema.safeParse(response.result);
+      if (response.status !== "SUCCEEDED" || !parsed.success || parsed.data.outcome !== "FOUND") {
+        setError(response.result_code);
+        return;
+      }
+      catalogQuery.current = query;
+      const items = parsed.data.items;
+      setCatalogItems(current => offset === 0 ? items : [...current, ...items]);
+      setCatalogHasMore(parsed.data.has_more);
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+    } finally {
+      catalogInFlight.current = false;
+      setCatalogBusy(false);
+    }
+  }, [canReadCatalog]);
+
+  useEffect(() => { if (canReadCatalog) void listCatalogItems(); }, [canReadCatalog, listCatalogItems]);
+  const loadMoreCatalogItems = () => listCatalogItems(catalogQuery.current, catalogItems.length);
+
+  const addCatalogItem = useCallback((item: CatalogItemListItem, quantity: string): void => {
+    if (busyRef.current || pendingChange.current || sale) return;
+    const canonical = toScale6(quantity);
+    if (canonical === null || canonical === "0.000000") { setError("INVALID_QUANTITY"); return; }
+    setLines(current => [...current, {
+      productId: item.product_id, presentationId: item.presentation_id,
+      name: item.name, presentationName: item.presentation_name,
+      priceAmount: item.price_amount, currencyCode: item.currency_code,
+      quantity: canonical, identifier: item.code,
+    }]);
+  }, [sale]);
+
+  const removeLine = useCallback((index: number): void => {
+    if (busyRef.current || pendingChange.current || sale) return;
+    setLines(current => current.filter((_, position) => position !== index));
+  }, [sale]);
+
   const findItem = useCallback(async (barcode: string): Promise<void> => {
     setFoundItem(null);
     await run<CatalogItemResult>(
@@ -213,14 +340,15 @@ export function useCommercialSale(): CommercialSaleState & {
       setError("INVALID_QUANTITY");
       return;
     }
-    setFoundItem((item) => {
+    const item = foundItem;
       if (
+        sale !== null || pendingChange.current ||
         item === null
         || item.product_id === null
         || item.presentation_id === null
         || item.price_amount === null
         || item.currency_code === null
-      ) return item;
+      ) return;
       setLines((current) => [...current, {
         productId: item.product_id as string,
         presentationId: item.presentation_id as string,
@@ -229,10 +357,10 @@ export function useCommercialSale(): CommercialSaleState & {
         priceAmount: item.price_amount as string,
         currencyCode: item.currency_code as string,
         quantity: canonical,
+        identifier: item.barcode ?? "",
       }]);
-      return null;
-    });
-  }, []);
+    setFoundItem(null);
+  }, [foundItem, sale]);
 
   const captureWeight = useCallback(async (): Promise<void> => {
     const item = foundItem;
@@ -250,13 +378,14 @@ export function useCommercialSale(): CommercialSaleState & {
   }, [busy, sale, shift, foundItem, run, addFoundItem]);
 
   const createSale = useCallback(async (): Promise<void> => {
-    if (lines.length === 0) return;
+    if (sale || lines.length === 0) return;
     const currency = lines[0]!.currencyCode;
-    await run<SaleCreateResult>(
-      () => callCommercial("sale.create", {
-        // El único selector del turno. `null` si no hay caja abierta: la venta
-        // se crea igual, con el par en `NULL`, y el efectivo la rechazará.
+    const time = operationTime(new Date());
+    await runChange<SaleCreateResult>(
+      "sale.create", {
         cash_register_id: shift?.cashRegisterId ?? null,
+        ...(customerId ? { customer_id: customerId } : {}),
+        ...(activeWaiting ? { waiting_cart: { id: activeWaiting.id, version: activeWaiting.version } } : {}),
         channel: "POS",
         document_series: "POS1",
         currency_code: currency,
@@ -265,34 +394,48 @@ export function useCommercialSale(): CommercialSaleState & {
           presentation_id: line.presentationId,
           quantity: line.quantity,
         })),
-        ...operationTime(new Date()),
-      }, newIdempotencyKey()),
+        ...time,
+      },
       (result) => {
         if (result.sale_id === null || result.payable_amount === null) {
           setError(result.outcome);
-          return;
+          return false;
         }
         setSale({ saleId: result.sale_id, payableAmount: result.payable_amount });
+        if (activeWaiting) {
+          setWaitingCarts(current => current.filter(cart => cart.id !== activeWaiting.id));
+          setActiveWaiting(null);
+        }
       },
     );
-  }, [lines, shift, run]);
+  }, [lines, shift, sale, customerId, activeWaiting, runChange]);
 
-  const chargeCash = useCallback(async (): Promise<void> => {
+  const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;
-    if (current === null) return;
+    if (current === null || busy || payment?.sale_completed || transferConfirmation?.sale_completed || transferReceiptAmount !== null || factusPayConfirmation?.sale_completed) return;
+    // The service returns cumulative confirmed coverage. Never sum overlapping snapshots.
+    const coverage = [payment?.confirmed_coverage, transferConfirmation?.confirmed_coverage, factusPayConfirmation?.confirmed_coverage]
+      .reduce<bigint>((max, value) => {
+        const parsed = value == null ? null : parseCopMicros(value);
+        return parsed !== null && parsed > max ? parsed : max;
+      }, 0n);
+    if (coverage > 0n && !paymentAmount?.trim()) { setError("PAYMENT_AMOUNT_REQUIRED"); return; }
+    const amount = toScale6(paymentAmount ?? current.payableAmount);
+    if (amount === null || amount === "0.000000") { setError("INVALID_PAYMENT_AMOUNT"); return; }
+    const tendered = toScale6(tenderedAmount ?? amount);
+    if (tendered === null) { setError("INVALID_TENDERED_AMOUNT"); return; }
     await run<PaymentRegisterCashResult>(
       () => callCommercial("payment.register.cash", {
         sale_id: current.saleId,
-        // Se cobra exactamente el importe que emitió la capa confiable.
-        amount: current.payableAmount,
-        tendered_amount: current.payableAmount,
+        amount,
+        tendered_amount: tendered,
       }, newIdempotencyKey()),
       (result) => {
         setPayment(result);
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [sale, run]);
+  }, [sale, busy, payment, transferConfirmation, transferReceiptAmount, factusPayConfirmation, run]);
 
   /**
    * Cerrar el turno con el efectivo contado.
@@ -390,6 +533,42 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [sale, run]);
 
+  const refreshTransfer = useCallback(async (): Promise<void> => {
+    if (sale === null || transfer === null) return;
+    const { saleId } = sale;
+    const { paymentId } = transfer;
+    let confirmed = false;
+    await run<PaymentGetResult>(
+      () => callCommercial("payment.get", { payment_id: paymentId }),
+      result => {
+        if (result.outcome !== "FOUND" || result.sale_id !== saleId || result.payment_id !== paymentId ||
+            result.method !== "TRANSFER" || result.status === null || result.version === null ||
+            result.expected_amount === null) {
+          setError(result.outcome === "FOUND" ? "PAYMENT_TRANSFER_MISMATCH" : result.outcome);
+          return;
+        }
+        setTransfer({ paymentId, status: result.status, version: result.version, expectedAmount: result.expected_amount });
+        confirmed = result.status === "CONFIRMED";
+      },
+    );
+    if (!confirmed) return;
+
+    // Una transferencia confirmada puede cubrir solo parte de la venta.
+    await run<SalesReceiptGetResult>(
+      async () => {
+        const response = await callCommercial<SalesReceiptGetResult>("sales.receipt.get", { sale_id: saleId });
+        return response.status === "REJECTED" && response.result?.outcome === "NOT_COMPLETED"
+          ? { ...response, status: "SUCCEEDED" }
+          : response;
+      },
+      result => {
+        if (result.outcome === "FOUND" && result.sale_id === saleId && result.payable_amount !== null) {
+          setTransferReceiptAmount(result.payable_amount);
+        }
+      },
+    );
+  }, [sale, transfer, run]);
+
   /**
    * Atestiguar la transferencia — `UC-PAY-003`.
    *
@@ -403,20 +582,46 @@ export function useCommercialSale(): CommercialSaleState & {
    * código: confirmar sobre un estado que ya no existe sería dar por bueno un
    * dinero que quizá ya se canceló.
    */
+  const loadTransfer = useCallback(async (paymentId: string): Promise<void> => {
+    if (busyRef.current || pendingChange.current) return;
+    setTransfer(null);
+    setTransferConfirmation(null);
+    await run<PaymentGetResult>(() => callCommercial("payment.get", { payment_id: paymentId }), result => {
+      if (result.outcome !== "FOUND" || result.method !== "TRANSFER" || result.payment_id === null ||
+          result.version === null || result.status === null || result.expected_amount === null) {
+        setError(result.outcome === "FOUND" ? "PAYMENT_NOT_TRANSFER" : result.outcome);
+        return;
+      }
+      setTransfer({ paymentId: result.payment_id, version: result.version, status: result.status, expectedAmount: result.expected_amount });
+    });
+  }, [run]);
+
+  const cancelTransfer = useCallback(async (): Promise<void> => {
+    const current = transfer;
+    if (current?.status !== "CREATED") return;
+    await runChange<PaymentCancelResult>("payment.cancel", {
+      payment_id: current.paymentId, expected_version: current.version,
+    }, result => {
+      if (result.outcome === "CANCELLED" || result.outcome === "IDEMPOTENT") setTransfer({ ...current, status: "CANCELLED" });
+      else setError(result.outcome);
+    });
+  }, [transfer, runChange]);
+
   const confirmTransfer = useCallback(async (): Promise<void> => {
     const current = transfer;
     if (current === null) return;
-    await run<PaymentTransferConfirmResult>(
-      () => callCommercial("payment.transfer.confirm", {
+    await runChange<PaymentTransferConfirmResult>(
+      "payment.transfer.confirm", {
         payment_id: current.paymentId,
         expected_version: current.version,
-      }, newIdempotencyKey()),
+      },
       (result) => {
         setTransferConfirmation(result);
+        if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") setTransfer({ ...current, status: "CONFIRMED" });
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [transfer, run]);
+  }, [transfer, runChange]);
 
   /**
    * FACTUS Pay — Generar QR. No cobra la venta; sólo crea cobro pendiente
@@ -521,23 +726,89 @@ export function useCommercialSale(): CommercialSaleState & {
     );
   }, [sale, run]);
 
-  const reset = useCallback((): void => {
+  const listWaiting = useCallback(async ():Promise<void> => {
+    await run(() => callCommercial("cart.waiting.list",{}), result => {
+      const parsed=WaitingCartResultSchema.safeParse(result);
+      if(!parsed.success || parsed.data.outcome!=="FOUND") {setError("WAITING_CART_RESPONSE_INVALID");return;}
+      setWaitingCarts(parsed.data.carts);
+    });
+  },[run]);
+  const holdCart = useCallback(async ():Promise<void> => {
+    if(busyRef.current || pendingChange.current || sale || !shift || lines.length===0) return;
+    const id=activeWaiting?.id ?? globalThis.crypto.randomUUID();
+    await runChange("cart.waiting.save",{
+      cart_id:id,expected_version:activeWaiting?.version ?? 0,
+      cart:{label:waitingLabel,cash_register_id:shift.cashRegisterId,lines,...(customerId ? {customer_id:customerId}:{})},
+    },result=>{
+      const parsed=WaitingCartResultSchema.safeParse(result);
+      if(!parsed.success || parsed.data.outcome!=="SAVED" || parsed.data.carts[0]?.id!==id) {setError("WAITING_CART_RESPONSE_INVALID");return false;}
+      setLines([]);setFoundItem(null);setActiveWaiting(null);setWaitingLabel("");selectCustomer(null);
+      setWaitingCarts(current=>[...current.filter(c=>c.id!==id),parsed.data.carts[0]!]);
+    });
+  },[sale,shift,lines,activeWaiting,waitingLabel,customerId,runChange]);
+  const resumeCart = useCallback(async (cart:WaitingCart):Promise<void>=>{
+    if(busyRef.current || pendingChange.current || sale || lines.length>0) {setError("Guarda el carrito actual en espera antes de recuperar otro.");return;}
+    if(shift && shift.cashRegisterId!==cart.payload.cash_register_id) {setError("Abre la misma caja del carrito antes de recuperarlo.");return;}
+    await run(()=>callCommercial("cart.waiting.get",{cart_id:cart.id}),result=>{
+      const parsed=WaitingCartResultSchema.safeParse(result);
+      const found=parsed.success && parsed.data.outcome==="FOUND" ? parsed.data.carts[0]:undefined;
+      if(!found || found.id!==cart.id || found.payload.lines.length===0 || (shift && found.payload.cash_register_id!==shift.cashRegisterId)) {setError("WAITING_CART_NOT_FOUND");return;}
+      if(!shift) {
+        if(!found.active_shift) {setError("Abre la misma caja del carrito antes de recuperarlo.");return;}
+        setShift({shiftId:found.active_shift.shift_id,version:found.active_shift.version,cashRegisterId:found.payload.cash_register_id});
+      }
+      setLines(found.payload.lines.map((line) => ({
+        productId: line.productId,
+        presentationId: line.presentationId,
+        name: line.name,
+        presentationName: line.presentationName,
+        priceAmount: line.priceAmount,
+        currencyCode: line.currencyCode,
+        quantity: line.quantity,
+        identifier: line.identifier,
+      })));
+      setActiveWaiting(found);setWaitingLabel(found.payload.label);selectCustomer(found.payload.customer_id ?? null);setError(null);
+    });
+  },[sale,lines,shift,run]);
+
+  const discardWaiting=useCallback(async (cart:WaitingCart):Promise<void>=>{
+    if(busyRef.current || pendingChange.current || activeWaiting?.id===cart.id) return;
+    await runChange("cart.waiting.discard",{cart_id:cart.id,expected_version:cart.version},result=>{
+      const parsed=WaitingCartResultSchema.safeParse(result);
+      if(!parsed.success || parsed.data.outcome!=="DISCARDED") {setError("WAITING_CART_RESPONSE_INVALID");return false;}
+      setWaitingCarts(current=>current.filter(item=>item.id!==cart.id));
+    });
+  },[runChange,activeWaiting]);
+
+  const reset = useCallback((): boolean => {
+    if (busyRef.current || pendingChange.current) return false;
+    if (sale && !payment?.sale_completed && !transferConfirmation?.sale_completed && transferReceiptAmount === null && !factusPayConfirmation?.sale_completed) {
+      setError("Completa la venta antes de iniciar otra.");
+      return false;
+    }
+    setActiveWaiting(null);
+    setWaitingLabel("");
+    selectCustomer(null);
     setLines([]);
     setSale(null);
     setPayment(null);
     setFoundItem(null);
     setTransfer(null);
     setTransferConfirmation(null);
+    setTransferReceiptAmount(null);
     setFactusPay(null);
     setFactusPayConfirmation(null);
     setError(null);
-  }, []);
+    return true;
+  }, [sale, payment, transferConfirmation, transferReceiptAmount, factusPayConfirmation]);
 
   return {
     busy, error, shift, foundItem, lines, sale, payment, closedShift,
-    transfer, transferConfirmation, factusPay, factusPayConfirmation,
+    transfer, transferConfirmation, transferReceiptAmount, factusPay, factusPayConfirmation,
     openShift, findItem, addFoundItem, captureWeight, createSale, chargeCash,
-    registerTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
-    closeShift, reset,
+    registerTransfer, refreshTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
+    closeShift, reset, unresolved, retryPending, loadTransfer, cancelTransfer,
+    catalogItems, catalogBusy, catalogHasMore, listCatalogItems, loadMoreCatalogItems, addCatalogItem, removeLine,
+    waitingCarts, waitingLabel, setWaitingLabel, listWaiting, holdCart, resumeCart, discardWaiting, customerId, selectCustomer,
   };
 }

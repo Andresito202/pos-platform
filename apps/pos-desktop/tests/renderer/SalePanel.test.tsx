@@ -197,6 +197,52 @@ describe("SalePanel — vertical comercial", () => {
     }
   });
 
+  it("keeps denomination counting optional and preserves its amount when collapsed", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel />);
+    await openShift(); await addProduct(); await createSale();
+    const toggle = screen.getByRole("button", { name: "Ver billetes y monedas" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Añadir billete de $5.000" })).toBeNull();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Añadir billete de $5.000" }));
+    expect(screen.getByTestId("tendered-display").textContent).toBe("$5.000");
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar billetes y monedas" }));
+    expect(screen.queryByRole("button", { name: "Añadir billete de $5.000" })).toBeNull();
+    expect(screen.getByTestId("tendered-display").textContent).toBe("$5.000");
+    expect(calls.get("payment.register.cash")).toBeUndefined();
+  });
+
+  it("normalizes typed cash before sending the payment contract", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
+    render(<SalePanel />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.click(screen.getByRole("button", { name: "4" }));
+    fireEvent.click(screen.getByRole("button", { name: "00" }));
+    fireEvent.click(screen.getByRole("button", { name: "0" }));
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("sale-completed");
+    const request = calls.get("payment.register.cash")![0];
+    expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
+    expect((request as { payload: { tendered_amount: string } }).payload.tendered_amount).toBe("4000.000000");
+  });
+
+
+  it("supports a partial cash payment without calculating a new total in the renderer", async () => {
+    install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", false) });
+    render(<SalePanel />);
+    await openShift(); await addProduct(); await createSale();
+    fireEvent.change(screen.getByTestId("payment-amount-input"), { target: { value: "2000" } });
+    fireEvent.click(screen.getByTestId("charge-cash-button"));
+    await screen.findByTestId("payment-partial");
+    const request = calls.get("payment.register.cash")![0];
+    expect(PaymentRegisterCashRequestSchema.safeParse(request).success).toBe(true);
+    expect(request).toMatchObject({ payload: { amount: "2000.000000", tendered_amount: "2000.000000" } });
+    expect(screen.getByTestId("payable-amount").getAttribute("data-amount")).toBe("3500.000000");
+    expect(screen.getByTestId("payable-amount").textContent).toBe("3500.000000");
+    expect(chime).not.toHaveBeenCalled();
+  });
+
   it("el cobro en efectivo usa el contrato y el importe emitido por el servicio", async () => {
     install({ ...BASE_OVERRIDES, "payment.register.cash": cashResult("CONFIRMED", true) });
     render(<SalePanel />);
@@ -265,6 +311,37 @@ describe("SalePanel — vertical comercial", () => {
     });
     expect(chime).not.toHaveBeenCalled();
     expect(screen.queryByTestId("sale-completed")).toBeNull();
+  });
+
+  it("recovers a saved cart and server-owned open shift in a fresh panel", async () => {
+    const cart={id:PRODUCT,version:3,updated_at:"2026-11-13T10:00:00Z",line_count:1,
+      active_shift:{shift_id:SHIFT,version:7},payload:{label:"Guardado",cash_register_id:REGISTER,
+        lines:[{productId:PRODUCT,presentationId:PRESENTATION,name:"Arroz",presentationName:"Bolsa",priceAmount:"3500.000000",currencyCode:"COP",quantity:"2.000000",identifier:"7701234567890"}]}};
+    const found={status:"SUCCEEDED",result_code:"FOUND",result:{outcome:"FOUND",carts:[cart],has_more:false}};
+    install({...BASE_OVERRIDES,"cart.waiting.list":found,"cart.waiting.get":found});
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE"])}/>);
+    fireEvent.click(screen.getByTestId("list-waiting"));
+    fireEvent.click(await screen.findByRole("button",{name:/Guardado · 1 líneas/}));
+    await screen.findByTestId("shift-open");await screen.findByTestId("cart-line");
+    expect(calls.get("cash.shift.open")).toBeUndefined();
+    await createSale();
+    expect(calls.get("sale.create")?.[0]).toMatchObject({payload:{cash_register_id:REGISTER,waiting_cart:{id:PRODUCT,version:3},lines:[{quantity:"2.000000"}]}});
+  });
+
+  it("does not clear a cart on lost save response and retries the same snapshot", async () => {
+    install(BASE_OVERRIDES);
+    const save=vi.fn().mockRejectedValueOnce(Error("response lost")).mockImplementationOnce(async (request: { payload: { cart_id: string; cart: unknown } })=>({
+      status:"SUCCEEDED",result_code:"SAVED",result:{outcome:"SAVED",has_more:false,carts:[{id:request.payload.cart_id,version:1,
+        updated_at:new Date().toISOString(),line_count:1,payload:request.payload.cart}]},
+    }));
+    Object.defineProperty(window.posService,"cart.waiting.save",{value:save});
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE"])}/>);
+    await openShift();await addProduct();fireEvent.click(screen.getByTestId("hold-cart"));
+    await waitFor(()=>expect(screen.getByTestId("sale-error").textContent).toBe("response lost"));
+    expect(screen.getAllByTestId("cart-line")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await waitFor(()=>expect(screen.queryAllByTestId("cart-line")).toHaveLength(0));
+    expect(save.mock.calls[1]?.[0]).toEqual(save.mock.calls[0]?.[0]);
   });
 
   it("sin turno abierto la venta viaja con cash_register_id nulo", async () => {
@@ -379,7 +456,7 @@ describe("SalePanel · transferencia", () => {
 
   const registered = (outcome: string) => succeeded({ outcome, payment_id: PAYMENT });
 
-  const fetched = (version: number, status = "REPORTED") => succeeded({
+  const fetched = (version: number, status = "CREATED") => succeeded({
     outcome: "FOUND", payment_id: PAYMENT, sale_id: SALE,
     method: "TRANSFER", status, expected_amount: "3500.000000",
     confirmed_amount: null, currency_code: "COP", version,
@@ -412,6 +489,43 @@ describe("SalePanel · transferencia", () => {
     await waitFor(() => { expect(screen.getByTestId("transfer-registered")).toBeTruthy(); });
   }
 
+  it("consulta una confirmación externa y solo libera Caja al obtener el comprobante de la venta", async () => {
+    const responses = {
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(3),
+      "sales.receipt.get": { status: "REJECTED", result_code: "NOT_COMPLETED", result: { outcome: "NOT_COMPLETED" } },
+    };
+    install({ ...BASE_OVERRIDES, ...responses });
+    const readPayment = vi.spyOn(window.posService, "payment.get")
+      .mockResolvedValueOnce(fetched(3))
+      .mockResolvedValue(fetched(4, "CONFIRMED"));
+    vi.spyOn(window.posService, "sales.receipt.get")
+      .mockResolvedValueOnce(responses["sales.receipt.get"])
+      .mockResolvedValue(succeeded({ outcome: "FOUND", sale_id: SALE, payable_amount: "3500.000000" }));
+
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE", "PAYMENTS_PAYMENT_READ", "SALES_RECEIPT_READ"])} />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    await registerTransfer();
+
+    expect(screen.queryByTestId("confirm-transfer-button")).toBeNull();
+    const refresh = screen.getByRole("button", { name: "Actualizar estado de la transferencia" });
+    fireEvent.click(refresh);
+    await screen.findByTestId("transfer-partial");
+    fireEvent.click(screen.getByTestId("reset-button"));
+    expect(screen.getByTestId("sale-error").textContent).toBe("Completa la venta antes de iniciar otra.");
+
+    fireEvent.click(refresh);
+    await screen.findByTestId("transfer-sale-completed");
+    expect(screen.getByTestId("transfer-confirmed-coverage").textContent).toBe("3500.000000");
+    expect(readPayment).toHaveBeenLastCalledWith(expect.objectContaining({ payload: { payment_id: PAYMENT } }));
+    expect(calls.has("payment.transfer.confirm")).toBe(false);
+    expect(chime).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("reset-button"));
+    expect(screen.queryByTestId("sale-created")).toBeNull();
+  });
+
   it("registra la transferencia y toma la versión real de payment.get", async () => {
     await reachSale({
       "payment.register.transfer": registered("REGISTERED"),
@@ -429,7 +543,7 @@ describe("SalePanel · transferencia", () => {
 
     // payment.get se consulta de verdad: es la única fuente de la versión.
     expect(calls.get("payment.get")).toHaveLength(1);
-    expect(screen.getByTestId("transfer-status").textContent).toBe("REPORTED");
+    expect(screen.getByTestId("transfer-status").textContent).toBe("CREATED");
     expect(screen.getByTestId("transfer-expected-amount").textContent).toBe("3500.000000");
   });
 

@@ -33,3 +33,7 @@ export * from "./device-enrollment.js";
 export * from "./qr-payment.js";
 export * from "./onboarding.js";
 export { uuidV7 as uuidV7FromModule } from "./uuid-v7.js";
+export * from "./platform-password-verifier.js";
+export * from "./platform-security-events.js";
+export * from "./platform-webauthn-credential-reference.js";
+export * from "./subscription-quote.js";

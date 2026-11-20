@@ -1,4 +1,9 @@
-import { useState } from "react";
+import { CanonicalPermission } from "@pos-platform/contracts";
+import { ProductAvatar } from "./ProductAvatar.js";
+import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
+import { useEffect, useState } from "react";
+import { formatCopMicros, formatCopPesos, formatScale6Display, parseCopMicros, remainingPayableScale6 } from "../money-display.js";
+import { toScale6 } from "../scale6.js";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
 
 /**
@@ -9,13 +14,78 @@ import { useCommercialSale } from "../hooks/useCommercialSale.js";
  * mostrado es el que emitió el servicio, y la confirmación sonora la decide
  * `shouldPlayChime`, no esta vista.
  */
-export function SalePanel(): React.JSX.Element {
-  const sale = useCommercialSale();
+const calculatorKeys = ["1","2","3","4","5","6","7","8","9","0","00","Borrar"] as const;
+
+// Denomination selection only records what the cashier counted locally.
+// The authoritative amount and change are still calculated by the payments service.
+const cashDenominations = [
+  { value: 2000, kind: "billetes", label: "Billete de $2.000" },
+  { value: 5000, kind: "billetes", label: "Billete de $5.000" },
+  { value: 10000, kind: "billetes", label: "Billete de $10.000" },
+  { value: 20000, kind: "billetes", label: "Billete de $20.000" },
+  { value: 50000, kind: "billetes", label: "Billete de $50.000" },
+  { value: 100000, kind: "billetes", label: "Billete de $100.000" },
+  { value: 50, kind: "monedas", label: "Moneda de $50" },
+  { value: 100, kind: "monedas", label: "Moneda de $100" },
+  { value: 200, kind: "monedas", label: "Moneda de $200" },
+  { value: 500, kind: "monedas", label: "Moneda de $500" },
+  { value: 1000, kind: "monedas", label: "Moneda de $1.000" },
+] as const;
+
+export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> } = {}): React.JSX.Element {
+  const canReadCatalog = permissions?.has(CanonicalPermission.CATALOG_PRODUCT_READ) === true;
+  const canReadCustomers = permissions?.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) === true;
+  const canRefreshTransfer = permissions === undefined ||
+    (permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ) && permissions.has(CanonicalPermission.SALES_RECEIPT_READ));
+  const canConfirmTransfer = permissions === undefined || permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM);
+  const canCreateSale = permissions === undefined || permissions.has(CanonicalPermission.SALES_SALE_CREATE);
+  const sale = useCommercialSale({ canReadCatalog });
+  const customers = useCustomerDirectory();
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [tileQuantity, setTileQuantity] = useState("1");
+  const [customerDocument, setCustomerDocument] = useState("");
+  const [customerNumber, setCustomerNumber] = useState("");
   const [registerId, setRegisterId] = useState("");
   const [opening, setOpening] = useState("0.000000");
   const [barcode, setBarcode] = useState("");
   const [quantity, setQuantity] = useState("1.000000");
   const [counted, setCounted] = useState("");
+  const [manualTendered, setManualTendered] = useState("");
+  const [denominationCounts, setDenominationCounts] = useState<Record<number, number>>({});
+  const [showDenominations, setShowDenominations] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const transferCompleted = sale.transferReceiptAmount !== null || sale.transferConfirmation?.sale_completed === true;
+  const completed = sale.payment?.sale_completed === true || transferCompleted || sale.factusPayConfirmation?.sale_completed === true;
+  const confirmedCoverage = [sale.payment?.confirmed_coverage, sale.transferConfirmation?.confirmed_coverage, sale.factusPayConfirmation?.confirmed_coverage]
+    .reduce<string | null>((max, value) => {
+      if (value == null) return max;
+      const parsed = parseCopMicros(value);
+      return parsed !== null && parsed > (max === null ? 0n : (parseCopMicros(max) ?? 0n)) ? value : max;
+    }, null);
+  const remainingAmount = sale.sale === null ? null : remainingPayableScale6(sale.sale.payableAmount, confirmedCoverage);
+  useEffect(() => {
+    if (confirmedCoverage !== null && remainingAmount !== null && !completed) setPaymentAmount(remainingAmount);
+  }, [confirmedCoverage, remainingAmount, completed]);
+  useEffect(() => {
+    if (sale.payment !== null) { setManualTendered(""); setDenominationCounts({}); }
+  }, [sale.payment]);
+  const selectedDenominationTotal = cashDenominations.reduce((total, denomination) =>
+    total + BigInt(denomination.value) * BigInt(denominationCounts[denomination.value] ?? 0), 0n);
+  const receivedTotal = BigInt(manualTendered || "0") + selectedDenominationTotal;
+  const tendered = manualTendered !== "" || selectedDenominationTotal > 0n ? receivedTotal.toString() : "";
+  const previewSource = paymentAmount.trim() !== "" ? (toScale6(paymentAmount) ?? paymentAmount) : (remainingAmount ?? sale.sale?.payableAmount ?? "");
+  const previewPayable = parseCopMicros(previewSource);
+  const previewDelta = receivedTotal > 0n && previewPayable !== null ? receivedTotal * 1_000_000n - previewPayable : null;
+  const appendTendered = (key: string): void => {
+    if (key === "Borrar") { setManualTendered(""); setDenominationCounts({}); return; }
+    setManualTendered(current => {
+      const value = `${current}${key}`.replace(/^0+(?=\d)/, "");
+      return value.length <= 12 ? value : current;
+    });
+  };
+  const changeDenominationCount = (value: number, direction: 1 | -1): void => {
+    setDenominationCounts(counts => ({ ...counts, [value]: Math.max(0, Math.min(99, (counts[value] ?? 0) + direction)) }));
+  };
 
   return (
     <section data-testid="sale-panel">
@@ -67,6 +137,35 @@ export function SalePanel(): React.JSX.Element {
         </div>
       )}
 
+      <div className="pos-sale-layout">
+      <section className="pos-sale-products" aria-label="Productos para venta">
+      {canReadCatalog && <>
+        <form className="pos-product-tools" onSubmit={event => {
+          event.preventDefault();
+          void sale.listCatalogItems(catalogQuery.trim());
+        }}>
+          <label>Buscar producto<input data-testid="catalog-search-input" maxLength={200} value={catalogQuery}
+            onChange={event => setCatalogQuery(event.target.value)} placeholder="Nombre, código o barras" /></label>
+          <button data-testid="catalog-search-button" disabled={sale.catalogBusy}>Buscar catálogo</button>
+        </form>
+        <label>Cantidad para agregar<input inputMode="decimal" value={tileQuantity}
+          onChange={event => setTileQuantity(event.target.value)} /></label>
+        <div className="pos-touch-grid" data-testid="touch-product-grid">
+          {sale.catalogItems.map(item => (
+            <button type="button" className="pos-product-tile" data-testid={`catalog-product-${item.presentation_id}`}
+              key={item.presentation_id} disabled={sale.busy || sale.unresolved || sale.sale !== null}
+              onClick={() => sale.addCatalogItem(item, tileQuantity.trim())}>
+              <ProductAvatar item={item} />
+              <strong className="pos-product-name-value">{item.name}</strong>
+              <span className="pos-product-presentation">{item.presentation_name}</span>
+              <span className="pos-product-price">{formatScale6Display(item.price_amount)}</span>
+            </button>
+          ))}
+          {!sale.catalogBusy && sale.catalogItems.length === 0 && <p>Sin productos vendibles.</p>}
+        </div>
+        {sale.catalogHasMore && <button type="button" data-testid="catalog-load-more"
+          disabled={sale.catalogBusy} onClick={() => { void sale.loadMoreCatalogItems(); }}>Cargar más productos</button>}
+      </>}
       <h2>Producto</h2>
       <input
         data-testid="barcode-input"
@@ -106,34 +205,134 @@ export function SalePanel(): React.JSX.Element {
         </div>
       )}
 
+      </section>
+      <section className="pos-sale-cart" aria-label="Carrito">
       <h2>Venta</h2>
       <ul data-testid="cart">
         {sale.lines.map((line, index) => (
           <li key={`${line.presentationId}-${String(index)}`} data-testid="cart-line">
-            {line.name} · {line.presentationName} · {line.quantity} × {line.priceAmount}
+            {line.name} · {line.presentationName} · {line.quantity} × {formatScale6Display(line.priceAmount)}
+            {sale.sale === null && <button type="button" disabled={sale.busy || sale.unresolved}
+              aria-label={`Quitar ${line.name}`} onClick={() => sale.removeLine(index)}>Quitar</button>}
           </li>
         ))}
       </ul>
+      {canReadCustomers && <details>
+        <summary>Vincular cliente</summary>
+        <label>Tipo de documento<input value={customerDocument} onChange={event => setCustomerDocument(event.target.value)} /></label>
+        <label>Número de identificación<input value={customerNumber} onChange={event => setCustomerNumber(event.target.value)} /></label>
+        <button type="button" disabled={customers.busy || !customerDocument.trim() || !customerNumber.trim()}
+          onClick={() => { void customers.find(customerDocument.trim(), customerNumber.trim()); }}>Buscar cliente</button>
+        {customers.error && <p role="status">{customers.error}</p>}
+        {customers.found?.customer_id && <button type="button" disabled={sale.busy || sale.unresolved || sale.sale !== null}
+          onClick={() => sale.selectCustomer(customers.found?.customer_id ?? null)}>Vincular cliente encontrado</button>}
+        {sale.customerId && <button type="button" disabled={sale.busy || sale.unresolved || sale.sale !== null}
+          onClick={() => sale.selectCustomer(null)}>Quitar cliente vinculado</button>}
+      </details>}
+          {canCreateSale && <div className="pos-waiting-controls">
+            <input aria-label="Referencia del cliente en espera" placeholder="Referencia de espera (opcional)" maxLength={80}
+              value={sale.waitingLabel} onChange={e=>sale.setWaitingLabel(e.target.value)} disabled={sale.busy || sale.unresolved || sale.sale!==null}/>
+            <button data-testid="hold-cart" onClick={()=>void sale.holdCart()}
+              disabled={sale.busy || sale.unresolved || !sale.shift || sale.lines.length===0 || sale.lines.length>200 || sale.sale!==null}>En espera</button>
+            {sale.lines.length>200 && <small>Máximo 200 líneas por carrito en espera.</small>}
+            <button data-testid="list-waiting" onClick={()=>void sale.listWaiting()} disabled={sale.busy}>Ver en espera</button>
+            {sale.waitingCarts.length>0 && <ul aria-label="Clientes en espera">{sale.waitingCarts.map(cart=><li key={cart.id}>
+              <button onClick={()=>void sale.resumeCart(cart)} disabled={sale.busy || sale.unresolved || sale.lines.length>0 || sale.sale!==null}>
+                {cart.payload.label || "Cliente en espera"} · {cart.line_count} líneas
+              </button>
+              <button aria-label={`Eliminar ${cart.payload.label || "cliente en espera"}`}
+                disabled={sale.busy || sale.unresolved || sale.sale!==null}
+                onClick={()=>{if(window.confirm("¿Eliminar este carrito en espera? No se eliminarán ventas ni pagos.")) void sale.discardWaiting(cart);}}>Eliminar</button>
+            </li>)}</ul>}
+          </div>}
       <button
         data-testid="create-sale-button"
         onClick={() => { void sale.createSale(); }}
-        disabled={sale.busy || sale.lines.length === 0 || sale.sale !== null}
+        disabled={!canCreateSale || sale.busy || sale.unresolved || sale.lines.length === 0 || sale.sale !== null}
       >
         Crear venta
       </button>
 
+      </section>
+      </div>
+
       {sale.sale !== null && (
         <div data-testid="sale-created">
-          Total a pagar: <span data-testid="payable-amount">{sale.sale.payableAmount}</span>
+          Total a pagar: <span data-testid="payable-amount" data-amount={sale.sale.payableAmount}>{sale.sale.payableAmount}</span>
           {/* El identificador se muestra porque el cajero lo necesita para pedir
               el recibo: el cliente vuelve con una duda y hay que recuperarla. */}
           {" · venta "}<span data-testid="sale-id">{sale.sale.saleId}</span>
-          <button
+          <label>Importe de este pago en efectivo<input data-testid="payment-amount-input" aria-label="Importe de este pago en efectivo" value={paymentAmount} placeholder={remainingAmount ?? sale.sale.payableAmount} onChange={event => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} inputMode="decimal" /></label>
+              <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
+                <label>Efectivo recibido (COP)<input aria-label="Efectivo recibido (COP)" inputMode="numeric" value={manualTendered}
+                  onChange={event=>{const value=event.target.value; if (/^\d{0,12}$/.test(value)) setManualTendered(value.replace(/^0+(?=\d)/, ""));}}
+                  disabled={sale.busy || completed} placeholder="0" /></label>
+                <strong data-testid="tendered-display">{formatCopPesos(receivedTotal)}</strong>
+                <button type="button" aria-expanded={showDenominations} aria-controls="pos-denominations"
+                  onClick={()=>setShowDenominations(open=>!open)}>{showDenominations ? "Ocultar billetes y monedas" : "Ver billetes y monedas"}</button>
+                <div id="pos-denominations" hidden={!showDenominations}>
+                <p>El conteo de billetes se suma al importe ingresado manualmente.</p>
+                {(["billetes", "monedas"] as const).map((kind) => (
+                  <div className="pos-denomination-section" key={kind}>
+                    <h4>{kind === "billetes" ? "Billetes" : "Monedas"}</h4>
+                    <div className="pos-denomination-grid" data-testid={`denominations-${kind}`}>
+                      {cashDenominations.filter((item) => item.kind === kind).map((denomination) => (
+                        <div className="pos-denomination-item" key={denomination.value}>
+                          <button
+                            type="button"
+                            className="pos-denomination-add"
+                            data-testid={`denomination-add-${denomination.value}`}
+                            aria-label={`Añadir ${denomination.label.toLowerCase()}`}
+                            onClick={() => changeDenominationCount(denomination.value, 1)}
+                            disabled={sale.busy || completed || (denominationCounts[denomination.value] ?? 0) >= 99}
+                          >
+                            <img
+                              src={`./payment-denominations/${kind}/${kind === "billetes" ? "billete" : "moneda"}_${denomination.value}_cop.png`}
+                              alt=""
+                              aria-hidden="true"
+                              onError={(event) => { event.currentTarget.hidden = true; }}
+                            />
+                            <span>{formatCopPesos(BigInt(denomination.value))}</span>
+                          </button>
+                          <div className="pos-denomination-quantity">
+                            <span data-testid={`denomination-count-${denomination.value}`}>× {denominationCounts[denomination.value] ?? 0}</span>
+                            <button type="button" aria-label={`Quitar ${denomination.label.toLowerCase()}`}
+                              data-testid={`denomination-remove-${denomination.value}`}
+                              onClick={() => changeDenominationCount(denomination.value, -1)}
+                              disabled={sale.busy || completed || (denominationCounts[denomination.value] ?? 0) === 0}>−</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                </div>
+                <details className="pos-cash-keypad"><summary>Teclado numérico</summary>
+                <p className="pos-cash-keypad-label">Importe adicional o ingreso manual (COP)</p>
+                <div className="pos-calculator-grid">
+                  {calculatorKeys.map((key) => (
+                    <button key={key} type="button" onClick={() => { appendTendered(key); }}
+                      disabled={sale.busy || completed}>{key}</button>
+                  ))}
+                </div>
+                </details>
+                <div className="pos-cash-summary">
+                  <div><span>Dinero recibido</span><strong>{formatCopPesos(receivedTotal)}</strong></div>
+                  <div><span>A cobrar en este pago</span><strong>{previewPayable !== null ? formatCopMicros(previewPayable) : "No disponible"}</strong></div>
+                  {previewDelta !== null && !completed && (
+                    <div data-testid="cash-change-estimate" role="status">
+                      <span>{previewDelta >= 0n ? "Cambio estimado" : "Falta para cubrir"}</span>
+                      <strong>{formatCopMicros(previewDelta >= 0n ? previewDelta : -previewDelta)}</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+          <button className="pos-primary-action" type="button"
             data-testid="charge-cash-button"
-            onClick={() => { void sale.chargeCash(); }}
-            disabled={sale.busy}
+            onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
+            disabled={sale.busy || completed || (confirmedCoverage !== null && !paymentAmount.trim())}
           >
-            Cobrar en efectivo
+            Confirmar cobro en efectivo
           </button>
           {/* Reportar la transferencia y atestiguarla son dos actos distintos,
               con dos permisos distintos (`UC-PAY-002` y `UC-PAY-003`). La
@@ -143,7 +342,7 @@ export function SalePanel(): React.JSX.Element {
           <button
             data-testid="register-transfer-button"
             onClick={() => { void sale.registerTransfer(); }}
-            disabled={sale.busy || sale.transfer !== null}
+            disabled={sale.busy || completed || sale.transfer !== null}
           >
             Transferencia
           </button>
@@ -188,31 +387,32 @@ export function SalePanel(): React.JSX.Element {
           <span data-testid="transfer-expected-amount">{sale.transfer.expectedAmount}</span>
           {/* Registrada NO es cobrada: mientras nadie atestigüe, la venta sigue
               sin completarse y no suena nada. */}
-          <div data-testid="transfer-pending">Pendiente de confirmación</div>
-          <button
+          {sale.transfer.status === "CREATED" && <div data-testid="transfer-pending">Pendiente de confirmación</div>}
+          {canRefreshTransfer && !completed && (sale.transfer.status === "CREATED" || sale.transfer.status === "CONFIRMED") && (
+            <button type="button" onClick={() => { void sale.refreshTransfer(); }} disabled={sale.busy || sale.unresolved}>
+              Actualizar estado de la transferencia
+            </button>
+          )}
+          {canConfirmTransfer && <button
             data-testid="confirm-transfer-button"
             onClick={() => { void sale.confirmTransfer(); }}
-            disabled={sale.busy}
+            disabled={sale.busy || sale.unresolved || sale.transfer.status !== "CREATED"}
           >
             Confirmar transferencia
-          </button>
+          </button>}
         </div>
       )}
 
-      {sale.transferConfirmation !== null && (
-        sale.transferConfirmation.sale_completed ? (
-          <div data-testid="transfer-sale-completed">
-            Venta cobrada por transferencia · cobertura{" "}
-            <span data-testid="transfer-confirmed-coverage">
-              {sale.transferConfirmation.confirmed_coverage}
-            </span>
-          </div>
-        ) : (
-          <div data-testid="transfer-partial">
-            Transferencia {sale.transferConfirmation.outcome} · la venta aún no está cobrada
-          </div>
-        )
-      )}
+      {transferCompleted ? (
+        <div data-testid="transfer-sale-completed">
+          Venta cobrada por transferencia · cobertura{" "}
+          <span data-testid="transfer-confirmed-coverage">
+            {sale.transferReceiptAmount ?? sale.transferConfirmation?.confirmed_coverage}
+          </span>
+        </div>
+      ) : sale.transferConfirmation !== null || sale.transfer?.status === "CONFIRMED" ? (
+        <div data-testid="transfer-partial">Transferencia {sale.transferConfirmation?.outcome ?? "confirmada"} · la venta aún no está cobrada</div>
+      ) : null}
 
       {sale.factusPay !== null && (
         <div data-testid="factus-pay-registered">
@@ -280,8 +480,11 @@ export function SalePanel(): React.JSX.Element {
         )
       )}
 
+      {sale.unresolved && <div role="alert">Hay una operación pendiente de respuesta.
+        <button type="button" data-testid="retry-pending-operation" disabled={sale.busy} onClick={() => { void sale.retryPending(); }}>Reintentar operación pendiente</button>
+      </div>}
       {sale.error !== null && <div data-testid="sale-error">{sale.error}</div>}
-      <button data-testid="reset-button" onClick={() => { sale.reset(); }} disabled={sale.busy}>
+      <button data-testid="reset-button" onClick={() => { if (!sale.reset()) return; setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); setShowDenominations(false); }} disabled={sale.busy}>
         Nueva venta
       </button>
     </section>

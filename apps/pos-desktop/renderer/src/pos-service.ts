@@ -38,7 +38,7 @@ export { RENDERER_API_METHODS };
  */
 export interface CommercialEnvelope {
   readonly protocol_version: string;
-  readonly message_type: string;
+  readonly message_type: RendererApiMethod;
   readonly request_id: string;
   readonly correlation_id: string;
   readonly payload_schema_version: string;
@@ -107,10 +107,13 @@ export async function callCommercial<T>(
   payload: unknown,
   idempotencyKey?: string,
 ): Promise<CommercialResponse<T>> {
+  return callCommercialEnvelope<T>(buildEnvelope(messageType, payload, idempotencyKey));
+}
+
+export async function callCommercialEnvelope<T>(envelope: CommercialEnvelope): Promise<CommercialResponse<T>> {
+  const messageType = envelope.message_type;
   try {
-    const response = await getPosService()[messageType](
-      buildEnvelope(messageType, payload, idempotencyKey),
-    ) as CommercialResponse<T>;
+    const response = await getPosService()[messageType](envelope) as CommercialResponse<T>;
     // Recovery/capabilities coordinate their own strictly validated state.
     // Other backend denials must invalidate capabilities already shown by React.
     if (

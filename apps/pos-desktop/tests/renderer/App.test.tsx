@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "../../renderer/src/App.js";
 
 function localOperatorResult(
@@ -44,6 +44,10 @@ function makeService() {
     "local.operator.logout": vi.fn().mockResolvedValue(localOperatorResult("SIGNED_OUT")),
     "operation.result.get": vi.fn(),
     "operation.confirm": vi.fn(),
+    "catalog.item.list": vi.fn().mockResolvedValue({
+      status: "SUCCEEDED", result_code: "FOUND",
+      result: { outcome: "FOUND", items: [], has_more: false },
+    }),
     "cart.waiting.list": vi.fn().mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "FOUND",
@@ -198,6 +202,7 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByTestId("authorization-unauthenticated")).toBeTruthy();
       expect(screen.getByLabelText("Usuario")).toBeTruthy();
+      expect(screen.getByRole("img", { name: "Camacho POS Colombia" })).toBeTruthy();
     });
 
     expect(screen.queryByTestId("sale-panel")).toBeNull();
@@ -219,6 +224,20 @@ describe("App", () => {
 
     expect(screen.queryByTestId("sale-panel")).toBeNull();
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
+  });
+
+  it("uses the original brand and collapses navigation without changing permissions or the active screen", async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Catálogo" })).toBeTruthy());
+    const heading = screen.getByRole("heading", { name: "Catálogo", level: 1 });
+    expect(screen.getByRole("img", { name: "Camacho POS Colombia" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Ocultar menú" }));
+    expect(screen.getByRole("button", { name: "Mostrar menú" }).getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Catálogo" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBe(heading);
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar menú" }));
+    expect(screen.getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
   });
 
   it("renders the POS Local heading", async () => {

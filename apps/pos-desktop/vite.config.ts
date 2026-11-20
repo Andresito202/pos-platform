@@ -16,7 +16,10 @@ export default defineConfig({
   // la ventana abre en blanco sin un solo error visible.
   base: "./",
   build: {
+    rollupOptions: { input: { pos: resolve(__dirname, "renderer/index.html"), platform: resolve(__dirname, "renderer/platform.html") } },
     outDir: resolve(__dirname, "dist", RENDERER_DIRECTORY),
     emptyOutDir: true,
+    // Keep images as self-hosted files: renderer CSP does not allow data: URLs.
+    assetsInlineLimit: 0,
   },
 });

@@ -4,6 +4,9 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
 import { createPostgresPool, PostgresDeviceRegistryRepository } from "@pos-platform/database-postgres";
+import { prepareGlobalAdministrationRuntime } from "./global-administration-runtime.js";
+import { prepareLicenseCapacityRuntime } from "./license-capacity-runtime.js";
+import { parseCentralDeploymentConfiguration, verifyCentralRuntimeDatabase, verifyCentralTlsIdentity } from "./central-deployment-configuration.js";
 import { SessionTrustPublication } from "./session-trust-publication.js";
 import { prepareFactusPayRuntime } from "./factus-pay-runtime.js";
 import { FACTUS_PAY_COLLECTION_WEBHOOK_PATH } from "./factus-pay-webhook-handler.js";
@@ -82,7 +85,11 @@ function protocolContext(request: IncomingMessage, requestId: string, correlatio
 }
 
 const databaseUrl = required("CENTRAL_DATABASE_URL");
-const transportToken = required("D3_ENROLLMENT_TRANSPORT_TOKEN");
+const globalProvision = process.env.CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE;
+const deployment = globalProvision ? parseCentralDeploymentConfiguration(process.env) : null;
+const transportToken = deployment === null
+  ? required("D3_ENROLLMENT_TRANSPORT_TOKEN")
+  : secretFromFile("D3_ENROLLMENT_TRANSPORT_TOKEN_FILE");
 const issuerPrivateKey = createPrivateKey(secretFromFile("D3_ISSUER_PRIVATE_KEY_FILE"));
 const tlsKey = readFileSync(required("CENTRAL_TLS_KEY_FILE"));
 const tlsCert = readFileSync(required("CENTRAL_TLS_CERT_FILE"));
@@ -93,6 +100,29 @@ const sessionTrustTransportToken = process.env.SESSION_TRUST_TRANSPORT_TOKEN_FIL
   ? null
   : secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
 const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
+const globalHandler = await (async () => {
+  if (!globalProvision || !deployment) return undefined;
+  const environment = deployment.environment;
+  if (environment === "LOCAL") throw new Error("GLOBAL_ADMIN_REAL_DEPLOYMENT_REQUIRED");
+  verifyCentralTlsIdentity(deployment, tlsCert, createPrivateKey(tlsKey));
+  try {
+    await verifyCentralRuntimeDatabase(pool);
+    const licenseRuntime = await prepareLicenseCapacityRuntime({
+      pool, provisionFile: required("CENTRAL_LICENSE_ACTIVATION_PROVISION_FILE"),
+      origin: deployment.origin, environment,
+    });
+    return {
+      portal: await prepareGlobalAdministrationRuntime({
+        pool, provisionFile: globalProvision, origin: deployment.origin,
+        licenseAuthority: licenseRuntime.authority,
+      }),
+      activation: licenseRuntime.handler,
+    };
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
+})();
 const repository = new PostgresDeviceRegistryRepository({ pool });
 const issuer = new CentralDeviceCredentialIssuer(repository, issuerPrivateKey, { now: () => new Date() });
 const handler = new DeviceEnrollmentHttpHandler(issuer, {
@@ -115,6 +145,21 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
+
+  if (request.url === "/v1/licensing/activations/resolve" ||
+      request.url === "/platform" || request.url?.startsWith("/platform/") ||
+      request.url?.startsWith("/v1/platform/")) {
+    if (!globalHandler || !deployment) {
+      send(response, 503, { status: "REJECTED", result_code: "GLOBAL_ADMINISTRATION_NOT_ACTIVATED" });
+      return;
+    }
+    if (request.headers.host !== new URL(deployment.origin).host) {
+      send(response, 421, { status: "REJECTED", result_code: "CENTRAL_HOST_REJECTED" });
+      return;
+    }
+    await (request.url === "/v1/licensing/activations/resolve" ? globalHandler.activation : globalHandler.portal)(request, response);
+    return;
+  }
 
   if (request.method === "GET" && request.url === "/health") {
     send(response, 200, { status: "OK", service: "central-authority", protocol_version: "1.0.0" });
@@ -180,8 +225,12 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   }
 });
 
+if (deployment) {
+  server.requestTimeout = deployment.requestTimeoutMs;
+  server.headersTimeout = deployment.headersTimeoutMs;
+}
 server.on("clientError", (_error, socket) => socket.destroy());
-server.listen(PORT, "0.0.0.0", () => process.stdout.write(JSON.stringify({ service: "central-authority", status: "LISTENING", port: PORT }) + "\n"));
+server.listen(PORT, deployment?.bindAddress ?? "0.0.0.0", () => process.stdout.write(JSON.stringify({ service: "central-authority", status: "LISTENING", port: PORT }) + "\n"));
 
 const shutdown = async (signal: string) => {
   server.close();

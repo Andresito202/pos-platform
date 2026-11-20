@@ -378,13 +378,22 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   expect(await page.getByTestId("receipt-not-found").count()).toBe(0);
   expect(await page.getByTestId("receipt").count()).toBe(0);
 
+  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
+  await page.getByTestId("reset-button").click();
+  await expect(page.getByTestId("sale-error")).toHaveText("Completa la venta antes de iniciar otra.");
+  await expect(page.getByTestId("sale-id")).toHaveText(pendingSale);
+
+  await page.getByTestId("charge-cash-button").click();
+  await expect(page.getByTestId("sale-completed")).toBeVisible({ timeout: 15_000 });
+  await page.getByTestId("reset-button").click();
+  await expect(page.getByTestId("sale-created")).toHaveCount(0);
+
   // ── 8 · El cierre del turno, que es lo que permite abrir el siguiente ──────
   //
   // `DEC-012` §25.2 admite un unico turno OPEN o CLOSING por caja. Sin cierre,
   // la caja queda inservible al dia siguiente: es el bloqueo que este tramo
   // levanta, y se comprueba aqui desde la pantalla real.
 
-  await page.getByRole("button", { name: "Caja y ventas", exact: true }).click();
   await page.getByTestId("counted-amount-input").fill("0");
   await page.getByTestId("close-shift-button").click();
   await expect(page.getByTestId("shift-close-result")).toBeVisible({ timeout: 15_000 });

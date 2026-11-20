@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
+import "./commercial-precision.css";
+import "./workspace.css";
+import { BrandMark } from "./components/BrandMark.js";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
 import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
 import { LocalAdministrativeAuditPanel } from "./components/LocalAdministrativeAuditPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
+import { AdministrativeControlPanel } from "./components/AdministrativeControlPanel.js";
+import { TransferReviewPanel } from "./components/TransferReviewPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
 import { HardwarePanel } from "./components/HardwarePanel.js";
@@ -29,6 +34,7 @@ type Screen = {
 export function App(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
   const [sessionEpoch, setSessionEpoch] = useState(0);
+  const [navigationOpen, setNavigationOpen] = useState(true);
   const localSession = useLocalOperatorSession(sessionEpoch);
   const [activeScreen, setActiveScreen] = useState<string | null>(null);
   // Tip #106: keep visited screens mounted (hidden) so SalePanel shift/cart
@@ -56,6 +62,7 @@ export function App(): React.JSX.Element {
     ) {
       setActiveScreen(null);
       setVisitedScreens(new Set());
+      setNavigationOpen(true);
     }
   }, [authorization.phase]);
 
@@ -77,18 +84,20 @@ export function App(): React.JSX.Element {
     const { permissions, entitlements } = authorization;
     const result: Screen[] = [];
 
-    if (hasAny(permissions, [
-      "CASH_SHIFT_OPEN",
-      "CASH_SHIFT_CLOSE",
-      "SALES_SALE_CREATE",
-      "PAYMENTS_PAYMENT_REGISTER",
-      "PAYMENTS_TRANSFER_REPORT",
-      "PAYMENTS_TRANSFER_CONFIRM",
-    ])) {
+    if (permissions.has("SALES_SALE_CREATE")) {
       result.push({
         id: "sales",
         label: "Caja y ventas",
-        render: () => <SalePanel />,
+        render: () => <SalePanel permissions={permissions} />,
+      });
+    }
+
+    if (permissions.has("PAYMENTS_PAYMENT_READ") &&
+        hasAny(permissions, ["PAYMENTS_TRANSFER_CONFIRM", "PAYMENTS_PAYMENT_CANCEL"])) {
+      result.push({
+        id: "payment-review",
+        label: "Revisar transferencias",
+        render: () => <TransferReviewPanel permissions={permissions} />,
       });
     }
 
@@ -143,6 +152,10 @@ export function App(): React.JSX.Element {
       result.push({ id: "hardware", label: "Impresora y cajón", render: () => <HardwarePanel /> });
     }
 
+    if (localSession.role === "ADMINISTRADOR" && permissions.has("AUDIT_EVENT_READ")) {
+      result.push({ id: "dashboard", label: "Dashboard", render: () => <AdministrativeControlPanel /> });
+    }
+
     if (permissions.has("AUDIT_EVENT_READ")) {
       // Local SUPERADMINISTRADOR is audit-only development authority — never the
       // GLOBAL platform portal and never commercial admin.metrics / FACTUS UX.
@@ -167,6 +180,11 @@ export function App(): React.JSX.Element {
     const unauthenticated = authorization.phase === "unauthenticated";
     return (
       <main className="pos-entry" aria-busy={loading}>
+        <section className="pos-entry-brand" aria-label="Identidad Camacho POS Colombia">
+          <BrandMark variant="entry" />
+          <h2>Acceso seguro al<br />punto de venta</h2>
+          <p>Inicia sesión para continuar con tu operación.</p>
+        </section>
         <section className="pos-entry-card" aria-label="Estado de acceso">
           <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
           <h1>Iniciar sesión</h1>
@@ -218,9 +236,10 @@ export function App(): React.JSX.Element {
   const selectedScreen = screens.find((screen) => screen.id === activeScreen) ?? screens[0] ?? null;
 
   return (
-    <main className="pos-shell" data-operator-role={localSession.role ?? "none"}>
-      <aside className="pos-sidebar" aria-label="Navegación principal">
-        <div className="pos-brand-mark" role="img" aria-label="Camacho POS Colombia" />
+    <main className="pos-shell" data-navigation-open={navigationOpen} data-operator-role={localSession.role ?? "none"}>
+      <aside id="pos-navigation" className="pos-sidebar" aria-label="Navegación principal" hidden={!navigationOpen}>
+        <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
+        <BrandMark variant="sidebar" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">
           {localSession.role === "CAJERO"
@@ -249,8 +268,13 @@ export function App(): React.JSX.Element {
         <LocalOperatorSessionControl onSessionChanged={refreshAccess} />
       </aside>
 
-      <div className="pos-content">
+      <div className="pos-content" id="pos-workspace" tabIndex={-1}>
         <header className="pos-header">
+          <button className="pos-navigation-toggle" type="button" aria-controls="pos-navigation"
+            aria-expanded={navigationOpen} aria-label={navigationOpen ? "Ocultar menú" : "Mostrar menú"}
+            onClick={() => setNavigationOpen(open => !open)}>
+            <img src={navigationOpen ? new URL("./assets/payment-icons/chevron-left.svg", import.meta.url).href : new URL("./assets/payment-icons/chevron-right.svg", import.meta.url).href} alt="" />
+          </button>
           <div>
             <p className="pos-product-name">Camacho POS Colombia</p>
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>

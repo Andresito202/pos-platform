@@ -3,6 +3,7 @@
  * (send / strictHeaders / body) without the frozen commercial HTTPS composition.
  * License activation reuses this boundary; SCM commercial routes stay excluded.
  */
+import type { AuthenticationResponseJSON } from "@simplewebauthn/server";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 type ObjectBody = Record<string, unknown>;
@@ -93,6 +94,26 @@ async function body(
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Rejection(400);
   return { object: value as ObjectBody, raw };
+}
+
+const exact = (value: ObjectBody, keys: readonly string[]): boolean =>
+  Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+const text = (value: unknown, max: number): value is string =>
+  typeof value === "string" && value.length > 0 && value.length <= max;
+
+export function validateCommercialAssertion(value:unknown):value is AuthenticationResponseJSON{
+  if(!value||typeof value!=="object"||Array.isArray(value))return false;
+  const v=value as ObjectBody;
+  if(!(exact(v,["id","rawId","type","clientExtensionResults","response"])||
+      exact(v,["id","rawId","type","clientExtensionResults","response","authenticatorAttachment"])&&
+      ["platform","cross-platform"].includes(v.authenticatorAttachment as string))||v.type!=="public-key"||
+    !text(v.id,2048)||v.rawId!==v.id||!v.clientExtensionResults||typeof v.clientExtensionResults!=="object"||
+    Array.isArray(v.clientExtensionResults)||Object.keys(v.clientExtensionResults).length!==0||
+    !v.response||typeof v.response!=="object"||Array.isArray(v.response))return false;
+  const r=v.response as ObjectBody;
+  return (exact(r,["clientDataJSON","authenticatorData","signature"])||exact(r,["clientDataJSON","authenticatorData","signature","userHandle"]))&&
+    [r.clientDataJSON,r.authenticatorData,r.signature].every(s=>text(s,8192))&&
+    (r.userHandle===undefined||r.userHandle===null||text(r.userHandle,2048));
 }
 
 export {
