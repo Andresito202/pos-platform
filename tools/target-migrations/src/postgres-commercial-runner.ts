@@ -40,8 +40,19 @@ export const POSTGRES_022_DESCRIPTOR=descriptor("022_license_activations",POSTGR
 export const LICENSE_ACTIVATION_MIGRATIONS=Object.freeze([...GLOBAL_ADMINISTRATION_MIGRATIONS,POSTGRES_022_DESCRIPTOR]);
 export const POSTGRES_023_DESCRIPTOR=descriptor("023_license_offer_terms",POSTGRES_022_DESCRIPTOR.migrationId,["licensing.plans"],"licensing");
 export const LICENSE_CATALOG_MIGRATIONS=Object.freeze([...LICENSE_ACTIVATION_MIGRATIONS,POSTGRES_023_DESCRIPTOR]);
-type CommercialMigrationTarget="AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
+export const POSTGRES_029_DESCRIPTOR = descriptor(
+  "029_cash_register_master",
+  POSTGRES_023_DESCRIPTOR.migrationId,
+  ["cash.cash_registers"],
+  "cash"
+);
+export const CASH_REGISTER_MASTER_MIGRATIONS = Object.freeze([
+  ...LICENSE_CATALOG_MIGRATIONS,
+  POSTGRES_029_DESCRIPTOR
+]);
+type CommercialMigrationTarget="CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="CASH_REGISTER_MASTER")return [POSTGRES_029_DESCRIPTOR];
   if(target==="LICENSE_CATALOG")return LICENSE_CATALOG_MIGRATIONS;
   if(target==="LICENSE_ACTIVATIONS")return LICENSE_ACTIVATION_MIGRATIONS;
   if(target==="AUTHENTICATION")return COMMERCIAL_MIGRATIONS;
@@ -63,6 +74,32 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
     // 014 extends the existing Identity-central table, whose 001 contract uses
     // role grants rather than tenant RLS. It must not change that boundary.
     check(result.rows[0]?.owner==="pos_schema_owner"&&(d===POSTGRES_014_DESCRIPTOR||result.rows[0].rls&&result.rows[0].forced),`Commercial migration ownership/RLS mismatch: ${table}`);
+  }
+  if(d===POSTGRES_029_DESCRIPTOR){
+    const table="cash.cash_registers";
+
+    for(const role of ["pos_platform_app","pos_worker","pos_app"]){
+      for(const privilege of ["SELECT","INSERT","UPDATE","DELETE","TRUNCATE","REFERENCES","TRIGGER"]){
+        const expected=role==="pos_platform_app"
+          ? ["SELECT","INSERT","UPDATE"].includes(privilege)
+          : role==="pos_worker" && privilege==="SELECT";
+
+        const result=await c.query(
+          "SELECT has_table_privilege($1,$2,$3) AS allowed",
+          [role,table,privilege]
+        );
+
+        check(result.rows[0]?.allowed===expected,
+          `Cash register ACL mismatch: ${role}/${privilege}`);
+      }
+    }
+
+    check((await c.query(`
+      SELECT 1 FROM pg_trigger
+      WHERE tgrelid='cash.cash_registers'::regclass
+      AND tgname='cash_register_mutation_guard'
+      AND tgenabled='O'
+    `)).rowCount===1,"Cash register mutation guard missing");
   }
   if(d===POSTGRES_014_DESCRIPTOR){
     const columns=await c.query("SELECT attname FROM pg_attribute WHERE attrelid='identity.session_refresh_tokens'::regclass AND attnum>0 AND NOT attisdropped");
@@ -125,7 +162,7 @@ export async function applyCommercialMigrations(input:{migratorUrl:string;expect
         const predecessor=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_003_DESCRIPTOR.migrationId])).rows[0];
         check(predecessor&&Buffer.from(predecessor.checksum).equals(sha256(await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact))),"Factus Pay 003 predecessor mismatch");
       }
-      let predecessor=POSTGRES_007_DESCRIPTOR;
+      let predecessor=input.target==="CASH_REGISTER_MASTER"?POSTGRES_023_DESCRIPTOR:POSTGRES_007_DESCRIPTOR;
       for(const d of selected){
         const checksum=sha256(await readArtifact(d.upArtifact)),prior=sha256(await readArtifact(predecessor.upArtifact));
         const history=(await c.query("SELECT execution_id,checksum,status FROM platform.target_migration_executions WHERE migration_id=$1 ORDER BY started_at",[d.migrationId])).rows;
