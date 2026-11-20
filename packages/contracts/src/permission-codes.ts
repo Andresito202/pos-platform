@@ -29,6 +29,8 @@ export const PermissionCode = {
   PAYMENTS_TRANSFER_CONFIRM: "PAYMENTS_TRANSFER_CONFIRM",
   /** Sensitive merchant recipient configuration; only explicitly provisioned GENERAL_ADMIN. */
   PAYMENTS_PROVIDER_CONFIGURE: "PAYMENTS_PROVIDER_CONFIGURE",
+  /** Central BUSINESS administration of cash register master data. */
+  CASH_REGISTER_MANAGE: "CASH_REGISTER_MANAGE",
   CASH_SHIFT_OPEN: "CASH_SHIFT_OPEN",
   CASH_SHIFT_CLOSE: "CASH_SHIFT_CLOSE",
   FISCAL_DOCUMENT_ISSUE: "FISCAL_DOCUMENT_ISSUE",
