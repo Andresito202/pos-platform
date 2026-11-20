@@ -56,8 +56,15 @@ export const POSTGRES_030_DESCRIPTOR = descriptor(
   [],
   "authorization"
 );
-type CommercialMigrationTarget="COMMERCIAL_AUTHORIZATION"|"CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
+export const POSTGRES_031_DESCRIPTOR = descriptor(
+  "031_business_owner_role",
+  POSTGRES_030_DESCRIPTOR.migrationId,
+  [],
+  "authorization"
+);
+type CommercialMigrationTarget="BUSINESS_OWNER"|"COMMERCIAL_AUTHORIZATION"|"CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="BUSINESS_OWNER")return [POSTGRES_031_DESCRIPTOR];
   if(target==="COMMERCIAL_AUTHORIZATION")return [POSTGRES_030_DESCRIPTOR];
   if(target==="CASH_REGISTER_MASTER")return [POSTGRES_029_DESCRIPTOR];
   if(target==="LICENSE_CATALOG")return LICENSE_CATALOG_MIGRATIONS;
@@ -81,6 +88,34 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
     // 014 extends the existing Identity-central table, whose 001 contract uses
     // role grants rather than tenant RLS. It must not change that boundary.
     check(result.rows[0]?.owner==="pos_schema_owner"&&(d===POSTGRES_014_DESCRIPTOR||result.rows[0].rls&&result.rows[0].forced),`Commercial migration ownership/RLS mismatch: ${table}`);
+  }
+  if(d===POSTGRES_031_DESCRIPTOR){
+    const grants=(await c.query(`
+      SELECT r.code AS role,p.code AS permission
+      FROM "authorization".role_permission_grants g
+      JOIN "authorization".roles r ON r.id=g.role_id
+      JOIN "authorization".permissions p ON p.id=g.permission_id
+      WHERE r.code IN ('OWNER','GENERAL_ADMIN')
+        AND r.status='ACTIVE'
+        AND p.status='ACTIVE'
+        AND g.status='ACTIVE'
+        AND g.valid_from<=clock_timestamp()
+        AND (g.valid_until IS NULL OR g.valid_until>clock_timestamp())
+    `)).rows;
+
+    const owner=grants.filter(g=>g.role==="OWNER")
+      .map(g=>g.permission).sort();
+
+    const admin=grants.filter(g=>g.role==="GENERAL_ADMIN")
+      .map(g=>g.permission).sort();
+
+    check(owner.length===20,"Owner grant count mismatch");
+    check(JSON.stringify(owner)===JSON.stringify(admin),
+      "Owner permission mismatch");
+    check(owner.includes("CASH_REGISTER_MANAGE"),
+      "Owner cash register permission missing");
+    check(!owner.some(p=>p.startsWith("LICENSE_")),
+      "Owner global licensing forbidden");
   }
   if(d===POSTGRES_030_DESCRIPTOR){
     const grants=(await c.query(`
@@ -240,7 +275,7 @@ export async function applyCommercialMigrations(input:{migratorUrl:string;expect
         const predecessor=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_003_DESCRIPTOR.migrationId])).rows[0];
         check(predecessor&&Buffer.from(predecessor.checksum).equals(sha256(await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact))),"Factus Pay 003 predecessor mismatch");
       }
-      let predecessor=input.target==="COMMERCIAL_AUTHORIZATION"?POSTGRES_029_DESCRIPTOR:input.target==="CASH_REGISTER_MASTER"?POSTGRES_023_DESCRIPTOR:POSTGRES_007_DESCRIPTOR;
+      let predecessor=input.target==="BUSINESS_OWNER"?POSTGRES_030_DESCRIPTOR:input.target==="COMMERCIAL_AUTHORIZATION"?POSTGRES_029_DESCRIPTOR:input.target==="CASH_REGISTER_MASTER"?POSTGRES_023_DESCRIPTOR:POSTGRES_007_DESCRIPTOR;
       for(const d of selected){
         const checksum=sha256(await readArtifact(d.upArtifact)),prior=sha256(await readArtifact(predecessor.upArtifact));
         const history=(await c.query("SELECT execution_id,checksum,status FROM platform.target_migration_executions WHERE migration_id=$1 ORDER BY started_at",[d.migrationId])).rows;
