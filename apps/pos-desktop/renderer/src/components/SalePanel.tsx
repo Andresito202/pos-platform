@@ -35,6 +35,8 @@ const cashDenominations = [
 export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> } = {}): React.JSX.Element {
   const canReadCatalog = permissions?.has(CanonicalPermission.CATALOG_PRODUCT_READ) === true;
   const canReadCustomers = permissions?.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) === true;
+  const canRefreshTransfer = permissions === undefined ||
+    (permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ) && permissions.has(CanonicalPermission.SALES_RECEIPT_READ));
   const canConfirmTransfer = permissions === undefined || permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM);
   const canCreateSale = permissions === undefined || permissions.has(CanonicalPermission.SALES_SALE_CREATE);
   const sale = useCommercialSale({ canReadCatalog });
@@ -52,7 +54,8 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
   const [denominationCounts, setDenominationCounts] = useState<Record<number, number>>({});
   const [showDenominations, setShowDenominations] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
-  const completed = sale.payment?.sale_completed === true || sale.transferConfirmation?.sale_completed === true || sale.factusPayConfirmation?.sale_completed === true;
+  const transferCompleted = sale.transferReceiptAmount !== null || sale.transferConfirmation?.sale_completed === true;
+  const completed = sale.payment?.sale_completed === true || transferCompleted || sale.factusPayConfirmation?.sale_completed === true;
   const confirmedCoverage = [sale.payment?.confirmed_coverage, sale.transferConfirmation?.confirmed_coverage, sale.factusPayConfirmation?.confirmed_coverage]
     .reduce<string | null>((max, value) => {
       if (value == null) return max;
@@ -339,7 +342,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
           <button
             data-testid="register-transfer-button"
             onClick={() => { void sale.registerTransfer(); }}
-            disabled={sale.busy || sale.transfer !== null}
+            disabled={sale.busy || completed || sale.transfer !== null}
           >
             Transferencia
           </button>
@@ -385,6 +388,11 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
           {/* Registrada NO es cobrada: mientras nadie atestigüe, la venta sigue
               sin completarse y no suena nada. */}
           {sale.transfer.status === "CREATED" && <div data-testid="transfer-pending">Pendiente de confirmación</div>}
+          {canRefreshTransfer && !completed && (sale.transfer.status === "CREATED" || sale.transfer.status === "CONFIRMED") && (
+            <button type="button" onClick={() => { void sale.refreshTransfer(); }} disabled={sale.busy || sale.unresolved}>
+              Actualizar estado de la transferencia
+            </button>
+          )}
           {canConfirmTransfer && <button
             data-testid="confirm-transfer-button"
             onClick={() => { void sale.confirmTransfer(); }}
@@ -395,20 +403,16 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
         </div>
       )}
 
-      {sale.transferConfirmation !== null && (
-        sale.transferConfirmation.sale_completed ? (
-          <div data-testid="transfer-sale-completed">
-            Venta cobrada por transferencia · cobertura{" "}
-            <span data-testid="transfer-confirmed-coverage">
-              {sale.transferConfirmation.confirmed_coverage}
-            </span>
-          </div>
-        ) : (
-          <div data-testid="transfer-partial">
-            Transferencia {sale.transferConfirmation.outcome} · la venta aún no está cobrada
-          </div>
-        )
-      )}
+      {transferCompleted ? (
+        <div data-testid="transfer-sale-completed">
+          Venta cobrada por transferencia · cobertura{" "}
+          <span data-testid="transfer-confirmed-coverage">
+            {sale.transferReceiptAmount ?? sale.transferConfirmation?.confirmed_coverage}
+          </span>
+        </div>
+      ) : sale.transferConfirmation !== null || sale.transfer?.status === "CONFIRMED" ? (
+        <div data-testid="transfer-partial">Transferencia {sale.transferConfirmation?.outcome ?? "confirmada"} · la venta aún no está cobrada</div>
+      ) : null}
 
       {sale.factusPay !== null && (
         <div data-testid="factus-pay-registered">

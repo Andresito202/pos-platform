@@ -14,6 +14,7 @@ import type {
   PaymentCancelResult,
   PaymentRegisterCashResult,
   SaleCreateResult,
+  SalesReceiptGetResult,
 } from "@pos-platform/contracts";
 import { buildEnvelope, callCommercial, callCommercialEnvelope, newIdempotencyKey, type CommercialEnvelope } from "../pos-service.js";
 import { playConfirmationChime, shouldPlayChime } from "../confirmation-sound.js";
@@ -82,6 +83,8 @@ export interface CommercialSaleState {
   readonly closedShift: CashShiftCloseResult | null;
   /** Transferencia reportada, a la espera de atestiguación. */
   readonly transfer: RegisteredTransfer | null;
+  /** Importe del comprobante consultado al actualizar una confirmación externa. */
+  readonly transferReceiptAmount: string | null;
   /** Resultado de confirmar la transferencia. Sólo aquí puede sonar el cha-ching. */
   readonly transferConfirmation: PaymentTransferConfirmResult | null;
   readonly factusPay: RegisteredFactusPay | null;
@@ -145,6 +148,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   captureWeight(): Promise<void>;
   createSale(): Promise<void>;
   chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
+  refreshTransfer(): Promise<void>;
   registerTransfer(): Promise<void>;
   confirmTransfer(): Promise<void>;
   collectFactusPay(): Promise<void>;
@@ -174,6 +178,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   const [payment, setPayment] = useState<PaymentRegisterCashResult | null>(null);
   const [closedShift, setClosedShift] = useState<CashShiftCloseResult | null>(null);
   const [transfer, setTransfer] = useState<RegisteredTransfer | null>(null);
+  const [transferReceiptAmount, setTransferReceiptAmount] = useState<string | null>(null);
   const [transferConfirmation, setTransferConfirmation] =
     useState<PaymentTransferConfirmResult | null>(null);
   const [factusPay, setFactusPay] = useState<RegisteredFactusPay | null>(null);
@@ -407,7 +412,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
 
   const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;
-    if (current === null || busy || payment?.sale_completed || transferConfirmation?.sale_completed || factusPayConfirmation?.sale_completed) return;
+    if (current === null || busy || payment?.sale_completed || transferConfirmation?.sale_completed || transferReceiptAmount !== null || factusPayConfirmation?.sale_completed) return;
     // The service returns cumulative confirmed coverage. Never sum overlapping snapshots.
     const coverage = [payment?.confirmed_coverage, transferConfirmation?.confirmed_coverage, factusPayConfirmation?.confirmed_coverage]
       .reduce<bigint>((max, value) => {
@@ -430,7 +435,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         if (shouldPlayChime(result)) playConfirmationChime();
       },
     );
-  }, [sale, busy, payment, transferConfirmation, factusPayConfirmation, run]);
+  }, [sale, busy, payment, transferConfirmation, transferReceiptAmount, factusPayConfirmation, run]);
 
   /**
    * Cerrar el turno con el efectivo contado.
@@ -527,6 +532,42 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
       },
     );
   }, [sale, run]);
+
+  const refreshTransfer = useCallback(async (): Promise<void> => {
+    if (sale === null || transfer === null) return;
+    const { saleId } = sale;
+    const { paymentId } = transfer;
+    let confirmed = false;
+    await run<PaymentGetResult>(
+      () => callCommercial("payment.get", { payment_id: paymentId }),
+      result => {
+        if (result.outcome !== "FOUND" || result.sale_id !== saleId || result.payment_id !== paymentId ||
+            result.method !== "TRANSFER" || result.status === null || result.version === null ||
+            result.expected_amount === null) {
+          setError(result.outcome === "FOUND" ? "PAYMENT_TRANSFER_MISMATCH" : result.outcome);
+          return;
+        }
+        setTransfer({ paymentId, status: result.status, version: result.version, expectedAmount: result.expected_amount });
+        confirmed = result.status === "CONFIRMED";
+      },
+    );
+    if (!confirmed) return;
+
+    // Una transferencia confirmada puede cubrir solo parte de la venta.
+    await run<SalesReceiptGetResult>(
+      async () => {
+        const response = await callCommercial<SalesReceiptGetResult>("sales.receipt.get", { sale_id: saleId });
+        return response.status === "REJECTED" && response.result?.outcome === "NOT_COMPLETED"
+          ? { ...response, status: "SUCCEEDED" }
+          : response;
+      },
+      result => {
+        if (result.outcome === "FOUND" && result.sale_id === saleId && result.payable_amount !== null) {
+          setTransferReceiptAmount(result.payable_amount);
+        }
+      },
+    );
+  }, [sale, transfer, run]);
 
   /**
    * Atestiguar la transferencia — `UC-PAY-003`.
@@ -741,7 +782,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
 
   const reset = useCallback((): boolean => {
     if (busyRef.current || pendingChange.current) return false;
-    if (sale && !payment?.sale_completed && !transferConfirmation?.sale_completed && !factusPayConfirmation?.sale_completed) {
+    if (sale && !payment?.sale_completed && !transferConfirmation?.sale_completed && transferReceiptAmount === null && !factusPayConfirmation?.sale_completed) {
       setError("Completa la venta antes de iniciar otra.");
       return false;
     }
@@ -754,17 +795,18 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     setFoundItem(null);
     setTransfer(null);
     setTransferConfirmation(null);
+    setTransferReceiptAmount(null);
     setFactusPay(null);
     setFactusPayConfirmation(null);
     setError(null);
     return true;
-  }, [sale, payment, transferConfirmation, factusPayConfirmation]);
+  }, [sale, payment, transferConfirmation, transferReceiptAmount, factusPayConfirmation]);
 
   return {
     busy, error, shift, foundItem, lines, sale, payment, closedShift,
-    transfer, transferConfirmation, factusPay, factusPayConfirmation,
+    transfer, transferConfirmation, transferReceiptAmount, factusPay, factusPayConfirmation,
     openShift, findItem, addFoundItem, captureWeight, createSale, chargeCash,
-    registerTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
+    registerTransfer, refreshTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
     closeShift, reset, unresolved, retryPending, loadTransfer, cancelTransfer,
     catalogItems, catalogBusy, catalogHasMore, listCatalogItems, loadMoreCatalogItems, addCatalogItem, removeLine,
     waitingCarts, waitingLabel, setWaitingLabel, listWaiting, holdCart, resumeCart, discardWaiting, customerId, selectCustomer,

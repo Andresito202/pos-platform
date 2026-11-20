@@ -489,6 +489,43 @@ describe("SalePanel · transferencia", () => {
     await waitFor(() => { expect(screen.getByTestId("transfer-registered")).toBeTruthy(); });
   }
 
+  it("consulta una confirmación externa y solo libera Caja al obtener el comprobante de la venta", async () => {
+    const responses = {
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(3),
+      "sales.receipt.get": { status: "REJECTED", result_code: "NOT_COMPLETED", result: { outcome: "NOT_COMPLETED" } },
+    };
+    install({ ...BASE_OVERRIDES, ...responses });
+    const readPayment = vi.spyOn(window.posService, "payment.get")
+      .mockResolvedValueOnce(fetched(3))
+      .mockResolvedValue(fetched(4, "CONFIRMED"));
+    vi.spyOn(window.posService, "sales.receipt.get")
+      .mockResolvedValueOnce(responses["sales.receipt.get"])
+      .mockResolvedValue(succeeded({ outcome: "FOUND", sale_id: SALE, payable_amount: "3500.000000" }));
+
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE", "PAYMENTS_PAYMENT_READ", "SALES_RECEIPT_READ"])} />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    await registerTransfer();
+
+    expect(screen.queryByTestId("confirm-transfer-button")).toBeNull();
+    const refresh = screen.getByRole("button", { name: "Actualizar estado de la transferencia" });
+    fireEvent.click(refresh);
+    await screen.findByTestId("transfer-partial");
+    fireEvent.click(screen.getByTestId("reset-button"));
+    expect(screen.getByTestId("sale-error").textContent).toBe("Completa la venta antes de iniciar otra.");
+
+    fireEvent.click(refresh);
+    await screen.findByTestId("transfer-sale-completed");
+    expect(screen.getByTestId("transfer-confirmed-coverage").textContent).toBe("3500.000000");
+    expect(readPayment).toHaveBeenLastCalledWith(expect.objectContaining({ payload: { payment_id: PAYMENT } }));
+    expect(calls.has("payment.transfer.confirm")).toBe(false);
+    expect(chime).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("reset-button"));
+    expect(screen.queryByTestId("sale-created")).toBeNull();
+  });
+
   it("registra la transferencia y toma la versión real de payment.get", async () => {
     await reachSale({
       "payment.register.transfer": registered("REGISTERED"),
