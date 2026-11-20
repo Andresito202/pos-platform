@@ -313,6 +313,37 @@ describe("SalePanel — vertical comercial", () => {
     expect(screen.queryByTestId("sale-completed")).toBeNull();
   });
 
+  it("recovers a saved cart and server-owned open shift in a fresh panel", async () => {
+    const cart={id:PRODUCT,version:3,updated_at:"2026-11-13T10:00:00Z",line_count:1,
+      active_shift:{shift_id:SHIFT,version:7},payload:{label:"Guardado",cash_register_id:REGISTER,
+        lines:[{productId:PRODUCT,presentationId:PRESENTATION,name:"Arroz",presentationName:"Bolsa",priceAmount:"3500.000000",currencyCode:"COP",quantity:"2.000000",identifier:"7701234567890"}]}};
+    const found={status:"SUCCEEDED",result_code:"FOUND",result:{outcome:"FOUND",carts:[cart],has_more:false}};
+    install({...BASE_OVERRIDES,"cart.waiting.list":found,"cart.waiting.get":found});
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE"])}/>);
+    fireEvent.click(screen.getByTestId("list-waiting"));
+    fireEvent.click(await screen.findByRole("button",{name:/Guardado · 1 líneas/}));
+    await screen.findByTestId("shift-open");await screen.findByTestId("cart-line");
+    expect(calls.get("cash.shift.open")).toBeUndefined();
+    await createSale();
+    expect(calls.get("sale.create")?.[0]).toMatchObject({payload:{cash_register_id:REGISTER,waiting_cart:{id:PRODUCT,version:3},lines:[{quantity:"2.000000"}]}});
+  });
+
+  it("does not clear a cart on lost save response and retries the same snapshot", async () => {
+    install(BASE_OVERRIDES);
+    const save=vi.fn().mockRejectedValueOnce(Error("response lost")).mockImplementationOnce(async (request: { payload: { cart_id: string; cart: unknown } })=>({
+      status:"SUCCEEDED",result_code:"SAVED",result:{outcome:"SAVED",has_more:false,carts:[{id:request.payload.cart_id,version:1,
+        updated_at:new Date().toISOString(),line_count:1,payload:request.payload.cart}]},
+    }));
+    Object.defineProperty(window.posService,"cart.waiting.save",{value:save});
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE"])}/>);
+    await openShift();await addProduct();fireEvent.click(screen.getByTestId("hold-cart"));
+    await waitFor(()=>expect(screen.getByTestId("sale-error").textContent).toBe("response lost"));
+    expect(screen.getAllByTestId("cart-line")).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("retry-pending-operation"));
+    await waitFor(()=>expect(screen.queryAllByTestId("cart-line")).toHaveLength(0));
+    expect(save.mock.calls[1]?.[0]).toEqual(save.mock.calls[0]?.[0]);
+  });
+
   it("sin turno abierto la venta viaja con cash_register_id nulo", async () => {
     install(BASE_OVERRIDES);
     render(<SalePanel />);
@@ -425,7 +456,7 @@ describe("SalePanel · transferencia", () => {
 
   const registered = (outcome: string) => succeeded({ outcome, payment_id: PAYMENT });
 
-  const fetched = (version: number, status = "REPORTED") => succeeded({
+  const fetched = (version: number, status = "CREATED") => succeeded({
     outcome: "FOUND", payment_id: PAYMENT, sale_id: SALE,
     method: "TRANSFER", status, expected_amount: "3500.000000",
     confirmed_amount: null, currency_code: "COP", version,
@@ -475,7 +506,7 @@ describe("SalePanel · transferencia", () => {
 
     // payment.get se consulta de verdad: es la única fuente de la versión.
     expect(calls.get("payment.get")).toHaveLength(1);
-    expect(screen.getByTestId("transfer-status").textContent).toBe("REPORTED");
+    expect(screen.getByTestId("transfer-status").textContent).toBe("CREATED");
     expect(screen.getByTestId("transfer-expected-amount").textContent).toBe("3500.000000");
   });
 

@@ -44,6 +44,10 @@ function makeService() {
     "local.operator.logout": vi.fn().mockResolvedValue(localOperatorResult("SIGNED_OUT")),
     "operation.result.get": vi.fn(),
     "operation.confirm": vi.fn(),
+    "catalog.item.list": vi.fn().mockResolvedValue({
+      status: "SUCCEEDED", result_code: "FOUND",
+      result: { outcome: "FOUND", items: [], has_more: false },
+    }),
     "cart.waiting.list": vi.fn().mockResolvedValue({
       status: "SUCCEEDED",
       result_code: "FOUND",

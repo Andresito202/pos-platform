@@ -160,7 +160,7 @@ button {
     padding: 14px;
   }
 
-  
+
 
   .pos-nav {
     grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
@@ -413,7 +413,7 @@ button {
 @media (max-width: 800px) {
   .pos-shell { grid-template-columns: minmax(0, 1fr); }
   .pos-sidebar { padding: 14px; }
-  
+
   .pos-nav { grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr)); }
   .pos-content { padding: 16px; }
 }

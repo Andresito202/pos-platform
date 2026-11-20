@@ -8,6 +8,8 @@ import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js
 import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
 import { LocalAdministrativeAuditPanel } from "./components/LocalAdministrativeAuditPanel.js";
 import { OperationPanel } from "./components/OperationPanel.js";
+import { AdministrativeControlPanel } from "./components/AdministrativeControlPanel.js";
+import { TransferReviewPanel } from "./components/TransferReviewPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
 import { HardwarePanel } from "./components/HardwarePanel.js";
@@ -82,18 +84,20 @@ export function App(): React.JSX.Element {
     const { permissions, entitlements } = authorization;
     const result: Screen[] = [];
 
-    if (hasAny(permissions, [
-      "CASH_SHIFT_OPEN",
-      "CASH_SHIFT_CLOSE",
-      "SALES_SALE_CREATE",
-      "PAYMENTS_PAYMENT_REGISTER",
-      "PAYMENTS_TRANSFER_REPORT",
-      "PAYMENTS_TRANSFER_CONFIRM",
-    ])) {
+    if (permissions.has("SALES_SALE_CREATE")) {
       result.push({
         id: "sales",
         label: "Caja y ventas",
-        render: () => <SalePanel />,
+        render: () => <SalePanel permissions={permissions} />,
+      });
+    }
+
+    if (permissions.has("PAYMENTS_PAYMENT_READ") &&
+        hasAny(permissions, ["PAYMENTS_TRANSFER_CONFIRM", "PAYMENTS_PAYMENT_CANCEL"])) {
+      result.push({
+        id: "payment-review",
+        label: "Revisar transferencias",
+        render: () => <TransferReviewPanel permissions={permissions} />,
       });
     }
 
@@ -146,6 +150,10 @@ export function App(): React.JSX.Element {
 
     if (permissions.has("HARDWARE_READ") && permissions.has("HARDWARE_CONFIGURE")) {
       result.push({ id: "hardware", label: "Impresora y cajón", render: () => <HardwarePanel /> });
+    }
+
+    if (localSession.role === "ADMINISTRADOR" && permissions.has("AUDIT_EVENT_READ")) {
+      result.push({ id: "dashboard", label: "Dashboard", render: () => <AdministrativeControlPanel /> });
     }
 
     if (permissions.has("AUDIT_EVENT_READ")) {

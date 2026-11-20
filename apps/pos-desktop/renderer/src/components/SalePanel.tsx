@@ -1,5 +1,8 @@
+import { CanonicalPermission } from "@pos-platform/contracts";
+import { ProductAvatar } from "./ProductAvatar.js";
+import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
 import { useEffect, useState } from "react";
-import { formatCopMicros, formatCopPesos, parseCopMicros, remainingPayableScale6 } from "../money-display.js";
+import { formatCopMicros, formatCopPesos, formatScale6Display, parseCopMicros, remainingPayableScale6 } from "../money-display.js";
 import { toScale6 } from "../scale6.js";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
 
@@ -29,8 +32,17 @@ const cashDenominations = [
   { value: 1000, kind: "monedas", label: "Moneda de $1.000" },
 ] as const;
 
-export function SalePanel(): React.JSX.Element {
-  const sale = useCommercialSale();
+export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> } = {}): React.JSX.Element {
+  const canReadCatalog = permissions?.has(CanonicalPermission.CATALOG_PRODUCT_READ) === true;
+  const canReadCustomers = permissions?.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) === true;
+  const canConfirmTransfer = permissions === undefined || permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM);
+  const canCreateSale = permissions === undefined || permissions.has(CanonicalPermission.SALES_SALE_CREATE);
+  const sale = useCommercialSale({ canReadCatalog });
+  const customers = useCustomerDirectory();
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [tileQuantity, setTileQuantity] = useState("1");
+  const [customerDocument, setCustomerDocument] = useState("");
+  const [customerNumber, setCustomerNumber] = useState("");
   const [registerId, setRegisterId] = useState("");
   const [opening, setOpening] = useState("0.000000");
   const [barcode, setBarcode] = useState("");
@@ -122,6 +134,35 @@ export function SalePanel(): React.JSX.Element {
         </div>
       )}
 
+      <div className="pos-sale-layout">
+      <section className="pos-sale-products" aria-label="Productos para venta">
+      {canReadCatalog && <>
+        <form className="pos-product-tools" onSubmit={event => {
+          event.preventDefault();
+          void sale.listCatalogItems(catalogQuery.trim());
+        }}>
+          <label>Buscar producto<input data-testid="catalog-search-input" maxLength={200} value={catalogQuery}
+            onChange={event => setCatalogQuery(event.target.value)} placeholder="Nombre, código o barras" /></label>
+          <button data-testid="catalog-search-button" disabled={sale.catalogBusy}>Buscar catálogo</button>
+        </form>
+        <label>Cantidad para agregar<input inputMode="decimal" value={tileQuantity}
+          onChange={event => setTileQuantity(event.target.value)} /></label>
+        <div className="pos-touch-grid" data-testid="touch-product-grid">
+          {sale.catalogItems.map(item => (
+            <button type="button" className="pos-product-tile" data-testid={`catalog-product-${item.presentation_id}`}
+              key={item.presentation_id} disabled={sale.busy || sale.unresolved || sale.sale !== null}
+              onClick={() => sale.addCatalogItem(item, tileQuantity.trim())}>
+              <ProductAvatar item={item} />
+              <strong className="pos-product-name-value">{item.name}</strong>
+              <span className="pos-product-presentation">{item.presentation_name}</span>
+              <span className="pos-product-price">{formatScale6Display(item.price_amount)}</span>
+            </button>
+          ))}
+          {!sale.catalogBusy && sale.catalogItems.length === 0 && <p>Sin productos vendibles.</p>}
+        </div>
+        {sale.catalogHasMore && <button type="button" data-testid="catalog-load-more"
+          disabled={sale.catalogBusy} onClick={() => { void sale.loadMoreCatalogItems(); }}>Cargar más productos</button>}
+      </>}
       <h2>Producto</h2>
       <input
         data-testid="barcode-input"
@@ -161,21 +202,56 @@ export function SalePanel(): React.JSX.Element {
         </div>
       )}
 
+      </section>
+      <section className="pos-sale-cart" aria-label="Carrito">
       <h2>Venta</h2>
       <ul data-testid="cart">
         {sale.lines.map((line, index) => (
           <li key={`${line.presentationId}-${String(index)}`} data-testid="cart-line">
-            {line.name} · {line.presentationName} · {line.quantity} × {line.priceAmount}
+            {line.name} · {line.presentationName} · {line.quantity} × {formatScale6Display(line.priceAmount)}
+            {sale.sale === null && <button type="button" disabled={sale.busy || sale.unresolved}
+              aria-label={`Quitar ${line.name}`} onClick={() => sale.removeLine(index)}>Quitar</button>}
           </li>
         ))}
       </ul>
+      {canReadCustomers && <details>
+        <summary>Vincular cliente</summary>
+        <label>Tipo de documento<input value={customerDocument} onChange={event => setCustomerDocument(event.target.value)} /></label>
+        <label>Número de identificación<input value={customerNumber} onChange={event => setCustomerNumber(event.target.value)} /></label>
+        <button type="button" disabled={customers.busy || !customerDocument.trim() || !customerNumber.trim()}
+          onClick={() => { void customers.find(customerDocument.trim(), customerNumber.trim()); }}>Buscar cliente</button>
+        {customers.error && <p role="status">{customers.error}</p>}
+        {customers.found?.customer_id && <button type="button" disabled={sale.busy || sale.unresolved || sale.sale !== null}
+          onClick={() => sale.selectCustomer(customers.found?.customer_id ?? null)}>Vincular cliente encontrado</button>}
+        {sale.customerId && <button type="button" disabled={sale.busy || sale.unresolved || sale.sale !== null}
+          onClick={() => sale.selectCustomer(null)}>Quitar cliente vinculado</button>}
+      </details>}
+          {canCreateSale && <div className="pos-waiting-controls">
+            <input aria-label="Referencia del cliente en espera" placeholder="Referencia de espera (opcional)" maxLength={80}
+              value={sale.waitingLabel} onChange={e=>sale.setWaitingLabel(e.target.value)} disabled={sale.busy || sale.unresolved || sale.sale!==null}/>
+            <button data-testid="hold-cart" onClick={()=>void sale.holdCart()}
+              disabled={sale.busy || sale.unresolved || !sale.shift || sale.lines.length===0 || sale.lines.length>200 || sale.sale!==null}>En espera</button>
+            {sale.lines.length>200 && <small>Máximo 200 líneas por carrito en espera.</small>}
+            <button data-testid="list-waiting" onClick={()=>void sale.listWaiting()} disabled={sale.busy}>Ver en espera</button>
+            {sale.waitingCarts.length>0 && <ul aria-label="Clientes en espera">{sale.waitingCarts.map(cart=><li key={cart.id}>
+              <button onClick={()=>void sale.resumeCart(cart)} disabled={sale.busy || sale.unresolved || sale.lines.length>0 || sale.sale!==null}>
+                {cart.payload.label || "Cliente en espera"} · {cart.line_count} líneas
+              </button>
+              <button aria-label={`Eliminar ${cart.payload.label || "cliente en espera"}`}
+                disabled={sale.busy || sale.unresolved || sale.sale!==null}
+                onClick={()=>{if(window.confirm("¿Eliminar este carrito en espera? No se eliminarán ventas ni pagos.")) void sale.discardWaiting(cart);}}>Eliminar</button>
+            </li>)}</ul>}
+          </div>}
       <button
         data-testid="create-sale-button"
         onClick={() => { void sale.createSale(); }}
-        disabled={sale.busy || sale.lines.length === 0 || sale.sale !== null}
+        disabled={!canCreateSale || sale.busy || sale.unresolved || sale.lines.length === 0 || sale.sale !== null}
       >
         Crear venta
       </button>
+
+      </section>
+      </div>
 
       {sale.sale !== null && (
         <div data-testid="sale-created">
@@ -308,14 +384,14 @@ export function SalePanel(): React.JSX.Element {
           <span data-testid="transfer-expected-amount">{sale.transfer.expectedAmount}</span>
           {/* Registrada NO es cobrada: mientras nadie atestigüe, la venta sigue
               sin completarse y no suena nada. */}
-          <div data-testid="transfer-pending">Pendiente de confirmación</div>
-          <button
+          {sale.transfer.status === "CREATED" && <div data-testid="transfer-pending">Pendiente de confirmación</div>}
+          {canConfirmTransfer && <button
             data-testid="confirm-transfer-button"
             onClick={() => { void sale.confirmTransfer(); }}
-            disabled={sale.busy}
+            disabled={sale.busy || sale.unresolved || sale.transfer.status !== "CREATED"}
           >
             Confirmar transferencia
-          </button>
+          </button>}
         </div>
       )}
 
@@ -400,8 +476,11 @@ export function SalePanel(): React.JSX.Element {
         )
       )}
 
+      {sale.unresolved && <div role="alert">Hay una operación pendiente de respuesta.
+        <button type="button" data-testid="retry-pending-operation" disabled={sale.busy} onClick={() => { void sale.retryPending(); }}>Reintentar operación pendiente</button>
+      </div>}
       {sale.error !== null && <div data-testid="sale-error">{sale.error}</div>}
-      <button data-testid="reset-button" onClick={() => { sale.reset(); setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); setShowDenominations(false); }} disabled={sale.busy}>
+      <button data-testid="reset-button" onClick={() => { if (!sale.reset()) return; setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); setShowDenominations(false); }} disabled={sale.busy}>
         Nueva venta
       </button>
     </section>

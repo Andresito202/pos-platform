@@ -52,6 +52,8 @@ import {
 import type { CashRegisterLicenseGate, SectorLicenseGate } from "../security/license-capacity-gate.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 
+import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js";
+import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 import { SqliteWaitingCartStore } from "../sales/sqlite-waiting-cart-store.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
@@ -165,6 +167,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly getBakeryProductionTrace: GetBakeryProductionTraceUseCase;
         readonly addPresentation: AddPresentationUseCase;
         readonly upsertFoodPolicy: UpsertFoodPolicyUseCase;
+        readonly getAdminMetrics: GetAdminMetricsUseCase;
         readonly waitingCarts: SqliteWaitingCartStore;
         readonly getReceipt: GetReceiptUseCase;
         /**
@@ -291,6 +294,7 @@ export class CommercialComponent implements RuntimeComponent {
   get getBakeryProductionTrace(): GetBakeryProductionTraceUseCase { return this.ready.getBakeryProductionTrace; }
   get addPresentation(): AddPresentationUseCase { return this.ready.addPresentation; }
   get upsertFoodPolicy(): UpsertFoodPolicyUseCase { return this.ready.upsertFoodPolicy; }
+  get getAdminMetrics(): GetAdminMetricsUseCase { return this.ready.getAdminMetrics; }
   get waitingCarts(): SqliteWaitingCartStore { return this.ready.waitingCarts; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
@@ -412,6 +416,7 @@ export class CommercialComponent implements RuntimeComponent {
       createInventoryReservation: new CreateInventoryReservationUseCase(inventoryStore),
       releaseInventoryReservation: new ReleaseInventoryReservationUseCase(inventoryStore),
       executeTransform: new ExecuteTransformUseCase(inventoryStore),
+      getAdminMetrics: new GetAdminMetricsUseCase(new SqliteAdminMetricsStore(database)),
       waitingCarts: new SqliteWaitingCartStore(database, this.now),
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),

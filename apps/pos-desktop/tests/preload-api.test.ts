@@ -57,6 +57,7 @@ describe("preload-api", () => {
       "catalog.item.find",
       "catalog.item.get",
       "catalog.item.list",
+      "admin.metrics.get",
       "inventory.stock.receive",
       "inventory.stock.adjust",
       "inventory.stock.get",
