@@ -307,7 +307,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
         </table>
       </div>
       <div className="pos-total" data-testid="cart-preview-total">
-        <span>Total a pagar</span>
+        <span>{sale.sale !== null ? "Total a pagar" : "Subtotal estimado (sin impuestos ni redondeo)"}</span>
         <strong>
           {sale.sale !== null
             ? formatScale6Display(sale.sale.payableAmount)
@@ -372,7 +372,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
                   disabled={sale.busy || completed} placeholder="0" /></label>
                 <strong data-testid="tendered-display">{formatCopPesos(receivedTotal)}</strong>
                 <button type="button" aria-expanded={showDenominations} aria-controls="pos-denominations"
-                  onClick={()=>setShowDenominations(open=>!open)}>{showDenominations ? "Ocultar billetes y monedas" : "Billetes y monedas (opcional)"}</button>
+                  onClick={()=>setShowDenominations(open=>!open)}>{showDenominations ? "Ocultar billetes y monedas" : "Ver billetes y monedas"}</button>
                 <div id="pos-denominations" hidden={!showDenominations}>
                 <p>El conteo de billetes se suma al importe ingresado manualmente.</p>
                 {(["billetes", "monedas"] as const).map((kind) => (

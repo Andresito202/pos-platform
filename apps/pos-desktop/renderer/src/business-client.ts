@@ -5,6 +5,11 @@ type Scope = z.infer<typeof BusinessScopeSchema>;
 const decode = (s: string) => Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")), c => c.charCodeAt(0));
 const encode = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 
+export class BusinessHttpRejection extends Error {
+  constructor(readonly status:number,message:string){super(message);}
+  get definitive(){return [400,401,403,404,409,413,415,422,429].includes(this.status);}
+}
+
 /** Same-origin BUSINESS custody only. No local session, GLOBAL cookie, storage,
  * client-provided session ID or Electron credential is promoted to authority. */
 export class BusinessClient {
@@ -18,7 +23,7 @@ export class BusinessClient {
       ...(signal ? { signal } : {}), headers: { "content-type": "application/json", ...(csrf ? { "x-csrf-token": csrf } : {}) }, body: JSON.stringify(body) });
     if (!response.ok) {
       if (response.status === 401) this.csrf = null;
-      throw Error(response.status === 409 ? "Conflicto de versión, código o capacidad. Actualiza la lista antes de reintentar." :
+      throw new BusinessHttpRejection(response.status, response.status === 409 ? "Conflicto de versión, código o capacidad. Actualiza la lista antes de reintentar." :
         response.status === 401 ? "La sesión BUSINESS no está vigente. Inicia sesión de nuevo." : response.status === 403 ? "Central rechazó el permiso, ámbito o licencia." : "Central no pudo completar la operación.");
     }
     return await response.json() as Record<string, unknown>;

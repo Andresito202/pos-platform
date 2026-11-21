@@ -20,6 +20,7 @@ export const SignedLicenseCapacityRevocationSchema=z.strictObject({claims:z.stri
 }),signature:z.string().length(86).regex(/^[A-Za-z0-9_-]+$/)});
 export const LicenseActivationProvisionSchema=z.strictObject({
   policy:LicenseActivationPolicySchema,expected_database:z.string().min(1).max(63),migration_checksum:z.string().regex(/^[a-f0-9]{64}$/),
+  binding_migration_checksum:z.string().regex(/^[a-f0-9]{64}$/),
   environment:z.enum(["PREPRODUCTION","PRODUCTION"]),key_id:StableCodeSchema,private_key_file:z.string().min(1).max(4096),
   reauthentication_ms:z.number().int().positive(),sql_lock_ms:z.number().int().positive(),sql_statement_ms:z.number().int().positive(),
   requests_per_window:z.number().int().positive(),maximum_buckets:z.number().int().positive(),request_window_ms:z.number().int().positive(),

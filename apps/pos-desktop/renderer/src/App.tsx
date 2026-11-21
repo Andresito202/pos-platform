@@ -3,6 +3,7 @@ import "./App.css";
 import "./commercial-precision.css";
 import "./workspace.css";
 import { BrandMark } from "./components/BrandMark.js";
+import { OperationPanel } from "./components/OperationPanel.js";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
 import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
@@ -306,7 +307,9 @@ function LocalApp(): React.JSX.Element {
           )}
         </section>
 
-
+        <section className="pos-operation" aria-label="Consulta de operaciones">
+          <OperationPanel />
+        </section>
       </div>
     </main>
   );

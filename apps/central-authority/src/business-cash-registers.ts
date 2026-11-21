@@ -1,5 +1,6 @@
 import { CashRegisterCreateSchema, CashRegisterEditSchema, CashRegisterRetireSchema, CashRegisterPageRequestSchema,
   CashRegisterMasterRowSchema, CashRegisterPageSchema, uuidV7, type LicenseActivationPolicy } from "@pos-platform/contracts";
+import { reserveCashRegisterLicense } from "./cash-register-license-binding.js";
 import type { PoolClient } from "@pos-platform/database-postgres";
 import type { AuthenticatedBusinessSession } from "./business-browser-session-authority.js";
 import { requireCashRegisterBusinessAdministrator } from "./cash-register-business-authorization.js";
@@ -13,11 +14,9 @@ function row(value: Record<string, unknown>) {
     created_at: (value.created_at as Date).toISOString(), retired_at: value.retired_at === null ? null : (value.retired_at as Date).toISOString() });
 }
 
-/** All SQL uses the authenticated handler's transaction and trusted tenant.
- * Active company identities reserve capacity before allocation. Historical
- * allocations remain reserved, as in LicenseCapacityAuthority; retirement by
- * itself cannot release an artifact potentially held offline. 029 has no
- * per-license reservation relation: the company ceiling remains conservative. */
+/** Uses the authenticated handler transaction. Immutable per-license bindings
+ * reserve paid capacity before a device activation; retirement never releases
+ * capacity that an offline artifact could still authorize. */
 export class BusinessCashRegisters {
   constructor(private readonly policy: LicenseActivationPolicy) {}
   async execute(c: PoolClient, session: AuthenticatedBusinessSession, operation: string, input: unknown) {
@@ -49,7 +48,7 @@ export class BusinessCashRegisters {
         AND ((l.deployment_mode='LOCAL_PERPETUAL' AND l.expires_at IS NULL AND l.contract_status='ACTIVE')
           OR (l.deployment_mode='HYBRID' AND l.expires_at IS NOT NULL
             AND clock_timestamp()<l.expires_at+$4::int*interval '1 day'))
-      FOR SHARE OF l,p,g,q`, [r.licenseId, session.tenantId, r.companyId, this.policy.subscription_grace_days]);
+      FOR SHARE OF l,p`, [r.licenseId, session.tenantId, r.companyId, this.policy.subscription_grace_days]);
     const license = licensed.rows[0];
     if (licensed.rowCount !== 1 || license?.included_registers !== 1 ||
         license.terms_snapshot?.policy_reference !== license.policy_version ||
@@ -60,11 +59,15 @@ export class BusinessCashRegisters {
     const scope = [session.tenantId, r.companyId, r.branchId];
     if (operation === "list" && "after" in r) {
       const result = await c.query(`SELECT * FROM cash.cash_registers WHERE tenant_id=$1 AND company_id=$2 AND branch_id=$3
-        AND ($4::uuid IS NULL OR id>$4::uuid) ORDER BY id LIMIT 101`, [...scope, r.after]);
+        AND NOT EXISTS (SELECT 1 FROM licensing.cash_register_bindings binding WHERE binding.register_id=cash_registers.id AND binding.license_id<>$5)
+        AND ($4::uuid IS NULL OR id>$4::uuid) ORDER BY id LIMIT 101`, [...scope, r.after, r.licenseId]);
       const registers = result.rows.slice(0, 100).map(row);
       return CashRegisterPageSchema.parse({ registers, nextCursor: result.rows.length > 100 ? registers[99]!.id : null });
     }
     if (!("id" in r) || !("correlationId" in r)) return reject(400, "CASH_REGISTER_REQUEST_INVALID");
+    const conflicting = await c.query(`SELECT 1 FROM licensing.cash_register_bindings
+      WHERE register_id=$1 AND license_id<>$2`, [r.id,r.licenseId]);
+    if (conflicting.rowCount) return reject(409,"CASH_REGISTER_LICENSE_BINDING_CONFLICT");
     let changed;
     if (operation === "create" && "currency" in r) {
       if (r.currency !== company.rows[0].currency_code) return reject(400, "CASH_REGISTER_CURRENCY_MISMATCH");
@@ -89,34 +92,22 @@ export class BusinessCashRegisters {
       }
       const capacity = Number(license.included_registers) + Number(license.additional_registers);
       if (!Number.isSafeInteger(capacity) || capacity < 1) return reject(403, "CASH_REGISTER_CAPACITY_INVALID");
-      // 029 does not attribute unallocated identities to an individual license.
-      // Do not invent how to pool capacities for multiple live company licenses.
-      // This competing-license probe is MVCC-only: locking a different license
-      // after the company would invert GLOBAL's license -> company ordering.
-      const competing = await c.query(`SELECT l.id AS competing_license_id FROM licensing.licenses l
-        JOIN payments.payments p ON l.commercial_reference='SUBSCRIPTION_PAYMENT:'||p.id::text AND p.status='CONFIRMED'
-        JOIN payments.payment_groups g ON g.id=p.payment_group_id AND g.collection_subject_type='SUBSCRIPTION_QUOTE'
-        JOIN subscriptions.license_quotes q ON q.id=g.collection_subject_id AND q.tenant_id=l.tenant_id AND q.plan_id=l.plan_id
-        WHERE l.tenant_id=$1 AND q.company_id=$2 AND l.id<>$3 AND l.contract_status IN ('ACTIVE','PAST_DUE')
-          AND l.not_before<=clock_timestamp()
-          AND ((l.deployment_mode='LOCAL_PERPETUAL' AND l.expires_at IS NULL AND l.contract_status='ACTIVE')
-            OR (l.deployment_mode='HYBRID' AND l.expires_at IS NOT NULL AND clock_timestamp()<l.expires_at+$4::int*interval '1 day'))
-        LIMIT 1`, [session.tenantId,r.companyId,r.licenseId,this.policy.subscription_grace_days]);
-      if (competing.rowCount !== 0) return reject(409,"CASH_REGISTER_LICENSE_BINDING_REQUIRED");
-      const used = await c.query(`SELECT count(*)::text AS used FROM (
-        SELECT id FROM cash.cash_registers WHERE tenant_id=$1 AND company_id=$2 AND status='ACTIVE'
-        UNION
-        SELECT (allocation->>'register_id')::uuid AS id
-          FROM licensing.license_activations a
-          CROSS JOIN LATERAL jsonb_array_elements(a.request_payload->'allocations') allocation
-         WHERE a.tenant_id=$1 AND a.company_id=$2
-      ) reserved`, scope.slice(0, 2));
-      const count = Number(used.rows[0]?.used);
-      if (used.rowCount !== 1 || !Number.isSafeInteger(count) || count < 0) return reject(403,"CASH_REGISTER_CAPACITY_INVALID");
-      if (count >= capacity) return reject(409, "CASH_REGISTER_CAPACITY_EXHAUSTED");
+      const reserved = await c.query(`SELECT count(*)::text AS used FROM licensing.cash_register_bindings WHERE license_id=$1`, [r.licenseId]);
+      const count = Number(reserved.rows[0]?.used);
+      if (reserved.rowCount !== 1 || !Number.isSafeInteger(count) || count < 0) return reject(403,"CASH_REGISTER_CAPACITY_INVALID");
+      if (count >= capacity) return reject(409,"CASH_REGISTER_CAPACITY_EXHAUSTED");
       changed = await c.query(`INSERT INTO cash.cash_registers
         (id,tenant_id,company_id,branch_id,code,code_normalized,name,currency_code,status)
         VALUES ($4,$1,$2,$3,$5,$6,$7,$8,'ACTIVE') RETURNING *`, [...scope, r.id, r.code, r.code.toLowerCase(), r.name, r.currency]);
+      try {
+        await reserveCashRegisterLicense(c, {tenantId:session.tenantId,companyId:r.companyId,licenseId:r.licenseId,capacity},
+          [{register_id:r.id,branch_id:r.branchId}]);
+      } catch (error) {
+        const code = error instanceof Error ? error.message : "";
+        if (["CASH_REGISTER_CAPACITY_EXHAUSTED","CASH_REGISTER_LICENSE_BINDING_CONFLICT"].includes(code)) return reject(409,code);
+        if (code === "CASH_REGISTER_CAPACITY_INVALID") return reject(403,code);
+        throw error;
+      }
     } else if (operation === "edit" && "code" in r && "expectedVersion" in r) {
       changed = await c.query(`UPDATE cash.cash_registers SET code=$6,code_normalized=$7,name=$8,version=version+1
         WHERE tenant_id=$1 AND company_id=$2 AND branch_id=$3 AND id=$4 AND version=$5 AND status='ACTIVE' RETURNING *`,

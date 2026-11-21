@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { BusinessClient } from "../../renderer/src/business-client.js";
+import { BusinessClient, BusinessHttpRejection } from "../../renderer/src/business-client.js";
 import { AdministrativeControlPanel } from "../../renderer/src/components/AdministrativeControlPanel.js";
 import { uuidV7 } from "@pos-platform/contracts";
 
 vi.mock("../../renderer/src/business-client.js", async importOriginal => {
   const original = await importOriginal<typeof import("../../renderer/src/business-client.js")>();
-  return { BusinessClient: class extends original.BusinessClient { constructor() { super("https://central.example.test"); } } };
+  return { ...original, BusinessClient: class extends original.BusinessClient { constructor() { super("https://central.example.test"); } } };
 });
 
 const scope = { companyId: uuidV7(), branchId: uuidV7(), licenseId: uuidV7() };
@@ -65,8 +65,40 @@ describe("original administrative panel BUSINESS integration", () => {
     const first = vi.mocked(BusinessClient.prototype.create).mock.calls[0]![1];
     expect((screen.getByLabelText("Código") as HTMLInputElement).disabled).toBe(true);
     expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(true);
+    vi.mocked(BusinessClient.prototype.create).mockRejectedValue(new BusinessHttpRejection(409,"Rechazo después de una respuesta incierta"));
     fireEvent.click(screen.getByRole("button", { name: "Reintentar creación" }));
     await waitFor(() => expect(BusinessClient.prototype.create).toHaveBeenCalledTimes(2));
     expect(vi.mocked(BusinessClient.prototype.create).mock.calls[1]![1]).toEqual(first);
+    expect((screen.getByLabelText("Código") as HTMLInputElement).disabled).toBe(true);
   });
+  it("allows correction after a definitive first-attempt rejection",async()=>{
+    await open();
+    vi.spyOn(BusinessClient.prototype,"hasSession","get").mockReturnValue(true);
+    vi.mocked(BusinessClient.prototype.create).mockRejectedValueOnce(new BusinessHttpRejection(409,"Código duplicado"));
+    fireEvent.change(screen.getByLabelText("Código"),{target:{value:"C1"}});
+    fireEvent.change(screen.getByLabelText("Nombre"),{target:{value:"Caja nueva"}});
+    fireEvent.click(screen.getByRole("button",{name:"Crear caja"}));
+    await screen.findByRole("alert");
+    expect((screen.getByLabelText("Código") as HTMLInputElement).disabled).toBe(false);
+    expect((screen.getByRole("combobox") as HTMLSelectElement).disabled).toBe(false);
+    expect((screen.getByRole("button",{name:"Editar C1"}) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText("Código"),{target:{value:"C2"}});
+    fireEvent.click(screen.getByRole("button",{name:"Crear caja"}));
+    await waitFor(()=>expect(BusinessClient.prototype.create).toHaveBeenLastCalledWith(scope,expect.objectContaining({code:"C2",name:"Caja nueva"})));
+  });
+  it("distinguishes licenses with the same plan name and sends the selected server context", async () => {
+    const second={...context,licenseId:uuidV7()};
+    vi.mocked(BusinessClient.prototype.contexts).mockResolvedValue({contexts:[context,second],truncated:false});
+    await open();
+    expect(screen.getByRole("option",{name:new RegExp(context.licenseId)})).toBeTruthy();
+    expect(screen.getByRole("option",{name:new RegExp(second.licenseId)})).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox"),{target:{value:"1"}});
+    const selected={...scope,licenseId:second.licenseId};
+    await waitFor(()=>expect(BusinessClient.prototype.list).toHaveBeenLastCalledWith(selected,null));
+    fireEvent.change(screen.getByLabelText("Código"),{target:{value:"C2"}});
+    fireEvent.change(screen.getByLabelText("Nombre"),{target:{value:"Caja dos"}});
+    fireEvent.click(screen.getByRole("button",{name:"Crear caja"}));
+    await waitFor(()=>expect(BusinessClient.prototype.create).toHaveBeenCalledWith(selected,expect.objectContaining({code:"C2",name:"Caja dos",currency:"COP"})));
+  });
+
 });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { uuidV7, type CashRegisterMasterRow, type BusinessContextsSchema, type CashRegisterCreateRequest } from "@pos-platform/contracts";
 import type * as z from "zod";
-import { BusinessClient } from "../business-client.js";
+import { BusinessClient, BusinessHttpRejection } from "../business-client.js";
 
 type Context = z.infer<typeof BusinessContextsSchema>["contexts"][number];
 export function BusinessCashRegisterPanel(): React.JSX.Element {
@@ -60,7 +60,7 @@ export function BusinessCashRegisterPanel(): React.JSX.Element {
     <label>Empresa, sucursal y licencia<select value={selected} disabled={busy || pendingCreate.current !== null} onChange={e => {
       setSelected(e.target.value); setRegisters([]); setEditing(null); setNextCursor(null);
       const context = contexts[Number(e.target.value)]; if (context && e.target.value !== "") void run(() => load(context));
-    }}><option value="">Selecciona un ámbito</option>{contexts.map((c, i) => <option key={`${c.companyId}/${c.branchId}/${c.licenseId}`} value={i}>{c.companyName} · {c.branchName} · {c.licenseName}</option>)}</select></label>
+    }}><option value="">Selecciona un ámbito</option>{contexts.map((c, i) => <option key={`${c.companyId}/${c.branchId}/${c.licenseId}`} value={i}>{c.companyName} · {c.branchName} · {c.licenseName} · Licencia {c.licenseId}</option>)}</select></label>
     {contexts.length === 0 && <p>No hay ámbitos con permiso de administrar cajas y licencia comercial disponible.</p>}
     <button disabled={busy || selected === ""} onClick={() => current && void run(() => load(current))}>Actualizar cajas</button>
     {selected !== "" && current && <>
@@ -80,7 +80,14 @@ export function BusinessCashRegisterPanel(): React.JSX.Element {
             }
             const request = pending ?? { ...scope,id,code,name,currency:current.currency,correlationId:uuidV7() };
             pendingCreate.current = request;
-            await client.create(scope, { id: request.id, code: request.code, name: request.name, currency: request.currency, correlationId: request.correlationId });
+            try {
+              await client.create(scope, { id: request.id, code: request.code, name: request.name, currency: request.currency, correlationId: request.correlationId });
+            } catch(e) {
+              // A first-attempt definitive rejection made no mutation. If an
+              // earlier reply was uncertain, later 4xx cannot disprove its commit.
+              if(!pending && e instanceof BusinessHttpRejection && e.definitive) pendingCreate.current=null;
+              throw e;
+            }
             pendingCreate.current = null;
           }
           setCreateId(uuidV7()); await load(current); form.reset(); setNotice("Central confirmó la operación."); });

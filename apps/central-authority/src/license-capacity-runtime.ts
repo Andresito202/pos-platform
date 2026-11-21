@@ -36,6 +36,8 @@ export async function prepareLicenseCapacityRuntime(input:{pool:Pool;provisionFi
     AND NOT pg_has_role(current_user,'pos_schema_owner','MEMBER') AS ok FROM pg_roles WHERE rolname=current_user`)).rows[0];
   const ledger=(await input.pool.query("SELECT encode(checksum,'hex') AS checksum FROM platform.target_migration_executions WHERE migration_id='022_license_activations' AND status='APPLIED'")).rows;
   if(db?.db!==p.expected_database||db.ok!==true||ledger.length!==1||ledger[0].checksum!==p.migration_checksum)throw Error("LICENSE_REGISTERED_DATABASE_REQUIRED");
+  const bindings=(await input.pool.query("SELECT encode(checksum,'hex') AS checksum FROM platform.target_migration_executions WHERE migration_id='033_cash_register_license_bindings' AND status='APPLIED'")).rows;
+  if(bindings.length!==1||bindings[0].checksum!==p.binding_migration_checksum)throw Error("LICENSE_REGISTERED_BINDINGS_REQUIRED");
   const authority=new LicenseCapacityAuthority(input.pool,p.policy,{keyId:p.key_id,privateKey:createPrivateKey(managed(p.private_key_file,8192)),environment:p.environment},
     {reauthenticationMs:p.reauthentication_ms,lockTimeoutMs:p.sql_lock_ms,statementTimeoutMs:p.sql_statement_ms});
   return {authority,handler:createLicenseCapacityHandler(authority,input.origin,{requests:p.requests_per_window,buckets:p.maximum_buckets,windowMs:p.request_window_ms})};

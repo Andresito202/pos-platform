@@ -9,7 +9,7 @@ import { createCentralRouter } from "../src/central-router.js";
 import { businessTestTls } from "./helpers/business-test-tls.js";
 
 const tls = businessTestTls();
-const ids = { user: uuidV7(), tenant: uuidV7(), member: uuidV7(), company: uuidV7(), branch: uuidV7(), license: uuidV7() };
+const ids = { user: uuidV7(), tenant: uuidV7(), member: uuidV7(), company: uuidV7(), branch: uuidV7(), license: uuidV7(), secondLicense: uuidV7() };
 const scope = { companyId: ids.company, branchId: ids.branch, licenseId: ids.license };
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 let server: Server | undefined, port = 0, origin = "";
@@ -18,7 +18,7 @@ let revoked = false, allowed = true, used = 0, version = 1, auditFails = false;
 let cookieHash = "", csrfHash = "", sessionId = uuidV7();
 let existingMaster: Record<string,unknown> | null = null;
 let creationEvidence: Record<string,unknown>[] = [];
-let competingLicense = false;
+const bindings = new Map<string,string>();
 const calls: { sql: string; params: unknown[] }[] = [];
 const registerId = uuidV7();
 const baseRow = () => ({ id: registerId, tenant_id: ids.tenant, company_id: ids.company, branch_id: ids.branch,
@@ -44,11 +44,14 @@ async function query(sql: string, params: unknown[] = []) {
     if (sql.includes("CASH_REGISTER_MANAGE")) return result(allowed && params[1] === ids.company && params[2] === ids.branch ? [{}] : []);
     return result([{ tenant_id: ids.tenant, user_id: ids.user }]);
   }
-  if (sql.includes("competing_license_id")) return result(competingLicense ? [{ competing_license_id:uuidV7() }] : []);
-  if (sql.includes("FROM licensing.licenses l")) return result(params[0] === ids.license && params[1] === ids.tenant && params[2] === ids.company ?
+  if (sql.startsWith("INSERT INTO licensing.cash_register_bindings")) { if (!bindings.has(String(params[0]))) bindings.set(String(params[0]),String(params[4])); return result([]); }
+  if (sql.startsWith("SELECT 1 FROM licensing.cash_register_bindings")) return result(sql.includes("license_id<>") ?
+    bindings.has(String(params[0])) && bindings.get(String(params[0])) !== params[1] ? [{}] : [] :
+    bindings.get(String(params[0])) === params[4] ? [{}] : []);
+  if (sql.includes("FROM licensing.licenses l")) return result([ids.license,ids.secondLicense].includes(String(params[0])) && params[1] === ids.tenant && params[2] === ids.company ?
     [{ included_registers: 1, additional_registers: 1, policy_version: "TEST_ONLY", terms_snapshot: { policy_reference: "TEST_ONLY" } }] : []);
   if (sql.includes("FROM licensing.license_entitlements")) return result([{}]);
-  if (sql.includes("count(*)")) return result([{ used: String(used) }]);
+  if (sql.includes("count(*)")) return result([{ used: String((params[0] === ids.license ? used : 0) + [...bindings.values()].filter(id => id === params[0]).length) }]);
   if (sql.includes("FROM audit.audit_events")) return result(creationEvidence);
   if (sql.startsWith("INSERT INTO cash.cash_registers")) return result([{ ...baseRow(), id: params[3], code: params[4], code_normalized: params[5], name: params[6] }]);
   if (sql.startsWith("UPDATE cash.cash_registers")) {
@@ -81,7 +84,7 @@ async function login() {
 }
 beforeEach(async () => {
   calls.length = 0; revoked = false; allowed = true; used = 0; version = 1; auditFails = false; mfaAccepted = true; cookieHash = ""; csrfHash = "";
-  existingMaster = null; creationEvidence = []; competingLicense = false;
+  existingMaster = null; creationEvidence = []; bindings.clear();
   // Explicit MFA verification boundary double. Issuer, browser authority,
   // permissions guard, cash use case, router and HTTPS transport are real.
   vi.spyOn(BusinessInitialMfaFlow.prototype, "begin").mockResolvedValue({ challengeId: uuidV7(), challenge: "challenge", credentialId: "credential", userVerification: "required" });
@@ -93,7 +96,7 @@ beforeEach(async () => {
   const address = server.address(); if (!address || typeof address === "string") throw Error("TEST_LISTENER_MISSING");
   port = address.port; origin = `https://127.0.0.1:${port}`;
   policy = BusinessAdministrationProvisionSchema.parse({ profile: "CAMACHO_BUSINESS_ADMINISTRATION_V1", origin, rp_id: "127.0.0.1", expected_database: "camacho_pos",
-    rejection_verifier_file: "TEST_ONLY", migration_checksums: Object.fromEntries(["013_business_browser_sessions","015_authorization_snapshot_sequences","019_subscription_quotes","020_subscription_payments","022_license_activations","023_license_offer_terms","029_cash_register_master","030_commercial_authorization_catalog","031_business_owner_role"].map(id => [id,"a".repeat(64)])),
+    rejection_verifier_file: "TEST_ONLY", migration_checksums: Object.fromEntries(["013_business_browser_sessions","015_authorization_snapshot_sequences","019_subscription_quotes","020_subscription_payments","022_license_activations","023_license_offer_terms","029_cash_register_master","030_commercial_authorization_catalog","031_business_owner_role","032_tenant_initialization_permission","033_cash_register_license_bindings"].map(id => [id,"a".repeat(64)])),
     license_policy: { profile: "CAMACHO_LICENSE_ACTIVATION_V1", policy_reference: "TEST_ONLY", subscription_grace_days: 3, grace_basis: "ELAPSED_24_HOURS", perpetual_use: "NO_EXPIRY", support_and_external_services: "SEPARATE", accepted_contract_policy_references: ["TEST_ONLY"], offline_capabilities: ["CASH_REGISTER"] },
     renderer: { directory: "TEST_ONLY", maximum_asset_bytes: 10000 }, limits: { challenge_ms: 60000, session_ms: 300000, browser_ms: 300000, mfa_age_ms: 60000, reauthentication_ms: 300000, idle_ms: 300000,
       sql_lock_ms: 2000, sql_statement_ms: 10000, maximum_body_bytes: 16384, maximum_pending_flows: 10, requests_per_window: 100, maximum_buckets: 100, request_window_ms: 60000, maximum_login_per_account: 20 } });
@@ -179,13 +182,22 @@ describe("Central production router over HTTPS (MFA and PostgreSQL boundary doub
     const { headers } = await login(); used=Number.NaN;
     expect((await post("/v1/business/cash-registers/create",{ ...scope,id:registerId,code:"C1",name:"Principal",currency:"COP",correlationId:uuidV7() },headers)).status).toBe(403);
   });
-  it("blocks ambiguous multi-license creation while keeping independent list/edit/retire available", async () => {
-    const { headers } = await login(); competingLicense=true;
-    const created = await post("/v1/business/cash-registers/create",{ ...scope,id:registerId,code:"C1",name:"Principal",currency:"COP",correlationId:uuidV7() },headers);
-    expect(created.status).toBe(409); expect(created.body.code).toBe("CASH_REGISTER_LICENSE_BINDING_REQUIRED");
-    expect((await post("/v1/business/cash-registers/list",{...scope,after:null},headers)).status).toBe(200);
-    expect((await post("/v1/business/cash-registers/edit",{...scope,id:registerId,expectedVersion:1,code:"C1",name:"Editada",correlationId:uuidV7()},headers)).status).toBe(200);
-    expect((await post("/v1/business/cash-registers/retire",{...scope,id:registerId,expectedVersion:1,correlationId:uuidV7()},headers)).status).toBe(200);
+  it("reserves independent paid capacity for explicitly selected company licenses", async () => {
+    const { headers } = await login(); used=2;
+    const input={...scope,id:registerId,code:"C1",name:"Principal",currency:"COP",correlationId:uuidV7()};
+    expect((await post("/v1/business/cash-registers/create",input,headers)).status).toBe(409);
+    const created=await post("/v1/business/cash-registers/create",{...input,licenseId:ids.secondLicense},headers);
+    expect(created.status).toBe(200); expect(bindings.get(registerId)).toBe(ids.secondLicense);
+    const reservation=calls.find(c=>c.sql.startsWith("INSERT INTO licensing.cash_register_bindings"));
+    expect(reservation?.params).toEqual([registerId,ids.tenant,ids.company,ids.branch,ids.secondLicense]);
+  });
+  it("rejects create/edit/retire of a register already reserved to another license", async () => {
+    const { headers } = await login(); bindings.set(registerId,ids.secondLicense); calls.length=0;
+    for(const [action,fields] of [["create",{code:"C1",name:"Principal",currency:"COP"}],["edit",{expectedVersion:1,code:"C1",name:"Editada"}],["retire",{expectedVersion:1}]] as const) {
+      const response=await post("/v1/business/cash-registers/"+action,{...scope,id:registerId,correlationId:uuidV7(),...fields},headers);
+      expect(response.status).toBe(409); expect(response.body.code).toBe("CASH_REGISTER_LICENSE_BINDING_CONFLICT");
+    }
+    expect(calls.some(c=>c.sql.startsWith("UPDATE cash.")||c.sql.startsWith("INSERT INTO cash.")||c.sql.startsWith("INSERT INTO audit."))).toBe(false);
   });
   it("rejects stale versions without auditing or committing a mutation", async () => {
     const { headers } = await login(); calls.length=0;

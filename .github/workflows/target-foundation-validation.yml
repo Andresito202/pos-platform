@@ -264,6 +264,23 @@ jobs:
       - name: Validate MAT-003 role-readiness tooling
         run: pnpm --filter @pos-platform/target-migrations test:role-readiness:003
 
+      - name: Validate BUSINESS HTTPS and real license reservation concurrency
+        shell: bash
+        env:
+          TEST_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          # Ephemeral CI server only. The original migration runner requires TLS;
+          # use an explicit test CA rather than weakening that invariant.
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/binding-test.key -out /tmp/binding-test.crt -days 1 -subj /CN=localhost -addext 'subjectAltName=IP:127.0.0.1,DNS:localhost'
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" psql -qc "ALTER SYSTEM SET ssl_cert_file='/tmp/binding-test.crt'"
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" psql -qc "ALTER SYSTEM SET ssl_key_file='/tmp/binding-test.key'"
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" psql -qc "ALTER SYSTEM SET ssl='on'"
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" psql -qc 'SELECT pg_reload_conf()'
+          docker cp "$TEST_POSTGRES_CONTAINER:/tmp/binding-test.crt" "$RUNNER_TEMP/binding-test-ca.crt"
+          CASH_BINDING_TEST_URL="${POSTGRES_TEST_URL}?sslmode=verify-full&sslrootcert=${RUNNER_TEMP}/binding-test-ca.crt" pnpm --filter @pos-platform/target-migrations test -- tests/postgres-033-bindings.test.ts
+          pnpm --filter @pos-platform/central-authority test -- tests/business-router.test.ts
+
       - name: Emit TARGET exact-head validation evidence
         shell: bash
         env:

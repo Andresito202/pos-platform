@@ -36,7 +36,7 @@ export const BusinessAdministrationProvisionSchema = z.strictObject({
   migration_checksums: z.strictObject(Object.fromEntries([
     "013_business_browser_sessions", "015_authorization_snapshot_sequences", "019_subscription_quotes",
     "020_subscription_payments", "022_license_activations", "023_license_offer_terms",
-    "029_cash_register_master", "030_commercial_authorization_catalog", "031_business_owner_role",
+    "029_cash_register_master", "030_commercial_authorization_catalog", "031_business_owner_role", "032_tenant_initialization_permission", "033_cash_register_license_bindings",
   ].map(id => [id, z.string().regex(/^[a-f0-9]{64}$/)])) as Record<string, z.ZodString>),
   license_policy: LicenseActivationPolicySchema,
   renderer: z.strictObject({ directory: z.string().min(1).max(4096), maximum_asset_bytes: positive }),

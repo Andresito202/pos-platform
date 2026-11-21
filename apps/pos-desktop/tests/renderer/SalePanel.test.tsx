@@ -120,6 +120,15 @@ beforeEach(() => {
 });
 
 describe("SalePanel — vertical comercial", () => {
+  it("labels the untaxed cart estimate and switches to the service payable total",async()=>{
+    install({...BASE_OVERRIDES,"sale.create":succeeded({outcome:"CREATED",sale_id:SALE,sale_number:1,payable_amount:"4200.000000",calculation_checksum:"a".repeat(64)})});
+    render(<SalePanel />);await openShift();await addProduct();
+    expect(screen.getByTestId("cart-preview-total").textContent).toContain("Subtotal estimado (sin impuestos ni redondeo)");
+    expect(screen.getByTestId("cart-preview-total").textContent).toContain("3.500");
+    await createSale();
+    expect(screen.getByTestId("cart-preview-total").textContent).toContain("Total a pagar");
+    expect(screen.getByTestId("cart-preview-total").textContent).toContain("4.200");
+  });
   it("se monta con la caja cerrada", () => {
     install(BASE_OVERRIDES);
     render(<SalePanel />);
