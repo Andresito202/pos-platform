@@ -16,7 +16,8 @@ export interface BusinessInitialMfaReceipt { readonly kind: "BUSINESS_INITIAL_MF
  * INTERNAL password -> AUTHENTICATE coordinator. No userId or "password
  * verified" flag is accepted from a client. Password is verified both when
  * issuing the challenge and on completion, avoiding a new pre-login token or
- * a parallel store for password proofs. Not connected to HTTP or React.
+ * a parallel store for password proofs. HTTP receives only a one-use receipt;
+ * the browser session issuer revalidates membership and identity in SQL.
  */
 export class BusinessInitialMfaFlow {
   private readonly policy;
@@ -46,10 +47,10 @@ export class BusinessInitialMfaFlow {
     );
     if (!match) return null;
     let factorId=input.factorId;
-    // GLOBAL web entry has no client-trusted factor selector. Resolve only
+    // Browser entry has no client-trusted factor selector. Resolve only
     // after the existing password verifier identifies the account. Choosing an
     // enrolled factor does not satisfy MFA; its real signature/UV is mandatory.
-    if(factorId===undefined&&this.policy.sessionScope==="GLOBAL"){
+    if(factorId===undefined){
       factorId=(await this.pool.query(`SELECT f.id FROM identity.mfa_factors f JOIN identity.webauthn_credential_material m ON m.factor_id=f.id
         AND f.secret_reference='webauthn:v1:'||m.id::text WHERE f.user_id=$1 AND f.factor_type='WEBAUTHN' AND f.status='ACTIVE'
         AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL ORDER BY f.enrolled_at,f.id LIMIT 1`,[match.userId])).rows[0]?.id;

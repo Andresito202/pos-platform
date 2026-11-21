@@ -37,3 +37,4 @@ export * from "./platform-password-verifier.js";
 export * from "./platform-security-events.js";
 export * from "./platform-webauthn-credential-reference.js";
 export * from "./subscription-quote.js";
+export * from "./business-administration.js";

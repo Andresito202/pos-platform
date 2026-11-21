@@ -77,3 +77,220 @@
 }
 
 @media (max-width: 600px) { .pos-touch-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Commercial workspace corrections */
+.pos-sidebar .pos-brand--sidebar {
+    flex-shrink: 0;
+    min-height: 116px;
+}
+
+.pos-sidebar .pos-subtitle,
+.pos-sidebar .pos-nav,
+.pos-sidebar .pos-local-session-control {
+    flex-shrink: 0;
+}
+
+.pos-sidebar .pos-local-session-control span {
+    color: #e7eef4;
+    overflow-wrap: anywhere;
+}
+
+.pos-content,
+.pos-screen {
+    min-width: 0;
+}
+
+.pos-screen input,
+.pos-screen select {
+    max-width: 100%;
+}
+.pos-cart-empty {
+    padding: 28px 12px;
+    text-align: center;
+    color: #536475;
+    border: 1px dashed #ccd8e1;
+    border-radius: 9px;
+}
+
+.pos-sale-cart .pos-total {
+    margin: 16px 0;
+}
+
+.pos-sale-cart {
+    align-self: start;
+}
+
+/* Commercial shopping cart */
+.pos-cart-table-container {
+    max-height: 340px;
+    overflow: auto;
+    border: 1px solid #dce3e9;
+    border-radius: 8px;
+}
+
+.pos-cart-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.pos-cart-table thead {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #eef2f5;
+}
+
+.pos-cart-table th {
+    padding: 12px 8px;
+    text-align: left;
+    color: #34495a;
+    font-size: 12px;
+    border-bottom: 1px solid #dce3e9;
+}
+
+.pos-cart-table td {
+    padding: 12px 8px;
+    border-bottom: 1px solid #e5e9ed;
+    vertical-align: middle;
+}
+
+.pos-cart-table td small {
+    display: block;
+    margin-top: 4px;
+    color: #536475;
+}
+
+.pos-cart-table tbody tr:nth-child(even) {
+    background: #f8fafb;
+}
+
+.pos-cart-table .pos-cart-quantity {
+    text-align: center;
+}
+
+.pos-cart-table .pos-cart-money {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.pos-screen .pos-cart-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 6px;
+    background: #fff0f0;
+    color: #c62828;
+    border: 1px solid #efcaca;
+    border-radius: 6px;
+}
+
+.pos-screen .pos-cart-remove:not(:disabled):hover {
+    background: #ffe0e0;
+    color: #961b1b;
+}
+
+/* Cart presentation and column alignment */
+.pos-cart-table-container .pos-cart-table {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(1) {
+    width: 25%;
+    text-align: left !important;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(2) {
+    width: 15%;
+    text-align: left !important;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(3) {
+    width: 12%;
+    text-align: center !important;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(4),
+.pos-cart-table-container .pos-cart-table th:nth-child(5) {
+    width: 19%;
+    text-align: right !important;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(6) {
+    width: 10%;
+}
+
+.pos-cart-table-container .pos-cart-table td {
+    padding: 8px 6px;
+}
+
+.pos-cart-table-container .pos-cart-table td:nth-child(3) {
+    text-align: center;
+}
+
+.pos-cart-table-container .pos-cart-table td:nth-child(4),
+.pos-cart-table-container .pos-cart-table td:nth-child(5) {
+    text-align: right;
+}
+
+button.pos-cart-remove {
+    color: #dc2626 !important;
+    background: #fff0f0 !important;
+    border-color: #efb4b4 !important;
+}
+
+button.pos-cart-remove svg,
+button.pos-cart-remove svg path {
+    stroke: #dc2626 !important;
+    width: 20px !important;
+    height: 20px !important;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(1) {
+    width: 20%;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(2) {
+    width: 13%;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(3) {
+    width: 25%;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(4),
+.pos-cart-table-container .pos-cart-table th:nth-child(5) {
+    width: 16%;
+}
+
+.pos-cart-table-container .pos-cart-table th:nth-child(6) {
+    width: 10%;
+}
+
+.pos-quantity-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+}
+
+.pos-quantity-controls input {
+    width: 52px !important;
+    min-width: 0;
+    height: 32px;
+    padding: 3px !important;
+    text-align: center;
+}
+
+.pos-quantity-controls button {
+    width: 26px !important;
+    min-width: 26px !important;
+    min-height: 30px !important;
+    padding: 2px !important;
+    font-size: 17px;
+}

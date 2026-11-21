@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getPosService } from "../pos-service.js";
+import { getPosService, buildEnvelope } from "../pos-service.js";
 
 export type RuntimeStatus =
   | { phase: "loading" }
@@ -14,7 +14,7 @@ export function useRuntimeStatus(pollIntervalMs = 5_000): RuntimeStatus {
 
     async function poll(): Promise<void> {
       try {
-        const result = await getPosService()["runtime.status.get"]({});
+        const result = await getPosService()["runtime.status.get"](buildEnvelope("runtime.status.get", {}));
         if (!cancelled) setStatus({ phase: "connected", details: result });
       } catch (error) {
         if (!cancelled) {

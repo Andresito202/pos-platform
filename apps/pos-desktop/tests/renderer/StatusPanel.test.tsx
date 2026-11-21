@@ -49,6 +49,6 @@ describe("StatusPanel", () => {
     await waitFor(() => {
       expect(window.posService["runtime.status.get"]).toHaveBeenCalledTimes(1);
     });
-    expect(window.posService["runtime.status.get"]).toHaveBeenCalledWith({});
+    expect(window.posService["runtime.status.get"]).toHaveBeenCalledWith(expect.objectContaining({ message_type: "runtime.status.get", protocol_version: "1.0.0", payload: {} }));
   });
 });

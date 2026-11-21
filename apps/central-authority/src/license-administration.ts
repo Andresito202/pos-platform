@@ -1,7 +1,7 @@
 import {CentralAdministrationOperation} from "@pos-platform/contracts";
 import {PostgresPlatformAdministrationSessionRepository,type PoolClient} from "@pos-platform/database-postgres";
 /** Reuses Identity/D1 authority. Caller owns transaction/timeouts/RBAC lock. */
-export async function requireLicenseAdministrator(c:PoolClient,sessionId:string,reauthenticationMs:number,operation:"LICENSE_ISSUE"|"LICENSE_REVOKE"=CentralAdministrationOperation.LICENSE_ISSUE){
+export async function requireLicenseAdministrator(c:PoolClient,sessionId:string,reauthenticationMs:number,operation:"LICENSE_ISSUE"|"LICENSE_REVOKE"|"TENANT_INITIALIZE"=CentralAdministrationOperation.LICENSE_ISSUE){
   await c.query("SELECT set_config('app.tenant_id','',true)");
   await c.query('SELECT "authorization".lock_platform_sources_for_read()');
   await c.query("SELECT id FROM identity.sessions WHERE id=$1 FOR SHARE",[sessionId]);

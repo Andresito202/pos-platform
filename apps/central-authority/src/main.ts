@@ -10,6 +10,8 @@ import { parseCentralDeploymentConfiguration, verifyCentralRuntimeDatabase, veri
 import { SessionTrustPublication } from "./session-trust-publication.js";
 import { prepareFactusPayRuntime } from "./factus-pay-runtime.js";
 import { FACTUS_PAY_COLLECTION_WEBHOOK_PATH } from "./factus-pay-webhook-handler.js";
+import { prepareBusinessAdministrationRuntime } from "./business-administration-runtime.js";
+import { createCentralRouter } from "./central-router.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -86,7 +88,8 @@ function protocolContext(request: IncomingMessage, requestId: string, correlatio
 
 const databaseUrl = required("CENTRAL_DATABASE_URL");
 const globalProvision = process.env.CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE;
-const deployment = globalProvision ? parseCentralDeploymentConfiguration(process.env) : null;
+const businessProvision = process.env.CENTRAL_BUSINESS_PROVISION_FILE;
+const deployment = globalProvision || businessProvision !== undefined ? parseCentralDeploymentConfiguration(process.env) : null;
 const transportToken = deployment === null
   ? required("D3_ENROLLMENT_TRANSPORT_TOKEN")
   : secretFromFile("D3_ENROLLMENT_TRANSPORT_TOKEN_FILE");
@@ -100,6 +103,14 @@ const sessionTrustTransportToken = process.env.SESSION_TRUST_TRANSPORT_TOKEN_FIL
   ? null
   : secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
 const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
+
+try {
+  await verifyCentralRuntimeDatabase(pool);
+  console.log("CENTRAL_DATABASE_CONNECTED");
+} catch (error) {
+  await pool.end();
+  throw error;
+}
 const globalHandler = await (async () => {
   if (!globalProvision || !deployment) return undefined;
   const environment = deployment.environment;
@@ -141,7 +152,15 @@ const factusPayHandler = factusPayProvision === undefined
   ? undefined
   : await prepareFactusPayRuntime(pool, factusPayProvision);
 
-const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, async (request, response) => {
+const businessHandler = await (async () => {
+  if (businessProvision === undefined) return undefined;
+  if (!deployment || deployment.environment === "LOCAL") throw Error("BUSINESS_REAL_DEPLOYMENT_REQUIRED");
+  verifyCentralTlsIdentity(deployment, tlsCert, createPrivateKey(tlsKey));
+  try { return await prepareBusinessAdministrationRuntime(pool, businessProvision, deployment.origin); }
+  catch (error) { await pool.end(); throw error; }
+})();
+
+const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, createCentralRouter(async (request, response) => {
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
@@ -223,14 +242,14 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       error: { code, retryable: code === "DEVICE_ENROLLMENT_FAILED", user_message_key: "device_enrollment.rejected" },
     });
   }
-});
+}, businessHandler));
 
 if (deployment) {
   server.requestTimeout = deployment.requestTimeoutMs;
   server.headersTimeout = deployment.headersTimeoutMs;
 }
 server.on("clientError", (_error, socket) => socket.destroy());
-server.listen(PORT, deployment?.bindAddress ?? "0.0.0.0", () => process.stdout.write(JSON.stringify({ service: "central-authority", status: "LISTENING", port: PORT }) + "\n"));
+server.listen(PORT, deployment?.bindAddress ?? process.env.CENTRAL_BIND_ADDRESS ?? "127.0.0.1", () => process.stdout.write(JSON.stringify({ service: "central-authority", status: "LISTENING", port: PORT }) + "\n"));
 
 const shutdown = async (signal: string) => {
   server.close();

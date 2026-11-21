@@ -85,6 +85,22 @@ export class LicenseCapacityAuthority{
         return {activationId:String(old.id),status:String(old.activation_status),idempotent:true};}
       for(const a of r.allocations)if((await c.query("SELECT id FROM organization.branches WHERE id=$1 AND tenant_id=$2 AND company_id=$3 AND status='ACTIVE' FOR SHARE",[a.branch_id,source.tenant_id,source.company_id])).rowCount!==1)
         throw Error("LICENSE_REGISTER_BRANCH_SCOPE_REJECTED");
+      for(const a of [...r.allocations].sort((x,y)=>x.register_id.localeCompare(y.register_id))){
+        const register=await c.query(
+          `SELECT id FROM cash.cash_registers
+           WHERE id=$1
+             AND tenant_id=$2
+             AND company_id=$3
+             AND branch_id=$4
+             AND status='ACTIVE'
+           FOR SHARE`,
+          [a.register_id,source.tenant_id,source.company_id,a.branch_id]
+        );
+
+        if(register.rowCount!==1)
+          throw Error("LICENSE_ACTIVE_REGISTER_REQUIRED");
+      }
+
       const held=(await c.query("SELECT request_payload FROM licensing.license_activations WHERE license_id=$1",[r.license_id])).rows;
       const registers=new Map<string,string>();
       for(const list of [...held.map(h=>h.request_payload.allocations),r.allocations])for(const a of list){

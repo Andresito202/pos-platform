@@ -1,7 +1,11 @@
 import { useAdminMetrics } from "../hooks/useAdminMetrics.js";
 import { formatScale6Display } from "../money-display.js";
+import { BusinessCashRegisterPanel } from "./BusinessCashRegisterPanel.js";
 
-export function AdministrativeControlPanel(): React.JSX.Element {
+export function AdministrativeControlPanel({ browserBusiness = false }: { browserBusiness?: boolean } = {}): React.JSX.Element {
+  return browserBusiness ? <BusinessCashRegisterPanel /> : <LocalAdministrativeControlPanel />;
+}
+function LocalAdministrativeControlPanel(): React.JSX.Element {
   const adminMetrics = useAdminMetrics(true);
 
   return (

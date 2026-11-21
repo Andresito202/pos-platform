@@ -1,5 +1,9 @@
 # Backlog maestro
 
+## Continuación autorizada — 2026-11-21
+
+Única línea de ejecución: `codex/business-cash-consolidation-20261120`; destino `main` mediante el flujo de gobernanza. El propietario autoriza confirmar, publicar y cerrar BUSINESS, cajas, licencias y su conexión al POS original. El bloque HTTP/panel cuenta con 45 pruebas focalizadas observadas, con dobles donde se indica en `docs/testing/business-cash-consolidation-20261121.md`. PostgreSQL real, licencias múltiples y distribución/arranque comercial conservan sus pendientes concretos; no están cerrados por estas pruebas. No se reabren certificaciones históricas ni se amplía el trabajo a sectores o hardware.
+
 ## Propósito y autoridad
 
 Este archivo es la fuente normativa del **estado vigente del trabajo** de POS Platform: prioridad, dependencia, bloqueo, trabajo activo y orden inmediato.

@@ -4,9 +4,9 @@
 
 Este repositorio se desarrolla sobre **una única línea activa**. La existencia de una idea técnicamente interesante no autoriza a abrir otra línea.
 
-### Línea activa vigente — decisión del propietario 2026-11-09
+### Línea activa vigente — decisión del propietario 2026-11-21
 
-- Única rama activa: `cursor/commercial-design-review-0d11`. Se continúa esta rama existente; no crear, renombrar ni abrir otra para la consolidación.
+- Única rama activa: `codex/business-cash-consolidation-20261120`. Se continúa esta rama existente; no crear, renombrar ni abrir otra para la consolidación. La orden expresa del propietario del 2026-11-21 sustituye la selección anterior y autoriza commits, publicación e integración mediante PR, CI del HEAD exacto y verificación post-merge. Base de esta continuación: `3471d39fe0963f5c092deb2e61aae6720a1f4465`.
 - Rama canónica de entrega: `main`, mediante el flujo de PR y verificación existente. No desarrollar en paralelo en main.
 - Base inspeccionada: `6a02c858a38a18d801532706eac34e440befea72`. Contiene como ancestros Windows P0 `f277416f`, login local `7f44c05d` e integración `e31e008a`; restaura SalePanel, que en e31e008a contiene únicamente FULL_CONTENT_WILL_BE_INSERTED.
 - Esta elección conserva el historial y no certifica runtime, licencias ni login BUSINESS. El nombre histórico de la rama no impone el launcher DesignReview como producto.
