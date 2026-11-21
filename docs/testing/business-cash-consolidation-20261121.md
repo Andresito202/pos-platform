@@ -125,3 +125,7 @@ socket. Se completa ese adaptador de prueba con la respuesta contractual de
 estado después del arranque real del componente, y se exige leerla antes de
 activar/vender en la misma prueba. No se modifica la validación del transporte,
 no se omite el caso ni se usa este host como arranque comercial del propietario.
+El primer ajuste `e921facf` aún falló: la configuración mínima del host no tenía
+service_version. Se declara esa versión del fixture y se valida el resultado de
+estado con RuntimeStatusResultSchema antes de aceptar conexiones; se retira el
+cast incompleto del sobre. La validación del canal continúa sin modificaciones.
