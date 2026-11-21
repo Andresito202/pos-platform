@@ -14,6 +14,7 @@
     "login:preflight": "tsx src/central-login-preflight-cli.ts"
   },
   "dependencies": {
+    "@pos-platform/application": "workspace:^",
     "@pos-platform/contracts": "workspace:*",
     "@pos-platform/database-postgres": "workspace:*",
     "@pos-platform/device-trust": "workspace:*"

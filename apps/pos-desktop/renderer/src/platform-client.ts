@@ -36,6 +36,38 @@ export class PlatformClient{
     this.csrf=result.csrfToken;
     try{await this.post("session",{},signal);}catch(error){await this.logout().catch(()=>undefined);throw error;}
   }
+  async initializeTenant(request:{
+    tenantName:string;
+    companyName:string;
+    branchName:string;
+    ownerEmail:string;
+    ownerFullName:string;
+    idempotencyKey:string;
+    correlationId:string;
+  }){
+    const result=await this.post("tenants/initialize",request);
+
+    for(const key of [
+      "onboardingId","tenantId","companyId",
+      "branchId","ownerUserId","tenantMembershipId"
+    ]){
+      if(!UuidSchema.safeParse(result[key]).success)
+        throw Error("Central no confirmó el registro empresarial.");
+    }
+
+    if(result.status!=="READY_FOR_LICENSE")
+      throw Error("Estado de registro empresarial inválido.");
+
+    return {
+      onboardingId:String(result.onboardingId),
+      tenantId:String(result.tenantId),
+      companyId:String(result.companyId),
+      branchId:String(result.branchId),
+      ownerUserId:String(result.ownerUserId),
+      tenantMembershipId:String(result.tenantMembershipId),
+      status:"READY_FOR_LICENSE" as const
+    };
+  }
   async offers():Promise<PublishedOffer[]>{
     const result=await this.post("license-offers/catalog",{});
     if(!Array.isArray(result.offers))throw Error("Catálogo de planes inválido.");

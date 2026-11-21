@@ -2,6 +2,7 @@ import {createHash,createPublicKey,sign,type KeyObject} from "node:crypto";
 import {LicenseAllocationRequestSchema,LicenseActivationPolicySchema,LicenseCapacityClaimsSchema,canonicalSessionTrustJson,uuidV7,UuidSchema,
   LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseActivationPageRequestSchema,LicenseActivationPageSchema,SignedLicenseCapacityRevocationSchema,isLicenseSectorEntitlement,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
 import {PostgresDeviceProofReplayVerifier,type DeviceProofRequest,type Pool,type PoolClient} from "@pos-platform/database-postgres";
+import {reserveCashRegisterLicense,requireActiveBoundRegisters} from "./cash-register-license-binding.js";
 import {requireLicenseAdministrator} from "./license-administration.js";
 
 export const LICENSE_ACTIVATION_PATH="/v1/licensing/activations/resolve";
@@ -85,6 +86,22 @@ export class LicenseCapacityAuthority{
         return {activationId:String(old.id),status:String(old.activation_status),idempotent:true};}
       for(const a of r.allocations)if((await c.query("SELECT id FROM organization.branches WHERE id=$1 AND tenant_id=$2 AND company_id=$3 AND status='ACTIVE' FOR SHARE",[a.branch_id,source.tenant_id,source.company_id])).rowCount!==1)
         throw Error("LICENSE_REGISTER_BRANCH_SCOPE_REJECTED");
+      for(const a of [...r.allocations].sort((x,y)=>x.register_id.localeCompare(y.register_id))){
+        const register=await c.query(
+          `SELECT id FROM cash.cash_registers
+           WHERE id=$1
+             AND tenant_id=$2
+             AND company_id=$3
+             AND branch_id=$4
+             AND status='ACTIVE'
+           FOR SHARE`,
+          [a.register_id,source.tenant_id,source.company_id,a.branch_id]
+        );
+
+        if(register.rowCount!==1)
+          throw Error("LICENSE_ACTIVE_REGISTER_REQUIRED");
+      }
+
       const held=(await c.query("SELECT request_payload FROM licensing.license_activations WHERE license_id=$1",[r.license_id])).rows;
       const registers=new Map<string,string>();
       for(const list of [...held.map(h=>h.request_payload.allocations),r.allocations])for(const a of list){
@@ -92,6 +109,8 @@ export class LicenseCapacityAuthority{
         registers.set(a.register_id,a.branch_id);
       }
       if(registers.size>1+source.additional_registers)throw Error("LICENSE_PAID_REGISTER_CAPACITY_EXCEEDED");
+      await reserveCashRegisterLicense(c,{tenantId:source.tenant_id,companyId:source.company_id,licenseId:r.license_id,
+        capacity:1+Number(source.additional_registers)},r.allocations);
       const version=Number(source.current_version)+1;if(!Number.isSafeInteger(version))throw Error("LICENSE_VERSION_EXHAUSTED");
       const activationId=uuidV7();
       await c.query(`INSERT INTO licensing.license_activations(id,license_id,tenant_id,company_id,device_id,installation_id,credential_id,
@@ -129,6 +148,9 @@ export class LicenseCapacityAuthority{
         a.device_id!==binding.deviceId||a.installation_id!==binding.installationId||!checksum(a.request_payload).equals(a.request_checksum)||
         canonicalSessionTrustJson(a.request_payload.policy)!==canonicalSessionTrustJson(this.policy))throw Error("LICENSE_ACTIVATION_BINDING_OR_POLICY_REJECTED");
       if(a.activation_status==='ACTIVE')return {artifact:{claims:a.canonical_payload,signature:a.signature.toString("base64url")} as SignedLicenseCapacity,key,idempotent:true};
+      // A reservation can outlive retirement for offline safety. It must not
+      // authorize a new signature after the master was retired meanwhile.
+      await requireActiveBoundRegisters(c,{tenantId:a.tenant_id,companyId:a.company_id,licenseId:a.license_id},a.request_payload.allocations);
       const contracted=(await c.query("SELECT capability_code FROM licensing.license_entitlements WHERE license_id=$1 AND enabled=true ORDER BY capability_code FOR SHARE",[a.license_id])).rows
         .map(e=>String(e.capability_code));
       // Sector modules are local-first; project contracted SECTOR_* even when the

@@ -3,11 +3,12 @@ import "./App.css";
 import "./commercial-precision.css";
 import "./workspace.css";
 import { BrandMark } from "./components/BrandMark.js";
+import { OperationPanel } from "./components/OperationPanel.js";
 import { StatusPanel } from "./components/StatusPanel.js";
 import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
 import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
 import { LocalAdministrativeAuditPanel } from "./components/LocalAdministrativeAuditPanel.js";
-import { OperationPanel } from "./components/OperationPanel.js";
+
 import { AdministrativeControlPanel } from "./components/AdministrativeControlPanel.js";
 import { TransferReviewPanel } from "./components/TransferReviewPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
@@ -32,6 +33,12 @@ type Screen = {
 };
 
 export function App(): React.JSX.Element {
+  if (window.location.protocol === "https:" && window.location.pathname.startsWith("/business/")) {
+    return <main className="pos-main"><BrandMark variant="header" /><AdministrativeControlPanel browserBusiness /></main>;
+  }
+  return <LocalApp />;
+}
+function LocalApp(): React.JSX.Element {
   const authorization = useAuthorizationCapabilities();
   const [sessionEpoch, setSessionEpoch] = useState(0);
   const [navigationOpen, setNavigationOpen] = useState(true);
@@ -300,7 +307,7 @@ export function App(): React.JSX.Element {
           )}
         </section>
 
-        <section className="pos-operation" aria-label="Operación técnica">
+        <section className="pos-operation" aria-label="Consulta de operaciones">
           <OperationPanel />
         </section>
       </div>

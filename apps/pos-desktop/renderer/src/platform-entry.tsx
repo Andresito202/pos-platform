@@ -1,3 +1,4 @@
+import { PlatformTenantRegistration } from "./components/PlatformTenantRegistration.js";
 import { BrandMark } from "./components/BrandMark.js";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {createRoot} from "react-dom/client";
@@ -41,6 +42,7 @@ export function PlatformAdministrationPortal(){
     </section></main>;
   return <main className="pos-main"><BrandMark variant="header" /><section className="pos-admin-panel" aria-label="Administración GLOBAL">
     <h1>Superadministración</h1>
+    <PlatformTenantRegistration client={client} />
     <PlatformOfferEditor client={client} offers={offers} onChanged={refresh} />
     <PlatformLicenseFulfillment client={client} />
     <PlatformActivations client={client} />

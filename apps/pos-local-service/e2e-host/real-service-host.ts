@@ -14,7 +14,7 @@ import { CommercialRequestHandler } from "../src/commercial/commercial-request-h
 import { EncryptedFileSecretStore, InsecureDerivedKeyProvider } from "../src/security/index.js";
 import { FiscalCredentialStore, fiscalCredentialContext } from "../src/fiscal/fiscal-credential-store.js";
 import type { ServiceConfig } from "../src/config.js";
-import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
+import {RuntimeStatusResultSchema,type AuthorizationSnapshotClaims,type SessionAssertionClaims} from "@pos-platform/contracts";
 import {
   FACTUS_ADAPTER_DECLARATION,
   type DocumentIssuanceOutcome,
@@ -93,6 +93,7 @@ const keyPair = generateKeyPairSync("ed25519");
 
 function config(): ServiceConfig {
   return {
+    service_version: "1.0.0",
     tenant_id: TENANT,
     company_id: COMPANY,
     branch_id: BRANCH,
@@ -261,6 +262,8 @@ async function main(): Promise<void> {
   );
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
+  const runtimeStatus=RuntimeStatusResultSchema.parse({service_version:config().service_version,
+    protocol_version:"1.0.0",service_state:"READY",schema_version:"5"});
 
   const endpoint = localChannelEndpoint(INSTALLATION, process.platform, DATA_DIRECTORY);
   const server = new LocalChannelServer(
@@ -272,7 +275,7 @@ async function main(): Promise<void> {
     // que es otra cosa.
     new LocalChannelAuthenticator(SECRET),
     async (request, _signal, context) => {
-      const envelope = request as { message_type: string; request_id: string; correlation_id: string };
+      const envelope = request;
       if (envelope.message_type === "runtime.handshake") {
         return {
           protocol_version: "1.0.0",
@@ -285,6 +288,24 @@ async function main(): Promise<void> {
           error: null,
           server_time: NOW.toISOString(),
           result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
+        };
+      }
+      // Runtime status is also owned by LocalChannelComponent, bypassed by
+      // this existing host. The pre-auth login now polls it with a valid
+      // envelope. Sending it to CommercialRequestHandler yields undefined and
+      // correctly closes the socket on response-schema validation.
+      if(envelope.message_type === "runtime.status.get") {
+        return {
+          protocol_version: envelope.protocol_version,
+          request_id: envelope.request_id,
+          correlation_id: envelope.correlation_id,
+          operation_id: null,
+          status: "SUCCEEDED",
+          result_code: "OK",
+          result_schema_version: "1.0.0",
+          error: null,
+          server_time: new Date().toISOString(),
+          result: {...runtimeStatus,protocol_version:envelope.protocol_version},
         };
       }
       // Local-operator IPC is owned by LocalChannelComponent in production.

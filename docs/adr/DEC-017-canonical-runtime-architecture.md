@@ -142,3 +142,22 @@ evidencia de la necesidad, y sin reescribir lo ya cerrado.
 `apps/pos-local-service/src/payments/` · `.../cash/` · `.../sales/` ·
 `.../session/` · `.../channel/server.ts` · `MIGRATION_001..011` en
 `packages/database-sqlite/src/local-database.ts` · `packages/contracts/src/ipc*.ts`
+
+## Enmienda acotada 2026-11-21 — onboarding compartido
+
+La autorización del propietario para conectar el registro GLOBAL de empresas al
+Central existente requiere ejecutar `InitializeTenant` tanto desde Central
+(PostgreSQL) como desde el servicio local (sus adaptadores existentes). Importar
+el runtime local desde Central infringiría la frontera de despliegue; duplicar el
+caso de uso introduciría dos reglas de onboarding.
+
+Se permite exclusivamente trasladar ese caso de uso ya existente a
+`packages/application/src/onboarding/initialize-tenant.ts`, sin adaptadores,
+frameworks, acceso SQL ni nuevos writers. El archivo original del servicio local
+reexporta la misma implementación. Los contratos siguen en `contracts` y la
+persistencia en sus adaptadores originales. `frozenSourceAreas` añade únicamente
+`onboarding`; las otras áreas permanecen congeladas. Esta excepción responde a
+un segundo llamador real autorizado, no a una ampliación preventiva.
+
+Evidencia: PR #115, commit faa20c4e, CI job 136845350735 rechazó el área antes
+no contemplada. El gate se conserva y debe pasar con esta decisión explícita.

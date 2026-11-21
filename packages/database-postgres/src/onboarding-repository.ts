@@ -230,7 +230,10 @@ class PostgresOnboardingTransaction implements OnboardingTransaction {
 }
 
 class PostgresTransactionalSql {
-  constructor(private readonly pool: PostgresPoolLike) {}
+  constructor(
+    private readonly pool: PostgresPoolLike,
+    private readonly authorizeTransaction?: (client: NativePostgresPoolClient) => Promise<void>,
+  ) {}
   async withTransaction<T>(run: (tx: PostgresPoolClient) => Promise<T>): Promise<T> {
     const nativeClient = await this.pool.connect();
     // pg.PoolClient.query() returns QueryResult { rows }, while the onboarding
@@ -249,6 +252,9 @@ class PostgresTransactionalSql {
     };
     try {
       await client.query("BEGIN");
+      if (this.authorizeTransaction) {
+        await this.authorizeTransaction(nativeClient);
+      }
       const result = await run(client);
       await client.query("COMMIT");
       return result;
@@ -262,8 +268,11 @@ class PostgresTransactionalSql {
 }
 
 export class PostgresOnboardingRepository implements OnboardingRepository {
-  constructor(private readonly pool: PostgresPoolLike) {}
+  constructor(
+    private readonly pool: PostgresPoolLike,
+    private readonly authorizeTransaction?: (client: NativePostgresPoolClient) => Promise<void>,
+  ) {}
   async transaction<T>(work: (tx: OnboardingTransaction) => Promise<T>): Promise<T> {
-    return new PostgresTransactionalSql(this.pool).withTransaction(async (client) => work(new PostgresOnboardingTransaction(client)));
+    return new PostgresTransactionalSql(this.pool, this.authorizeTransaction).withTransaction(async (client) => work(new PostgresOnboardingTransaction(client)));
   }
 }

@@ -33,6 +33,35 @@ export interface CartLine {
   readonly identifier: string;
 }
 
+function mergeCartLine(
+  current: readonly CartLine[],
+  incoming: CartLine,
+): CartLine[] {
+  const index = current.findIndex(line =>
+    line.productId === incoming.productId &&
+    line.presentationId === incoming.presentationId &&
+    line.priceAmount === incoming.priceAmount &&
+    line.currencyCode === incoming.currencyCode
+  );
+
+  if (index === -1) return [...current, incoming];
+
+  const previous = current[index]!;
+  const first = parseCopMicros(previous.quantity);
+  const second = parseCopMicros(incoming.quantity);
+
+  if (first === null || second === null) {
+    return [...current, incoming];
+  }
+
+  const sum = first + second;
+  const quantity = `${sum / 1000000n}.${(sum % 1000000n).toString().padStart(6, "0")}`;
+
+  return current.map((line, position) =>
+    position === index ? { ...line, quantity } : line
+  );
+}
+
 export interface OpenShift {
   readonly shiftId: string;
   readonly cashRegisterId: string;
@@ -128,6 +157,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   listCatalogItems(query?: string): Promise<void>;
   loadMoreCatalogItems(): Promise<void>;
   addCatalogItem(item: CatalogItemListItem, quantity: string): void;
+  updateLineQuantity(index: number, value: string): void;
   removeLine(index: number): void;
   waitingCarts: readonly WaitingCart[];
   waitingLabel: string;
@@ -307,13 +337,32 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     if (busyRef.current || pendingChange.current || sale) return;
     const canonical = toScale6(quantity);
     if (canonical === null || canonical === "0.000000") { setError("INVALID_QUANTITY"); return; }
-    setLines(current => [...current, {
+    setLines(current => mergeCartLine(current, {
       productId: item.product_id, presentationId: item.presentation_id,
       name: item.name, presentationName: item.presentation_name,
       priceAmount: item.price_amount, currencyCode: item.currency_code,
       quantity: canonical, identifier: item.code,
-    }]);
+    }));
   }, [sale]);
+
+  const updateLineQuantity = useCallback(
+    (index: number, value: string): void => {
+      if (busyRef.current || pendingChange.current || sale) return;
+
+      const canonical = toScale6(value.trim().replace(",", "."));
+      const parsed = canonical === null ? null : parseCopMicros(canonical);
+
+      if (canonical === null || parsed === null || parsed <= 0n) {
+        setError("Cantidad no válida");
+        return;
+      }
+
+      setLines(current => current.map((line, position) =>
+        position === index ? { ...line, quantity: canonical } : line
+      ));
+      setError(null);
+    }, [sale]
+  );
 
   const removeLine = useCallback((index: number): void => {
     if (busyRef.current || pendingChange.current || sale) return;
@@ -349,7 +398,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         || item.price_amount === null
         || item.currency_code === null
       ) return;
-      setLines((current) => [...current, {
+      setLines(current => mergeCartLine(current, {
         productId: item.product_id as string,
         presentationId: item.presentation_id as string,
         name: item.name ?? "",
@@ -358,7 +407,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         currencyCode: item.currency_code as string,
         quantity: canonical,
         identifier: item.barcode ?? "",
-      }]);
+      }));
     setFoundItem(null);
   }, [foundItem, sale]);
 
@@ -808,7 +857,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     openShift, findItem, addFoundItem, captureWeight, createSale, chargeCash,
     registerTransfer, refreshTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
     closeShift, reset, unresolved, retryPending, loadTransfer, cancelTransfer,
-    catalogItems, catalogBusy, catalogHasMore, listCatalogItems, loadMoreCatalogItems, addCatalogItem, removeLine,
+    catalogItems, catalogBusy, catalogHasMore, listCatalogItems, loadMoreCatalogItems, addCatalogItem, removeLine, updateLineQuantity,
     waitingCarts, waitingLabel, setWaitingLabel, listWaiting, holdCart, resumeCart, discardWaiting, customerId, selectCustomer,
   };
 }

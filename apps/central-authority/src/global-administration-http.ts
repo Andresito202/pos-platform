@@ -1,3 +1,7 @@
+import { InitializeTenant } from "@pos-platform/application";
+import { PostgresOnboardingRepository, type PoolClient } from "@pos-platform/database-postgres";
+import { requireLicenseAdministrator } from "./license-administration.js";
+
 import type {IncomingMessage,ServerResponse} from "node:http";
 import {TLSSocket} from "node:tls";
 import {createHash,randomBytes} from "node:crypto";
@@ -75,6 +79,87 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(path==="/v1/platform/logout"){
         if(!exact(b,[])){sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});return;}
         const closed=await sessions.close(request);sendCommercialJson(res,closed?200:401,{closed:closed!==null},sessions.clearCookie());return;
+      }
+      if(path==="/v1/platform/tenants/initialize"){
+        const sessionId=await sessions.authorize(
+          request,CentralAdministrationOperation.TENANT_INITIALIZE
+        );
+
+        if(!sessionId){
+          sendCommercialJson(res,403,{code:"TENANT_AUTHORIZATION_REJECTED"});
+          return;
+        }
+
+        const keys=[
+          "tenantName","companyName","branchName",
+          "ownerEmail","ownerFullName","idempotencyKey","correlationId"
+        ];
+
+        if(!exact(b,keys) ||
+          !keys.every(k=>text(b[k],320)) ||
+          !UuidSchema.safeParse(b.correlationId).success ||
+          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(b.ownerEmail))){
+          sendCommercialJson(res,400,{code:"TENANT_REQUEST_INVALID"});
+          return;
+        }
+
+        const actor=await input.pool.query(
+          "SELECT user_id FROM identity.sessions WHERE id=$1 AND revoked_at IS NULL",
+          [sessionId]
+        );
+
+        const actorId=actor.rows[0]?.user_id;
+
+        if(!UuidSchema.safeParse(actorId).success){
+          sendCommercialJson(res,403,{code:"TENANT_AUTHORIZATION_REJECTED"});
+          return;
+        }
+
+        const repository=new PostgresOnboardingRepository(
+          input.pool,
+          async native=>{
+            const c=native as PoolClient;
+
+            await c.query(
+              "SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true)",
+              [`${policy.lockTimeoutMs}ms`,`${policy.statementTimeoutMs}ms`]
+            );
+
+            const authorized=await requireLicenseAdministrator(
+              c,sessionId,policy.maximumReauthenticationAgeMs,
+              CentralAdministrationOperation.TENANT_INITIALIZE
+            );
+
+            if(authorized.user_id!==actorId)
+              throw Error("TENANT_ACTOR_MISMATCH");
+          }
+        );
+
+        const onboarding=new InitializeTenant(repository,{
+          authorize:async requested=>{
+            if(requested.type!=="PLATFORM_ACCOUNT" ||
+               requested.id!==actorId)
+              throw Error("TENANT_ACTOR_REJECTED");
+          }
+        });
+
+        const result=await onboarding.execute({
+          actor:{type:"PLATFORM_ACCOUNT",id:actorId},
+          tenantName:String(b.tenantName),
+          companyName:String(b.companyName),
+          branchName:String(b.branchName),
+          ownerEmail:String(b.ownerEmail),
+          ownerFullName:String(b.ownerFullName),
+          initialLocale:"es-CO",
+          initialTimezone:"America/Bogota",
+          initialCurrency:"COP",
+          initialConfiguration:{},
+          idempotencyKey:String(b.idempotencyKey),
+          correlationId:String(b.correlationId)
+        });
+
+        sendCommercialJson(res,200,result);
+        return;
       }
       const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}

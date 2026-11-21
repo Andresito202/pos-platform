@@ -149,6 +149,7 @@
     "@pos-platform/application": [
       "authorization",
       "session",
+        "onboarding",
       "index.ts"
     ]
   },

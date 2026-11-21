@@ -6,9 +6,9 @@ Este documento es la fuente normativa para ramas, pull requests, integración en
 
 No sustituye el backlog ni las decisiones de arquitectura. Su función es impedir cambios huérfanos, merges ambiguos, estados Git inventados y ramas abiertas sin objetivo vigente.
 
-## Línea de ejecución vigente — 2026-11-09
+## Línea de ejecución vigente — 2026-11-21
 
-Por orden del propietario de unificar el trabajo, se continúa únicamente `cursor/commercial-design-review-0d11`, rama existente cuya base inspeccionada es `6a02c858`. El destino de entrega sigue siendo main. No se crea una rama de consolidación adicional ni se trabaja en paralelo sobre sus predecesoras.
+Por autorización expresa del propietario se continúa únicamente la rama existente `codex/business-cash-consolidation-20261120`, desde `3471d39f` y sus cambios locales conservados. El destino de entrega sigue siendo main mediante PR, revisión, CI del HEAD exacto y verificación post-merge. Están autorizados commits y publicación del trabajo validado, sin declarar operativas capacidades bloqueadas por provisión o infraestructura. Esta orden sustituye la selección de rama del 2026-11-09; no se crea otra línea ni se integran ramas históricas completas.
 
 El cambio de dirección no autoriza merges sin revisar ni acredita producción. El retiro de ramas requiere comprobar contenido exclusivo y dependencias de PR; el inventario actual está al inicio del backlog. Las referencias históricas a otras líneas activas conservan solamente su alcance fechado.
 

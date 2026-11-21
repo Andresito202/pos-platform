@@ -7,7 +7,7 @@
 # Camacho POS Colombia
 
 
-> **Línea activa:** `cursor/commercial-design-review-0d11` → entrega canónica `main` vía PR #106 (Draft).
+> **Línea activa:** `codex/business-cash-consolidation-20261120` → entrega canónica `main` mediante PR y validación del commit exacto; autorización del propietario 2026-11-21.
 > Integración selectiva por olas (docs/governance/selective-integration-waves-2026-11-18.md).
 > No merge masivo. Ola 5 SCM comercial congelada. FACTUS al final.
 Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first para operación comercial real en Colombia.
@@ -20,7 +20,7 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 La rama canónica del producto es `main`. La única línea activa de desarrollo es:
 
-`cursor/commercial-design-review-0d11`
+`codex/business-cash-consolidation-20261120`
 
 Claude Code y cualquier otra IA/agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
 

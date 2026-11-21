@@ -207,16 +207,119 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
 
       </section>
       <section className="pos-sale-cart" aria-label="Carrito">
-      <h2>Venta</h2>
-      <ul data-testid="cart">
-        {sale.lines.map((line, index) => (
-          <li key={`${line.presentationId}-${String(index)}`} data-testid="cart-line">
-            {line.name} · {line.presentationName} · {line.quantity} × {formatScale6Display(line.priceAmount)}
-            {sale.sale === null && <button type="button" disabled={sale.busy || sale.unresolved}
-              aria-label={`Quitar ${line.name}`} onClick={() => sale.removeLine(index)}>Quitar</button>}
-          </li>
-        ))}
-      </ul>
+      <h2>Carrito de compras</h2>
+      {sale.lines.length === 0 && (
+        <p className="pos-cart-empty">
+          Selecciona un producto para agregarlo al carrito.
+        </p>
+      )}
+      <div className="pos-cart-table-container">
+        <table className="pos-cart-table" data-testid="cart">
+          <thead>
+            <tr>
+              <th>Producto</th><th>Unidad</th>
+              <th>Cant.</th>
+              <th>Precio</th>
+              <th>Valor</th>
+              <th aria-label="Acciones"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sale.lines.map((line, index) => (
+              <tr key={`${line.presentationId}-${index}`} data-testid="cart-line">
+                <td>
+                  <strong>{line.name}</strong></td><td>{line.presentationName}
+                </td>
+                <td className="pos-cart-quantity">
+  <div className="pos-quantity-controls">
+    <button type="button"
+      aria-label={`Disminuir ${line.name}`}
+      disabled={sale.busy || sale.unresolved || sale.sale !== null ||
+        (parseCopMicros(line.quantity) ?? 0n) <= 1000000n}
+      onClick={() => {
+        const value = (parseCopMicros(line.quantity) ?? 0n) - 1000000n;
+        sale.updateLineQuantity(index, `${value / 1000000n}.${(value % 1000000n).toString().padStart(6, "0")}`);
+      }}>−</button>
+
+    <input
+      key={line.quantity}
+      aria-label={`Cantidad de ${line.name}`}
+      inputMode="decimal"
+      defaultValue={line.quantity.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "")}
+      disabled={sale.busy || sale.unresolved || sale.sale !== null}
+      onKeyDown={event => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+      onBlur={event => {
+        const value = event.currentTarget.value;
+        const parsed = parseCopMicros(value);
+        if (parsed === null || parsed <= 0n) {
+          event.currentTarget.value = line.quantity;
+          return;
+        }
+        sale.updateLineQuantity(index, value);
+      }}
+    />
+
+    <button type="button"
+      aria-label={`Aumentar ${line.name}`}
+      disabled={sale.busy || sale.unresolved || sale.sale !== null}
+      onClick={() => {
+        const value = (parseCopMicros(line.quantity) ?? 0n) + 1000000n;
+        sale.updateLineQuantity(index, `${value / 1000000n}.${(value % 1000000n).toString().padStart(6, "0")}`);
+      }}>+</button>
+  </div>
+</td>
+                <td className="pos-cart-money">
+                  {formatScale6Display(line.priceAmount)}
+                </td>
+                <td className="pos-cart-money">
+                  <strong>
+                    {formatCopMicros(
+                      (parseCopMicros(line.quantity) ?? 0n) *
+                      (parseCopMicros(line.priceAmount) ?? 0n) /
+                      1000000n
+                    )}
+                  </strong>
+                </td>
+                <td>
+                  {sale.sale === null && (
+                    <button
+                      type="button"
+                      className="pos-cart-remove"
+                      disabled={sale.busy || sale.unresolved}
+                      aria-label={`Quitar ${line.name}`}
+                      title="Eliminar producto"
+                      onClick={() => sale.removeLine(index)}
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor"
+                        strokeWidth="1.8" strokeLinecap="round"
+                        strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 6h18M8 6V4h8v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/>
+                      </svg>
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="pos-total" data-testid="cart-preview-total">
+        <span>{sale.sale !== null ? "Total a pagar" : "Subtotal estimado (sin impuestos ni redondeo)"}</span>
+        <strong>
+          {sale.sale !== null
+            ? formatScale6Display(sale.sale.payableAmount)
+            : sale.lines.every(line => line.currencyCode === "COP" &&
+                parseCopMicros(line.quantity) !== null &&
+                parseCopMicros(line.priceAmount) !== null)
+              ? formatCopMicros(sale.lines.reduce((total, line) =>
+                  total + (parseCopMicros(line.quantity)! *
+                    parseCopMicros(line.priceAmount)! / 1000000n), 0n))
+              : "No disponible"}
+        </strong>
+      </div>
       {canReadCustomers && <details>
         <summary>Vincular cliente</summary>
         <label>Tipo de documento<input value={customerDocument} onChange={event => setCustomerDocument(event.target.value)} /></label>
