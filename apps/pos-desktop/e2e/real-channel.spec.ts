@@ -140,6 +140,15 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
   // El canal ya negoció el handshake contra el servicio real: si no, Electron
   // no habría llegado a abrir ventana (`startPosDesktop` falla cerrado).
 
+  // A status poll before authentication must preserve the same signed socket
+  // for activation and the commercial transaction that follows.
+  const runtime = await page.evaluate(async () => {
+    const posService=(globalThis as unknown as {posService:Record<string,(request:unknown)=>Promise<unknown>>}).posService;
+    return await posService["runtime.status.get"]!({protocol_version:"1.0.0",message_type:"runtime.status.get",
+      request_id:crypto.randomUUID(),correlation_id:crypto.randomUUID(),payload_schema_version:"1.0.0",payload:{}});
+  });
+  expect(runtime).toMatchObject({status:"SUCCEEDED",result:{service_state:"READY",schema_version:"5"}});
+
   // 1 · El cajero se identifica. La SSA la firma el servicio; el escritorio
   //     sólo la transporta, y nunca afirma identidad por su cuenta.
   const activated = await page.evaluate(async (assertion) => {

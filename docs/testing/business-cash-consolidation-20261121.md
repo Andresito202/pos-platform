@@ -112,3 +112,16 @@ El propietario confirmó que la configuración comercial autorizada aún no est�
 ni sesiones comerciales provisionales y no se abrió otro POS para aparentar
 operación. La validación del ledger/historia comercial, login humano, recepción
 firmada y arranque oficial quedan pendientes de esa infraestructura.
+
+### Corrección del gate Linux del canal real
+
+CI de `a6e2163a` superó los tests y el build, pero falló al activar la sesión en
+`real-channel.spec.ts`: el socket ya estaba cerrado. El login monta StatusPanel
+antes de autenticar y ahora envía un sobre válido de runtime.status.get. El host
+E2E existente puentea directamente a CommercialRequestHandler, omitiendo el
+LocalChannelComponent que atiende esa lectura en producción. La respuesta
+indefinida del host hizo que la validación del canal cerrara correctamente el
+socket. Se completa ese adaptador de prueba con la respuesta contractual de
+estado después del arranque real del componente, y se exige leerla antes de
+activar/vender en la misma prueba. No se modifica la validación del transporte,
+no se omite el caso ni se usa este host como arranque comercial del propietario.

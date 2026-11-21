@@ -287,6 +287,24 @@ async function main(): Promise<void> {
           result: { status: "COMPATIBLE", negotiated_protocol_version: "1.0.0" },
         };
       }
+      // Runtime status is also owned by LocalChannelComponent, bypassed by
+      // this existing host. The pre-auth login now polls it with a valid
+      // envelope. Sending it to CommercialRequestHandler yields undefined and
+      // correctly closes the socket on response-schema validation.
+      if(envelope.message_type === "runtime.status.get") {
+        return {
+          protocol_version: envelope.protocol_version,
+          request_id: envelope.request_id,
+          correlation_id: envelope.correlation_id,
+          operation_id: null,
+          status: "SUCCEEDED",
+          result_code: "OK",
+          result_schema_version: "1.0.0",
+          error: null,
+          server_time: new Date().toISOString(),
+          result: {service_version:config().service_version,protocol_version:envelope.protocol_version,service_state:"READY",schema_version:"5"},
+        };
+      }
       // Local-operator IPC is owned by LocalChannelComponent in production.
       // This e2e host bypasses that component, so it must still return a schema-
       // valid envelope: undefined/invalid responses destroy the channel socket
