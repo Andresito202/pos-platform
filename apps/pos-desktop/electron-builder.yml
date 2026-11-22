@@ -26,9 +26,9 @@ win:
         - x64
   icon: packaging/icon.png
   artifactName: CamachoPOSColombia-${version}-win-${arch}.${ext}
-  # Unsigned until RT-009-B certificate exists. Installer may be generated for
-  # lab verification; it is NOT a commercially signed distribution.
-  signAndEditExecutable: false
+  # Windows Authenticode is mandatory for commercial release. This option
+  # does not provide a certificate; the release gate remains blocked without it.
+  signAndEditExecutable: true
 nsis:
   oneClick: false
   perMachine: true

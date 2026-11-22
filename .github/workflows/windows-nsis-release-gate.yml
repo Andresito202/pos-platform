@@ -1,0 +1,52 @@
+name: Windows NSIS commercial release safety
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-nsis-release-gate.yml'
+      - 'apps/pos-desktop/packaging/**'
+      - 'apps/pos-desktop/scripts/**'
+      - 'tools/operators/nsis-commercial-release-gate.test.mjs'
+      - 'tools/operators/assert-helper-nsis-safe.mjs'
+      - 'package.json'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-nsis-release-gate.yml'
+      - 'apps/pos-desktop/packaging/**'
+      - 'apps/pos-desktop/scripts/**'
+      - 'tools/operators/nsis-commercial-release-gate.test.mjs'
+      - 'tools/operators/assert-helper-nsis-safe.mjs'
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nsis-release-safety-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-safety:
+    name: Verify NSIS refuses uncertified commercial release
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact HEAD
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+
+      - name: Verify the commercial release gate and PowerShell syntax
+        run: node --test tools/operators/nsis-commercial-release-gate.test.mjs
+
+      - name: Verify native-tool safety and non-installing NSIS hook
+        run: node tools/operators/assert-helper-nsis-safe.mjs

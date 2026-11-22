@@ -18,11 +18,11 @@ param(
   [Parameter(Mandatory = $true)][ValidateSet('Install', 'Uninstall', 'Status')][string]$Action,
   [Parameter(Mandatory = $true)][string]$PayloadDir,
   [string]$DataDirectory,
-  [string]$InstallationId = '018f0000-0000-7000-8000-0000000000a1',
-  [string]$DeviceId = '018f0000-0000-7000-8000-0000000000a2',
-  [string]$TenantId = '018f0000-0000-7000-8000-0000000000a3',
-  [string]$CompanyId = '018f0000-0000-7000-8000-0000000000a4',
-  [string]$BranchId = '018f0000-0000-7000-8000-0000000000a5',
+  [string]$InstallationId,
+  [string]$DeviceId,
+  [string]$TenantId,
+  [string]$CompanyId,
+  [string]$BranchId,
   [switch]$Json
 )
 Set-StrictMode -Version Latest
@@ -229,10 +229,28 @@ function Assert-Payload {
   }
 }
 
-function Resolve-DataDirectory {
-  if ([string]::IsNullOrWhiteSpace($DataDirectory)) {
-    return (Join-Path $env:ProgramData 'CamachoPOS\lab-data')
+function Assert-CommercialProvisionReady {
+  # Refuse all commercial installs until native SERVICE/DESKTOP provisioning
+  # and cross-session interoperability have been physically certified.
+  if ([string]::IsNullOrWhiteSpace($DataDirectory)) { throw 'COMMERCIAL_DATA_DIRECTORY_REQUIRED' }
+  if ($DataDirectory -notmatch '^[A-Za-z]:\\') { throw 'COMMERCIAL_DATA_DIRECTORY_NOT_LOCAL_ABSOLUTE' }
+  $canonical = [System.IO.Path]::GetFullPath($DataDirectory)
+  $segments = $canonical -split '[\\/]'
+  if (@($segments | Where-Object {
+    $_ -match '^(?i:lab-data|\.lab-state|camachoposcmlab|design-review-runtime|preprod)$'
+  }).Count -ne 0) { throw 'COMMERCIAL_LAB_DIRECTORY_REJECTED' }
+  foreach ($id in @($InstallationId, $DeviceId, $TenantId, $CompanyId, $BranchId)) {
+    if ([string]::IsNullOrWhiteSpace($id) -or
+        $id -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' -or
+        $id -match '^018f0000-0000-7000-8000-0000000000a[1-5]$') {
+      throw 'COMMERCIAL_IDENTITY_INVALID_OR_SAMPLE'
+    }
   }
+  throw 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+}
+
+function Resolve-DataDirectory {
+  Assert-CommercialProvisionReady
   return $DataDirectory
 }
 
@@ -515,6 +533,7 @@ switch ($Action) {
     } 0
   }
   'Install' {
+    Assert-CommercialProvisionReady
     Assert-Admin
     Clear-ScmInstallOkMarker
     Assert-Payload

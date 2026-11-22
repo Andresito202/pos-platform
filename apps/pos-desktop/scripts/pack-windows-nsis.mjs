@@ -5,9 +5,9 @@
  * Prerequisites: `pnpm --filter @pos-platform/pos-desktop build` already run,
  * and `electron-builder` installed as a desktop devDependency.
  *
- * Does NOT claim Authenticode signing (RT-009-B BLOCKED). Does NOT disable
+ * Authenticode and SCM interoperability remain blocked pending certification. Does NOT disable
  * SCM/DPAPI/IPC. Exit codes:
- * - 0: installer artifact generated (unsigned unless cert configured externally)
+ * - 0: installer artifact generated only after reviewed commercial release enablement
  * - 2: electron-builder missing
  * - 3: desktop dist missing
  */
@@ -16,6 +16,10 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { assertCommercialNsisReleaseReady } from "./assert-commercial-nsis-release.mjs";
+
+// Fail before touching any staging files, invoking build tools, or producing EXEs.
+assertCommercialNsisReleaseReady(process.env);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktop = join(here, "..");
@@ -56,6 +60,6 @@ try {
 const result = spawnSync(
   process.execPath,
   [builderBin, "--win", "nsis", "--x64", "--config", join(desktop, "electron-builder.yml")],
-  { cwd: desktop, stdio: "inherit", env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: "false" } },
+  { cwd: desktop, stdio: "inherit", env: { ...process.env } },
 );
 process.exit(result.status === null ? 1 : result.status);
