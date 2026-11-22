@@ -49,4 +49,14 @@ describe("SCM checkpoint transition (authenticated custody boundary supplied by 
   it("rejects using a rotation approval for an unchanged checkpoint", () => {
     expect(() => assertWindowsScmTrustTransition(trust, next, signed(), now)).toThrow();
   });
+  it("rejects any checkpoint validity change, including during signed candidate rotation", () => {
+    const rotated = {...next, current_policy_revision:5, current_candidate_sha256:rotation.candidate_sha256};
+    for (const change of [
+      {not_before:"2025-01-01T00:00:00Z"}, {not_before:"2027-01-01T00:00:00Z"},
+      {expires_at:"2027-01-01T00:00:00Z"}, {expires_at:"2029-01-01T00:00:00Z"},
+    ]) {
+      expect(() => assertWindowsScmTrustTransition(trust, {...next, ...change})).toThrow();
+      expect(() => assertWindowsScmTrustTransition(trust, {...rotated, ...change}, signed(), now)).toThrow();
+    }
+  });
 });

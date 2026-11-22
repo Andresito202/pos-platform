@@ -19,6 +19,7 @@ export function assertWindowsScmTrustTransition(previousInput: unknown, nextInpu
   if (!Number.isSafeInteger(previous.trust_revision + 1) ||
       next.trust_revision !== previous.trust_revision + 1 ||
       next.installation_id !== previous.installation_id || next.device_id !== previous.device_id ||
+      next.not_before !== previous.not_before || next.expires_at !== previous.expires_at ||
       next.authority_spki_sha256 !== previous.authority_spki_sha256 ||
       next.authority_public_key_pem !== previous.authority_public_key_pem ||
       !previous.revoked_policy_ids.every(id => next.revoked_policy_ids.includes(id)) ||
