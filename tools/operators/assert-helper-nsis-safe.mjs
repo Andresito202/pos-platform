@@ -47,11 +47,11 @@ const required = [
 ];
 
 const nshForbidden = [
+  { re: /-InstallProfile LAB|-Action Install/, why: 'no diagnostic service install in distributable NSIS' },
   { re: /\$COMMONAPPDATA/, why: 'unknown NSIS var → makensis warning 6000' },
 ];
 const nshRequired = [
-  { re: /\$INSTDIR\\resources\\service-payload\\scm-install\.ok/, why: 'INSTDIR marker' },
-  { re: /Abort "WINSW_SCM_REGISTRATION_FAILED"/, why: 'fail-closed Abort' },
+  { re: /Abort "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN"/, why: 'refuse uncertified installer' },
 ];
 
 let failed = 0;
