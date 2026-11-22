@@ -116,12 +116,12 @@ describe("SCM operator preflight (no native invocation, no commercial enablement
   });
   it("rejects nested private custody directories, not just identical parents", () => {
     const [s, d] = pair();
-    d.receiver_file = String.raw`C:\ProgramData\CamachoPOS\service\\private\\desktop\\receiver.json`;
+    d.receiver_file = String.raw`C:\ProgramData\CamachoPOS\service\private\desktop\receiver.json`;
     assert.throws(() => validate(s, d), /SCM_PRIVATE_CUSTODY_NOT_SEPARATED/);
   });
   it("rejects adapter mismatch between SERVICE and DESKTOP provisions", () => {
     const [s, d] = pair();
-    d.adapter_file = String.raw`C:\ProgramData\CamachoPOS\other\\camacho_windows_pipe.node`;
+    d.adapter_file = String.raw`C:\ProgramData\CamachoPOS\other\camacho_windows_pipe.node`;
     assert.throws(() => validate(s, d), /SCM_CROSS_ROLE_ADAPTER_MISMATCH/);
   });
 
