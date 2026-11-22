@@ -3,6 +3,7 @@ import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { WindowsScmHandoffProvision } from "@pos-platform/contracts";
 import type { AttestedWindowsPipe, WindowsPipeAdapter } from "@pos-platform/local-channel";
 import { WindowsScmChannelTransport } from "../src/channel/windows-scm-transport.js";
+import { SqliteWindowsHandoffLeaseAuthority } from "../src/channel/sqlite-replay-state.js";
 
 const provision = {
   role: "SERVICE",
@@ -24,6 +25,16 @@ function adapter(overrides: Partial<WindowsPipeAdapter> = {}): WindowsPipeAdapte
 afterEach(() => { vi.useRealTimers(); });
 
 describe("SCM transport fail-closed lifecycle", () => {
+  it("reports lease check failure after checking all active connections", () => {
+    const ledger = new SqliteWindowsHandoffLeaseAuthority(dummyDatabase, provision.handoff);
+    const internals = ledger as unknown as {connected:Map<string, unknown>; assertConnectionActive:(id:string)=>void};
+    internals.connected.set("first", {}); internals.connected.set("second", {});
+    const check = vi.spyOn(internals, "assertConnectionActive").mockImplementation(id => {
+      if (id === "first") throw Error("DURABLE_LEDGER_FAILED");
+    });
+    expect(() => ledger.checkConnections()).toThrow("DURABLE_LEDGER_FAILED");
+    expect(check.mock.calls.map(([id]) => id)).toEqual(["first", "second"]);
+  });
   it("a native listen exception stops the transport and forbids subsequent starts", async () => {
     const mock = adapter({ listen: vi.fn(() => { throw Error("NATIVE_LISTEN_FAILED"); }) });
     const transport = new WindowsScmChannelTransport(
