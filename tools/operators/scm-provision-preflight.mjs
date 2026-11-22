@@ -36,7 +36,7 @@ function managedPath(value) {
     win32.isAbsolute(value) && win32.normalize(value) === value &&
     !value.slice(2).includes(":"), "SCM_MANAGED_PATH_REJECTED");
   const pathSegments = value.toLowerCase().split("\\");
-  requireCondition(!pathSegments.some(s => [".lab-state", "lab-data", "design-review-runtime", "preprod"].includes(s)),
+  requireCondition(!pathSegments.some(s => [".lab-state", "lab-data", "camachoposcmlab", "design-review-runtime", "preprod"].includes(s)),
     "SCM_NONCOMMERCIAL_PATH_REJECTED");
 }
 const profileKeys = [
@@ -83,7 +83,7 @@ export function validateScmProvisionPair(service, desktop, shaOfAdapter, now = n
     pinnedKey(p.signer_public_key_pem, p.signer_spki_sha256, "ed25519");
     pinnedKey(h.recipient_public_key_pem, h.recipient_key_sha256, "rsa");
   }
-  requireCondition(isDeepStrictEqual(service.handoff, desktop.handoff) &&
+  requireCondition(win32.dirname(service.signer_private_file).toLowerCase() !==\n    win32.dirname(desktop.receiver_file).toLowerCase(), "SCM_PRIVATE_CUSTODY_NOT_SEPARATED");\n  requireCondition(isDeepStrictEqual(service.handoff, desktop.handoff) &&
     service.signer_public_key_pem === desktop.signer_public_key_pem &&
     service.signer_spki_sha256 === desktop.signer_spki_sha256,
     "SCM_CROSS_ROLE_BINDING_MISMATCH");
