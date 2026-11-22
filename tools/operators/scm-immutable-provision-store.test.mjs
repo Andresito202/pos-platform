@@ -76,7 +76,7 @@ describe("immutable candidate storage",()=>{
   let called=0;
   const invoke=(_command,args,options)=>{
     called++;
-    assert.equal(args[2].endsWith("read-scm-candidate-verified.ps1"),true);
+    assert.equal(args[3].endsWith("read-scm-candidate-verified.ps1"),true);
     assert.equal(JSON.parse(options.input).root,path("provisions"));
     return {status:0,stdout:Buffer.from(record.payload).toString("base64")};
   };
