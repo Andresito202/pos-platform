@@ -76,7 +76,7 @@ export function assembleScmPublicEnrollmentPair(
   };
   const common = {
     version: 1,
-    handoff,
+    handoff: Object.freeze(handoff),
     adapter_file: approved.adapter_file,
     adapter_sha256: approved.adapter_sha256,
     signer_public_key_pem: serviceReceipt.public_key_pem,
