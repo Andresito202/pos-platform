@@ -8,6 +8,7 @@ on:
       - 'tools/operators/scm-immutable-provision-store.mjs'
       - 'tools/operators/scm-immutable-provision-store.test.mjs'
       - 'tools/operators/write-scm-candidate-once.ps1'
+      - 'tools/operators/read-scm-candidate-verified.ps1'
       - 'tools/operators/scm-provision-preflight.mjs'
       - 'package.json'
   push:
@@ -17,6 +18,7 @@ on:
       - 'tools/operators/scm-immutable-provision-store.mjs'
       - 'tools/operators/scm-immutable-provision-store.test.mjs'
       - 'tools/operators/write-scm-candidate-once.ps1'
+      - 'tools/operators/read-scm-candidate-verified.ps1'
       - 'tools/operators/scm-provision-preflight.mjs'
       - 'package.json'
   workflow_dispatch:

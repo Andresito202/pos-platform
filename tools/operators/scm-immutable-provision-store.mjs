@@ -16,6 +16,7 @@ import { validateScmProvisionPair } from "./scm-provision-preflight.mjs";
 const MAX_BYTES = 65536;
 const here = dirname(fileURLToPath(import.meta.url));
 const writer = join(here, "write-scm-candidate-once.ps1");
+const reader = join(here, "read-scm-candidate-verified.ps1");
 const pinnedJson = value => JSON.stringify(value);
 const sha = value => createHash("sha256").update(value).digest("hex");
 const refuse = message => { throw Error(message); };
@@ -114,4 +115,53 @@ export function inspectScmCandidateBytes(bytes, hashOfAdapter, now = new Date())
   }
   return Object.freeze({ sha256: candidate.sha256, revision: candidate.revision,
     commercial_ready: false });
+}
+
+/**
+ * Explicit operator-only recovery of an existing candidate.
+ *
+ * The expected SHA-256 and minimum revision MUST come from independent trusted
+ * custody (e.g. installer-signed policy), not from the file being recovered.
+ * This does not implement that policy or authorize any runtime operation.
+ * No invalid/missing record is treated as an empty installation.
+ */
+export function recoverPinnedScmCandidate({
+  root, expectedSha256, minRevision, hashOfAdapter,
+  now = new Date(), platform = process.platform, invoke = spawnSync,
+}) {
+  if (platform !== "win32") refuse("SCM_RECOVERY_WINDOWS_REQUIRED");
+  safeRoot(root);
+  if (!/^[a-f0-9]{64}$/.test(expectedSha256 ?? "")) {
+    refuse("SCM_RECOVERY_TRUSTED_PIN_REQUIRED");
+  }
+  if (!Number.isSafeInteger(minRevision) || minRevision < 1) {
+    refuse("SCM_RECOVERY_MIN_REVISION_REQUIRED");
+  }
+  if (typeof hashOfAdapter !== "function") refuse("SCM_ADAPTER_HASH_READER_REQUIRED");
+  const result = invoke("powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-File", reader],
+    { input: JSON.stringify({ root }), encoding: "utf8",
+      windowsHide: true, timeout: 15000, maxBuffer: 100000 });
+  if (result.error || result.status !== 0 || typeof result.stdout !== "string") {
+    refuse("SCM_RECOVERY_NATIVE_READ_REJECTED");
+  }
+  const encoded = result.stdout.trim();
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded) ||
+      encoded.length === 0 || encoded.length > Math.ceil(MAX_BYTES / 3) * 4) {
+    refuse("SCM_RECOVERY_BYTES_REJECTED");
+  }
+  const bytes = Buffer.from(encoded, "base64");
+  try {
+    if (bytes.toString("base64") !== encoded ||
+        sha(bytes) !== expectedSha256) {
+      refuse("SCM_RECOVERY_PIN_MISMATCH");
+    }
+    const inspection = inspectScmCandidateBytes(bytes, hashOfAdapter, now);
+    if (inspection.revision < minRevision) refuse("SCM_RECOVERY_ROLLBACK_REJECTED");
+    return Object.freeze({ status: "CANDIDATE_RECOVERED_NOT_AUTHORIZED",
+      sha256: inspection.sha256, revision: inspection.revision,
+      commercial_ready: false });
+  } finally {
+    bytes.fill(0);
+  }
 }

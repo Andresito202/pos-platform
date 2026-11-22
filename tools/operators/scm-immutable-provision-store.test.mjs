@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { assertInitialScmCandidateState, serializeScmCandidate, inspectScmCandidateBytes, persistInitialScmCandidate } from "./scm-immutable-provision-store.mjs";
+import { assertInitialScmCandidateState, serializeScmCandidate, inspectScmCandidateBytes, persistInitialScmCandidate, recoverPinnedScmCandidate } from "./scm-immutable-provision-store.mjs";
 
 const signer=generateKeyPairSync("ed25519").publicKey;
 const recipient=generateKeyPairSync("rsa",{modulusLength:3072,publicExponent:65537}).publicKey;
@@ -65,6 +65,53 @@ describe("immutable candidate storage",()=>{
  });
  it("PowerShell native writer parses without execution", { skip:process.platform!=="win32" },()=>{
   const script=fileURLToPath(new URL("./write-scm-candidate-once.ps1",import.meta.url));
+  const escaped=script.replaceAll("'","''");
+  const cmd=`$tokens=$null; $errors=$null; $source=[IO.File]::ReadAllText('${escaped}'); [void][System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors); if($errors.Count -ne 0){ $errors | Out-String | Write-Error; exit 1 }`;
+  const result=spawnSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",cmd],{encoding:"utf8"});
+  assert.equal(result.status,0,result.stderr||result.stdout);
+ });
+
+ it("recovers only an independently pinned candidate and never authorizes commercial use",()=>{
+  const record=encode(pair());
+  let called=0;
+  const invoke=(_command,args,options)=>{
+    called++;
+    assert.equal(args[3].endsWith("read-scm-candidate-verified.ps1"),true);
+    assert.equal(JSON.parse(options.input).root,path("provisions"));
+    return {status:0,stdout:Buffer.from(record.payload).toString("base64")};
+  };
+  const recovered=recoverPinnedScmCandidate({
+    root:path("provisions"),expectedSha256:record.sha256,minRevision:1,
+    hashOfAdapter:adapter,now,platform:"win32",invoke,
+  });
+  assert.equal(called,1);
+  assert.deepEqual(recovered,{
+    status:"CANDIDATE_RECOVERED_NOT_AUTHORIZED",
+    sha256:record.sha256,revision:1,commercial_ready:false,
+  });
+ });
+ it("rejects substituted bytes, untrusted pins, failed native reads and rollback floors",()=>{
+  const record=encode(pair());
+  const payload=Buffer.from(record.payload).toString("base64");
+  const base={root:path("provisions"),expectedSha256:record.sha256,minRevision:1,
+    hashOfAdapter:adapter,now,platform:"win32"};
+  assert.throws(()=>recoverPinnedScmCandidate({...base,expectedSha256:undefined,
+    invoke:()=>{throw Error("must not invoke");}}),/SCM_RECOVERY_TRUSTED_PIN_REQUIRED/);
+  assert.throws(()=>recoverPinnedScmCandidate({...base,minRevision:0,
+    invoke:()=>{throw Error("must not invoke");}}),/SCM_RECOVERY_MIN_REVISION_REQUIRED/);
+  assert.throws(()=>recoverPinnedScmCandidate({...base,invoke:()=>({status:0,
+    stdout:Buffer.from(record.payload+" ").toString("base64")})}),/SCM_RECOVERY_PIN_MISMATCH/);
+  assert.throws(()=>recoverPinnedScmCandidate({...base,invoke:()=>({status:1,stdout:payload})}),
+    /SCM_RECOVERY_NATIVE_READ_REJECTED/);
+  assert.throws(()=>recoverPinnedScmCandidate({...base,minRevision:2,
+    invoke:()=>({status:0,stdout:payload})}),/SCM_RECOVERY_ROLLBACK_REJECTED/);
+  assert.throws(()=>recoverPinnedScmCandidate({...base,invoke:()=>({status:0,stdout:"***"})}),
+    /SCM_RECOVERY_BYTES_REJECTED/);
+  assert.throws(()=>recoverPinnedScmCandidate({...base,expectedSha256:"0".repeat(64),
+    invoke:()=>({status:0,stdout:payload})}),/SCM_RECOVERY_PIN_MISMATCH/);
+ });
+ it("PowerShell native reader parses without execution", {skip:process.platform!=="win32"},()=>{
+  const script=fileURLToPath(new URL("./read-scm-candidate-verified.ps1",import.meta.url));
   const escaped=script.replaceAll("'","''");
   const cmd=`$tokens=$null; $errors=$null; $source=[IO.File]::ReadAllText('${escaped}'); [void][System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors); if($errors.Count -ne 0){ $errors | Out-String | Write-Error; exit 1 }`;
   const result=spawnSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",cmd],{encoding:"utf8"});
