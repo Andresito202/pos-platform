@@ -53,3 +53,14 @@ export const SignedWindowsScmPolicySchema = z.strictObject({
   policy: WindowsScmPolicySchema,
   signature: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
 });
+
+/** Installer-owned SERVICE configuration. Root is independent of the local
+ * capsule signer. A cached checkpoint never permits offline SCM admission. */
+export const WindowsScmCentralProvisionSchema = z.strictObject({
+  origin: z.url().refine(value => { const u = new URL(value); return u.protocol === "https:" && u.origin === value && !u.username && !u.password; }),
+  root_public_key_pem: z.string().min(40).max(4096),
+  root_spki_sha256: hash,
+  candidate_file: z.string().min(1).max(2048),
+  policy: SignedWindowsScmPolicySchema,
+});
+export type WindowsScmCentralProvision = z.infer<typeof WindowsScmCentralProvisionSchema>;

@@ -6,6 +6,7 @@ import {LocalChannelAuthenticator,encodeFrame,loadWindowsNativePipeAdapter,withW
   type WindowsPipeAdapter,type AttestedWindowsPipe} from "@pos-platform/local-channel";
 import {SqliteWindowsHandoffLeaseAuthority} from "./sqlite-replay-state.js";
 import type {ChannelServerTransport,ChannelConnectionSecurity} from "./server.js";
+import type {ScmCheckpointGuard} from "./scm-central-checkpoint.js";
 
 type Seal=()=>{capsule:string;secret:Buffer};
 /** Same framing/dispatcher; this adapter supplies kernel-attested sockets and
@@ -20,12 +21,14 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
  private readonly bound=new Map<string,{pipe:AttestedWindowsPipe;close:()=>void;retire:()=>void}>();
  private cache:{leaseId:string;capsule:unknown;secret:Buffer}|undefined;
  constructor(private readonly p:WindowsScmHandoffProvision,private readonly database:LocalDatabase,master:Buffer,
-   private readonly dependencies?:{adapter:WindowsPipeAdapter;seal:Seal;clock?:()=>Date}){
+   private readonly dependencies?:{adapter:WindowsPipeAdapter;seal:Seal;clock?:()=>Date},
+   private readonly centralAuthority?:ScmCheckpointGuard){
   if(p.role!=="SERVICE"||!p.signer_private_file||master.length!==32)throw Error("SCM_SERVICE_PROVISION_REQUIRED");
   this.master=Buffer.from(master);this.ledger=new SqliteWindowsHandoffLeaseAuthority(database,p.handoff,dependencies?.clock);
  }
  private now(){return this.dependencies?.clock?.()??new Date();}
  private offered(){
+  this.centralAuthority?.assertCurrent();
   if(this.faulted)throw Error("SCM_TRANSPORT_DURABILITY_FAILED");
   if(this.cache)return this.cache;
   const p=this.p,h=p.handoff;
@@ -40,6 +43,12 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
   if(this.stopped)throw Error("SCM_TRANSPORT_STOPPED");
   if(this.started)throw Error("SCM_TRANSPORT_ALREADY_STARTED");this.started=true;
   try{
+   await this.centralAuthority?.start(()=>{
+    this.faulted=true;
+    for(const socket of this.sockets)socket.destroy();
+    void this.stop().catch(()=>undefined);
+   });
+   this.centralAuthority?.assertCurrent();
    this.adapter=this.dependencies?.adapter??loadWindowsNativePipeAdapter(this.p);
    this.listener=this.adapter.listen();this.running=true;
   }catch(error){
@@ -53,6 +62,7 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
   this.poll=setInterval(()=>{
    try{
     this.ledger.checkConnections();
+    this.centralAuthority?.assertCurrent();
     for(const b of [...this.bound.values()])try{b.pipe.recheck();}catch{b.close();}
    }catch{
     // A durability/lease failure is fatal: never continue serving requests
@@ -77,6 +87,7 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
    pipe.recheck();const offered=this.offered();
    authenticator=new LocalChannelAuthenticator(offered.secret,undefined,{replayStateStore:{accept:input=>this.ledger.acceptTransportFrame(input)}});
    const security:ChannelConnectionSecurity={authenticator,authorize:(context,close,retire)=>{
+    this.centralAuthority?.assertCurrent();
     pipe.recheck();
     if(!this.bound.has(context.connectionId)){
       this.ledger.admitConnection(offered.leaseId,context.connectionId,close);
@@ -127,6 +138,7 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
   this.sockets.clear();this.bound.clear();
   this.cache?.secret.fill(0);this.cache=undefined;this.master.fill(0);
   this.listener=undefined;this.adapter=undefined;
+  try{await this.centralAuthority?.stop();}catch(error){remember(error);}
   if(failed)throw failure;
   await this.loop;this.loop=undefined;
  }

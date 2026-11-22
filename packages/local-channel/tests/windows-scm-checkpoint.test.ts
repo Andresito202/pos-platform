@@ -1,8 +1,7 @@
 import {createHash, generateKeyPairSync, sign} from "node:crypto";
 import {describe, expect, it} from "vitest";
-import type {WindowsScmPolicyTrust} from "@pos-platform/contracts";
+import {windowsScmCheckpointSigningBytes, type WindowsScmPolicyTrust} from "@pos-platform/contracts";
 import {verifyWindowsScmCheckpoint} from "../src/windows-scm-policy.js";
-import {ScmCheckpointIssuer} from "../../../apps/central-authority/src/scm-checkpoint-issuer.js";
 
 const key = generateKeyPairSync("ed25519"), other = generateKeyPairSync("ed25519");
 const pem = key.publicKey.export({format:"pem", type:"spki"}).toString();
@@ -14,7 +13,7 @@ const checkpoint:WindowsScmPolicyTrust = {profile:"CAMACHO_SCM_POLICY_TRUST_V1",
   current_candidate_sha256:"1".repeat(64), revoked_policy_ids:[], revoked_authority_pins:[]};
 const root = {publicKeyPem:pem, spkiSha256:pin, installationId:checkpoint.installation_id, deviceId:checkpoint.device_id};
 const now = new Date("2026-11-22T00:00:00Z");
-const issuer = new ScmCheckpointIssuer({sign:async bytes => sign(null,bytes,key.privateKey)});
+const issuer = {issue:async (value:WindowsScmPolicyTrust)=>({checkpoint:value,signature:sign(null,windowsScmCheckpointSigningBytes(value),key.privateKey).toString("base64url")})};
 
 describe("Central SCM checkpoint signing and independent root verification", () => {
   it("verifies the Central signature against the separately supplied root and scope", async () => {
@@ -32,7 +31,7 @@ describe("Central SCM checkpoint signing and independent root verification", () 
     }
   });
   it("rejects untrusted signers, substituted roots and expired checkpoints", async () => {
-    const badIssuer=new ScmCheckpointIssuer({sign:async bytes=>sign(null,bytes,other.privateKey)});
+    const badIssuer={issue:async (value:WindowsScmPolicyTrust)=>({checkpoint:value,signature:sign(null,windowsScmCheckpointSigningBytes(value),other.privateKey).toString("base64url")})};
     const envelope=await issuer.issue(checkpoint);
     const awaited=await badIssuer.issue(checkpoint);
     expect(()=>verifyWindowsScmCheckpoint(awaited,root,now)).toThrow();

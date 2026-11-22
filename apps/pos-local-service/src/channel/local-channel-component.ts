@@ -17,6 +17,9 @@ import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
 import { WindowsScmChannelTransport } from "./windows-scm-transport.js";
+import { ScmCentralCheckpointGuard, readScmCentralProvision } from "./scm-central-checkpoint.js";
+import type { DeviceCredentialProvider } from "../sync/device-credential.js";
+import type { EncryptedFileSecretStore } from "../security/encrypted-secret-store.js";
 
 const LOCAL_SCHEMA_VERSION = "5";
 const RESULT_SCHEMA_VERSION = "1.0.0";
@@ -51,6 +54,7 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly operationConfirmation: OperationConfirmationComponent,
     private readonly commercial: CommercialComponent,
     private readonly localOperatorSessions?: () => LocalOperatorSessionRegistry,
+    private readonly scmCentralDependencies?: () => { credentials: DeviceCredentialProvider; store: EncryptedFileSecretStore },
   ) {
     this.commercialHandler = new CommercialRequestHandler(
       config,
@@ -80,7 +84,12 @@ export class LocalChannelComponent implements RuntimeComponent {
     });
     let scmTransport: WindowsScmChannelTransport | undefined;
     try {
-      if (scmProvision) scmTransport = new WindowsScmChannelTransport(scmProvision, this.localDatabase.database, secret);
+      if (scmProvision) {
+        if (!this.config.windows_scm_central_provision_file || !this.scmCentralDependencies) throw Error("SCM_CENTRAL_PROVISION_REQUIRED");
+        const dependencies = this.scmCentralDependencies();
+        const guard = new ScmCentralCheckpointGuard(readScmCentralProvision(this.config.windows_scm_central_provision_file), scmProvision, dependencies.credentials, dependencies.store);
+        scmTransport = new WindowsScmChannelTransport(scmProvision, this.localDatabase.database, secret, undefined, guard);
+      }
     } catch (error) {
       authenticator.destroy();
       throw error;

@@ -11,6 +11,8 @@ import { CentralSyncComponent } from "./sync/central-sync-component.js";
 import { FetchCentralTransport } from "./sync/fetch-central-transport.js";
 import { SyncDispatcher } from "./sync/sync-dispatcher.js";
 import { UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
+import { EnrolledDeviceCredentialProvider } from "./sync/device-credential.js";
+import { DeviceTrustCredentialStore } from "./security/device-trust-credential-store.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import { LicenseCapacityGate, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
@@ -237,6 +239,7 @@ try {
           localDatabase.database,
           config.local_operator_auth_store!,
         )),
+      () => ({ credentials: new EnrolledDeviceCredentialProvider(security.identity, new DeviceTrustCredentialStore(security.secretStore)), store: security.secretStore }),
     );
     components.push(localChannel);
   }
