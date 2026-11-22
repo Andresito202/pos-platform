@@ -1,0 +1,67 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { assertCommercialNsisReleaseReady } from "../../apps/pos-desktop/scripts/assert-commercial-nsis-release.mjs";
+
+const root = fileURLToPath(new URL("../../", import.meta.url));
+const installer = join(root, "apps/pos-desktop/packaging/install-camacho-local-service.ps1");
+const hook = join(root, "apps/pos-desktop/packaging/installer.nsh");
+const pack = join(root, "apps/pos-desktop/scripts/pack-windows-nsis.mjs");
+const ps = readFileSync(installer, "utf8");
+const nsh = readFileSync(hook, "utf8");
+
+test("commercial pack cannot downgrade to interactive or implicit profile", () => {
+  assert.throws(() => assertCommercialNsisReleaseReady({}), /NSIS_COMMERCIAL_RELEASE_PROFILE_REQUIRED/);
+  assert.throws(() => assertCommercialNsisReleaseReady({ POS_NSIS_RELEASE_PROFILE: "LAB" }), /NSIS_COMMERCIAL_RELEASE_PROFILE_REQUIRED/);
+  assert.throws(() => assertCommercialNsisReleaseReady({ POS_NSIS_RELEASE_PROFILE: "COMMERCIAL" }), /NSIS_SCM_CANDIDATE_REQUIRED/);
+  assert.throws(() => assertCommercialNsisReleaseReady({
+    POS_NSIS_RELEASE_PROFILE: "COMMERCIAL", POS_NSIS_SERVICE_PROFILE: "INTERACTIVE",
+  }), /NSIS_SCM_CANDIDATE_REQUIRED/);
+});
+
+test("untrusted environment flags cannot bypass commercial certification", () => {
+  assert.throws(() => assertCommercialNsisReleaseReady({
+    POS_NSIS_RELEASE_PROFILE: "COMMERCIAL",
+    POS_NSIS_SERVICE_PROFILE: "SCM_CANDIDATE",
+    POS_SCM_COMMERCIAL_READY: "true",
+    POS_AUTHENTICODE_SIGNED: "true",
+  }), /SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN/);
+});
+
+test("packer refuses before materializing desktop/NSIS resources", () => {
+  const result = spawnSync(process.execPath, [pack], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env, POS_NSIS_RELEASE_PROFILE: "COMMERCIAL", POS_NSIS_SERVICE_PROFILE: "SCM_CANDIDATE" },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN/);
+  assert.doesNotMatch(result.stderr, /PACK_WINDOWS_NSIS_DIST_MISSING/);
+});
+
+test("packaging hook cannot auto-install diagnostic service", () => {
+  assert.match(nsh, /Abort "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN"/);
+  assert.doesNotMatch(nsh, /-Action Install|-InstallProfile LAB/);
+});
+
+test("installer rejects before SCM or data mutations and has no sample defaults", () => {
+  const install = ps.indexOf("  'Install' {");
+  const guard = ps.indexOf("    Assert-CommercialProvisionReady", install);
+  const marker = ps.indexOf("    Clear-ScmInstallOkMarker", install);
+  assert.ok(install >= 0 && guard > install && marker > guard);
+  assert.doesNotMatch(ps, /\[string\]\$(?:InstallationId|DeviceId|TenantId|CompanyId|BranchId)\s*=/);
+  assert.doesNotMatch(ps, /return \(Join-Path \$env:ProgramData 'CamachoPOS\\lab-data'\)/);
+  assert.match(ps, /COMMERCIAL_DATA_DIRECTORY_REQUIRED/);
+  assert.match(ps, /COMMERCIAL_LAB_DIRECTORY_REJECTED/);
+  assert.match(ps, /COMMERCIAL_IDENTITY_INVALID_OR_SAMPLE/);
+  assert.match(ps, /SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN/);
+});
+
+test("PowerShell helper parses without executing installation", { skip: process.platform !== "win32" }, () => {
+  const cmd = '$tokens=$null; $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tokens,[ref]$errors); if($errors.Count -ne 0){$errors | Out-String | Write-Error; exit 1}';
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", cmd, installer], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
