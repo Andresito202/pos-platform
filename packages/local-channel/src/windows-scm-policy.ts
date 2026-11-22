@@ -8,6 +8,37 @@ import { readWindowsManagedBytes } from "./windows-native-pipe.js";
 
 const reject = (): never => { throw Error("SCM_SIGNED_POLICY_REJECTED"); };
 const domain = "CAMACHO_SCM_APPROVAL_SIGNATURE_V1\0";
+
+/** Validate a checkpoint transition after both states have been authenticated
+ * by the external custodian. This check neither authenticates nor persists a
+ * checkpoint and cannot detect restoration of both states from an old backup. */
+export function assertWindowsScmTrustTransition(previousInput: unknown, nextInput: unknown,
+  rotation?: unknown, now = new Date()): void {
+  const previous = WindowsScmPolicyTrustSchema.parse(previousInput);
+  const next = WindowsScmPolicyTrustSchema.parse(nextInput);
+  if (!Number.isSafeInteger(previous.trust_revision + 1) ||
+      next.trust_revision !== previous.trust_revision + 1 ||
+      next.installation_id !== previous.installation_id || next.device_id !== previous.device_id ||
+      next.authority_spki_sha256 !== previous.authority_spki_sha256 ||
+      next.authority_public_key_pem !== previous.authority_public_key_pem ||
+      !previous.revoked_policy_ids.every(id => next.revoked_policy_ids.includes(id)) ||
+      !previous.revoked_authority_pins.every(pin => next.revoked_authority_pins.includes(pin))) reject();
+  const unchanged = next.current_policy_revision === previous.current_policy_revision &&
+    next.current_candidate_sha256 === previous.current_candidate_sha256;
+  const successor = Number.isSafeInteger(previous.current_policy_revision + 1) &&
+    next.current_policy_revision === previous.current_policy_revision + 1 &&
+    next.current_candidate_sha256 !== previous.current_candidate_sha256;
+  if (unchanged) {
+    if (rotation !== undefined) reject();
+  } else if (successor) {
+    const approved = verifyWindowsScmPolicy(rotation, previous, now);
+    if (approved.action !== "ROTATE_CANDIDATE" ||
+        approved.policy_revision !== next.current_policy_revision ||
+        approved.candidate_sha256 !== next.current_candidate_sha256 ||
+        next.revoked_policy_ids.includes(approved.policy_id) ||
+        next.revoked_authority_pins.includes(approved.authority_spki_sha256)) reject();
+  } else reject();
+}
 function active(value: {not_before: string; expires_at: string}, now: Date) {
   const from = Date.parse(value.not_before), until = Date.parse(value.expires_at), at = now.getTime();
   if (!Number.isFinite(at) || !(from <= at && at < until)) reject();
