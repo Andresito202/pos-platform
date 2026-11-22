@@ -82,6 +82,17 @@ describe("descriptor de servicio WinSW", () => {
     expect(() => parseServiceConfig({ ...VALUES, POS_EXTRA: "1" })).toThrow();
   });
 
+  it("incluye solo una ruta SCM absoluta normalizada, sin habilitar login comercial", () => {
+    const path = "C:\\ProgramData\\CamachoPOS\\handoff & provision.json";
+    const xml = descriptor({...VALUES, POS_WINDOWS_SCM_HANDOFF_FILE:path});
+    expect(environmentFromXml(xml).POS_WINDOWS_SCM_HANDOFF_FILE).toBe(path);
+    for (const invalid of ["relative.json", "C:\\data\\..\\handoff.json", "C:\\data\\x.json:stream", "C:\\data\\x\n.json"]) {
+      expect(() => descriptor({...VALUES, POS_WINDOWS_SCM_HANDOFF_FILE:invalid})).toThrow("SCM_MANAGED_PATH_REJECTED");
+    }
+    expect(() => buildServiceDescriptor({...INSTALLATION, commercialLogin:true,
+      environment:{...VALUES, POS_WINDOWS_SCM_HANDOFF_FILE:path}})).toThrow("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
+  });
+
   it("rechaza anunciar login comercial desde la cuenta virtual: DPAPI/logon SID incompatibles", () => {
     expect(() => descriptor({
       ...VALUES,

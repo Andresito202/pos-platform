@@ -28,6 +28,8 @@
  * 7C señaló como capaz de invertir la decisión a favor de un host propio.
  */
 
+import { win32 } from "node:path";
+
 /** Identificador del servicio en el SCM. Fija además el nombre de la cuenta virtual. */
 export const SERVICE_ID = "CamachoPOSLocalService";
 export const SERVICE_NAME = "Camacho POS Local Service";
@@ -103,7 +105,7 @@ export interface ServiceDescriptorInput {
   /** El bundle del servicio, ya extraído del artefacto. */
   readonly bundle: string;
   readonly workingDirectory: string;
-  /** Las nueve variables que `parseServiceConfig` exige, ni una más. */
+  /** Variables requeridas y, opcionalmente, la ruta de provisión SCM. */
   readonly environment: Readonly<Record<string, string>>;
   /** Explicit installer intent. Never infer commercial readiness from base POS vars. */
   readonly commercialLogin?: boolean;
@@ -124,12 +126,17 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
     throw new Error(`service descriptor is missing required environment: ${missing.join(", ")}`);
   }
   const unexpected = Object.keys(input.environment).filter(
-    (key) => !REQUIRED_ENVIRONMENT.includes(key),
+    (key) => !REQUIRED_ENVIRONMENT.includes(key) && key !== "POS_WINDOWS_SCM_HANDOFF_FILE",
   );
   if (unexpected.length > 0) {
     // `parseServiceConfig` rechaza cualquier `POS_*` desconocida: dejar pasar
     // una aquí produciría un servicio que no arranca y un diagnóstico opaco.
     throw new Error(`service descriptor carries unexpected environment: ${unexpected.join(", ")}`);
+  }
+  const handoff = input.environment.POS_WINDOWS_SCM_HANDOFF_FILE;
+  if (handoff !== undefined && (!/^[a-z]:\\/i.test(handoff) || !win32.isAbsolute(handoff) ||
+      win32.normalize(handoff) !== handoff || handoff.slice(2).includes(":") || /[\x00-\x1f]/.test(handoff))) {
+    throw new Error("SCM_MANAGED_PATH_REJECTED");
   }
 
   const lines = [
@@ -165,6 +172,7 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
     ...REQUIRED_ENVIRONMENT.map(
       (key) => `  <env name="${key}" value="${escapeXml(input.environment[key] ?? "")}"/>`,
     ),
+    ...(handoff === undefined ? [] : [`  <env name="POS_WINDOWS_SCM_HANDOFF_FILE" value="${escapeXml(handoff)}"/>`]),
     "</service>",
   ];
   return `${lines.join("\n")}\n`;
