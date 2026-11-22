@@ -9,8 +9,8 @@ const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const pem = key => key.export({ type: "spki", format: "pem" }).toString();
 const pin = key => sha(key.export({ type: "spki", format: "der" }));
 const adapter = String.raw`C:\ProgramData\CamachoPOS\native\camacho_windows_pipe.node`;
-const privateSigner = String.raw`C:\ProgramData\CamachoPOS\private\signer.json`;
-const privateReceiver = String.raw`C:\ProgramData\CamachoPOS\private\receiver.json`;
+const privateSigner = String.raw`C:\ProgramData\CamachoPOS\service\private\signer.json`;
+const privateReceiver = String.raw`C:\ProgramData\CamachoPOS\desktop\private\receiver.json`;
 const now = new Date("2026-11-22T16:00:00.000Z");
 const fingerprint = sha(Buffer.from("native-adapter-fixture"));
 
@@ -93,6 +93,11 @@ describe("SCM operator preflight (no native invocation, no commercial enablement
     s.signer_private_file = privateSigner;
     d.receiver_file = String.raw`C:\ProgramData\CamachoPOS\lab-data\receiver.json`;
     assert.throws(() => validate(s, d), /SCM_NONCOMMERCIAL_PATH_REJECTED/);
+  });
+  it("rejects shared private custody between service and desktop", () => {
+    const [s, d] = pair();
+    d.receiver_file = String.raw`C:\\ProgramData\\CamachoPOS\\service\\private\\receiver.json`;
+    assert.throws(() => validate(s, d), /SCM_PRIVATE_CUSTODY_NOT_SEPARATED/);
   });
   it("never reads or creates any private key file", () => {
     const [s, d] = pair();
