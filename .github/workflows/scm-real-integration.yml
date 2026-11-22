@@ -28,7 +28,7 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_USER: postgres
           POSTGRES_HOST_AUTH_METHOD: trust
-        ports: ['55436:5432']
+        ports: ['5432/tcp']
         options: >-
           --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s --health-timeout 5s --health-retries 12
@@ -45,13 +45,14 @@ jobs:
           version: 9.15.0
           run_install: false
       - run: pnpm install --frozen-lockfile
-      - name: Verify only new SCM integration cases
+      - name: Verify pending PostgreSQL and HTTPS integration cases
+        env:
+          SCM_TEST_SERVER_URL: postgres://postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres
         shell: bash
         run: |
           set -euo pipefail
           openssl req -x509 -newkey rsa:2048 -nodes -keyout "$RUNNER_TEMP/scm-test.key" -out "$RUNNER_TEMP/scm-test.crt" -days 1 -subj /CN=localhost -addext 'subjectAltName=IP:127.0.0.1,DNS:localhost'
-          pnpm --filter @pos-platform/central-authority test -- tests/scm-checkpoint-http.test.ts tests/scm-checkpoint-issuer.test.ts
-          SCM_TEST_SERVER_URL=postgres://postgres@127.0.0.1:55436/postgres SCM_TEST_TLS_KEY="$RUNNER_TEMP/scm-test.key" SCM_TEST_TLS_CERT="$RUNNER_TEMP/scm-test.crt" NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/scm-test.crt" pnpm --filter @pos-platform/pos-local-service test -- tests/scm-central-checkpoint.test.ts tests/scm-postgres-integration.test.ts
+          SCM_TEST_TLS_KEY="$RUNNER_TEMP/scm-test.key" SCM_TEST_TLS_CERT="$RUNNER_TEMP/scm-test.crt" NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/scm-test.crt" pnpm --filter @pos-platform/pos-local-service test -- tests/scm-postgres-integration.test.ts
       - name: Typecheck affected runtime and migration runner
         run: |
           pnpm --filter @pos-platform/central-authority typecheck
