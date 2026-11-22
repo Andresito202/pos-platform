@@ -55,7 +55,9 @@ async function main(): Promise<void> {
   }
 }
 
-await main().catch((error: unknown) => {
+// Electron emits ready after evaluating its ESM entry. bootstrap waits for
+// ready, so awaiting main at module scope would deadlock that lifecycle.
+void main().catch((error: unknown) => {
   console.error("production desktop bootstrap failed", error);
   process.exitCode = 1;
 });

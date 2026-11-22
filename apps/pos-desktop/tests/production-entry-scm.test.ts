@@ -17,6 +17,25 @@ beforeEach(()=>{
 });
 afterEach(()=>{vi.unstubAllEnvs();vi.restoreAllMocks();process.exitCode=exitCode;});
 describe("original production entry SCM selection (OS/DPAPI connector boundary doubled)",()=>{
+ it.each(["SCM","per-user"])("finishes ES module evaluation while %s startup waits for Electron readiness",async mode=>{
+  let enter!:()=>void,ready!:()=>void;
+  const entered=new Promise<void>(resolve=>{enter=resolve;});
+  const waitingForReady=new Promise<void>(resolve=>{ready=resolve;});
+  const pending=()=>{enter();return waitingForReady;};
+  if(mode==="SCM")boundary.bootstrap.mockImplementationOnce(pending);
+  else {
+   vi.stubEnv("POS_WINDOWS_SCM_HANDOFF_FILE",undefined);
+   boundary.legacy.mockReturnValue({endpoint:"existing-pipe",channelSecret:Buffer.alloc(32,7),installationId:installation,deviceId:device});
+   boundary.start.mockImplementationOnce(pending);
+  }
+  let evaluated=false;
+  const evaluation=import("../src/production-entry.js").then(()=>{evaluated=true;});
+  try {
+   await entered;
+   await new Promise<void>(resolve=>setImmediate(resolve));
+   expect(evaluated).toBe(true);
+  } finally {ready();await evaluation;}
+ });
  it("opens the original renderer only after the authenticated SCM connector succeeds, without per-user key loading",async()=>{
   await import("../src/production-entry.js");
   expect(boundary.read).toHaveBeenCalledWith("C:\\managed\\desktop.json","DESKTOP",installation,device);
