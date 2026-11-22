@@ -19,8 +19,8 @@ function pair() {
     profile: "CAMACHO_WINDOWS_CHANNEL_HANDOFF_CANDIDATE_V1",
     service_id: "CamachoPOSLocalService",
     service_sid: "S-1-5-80-1-2-3-4-5",
-    installation_id: "018f0000-0000-7000-8000-0000000000a1",
-    device_id: "018f0000-0000-7000-8000-0000000000a2",
+    installation_id: "c52f7fc9-983d-4f2a-b5c3-a7e329642ab1",
+    device_id: "da778270-95d5-432f-b38a-dde611e97fa6",
     recipient_sid: "S-1-5-21-1-2-3-1001",
     recipient_logon_sid: "S-1-5-5-1-2",
     recipient_session_id: 1,
@@ -104,4 +104,25 @@ describe("SCM operator preflight (no native invocation, no commercial enablement
     // No private files exist at these Windows paths on the CI Linux runner.
     assert.equal(validate(s, d).commercial_ready, false);
   });
+  it("rejects the published sample installation and device identities", () => {
+    const [s, d] = pair();
+    s.handoff.installation_id = d.handoff.installation_id = "018f0000-0000-7000-8000-0000000000a1";
+    assert.throws(() => validate(s, d), /SCM_HANDOFF_IDENTITY_INVALID/);
+  });
+  it("rejects same installation and device identifiers", () => {
+    const [s, d] = pair();
+    s.handoff.device_id = d.handoff.device_id = s.handoff.installation_id;
+    assert.throws(() => validate(s, d), /SCM_HANDOFF_IDENTITY_INVALID/);
+  });
+  it("rejects nested private custody directories, not just identical parents", () => {
+    const [s, d] = pair();
+    d.receiver_file = String.raw`C:\\ProgramData\\CamachoPOS\\service\\private\\desktop\\receiver.json`;
+    assert.throws(() => validate(s, d), /SCM_PRIVATE_CUSTODY_NOT_SEPARATED/);
+  });
+  it("rejects adapter mismatch between SERVICE and DESKTOP provisions", () => {
+    const [s, d] = pair();
+    d.adapter_file = String.raw`C:\\ProgramData\\CamachoPOS\\other\\camacho_windows_pipe.node`;
+    assert.throws(() => validate(s, d), /SCM_CROSS_ROLE_ADAPTER_MISMATCH/);
+  });
+
 });
