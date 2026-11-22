@@ -10,7 +10,7 @@
   DetailPrint "Camacho: registering POS Local Service (WinSW/SCM)"
   ; Clear prior success marker so upgrade cannot reuse a stale OK file.
   Delete "$INSTDIR\resources\service-payload\scm-install.ok"
-  nsExec::ExecToLog '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\service-payload\install-camacho-local-service.ps1" -Action Install -PayloadDir "$INSTDIR\resources\service-payload" -Json'
+  nsExec::ExecToLog '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\service-payload\install-camacho-local-service.ps1" -Action Install -InstallProfile LAB -PayloadDir "$INSTDIR\resources\service-payload" -Json'
   Pop $0
   DetailPrint "Camacho service install exit=$0"
   ; Authoritative acceptance: helper writes scm-install.ok only after NT SERVICE bind + Running.
