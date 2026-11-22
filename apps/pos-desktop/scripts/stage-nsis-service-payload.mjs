@@ -310,6 +310,16 @@ async function main() {
   if (!existsSync(helperSrc)) throw new Error("SERVICE_INSTALL_HELPER_MISSING");
   cpSync(helperSrc, join(outDir, "install-camacho-local-service.ps1"));
 
+  // Ship a read-only paired-provision verifier beside WinSW. It is an
+  // explicit operator command, NEVER an installation or commercial enable flag.
+  const scmPreflightSrc = join(repo, "tools", "operators", "scm-provision-preflight.mjs");
+  if (!existsSync(scmPreflightSrc)) throw new Error("SCM_PROVISION_PREFLIGHT_MISSING");
+  const scmPreflightDest = join(outDir, "scm-provision-preflight.mjs");
+  cpSync(scmPreflightSrc, scmPreflightDest);
+  if (sha256File(scmPreflightSrc) !== sha256File(scmPreflightDest)) {
+    throw new Error("SCM_PROVISION_PREFLIGHT_COPY_MISMATCH");
+  }
+
   // --- Pre-publish gate: every NSIS resource must exist ---
   const required = [
     join(outDir, `${SERVICE_ID}.exe`),
@@ -317,6 +327,7 @@ async function main() {
     join(outDir, "runtime", "node.exe"),
     join(outDir, "local-service", "pos-local-service.mjs"),
     join(outDir, "install-camacho-local-service.ps1"),
+    join(outDir, "scm-provision-preflight.mjs"),
     sqliteNode,
   ];
   const missing = required.filter((p) => !existsSync(p));
