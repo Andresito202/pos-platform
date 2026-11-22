@@ -15,6 +15,12 @@ const SID_SERVICE = /^S-1-5-80-(?:[0-9]+-){4}[0-9]+$/;
 const SID_USER = /^S-1-5-21-(?:[0-9]+-){3}[0-9]+$/;
 const SID_LOGON = /^S-1-5-5-[0-9]+-[0-9]+$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SAMPLE_ID = /^018f0000-0000-7000-8000-0000000000a[1-5]$/i;
+const windowsPathKey = path => win32.normalize(path).toLowerCase();
+function pathOverlaps(a, b) {
+  const left = windowsPathKey(a), right = windowsPathKey(b);
+  return left === right || left.startsWith(right + "\\") || right.startsWith(left + "\\");
+}
 
 function requireCondition(ok, code) {
   if (!ok) throw new Error(code);
@@ -70,6 +76,8 @@ export function validateScmProvisionPair(service, desktop, shaOfAdapter, now = n
       SID_LOGON.test(h.recipient_logon_sid ?? "") &&
       Number.isSafeInteger(h.recipient_session_id) && h.recipient_session_id > 0 &&
       UUID.test(h.installation_id ?? "") && UUID.test(h.device_id ?? "") &&
+      !SAMPLE_ID.test(h.installation_id) && !SAMPLE_ID.test(h.device_id) &&
+      h.installation_id.toLowerCase() !== h.device_id.toLowerCase() &&
       Number.isSafeInteger(h.revision) && h.revision > 0 &&
       Number.isSafeInteger(h.poll_ms) && h.poll_ms >= 100 && h.poll_ms <= 60000 &&
       typeof h.policy_reference === "string" && h.policy_reference.length > 0 &&
@@ -83,8 +91,15 @@ export function validateScmProvisionPair(service, desktop, shaOfAdapter, now = n
     pinnedKey(p.signer_public_key_pem, p.signer_spki_sha256, "ed25519");
     pinnedKey(h.recipient_public_key_pem, h.recipient_key_sha256, "rsa");
   }
-  requireCondition(win32.dirname(service.signer_private_file).toLowerCase() !==
-    win32.dirname(desktop.receiver_file).toLowerCase(), "SCM_PRIVATE_CUSTODY_NOT_SEPARATED");
+  requireCondition(!pathOverlaps(win32.dirname(service.signer_private_file),
+    win32.dirname(desktop.receiver_file)), "SCM_PRIVATE_CUSTODY_NOT_SEPARATED");
+  requireCondition(!pathOverlaps(service.signer_private_file, desktop.receiver_file) &&
+    !pathOverlaps(service.signer_private_file, service.handoff.capsule_file) &&
+    !pathOverlaps(desktop.receiver_file, desktop.handoff.capsule_file),
+    "SCM_PRIVATE_PATH_COLLISION");
+  requireCondition(windowsPathKey(service.adapter_file) === windowsPathKey(desktop.adapter_file) &&
+    service.adapter_sha256 === desktop.adapter_sha256,
+    "SCM_CROSS_ROLE_ADAPTER_MISMATCH");
   requireCondition(isDeepStrictEqual(service.handoff, desktop.handoff) &&
     service.signer_public_key_pem === desktop.signer_public_key_pem &&
     service.signer_spki_sha256 === desktop.signer_spki_sha256,
