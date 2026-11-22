@@ -27,7 +27,7 @@ Los 45 casos son únicos; ejecuciones repetidas no se suman. Este nivel es TESTE
 - PostgreSQL 16 escucha en 5432, pero no hubo conexión autorizada en la sesión. Ledger/checksums 029–032, grants, RLS/FORCE RLS, SQL real, auditoría, sesiones y concurrencia no fueron comprobados. No se usó 55433 ni se ejecutaron migraciones.
 - El bloqueo de varias licencias del primer bloque se resuelve en el sucesor 033 descrito debajo; su aplicación al entorno comercial sigue pendiente de acceso autorizado.
 - Falta verificar provisión HTTPS, claves reales, WebAuthn humano, distribución firmada al dispositivo y arranque comercial. No se generan sustitutos en producción.
-- La integración a main sigue sujeta a los gates del HEAD exacto y a la verificación post-merge, aunque la publicación esté autorizada.
+- Actualización 2026-11-22: PR #115 integrada en main baa5fd85; cinco workflows post-merge SUCCESS. La evidencia comercial pendiente conserva su alcance.
 
 El respaldo `C:\Respaldos\CamachoPOS\codex-20261120-190306` tenía 37 copias legibles e iguales por SHA-256 antes de continuar. Su parche sufrió recodificación; no se restauró. No contiene un respaldo integral de datos o secretos. Los archivos de datos, DPAPI, cachés y `.claude-desactivado/` permanecen excluidos.
 
@@ -99,7 +99,7 @@ sin reducir invariantes del runner ni aserciones del producto.
   conservada después de una respuesta incierta, incluso si después llega 409.
 - Typecheck Central, target-migrations y desktop: PASS. ARCH-003 y política del
   repositorio: PASS. El gate CI incorpora las dos pruebas backend focalizadas
-  contra el HEAD publicado; la integración sigue condicionada a su resultado.
+  contra el HEAD publicado; los gates exact-head 2b0ad709 y post-merge baa5fd85 terminaron SUCCESS.
 
 Los dos hallazgos P2 de revisión se corrigieron: el carrito sin venta confirmada
 se rotula como subtotal sin impuestos/redondeo; el cliente distingue rechazos

@@ -7,7 +7,7 @@
 # Camacho POS Colombia
 
 
-> **Línea activa:** `codex/business-cash-consolidation-20261120` → entrega canónica `main` mediante PR y validación del commit exacto; autorización del propietario 2026-11-21.
+> **Estado vigente:** PR #115 integrada en `main` (`baa5fd85`); puesta en marcha del producto existente, 2026-11-22.
 > Integración selectiva por olas (docs/governance/selective-integration-waves-2026-11-18.md).
 > No merge masivo. Ola 5 SCM comercial congelada. FACTUS al final.
 Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first para operación comercial real en Colombia.
@@ -18,11 +18,7 @@ Camacho POS Colombia es una plataforma POS modular, multi-tenant y local-first p
 
 > **UNA SOLA LÍNEA. UN SOLO OBJETIVO ACTIVO. SE CONSTRUYE SOBRE LO EXISTENTE.**
 
-La rama canónica del producto es `main`. La única línea activa de desarrollo es:
-
-`codex/business-cash-consolidation-20261120`
-
-Claude Code y cualquier otra IA/agente **deben continuar sobre esta línea** mientras la gobernanza no la cambie explícitamente.
+La rama canónica y base de esta puesta en marcha es `main` (`baa5fd85`). `codex/business-cash-consolidation-20261120` está INTEGRATED por PR #115. No se abre otra línea ni se reutiliza la rama integrada sin decisión expresa.
 
 No se permite abrir una rama paralela, duplicar una arquitectura, rehacer un módulo o inventar un trabajo alternativo porque una IA considere que es “mejor”. Primero se audita lo construido. Sólo se modifica lo existente cuando hay evidencia de defecto, incompatibilidad, requisito nuevo autorizado o gate fallido.
 

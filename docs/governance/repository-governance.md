@@ -6,7 +6,11 @@ Este documento es la fuente normativa para ramas, pull requests, integración en
 
 No sustituye el backlog ni las decisiones de arquitectura. Su función es impedir cambios huérfanos, merges ambiguos, estados Git inventados y ramas abiertas sin objetivo vigente.
 
-## Línea de ejecución vigente — 2026-11-21
+## Continuidad vigente — 2026-11-22
+
+Puesta en marcha desde main — 2026-11-22. PR #115 MERGED; main baa5fd8568ebc3d080f7e474b0d986ff45f5dbc7, árbol idéntico a 2b0ad709. Los cinco workflows post-merge terminaron SUCCESS, incluido Main push governance. La rama codex/business-cash-consolidation-20261120 está INTEGRATED; conservar el ref no la reactiva. El objetivo vigente es ejecutar el producto existente desde main; no hay autorización para otra rama ni desarrollo directo en main. Las referencias anteriores a líneas activas conservan alcance histórico. El propietario autorizó expresamente reutilizar esa misma rama para una PR exclusivamente documental; la excepción no habilita cambios de producto ni otra línea. Ninguno de estos hechos acredita operación comercial.
+
+## Autorización histórica — 2026-11-21
 
 Por autorización expresa del propietario se continúa únicamente la rama existente `codex/business-cash-consolidation-20261120`, desde `3471d39f` y sus cambios locales conservados. El destino de entrega sigue siendo main mediante PR, revisión, CI del HEAD exacto y verificación post-merge. Están autorizados commits y publicación del trabajo validado, sin declarar operativas capacidades bloqueadas por provisión o infraestructura. Esta orden sustituye la selección de rama del 2026-11-09; no se crea otra línea ni se integran ramas históricas completas.
 

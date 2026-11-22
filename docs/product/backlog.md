@@ -1,6 +1,12 @@
 # Backlog maestro
 
-## Continuación autorizada — 2026-11-21
+## Puesta en marcha vigente — 2026-11-22
+
+Puesta en marcha desde main — 2026-11-22. PR #115 MERGED; main baa5fd8568ebc3d080f7e474b0d986ff45f5dbc7, árbol idéntico a 2b0ad709. Los cinco workflows post-merge terminaron SUCCESS, incluido Main push governance. La rama codex/business-cash-consolidation-20261120 está INTEGRATED; conservar el ref no la reactiva. El objetivo vigente es ejecutar el producto existente desde main; no hay autorización para otra rama ni desarrollo directo en main. Las referencias anteriores a líneas activas conservan alcance histórico. El propietario autorizó expresamente reutilizar esa misma rama para una PR exclusivamente documental; la excepción no habilita cambios de producto ni otra línea. Ninguno de estos hechos acredita operación comercial.
+
+Bloqueos actuales: conexión autorizada a camacho_pos:5432 y respaldo verificable; origen HTTPS comercial y provisiones GLOBAL/BUSINESS/licencias; interoperabilidad SCM comercial no acreditada. El detalle operativo está en el informe de puesta en marcha del 2026-11-22. No reabrir las suites certificadas sin un delta que lo justifique.
+
+## Continuación histórica autorizada — 2026-11-21
 
 Única línea de ejecución: `codex/business-cash-consolidation-20261120`; destino `main` mediante el flujo de gobernanza. El propietario autoriza confirmar, publicar y cerrar BUSINESS, cajas, licencias y su conexión al POS original. El bloque HTTP/panel cuenta con 45 pruebas focalizadas observadas, con dobles donde se indica en `docs/testing/business-cash-consolidation-20261121.md`. PostgreSQL real, licencias múltiples y distribución/arranque comercial conservan sus pendientes concretos; no están cerrados por estas pruebas. No se reabren certificaciones históricas ni se amplía el trabajo a sectores o hardware.
 
