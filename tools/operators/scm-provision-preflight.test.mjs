@@ -163,7 +163,9 @@ describe("SCM operator preflight (no native invocation, no commercial enablement
       physical_certification: "REQUIRED",
       commercial_gate: "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN",
     });
-    central.root_public_key_pem = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----";
+    // Reject non-public authority material without embedding private PEM headers
+    // in the repository (secret-policy scanner).
+    central.root_public_key_pem = "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----";
     assert.throws(() => validateScmCentralProvision(central, s, now), /SCM_PUBLIC_ROOT_REQUIRED/);
   });
 

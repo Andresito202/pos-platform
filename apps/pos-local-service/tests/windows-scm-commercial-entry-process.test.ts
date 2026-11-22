@@ -14,6 +14,7 @@ describe.runIf(process.platform==="win32")("Windows SCM commercial entry fails c
   const root=mkdtempSync(join(tmpdir(),"camacho-scm-deny-"));
   const data=join(root,"db-must-not-exist");
   const fakeProvision=join(root,"scm-must-not-exist.json");
+  const fakeCentral=join(root,"central-must-not-exist.json");
   const cleanEnv=Object.fromEntries(Object.entries(process.env).filter(([k,v])=>!k.startsWith("POS_")&&v!==undefined));
   const env={...cleanEnv,
    POS_DATA_DIRECTORY:data,
@@ -23,7 +24,10 @@ describe.runIf(process.platform==="win32")("Windows SCM commercial entry fails c
    POS_COMPANY_ID:"018f0000-0000-7000-8000-000000001004",
    POS_BRANCH_ID:"018f0000-0000-7000-8000-000000001005",
    POS_SERVICE_VERSION:"1.0.0",POS_PROTOCOL_MIN:"1.0.0",POS_PROTOCOL_MAX:"1.0.0",
+   // Pair is mandatory for config parse; both paths are nonexistent so the
+   // commercial gate must still reject before opening either file or SQLite.
    POS_WINDOWS_SCM_HANDOFF_FILE:fakeProvision,
+   POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE:fakeCentral,
   };
   try{
    const result=spawnSync(process.execPath,["--import","tsx",fileURLToPath(new URL("../src/main.ts",import.meta.url))],
@@ -36,6 +40,7 @@ describe.runIf(process.platform==="win32")("Windows SCM commercial entry fails c
    expect(output).not.toContain("runtime.started");
    expect(existsSync(data)).toBe(false);
    expect(existsSync(fakeProvision)).toBe(false);
+   expect(existsSync(fakeCentral)).toBe(false);
   }finally{
    rmSync(root,{recursive:true,force:true});
   }
