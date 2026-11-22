@@ -19,7 +19,7 @@ const SAMPLE_ID = /^018f0000-0000-7000-8000-0000000000a[1-5]$/i;
 const windowsPathKey = path => win32.normalize(path).toLowerCase();
 function pathOverlaps(a, b) {
   const left = windowsPathKey(a), right = windowsPathKey(b);
-  return left === right || left.startsWith(right + "\\\\") || right.startsWith(left + "\\\\");
+  return left === right || left.startsWith(right + "\\") || right.startsWith(left + "\\");
 }
 
 function requireCondition(ok, code) {
