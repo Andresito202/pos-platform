@@ -18,6 +18,16 @@ administrados en rutas canónicas, ejecutar en PowerShell con Node 22:
 node tools/operators/scm-provision-preflight.mjs "C:\ProgramData\CamachoPOS\private\service-provision.json" "C:\ProgramData\CamachoPOS\private\desktop-provision.json"
 ```
 
+El empaquetador NSIS incorpora también el verificador como
+`resources/service-payload/scm-provision-preflight.mjs`, junto al runtime
+`resources/service-payload/runtime/node.exe`. Esto **solo lo distribuye**;
+el instalador no lo ejecuta, no crea provisiones, no registra el SCM comercial
+ni utiliza ese resultado para desbloquear el gate.
+
+Para ejecutarlo desde una instalación con carga útil íntegra, el operador
+puede invocar directamente ese `node.exe` y los dos JSON gestionados de su
+equipo. No utilizar los archivos de prueba de `.lab-state`.
+
 El resultado válido es `SCM_PROVISION_METADATA_VALID`, acompañado siempre de
 `commercial_ready:false` y `physical_certification:REQUIRED`. Un resultado
 válido **no significa que las ACL sean correctas**, que el lector nativo pueda
