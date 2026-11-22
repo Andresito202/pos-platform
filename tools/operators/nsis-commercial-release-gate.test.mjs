@@ -61,7 +61,8 @@ test("installer rejects before SCM or data mutations and has no sample defaults"
 });
 
 test("PowerShell helper parses without executing installation", { skip: process.platform !== "win32" }, () => {
-  const cmd = '$tokens=$null; $errors=$null; [void][System.Management.Automation.Language.Parser]::ParseFile($args[0],[ref]$tokens,[ref]$errors); if($errors.Count -ne 0){$errors | Out-String | Write-Error; exit 1}';
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", cmd, installer], { encoding: "utf8" });
+  const literalPath = installer.replaceAll("'", "''");
+  const cmd = '$tokens=$null; $errors=$null; $source=[IO.File]::ReadAllText(\'' + literalPath + '\'); [void][System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors); if($errors.Count -ne 0){$errors | Out-String | Write-Error; exit 1}';
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", cmd], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
