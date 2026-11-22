@@ -127,6 +127,7 @@ export function inspectScmCandidateBytes(bytes, hashOfAdapter, now = new Date())
  */
 export function recoverPinnedScmCandidate({
   root, expectedSha256, minRevision, hashOfAdapter,
+  expectedBinding,
   now = new Date(), platform = process.platform, invoke = spawnSync,
 }) {
   if (platform !== "win32") refuse("SCM_RECOVERY_WINDOWS_REQUIRED");
@@ -158,6 +159,16 @@ export function recoverPinnedScmCandidate({
     }
     const inspection = inspectScmCandidateBytes(bytes, hashOfAdapter, now);
     if (inspection.revision < minRevision) refuse("SCM_RECOVERY_ROLLBACK_REJECTED");
+    if (expectedBinding !== undefined) {
+      const record = JSON.parse(bytes.toString("utf8"));
+      if (record.installation_id !== expectedBinding.installationId ||
+          record.device_id !== expectedBinding.deviceId ||
+          record.revision !== expectedBinding.revision ||
+          record.service.handoff.policy_reference !== expectedBinding.policyReference ||
+          record.service.signer_spki_sha256 === expectedBinding.authorityPin) {
+        refuse("SCM_RECOVERY_APPROVAL_BINDING_REJECTED");
+      }
+    }
     return Object.freeze({ status: "CANDIDATE_RECOVERED_NOT_AUTHORIZED",
       sha256: inspection.sha256, revision: inspection.revision,
       commercial_ready: false });

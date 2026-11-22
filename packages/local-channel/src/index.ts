@@ -36,3 +36,4 @@ export type { WindowsHandoffRevocationAuthority } from "./windows-handoff.js";
 export * from "./windows-native-pipe.js";
 export * from "./windows-service-signer.js";
 export * from "./windows-scm-client.js";
+export * from "./windows-scm-policy.js";

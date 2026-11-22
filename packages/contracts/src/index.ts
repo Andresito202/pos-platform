@@ -16,6 +16,7 @@ export * from "./commercial-access.js";
 export * from "./license-activation.js";
 export * from "./central-administration.js";
 export * from "./windows-channel-handoff.js";
+export * from "./windows-scm-policy.js";
 export { PermissionCode as CanonicalPermission, CANONICAL_PERMISSION_CODES } from "./permission-codes.js";
 export type { CanonicalPermissionCode } from "./permission-codes.js";
 export * from "./sync.js";
