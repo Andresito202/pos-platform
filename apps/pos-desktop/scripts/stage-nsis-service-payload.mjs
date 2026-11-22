@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
 import { execFileSync } from "node:child_process";
 import { Readable } from "node:stream";
+import { resolveNsisServiceArtifact } from "./resolve-nsis-service-artifact.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktop = join(here, "..");
@@ -160,6 +161,14 @@ function listRelativeFiles(root) {
 }
 
 async function main() {
+  // Resolve requested profile before deleting staged payload or downloading
+  // dependencies. Missing SCM candidate must fail without side effects.
+  const artifactDir = join(repo, "apps", "pos-local-service", "dist");
+  const { artifact, profile } = resolveNsisServiceArtifact(
+    artifactDir,
+    process.env.POS_NSIS_SERVICE_PROFILE,
+  );
+
   rmSync(outDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
   const cache = join(desktop, "packaging", ".cache");
@@ -206,16 +215,7 @@ async function main() {
   process.stdout.write(`NODE_STAGED path=${nodeStaged} bytes=${statSync(nodeStaged).size} from=${nodeExe}\n`);
 
   // --- Local Service artifact ---
-  const artifactDir = join(repo, "apps", "pos-local-service", "dist");
-  const interactiveArtifact = join(artifactDir, "pos-local-service-0.0.0-win32-x64.tar.gz");
-  const scmArtifact = join(artifactDir, "pos-local-service-0.0.0-win32-x64-scm-candidate.tar.gz");
-  const wantScm = process.env.POS_NSIS_SERVICE_PROFILE === "SCM_CANDIDATE";
-  const artifact = wantScm && existsSync(scmArtifact) ? scmArtifact : interactiveArtifact;
-  if (!existsSync(artifact)) {
-    throw new Error(
-      "LOCAL_SERVICE_ARTIFACT_MISSING: run POS_ARTIFACT_TARGET=win32-x64 pnpm --filter @pos-platform/pos-local-service build:artifact",
-    );
-  }
+  // Exact-profile artifact was checked before staging began.
   const artifactSha = sha256File(artifact);
   const serviceExtract = join(outDir, "local-service");
   mkdirSync(serviceExtract, { recursive: true });
@@ -354,7 +354,7 @@ async function main() {
     localServiceArtifact: {
       file: artifact.split(/[/\\]/).pop(),
       sha256: artifactSha,
-      profile: artifact.includes("scm-candidate") ? "SCM_CANDIDATE" : "INTERACTIVE",
+      profile,
       commercial_scm_gate: "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN",
       bundle: relative(outDir, bundle).split("\\").join("/"),
       betterSqlite3: relative(outDir, sqliteNode).split("\\").join("/"),
