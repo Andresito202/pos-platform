@@ -58,6 +58,22 @@ test("installer rejects before SCM or data mutations and has no sample defaults"
   assert.match(ps, /COMMERCIAL_LAB_DIRECTORY_REJECTED/);
   assert.match(ps, /COMMERCIAL_IDENTITY_INVALID_OR_SAMPLE/);
   assert.match(ps, /SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN/);
+  assert.match(ps, /\$ScmHandoffFile/);
+  assert.match(ps, /\$ScmCentralProvisionFile/);
+  assert.match(ps, /SCM_CENTRAL_PROVISION_REQUIRED/);
+  assert.match(ps, /Apply-ScmProvisionEnv/);
+  assert.match(ps, /__CAMACHO_POS_WINDOWS_SCM_HANDOFF_FILE__/);
+  assert.match(ps, /__CAMACHO_POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE__/);
+});
+
+test("staged WinSW template builder requires the authenticated SCM pair placeholders", async () => {
+  const stage = readFileSync(join(root, "apps/pos-desktop/scripts/stage-nsis-service-payload.mjs"), "utf8");
+  assert.match(stage, /POS_WINDOWS_SCM_HANDOFF_FILE/);
+  assert.match(stage, /POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE/);
+  assert.match(stage, /SCM_CENTRAL_PROVISION_REQUIRED/);
+  assert.match(stage, /WINSW_TEMPLATE_SCM_OR_LOGPATH_INCOMPLETE/);
+  assert.match(stage, /<logpath>/);
+  assert.doesNotMatch(stage, /POS_SCM_COMMERCIAL_READY|commercialLogin:\s*true/);
 });
 
 test("PowerShell helper parses without executing installation", { skip: process.platform !== "win32" }, () => {

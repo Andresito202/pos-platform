@@ -84,4 +84,34 @@ describe("parseServiceConfig", () => {
       POS_SESSION_TRUST_ARTIFACT_PATH: "./session-trust.json",
     })).toThrow("session trust artifact path must be absolute");
   });
+
+  it("requires Windows SCM handoff and Central provision as a pair", () => {
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_WINDOWS_SCM_HANDOFF_FILE: "/var/lib/camacho-pos/managed/service.json",
+    })).toThrow("Windows SCM handoff and Central provision must be configured together");
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: "/var/lib/camacho-pos/managed/central.json",
+    })).toThrow("Windows SCM handoff and Central provision must be configured together");
+  });
+
+  it("rejects identical Windows SCM handoff and Central provision paths", () => {
+    const same = "/var/lib/camacho-pos/managed/scm.json";
+    expect(() => parseServiceConfig({
+      ...valid,
+      POS_WINDOWS_SCM_HANDOFF_FILE: same,
+      POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: same,
+    })).toThrow("Windows SCM handoff and Central provision must be distinct managed paths");
+  });
+
+  it("accepts the authenticated Windows SCM handoff and Central provision pair", () => {
+    const parsed = parseServiceConfig({
+      ...valid,
+      POS_WINDOWS_SCM_HANDOFF_FILE: "/var/lib/camacho-pos/managed/service.json",
+      POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: "/var/lib/camacho-pos/managed/central.json",
+    });
+    expect(parsed.windows_scm_handoff_file).toBe("/var/lib/camacho-pos/managed/service.json");
+    expect(parsed.windows_scm_central_provision_file).toBe("/var/lib/camacho-pos/managed/central.json");
+  });
 });

@@ -112,6 +112,67 @@ export function validateScmProvisionPair(service, desktop, shaOfAdapter, now = n
   });
 }
 
+const centralKeys = [
+  "origin", "root_public_key_pem", "root_spki_sha256", "candidate_file", "policy",
+];
+const signedPolicyKeys = ["policy", "signature"];
+const policyKeys = [
+  "profile", "service_id", "installation_id", "device_id", "not_before", "expires_at",
+  "policy_id", "trust_revision", "policy_revision", "authority_spki_sha256", "action",
+  "candidate_sha256", "previous_candidate_sha256", "policy_reference",
+];
+
+/** Metadata checks for the SERVICE Central provision. Does not enable commercial SCM. */
+export function validateScmCentralProvision(central, service, now = new Date()) {
+  exactKeys(central, centralKeys, "SCM_CENTRAL_PROVISION_SHAPE_REJECTED");
+  requireCondition(typeof central.origin === "string", "SCM_CENTRAL_ORIGIN_REJECTED");
+  let origin;
+  try { origin = new URL(central.origin); } catch { throw new Error("SCM_CENTRAL_ORIGIN_REJECTED"); }
+  requireCondition(origin.protocol === "https:" && origin.origin === central.origin &&
+    !origin.username && !origin.password, "SCM_CENTRAL_ORIGIN_REJECTED");
+  requireCondition(typeof central.root_public_key_pem === "string" &&
+    central.root_public_key_pem.trim().startsWith("-----BEGIN PUBLIC KEY-----") &&
+    !central.root_public_key_pem.includes("PRIVATE KEY"), "SCM_PUBLIC_ROOT_REQUIRED");
+  pinnedKey(central.root_public_key_pem, central.root_spki_sha256, "ed25519");
+  managedPath(central.candidate_file);
+  exactKeys(central.policy, signedPolicyKeys, "SCM_CENTRAL_POLICY_SHAPE_REJECTED");
+  exactKeys(central.policy.policy, policyKeys, "SCM_CENTRAL_POLICY_SHAPE_REJECTED");
+  const policy = central.policy.policy;
+  requireCondition(policy.profile === "CAMACHO_SCM_PROVISION_POLICY_V1" &&
+    policy.service_id === "CamachoPOSLocalService" &&
+    policy.action === "RECOVER_CANDIDATE" &&
+    UUID.test(policy.installation_id ?? "") && UUID.test(policy.device_id ?? "") &&
+    !SAMPLE_ID.test(policy.installation_id) && !SAMPLE_ID.test(policy.device_id) &&
+    HEX64.test(policy.authority_spki_sha256 ?? "") &&
+    policy.authority_spki_sha256 === central.root_spki_sha256 &&
+    HEX64.test(policy.candidate_sha256 ?? "") &&
+    policy.previous_candidate_sha256 === null &&
+    typeof central.policy.signature === "string" &&
+    /^[A-Za-z0-9_-]{86}$/.test(central.policy.signature), "SCM_CENTRAL_POLICY_REJECTED");
+  const from = Date.parse(policy.not_before), until = Date.parse(policy.expires_at), current = now.getTime();
+  requireCondition(Number.isFinite(from) && Number.isFinite(until) && until > from &&
+    Number.isFinite(current) && from <= current && current < until, "SCM_CENTRAL_POLICY_WINDOW_INVALID");
+  if (service !== undefined) {
+    requireCondition(service?.role === "SERVICE" && service.handoff,
+      "SCM_CENTRAL_SERVICE_BINDING_REQUIRED");
+    requireCondition(policy.installation_id === service.handoff.installation_id &&
+      policy.device_id === service.handoff.device_id &&
+      policy.policy_revision === service.handoff.revision &&
+      policy.policy_reference === service.handoff.policy_reference &&
+      central.root_spki_sha256 !== service.signer_spki_sha256,
+      "SCM_CENTRAL_SERVICE_BINDING_REJECTED");
+    requireCondition(!pathOverlaps(central.candidate_file, service.signer_private_file) &&
+      !pathOverlaps(central.candidate_file, service.handoff.capsule_file),
+      "SCM_CENTRAL_CANDIDATE_PATH_COLLISION");
+  }
+  return Object.freeze({
+    result: "SCM_CENTRAL_PROVISION_METADATA_VALID",
+    commercial_ready: false,
+    physical_certification: "REQUIRED",
+    commercial_gate: "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN",
+  });
+}
+
 function readJson(file) {
   managedPath(file);
   return JSON.parse(readFileSync(file, "utf8"));
@@ -124,11 +185,16 @@ function hashAdapter(file) {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
-    requireCondition(process.platform === "win32" && process.argv.length === 4,
-      "USAGE: Windows node scm-provision-preflight.mjs SERVICE_JSON DESKTOP_JSON");
-    const report = validateScmProvisionPair(
-      readJson(process.argv[2]), readJson(process.argv[3]), hashAdapter,
-    );
+    requireCondition(process.platform === "win32" && (process.argv.length === 4 || process.argv.length === 5),
+      "USAGE: Windows node scm-provision-preflight.mjs SERVICE_JSON DESKTOP_JSON [CENTRAL_JSON]");
+    const service = readJson(process.argv[2]);
+    const report = {
+      ...validateScmProvisionPair(service, readJson(process.argv[3]), hashAdapter),
+    };
+    if (process.argv.length === 5) {
+      Object.assign(report, validateScmCentralProvision(readJson(process.argv[4]), service));
+      report.result = "SCM_PROVISION_AND_CENTRAL_METADATA_VALID";
+    }
     process.stdout.write(JSON.stringify(report) + "\n");
   } catch (error) {
     process.stderr.write("SCM_PREFLIGHT_BLOCKED:" + (error instanceof Error ? error.message : "UNKNOWN") + "\n");

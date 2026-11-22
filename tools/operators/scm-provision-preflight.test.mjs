@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync } from "node:crypto";
-import { validateScmProvisionPair } from "./scm-provision-preflight.mjs";
+import { validateScmCentralProvision, validateScmProvisionPair } from "./scm-provision-preflight.mjs";
 
 const { publicKey: signer } = generateKeyPairSync("ed25519");
 const { publicKey: recipient } = generateKeyPairSync("rsa", { modulusLength: 3072, publicExponent: 65537 });
@@ -123,6 +123,78 @@ describe("SCM operator preflight (no native invocation, no commercial enablement
     const [s, d] = pair();
     d.adapter_file = String.raw`C:\ProgramData\CamachoPOS\other\camacho_windows_pipe.node`;
     assert.throws(() => validate(s, d), /SCM_CROSS_ROLE_ADAPTER_MISMATCH/);
+  });
+
+  it("validates Central provision metadata without enabling commercial SCM", () => {
+    const [s] = pair();
+    const central = {
+      origin: "https://central.example.invalid",
+      root_public_key_pem: pem(signer),
+      root_spki_sha256: pin(signer),
+      candidate_file: String.raw`C:\ProgramData\CamachoPOS\managed\candidate-pair.json`,
+      policy: {
+        policy: {
+          profile: "CAMACHO_SCM_PROVISION_POLICY_V1",
+          service_id: "CamachoPOSLocalService",
+          installation_id: s.handoff.installation_id,
+          device_id: s.handoff.device_id,
+          not_before: "2026-11-22T00:00:00.000Z",
+          expires_at: "2026-11-23T00:00:00.000Z",
+          policy_id: "c52f7fc9-983d-4f2a-b5c3-a7e329642ab2",
+          trust_revision: 1,
+          policy_revision: s.handoff.revision,
+          authority_spki_sha256: pin(signer),
+          action: "RECOVER_CANDIDATE",
+          candidate_sha256: "a".repeat(64),
+          previous_candidate_sha256: null,
+          policy_reference: s.handoff.policy_reference,
+        },
+        signature: "B".repeat(86),
+      },
+    };
+    // Use a distinct Central root from the local capsule signer.
+    const { publicKey: authority } = generateKeyPairSync("ed25519");
+    central.root_public_key_pem = pem(authority);
+    central.root_spki_sha256 = pin(authority);
+    central.policy.policy.authority_spki_sha256 = pin(authority);
+    assert.deepEqual(validateScmCentralProvision(central, s, now), {
+      result: "SCM_CENTRAL_PROVISION_METADATA_VALID",
+      commercial_ready: false,
+      physical_certification: "REQUIRED",
+      commercial_gate: "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN",
+    });
+    central.root_public_key_pem = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----";
+    assert.throws(() => validateScmCentralProvision(central, s, now), /SCM_PUBLIC_ROOT_REQUIRED/);
+  });
+
+  it("rejects Central provision that reuses the SERVICE capsule signer pin", () => {
+    const [s] = pair();
+    const central = {
+      origin: "https://central.example.invalid",
+      root_public_key_pem: pem(signer),
+      root_spki_sha256: pin(signer),
+      candidate_file: String.raw`C:\ProgramData\CamachoPOS\managed\candidate-pair.json`,
+      policy: {
+        policy: {
+          profile: "CAMACHO_SCM_PROVISION_POLICY_V1",
+          service_id: "CamachoPOSLocalService",
+          installation_id: s.handoff.installation_id,
+          device_id: s.handoff.device_id,
+          not_before: "2026-11-22T00:00:00.000Z",
+          expires_at: "2026-11-23T00:00:00.000Z",
+          policy_id: "c52f7fc9-983d-4f2a-b5c3-a7e329642ab2",
+          trust_revision: 1,
+          policy_revision: s.handoff.revision,
+          authority_spki_sha256: pin(signer),
+          action: "RECOVER_CANDIDATE",
+          candidate_sha256: "a".repeat(64),
+          previous_candidate_sha256: null,
+          policy_reference: s.handoff.policy_reference,
+        },
+        signature: "B".repeat(86),
+      },
+    };
+    assert.throws(() => validateScmCentralProvision(central, s, now), /SCM_CENTRAL_SERVICE_BINDING_REJECTED/);
   });
 
 });

@@ -73,6 +73,22 @@ const ServiceConfigSchema = z.strictObject({
   if ((value.session_trust_environment === undefined) !== (value.session_trust_root_public_key_pem === undefined)) {
     context.addIssue({ code: "custom", path: ["session_trust_environment"], message: "session trust environment and root public key must be configured together" });
   }
+  if ((value.windows_scm_handoff_file === undefined) !== (value.windows_scm_central_provision_file === undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["windows_scm_central_provision_file"],
+      message: "Windows SCM handoff and Central provision must be configured together",
+    });
+  }
+  if (value.windows_scm_handoff_file !== undefined &&
+      value.windows_scm_central_provision_file !== undefined &&
+      value.windows_scm_handoff_file === value.windows_scm_central_provision_file) {
+    context.addIssue({
+      code: "custom",
+      path: ["windows_scm_central_provision_file"],
+      message: "Windows SCM handoff and Central provision must be distinct managed paths",
+    });
+  }
   if (value.session_trust_artifact_path !== undefined && !isAbsolute(value.session_trust_artifact_path)) {
     context.addIssue({ code: "custom", path: ["session_trust_artifact_path"], message: "session trust artifact path must be absolute" });
   }

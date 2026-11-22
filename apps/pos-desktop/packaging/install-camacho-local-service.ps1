@@ -23,6 +23,10 @@ param(
   [string]$TenantId,
   [string]$CompanyId,
   [string]$BranchId,
+  # Authenticated SCM pair for the managed SERVICE. Both required together; never
+  # a commercial enable flag. Install still fails closed until physical certification.
+  [string]$ScmHandoffFile,
+  [string]$ScmCentralProvisionFile,
   [switch]$Json
 )
 Set-StrictMode -Version Latest
@@ -229,6 +233,22 @@ function Assert-Payload {
   }
 }
 
+function Assert-ManagedScmPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  if ([string]::IsNullOrWhiteSpace($Path)) { throw 'SCM_MANAGED_PATH_REJECTED' }
+  if ($Path -notmatch '^[A-Za-z]:\\') { throw 'SCM_MANAGED_PATH_REJECTED' }
+  if ($Path -match '[\x00-\x1f]') { throw 'SCM_MANAGED_PATH_REJECTED' }
+  if (($Path.Substring(2)).Contains(':')) { throw 'SCM_MANAGED_PATH_REJECTED' }
+  $full = [System.IO.Path]::GetFullPath($Path)
+  if (-not [string]::Equals($full, $Path, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'SCM_MANAGED_PATH_REJECTED'
+  }
+  $segments = $full -split '[\\/]'
+  if (@($segments | Where-Object {
+    $_ -match '^(?i:lab-data|\.lab-state|camachoposcmlab|design-review-runtime|preprod)$'
+  }).Count -ne 0) { throw 'SCM_NONCOMMERCIAL_PATH_REJECTED' }
+}
+
 function Assert-CommercialProvisionReady {
   # Refuse all commercial installs until native SERVICE/DESKTOP provisioning
   # and cross-session interoperability have been physically certified.
@@ -246,12 +266,50 @@ function Assert-CommercialProvisionReady {
       throw 'COMMERCIAL_IDENTITY_INVALID_OR_SAMPLE'
     }
   }
+  $hasHandoff = -not [string]::IsNullOrWhiteSpace($ScmHandoffFile)
+  $hasCentral = -not [string]::IsNullOrWhiteSpace($ScmCentralProvisionFile)
+  if ($hasHandoff -ne $hasCentral) { throw 'SCM_CENTRAL_PROVISION_REQUIRED' }
+  if ($hasHandoff) {
+    Assert-ManagedScmPath -Path $ScmHandoffFile
+    Assert-ManagedScmPath -Path $ScmCentralProvisionFile
+    if ([string]::Equals($ScmHandoffFile, $ScmCentralProvisionFile, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw 'SCM_MANAGED_PATH_REJECTED'
+    }
+  }
   throw 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
 }
 
 function Resolve-DataDirectory {
   Assert-CommercialProvisionReady
   return $DataDirectory
+}
+
+function Apply-ScmProvisionEnv {
+  param([Parameter(Mandatory = $true)][string]$Xml)
+  $hasHandoff = -not [string]::IsNullOrWhiteSpace($ScmHandoffFile)
+  $hasCentral = -not [string]::IsNullOrWhiteSpace($ScmCentralProvisionFile)
+  if ($hasHandoff -ne $hasCentral) { throw 'SCM_CENTRAL_PROVISION_REQUIRED' }
+  if (-not $hasHandoff) {
+    # Base commercial install without SCM transport: strip pair placeholders.
+    $Xml = [regex]::Replace($Xml, '(?m)^\s*<env name="POS_WINDOWS_SCM_HANDOFF_FILE"[^/]*/>\r?\n?', '')
+    $Xml = [regex]::Replace($Xml, '(?m)^\s*<env name="POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE"[^/]*/>\r?\n?', '')
+    if ($Xml -match 'POS_WINDOWS_SCM_(?:HANDOFF|CENTRAL_PROVISION)_FILE') {
+      throw 'WINSW_TEMPLATE_SCM_PLACEHOLDER_STUCK'
+    }
+    return $Xml
+  }
+  Assert-ManagedScmPath -Path $ScmHandoffFile
+  Assert-ManagedScmPath -Path $ScmCentralProvisionFile
+  if ([string]::Equals($ScmHandoffFile, $ScmCentralProvisionFile, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'SCM_MANAGED_PATH_REJECTED'
+  }
+  if ($Xml -notmatch '__CAMACHO_POS_WINDOWS_SCM_HANDOFF_FILE__' -or
+      $Xml -notmatch '__CAMACHO_POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE__') {
+    throw 'WINSW_TEMPLATE_MISSING_SCM_PAIR'
+  }
+  $Xml = $Xml.Replace('__CAMACHO_POS_WINDOWS_SCM_HANDOFF_FILE__', (Escape-XmlValue $ScmHandoffFile))
+  $Xml = $Xml.Replace('__CAMACHO_POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE__', (Escape-XmlValue $ScmCentralProvisionFile))
+  return $Xml
 }
 
 function Materialize-Xml {
@@ -271,6 +329,7 @@ function Materialize-Xml {
   $xml = $xml.Replace('__CAMACHO_POS_TENANT_ID__', (Escape-XmlValue $TenantId))
   $xml = $xml.Replace('__CAMACHO_POS_COMPANY_ID__', (Escape-XmlValue $CompanyId))
   $xml = $xml.Replace('__CAMACHO_POS_BRANCH_ID__', (Escape-XmlValue $BranchId))
+  $xml = Apply-ScmProvisionEnv -Xml $xml
   if ($xml -notmatch '<logpath>') {
     throw 'WINSW_TEMPLATE_MISSING_LOGPATH'
   }

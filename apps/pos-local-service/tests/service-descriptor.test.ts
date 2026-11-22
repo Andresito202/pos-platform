@@ -82,14 +82,20 @@ describe("descriptor de servicio WinSW", () => {
     expect(() => parseServiceConfig({ ...VALUES, POS_EXTRA: "1" })).toThrow();
   });
 
-  it("incluye el par SCM handoff+Central con rutas absolutas normalizadas, sin habilitar login comercial", () => {
+  it("incluye logpath ProgramData y el par SCM handoff+Central, sin habilitar login comercial", () => {
     const path = "C:\\ProgramData\\CamachoPOS\\handoff & provision.json";
     const central = "C:\\ProgramData\\CamachoPOS\\central-authority.json";
-    const xml = descriptor({
-      ...VALUES,
-      POS_WINDOWS_SCM_HANDOFF_FILE: path,
-      POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: central,
+    const logDirectory = "C:\\ProgramData\\CamachoPOS\\logs";
+    const xml = buildServiceDescriptor({
+      ...INSTALLATION,
+      logDirectory,
+      environment: {
+        ...VALUES,
+        POS_WINDOWS_SCM_HANDOFF_FILE: path,
+        POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: central,
+      },
     });
+    expect(xml).toContain(`<logpath>${logDirectory}</logpath>`);
     const environment = environmentFromXml(xml);
     expect(environment.POS_WINDOWS_SCM_HANDOFF_FILE).toBe(path);
     expect(environment.POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE).toBe(central);

@@ -105,6 +105,11 @@ export interface ServiceDescriptorInput {
   /** El bundle del servicio, ya extraído del artefacto. */
   readonly bundle: string;
   readonly workingDirectory: string;
+  /**
+   * WinSW log directory under ProgramData. Required for commercial packaging:
+   * the virtual service account cannot write under Program Files.
+   */
+  readonly logDirectory?: string;
   /** Variables requeridas y, opcionalmente, el par de provisión SCM autenticada. */
   readonly environment: Readonly<Record<string, string>>;
   /** Explicit installer intent. Never infer commercial readiness from base POS vars. */
@@ -158,6 +163,7 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
   if (handoff !== undefined && central !== undefined && handoff === central) {
     throw new Error("SCM_MANAGED_PATH_REJECTED");
   }
+  const logDirectory = managedScmPath(input.logDirectory);
 
   const lines = [
     "<service>",
@@ -167,6 +173,8 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
     `  <executable>${escapeXml(input.nodeExecutable)}</executable>`,
     `  <arguments>${escapeXml(`"${input.bundle}"`)}</arguments>`,
     `  <workingdirectory>${escapeXml(input.workingDirectory)}</workingdirectory>`,
+    // WinSW logs must not write under Program Files (virtual account has no write).
+    ...(logDirectory === undefined ? [] : [`  <logpath>${escapeXml(logDirectory)}</logpath>`]),
     "  <startmode>Automatic</startmode>",
     // WinSW 2.12 XmlServiceConfig reads <domain>/<user> only — <username> is ignored
     // and the service silently installs as LocalSystem (HasServiceAccount => false).
