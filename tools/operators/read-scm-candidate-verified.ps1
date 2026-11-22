@@ -65,6 +65,7 @@ Assert-SafePath $file
 # Hold the file handle while inspecting its ACL and reading its contents.
 $stream = New-Object IO.FileStream(
   $file,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+$bytes = $null
 try {
   if ($stream.Length -le 0 -or $stream.Length -gt 65536) {
     Deny 'SCM_RECOVERY_RECORD_SIZE_REJECTED'
