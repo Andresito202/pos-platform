@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { canonicalSessionTrustJson } from "./session-trust.js";
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const revision = z.number().int().positive().safe();
@@ -20,6 +21,18 @@ export const WindowsScmPolicyTrustSchema = z.strictObject({
   revoked_authority_pins: z.array(hash).max(64),
 });
 export type WindowsScmPolicyTrust = z.infer<typeof WindowsScmPolicyTrustSchema>;
+
+/** Signed snapshot, not a freshness proof. Trust in the signing key comes
+ * exclusively from authenticated installer provisioning, never this payload. */
+export const SignedWindowsScmCheckpointSchema = z.strictObject({
+  checkpoint: WindowsScmPolicyTrustSchema,
+  signature: z.string().regex(/^[A-Za-z0-9_-]{86}$/),
+});
+export type SignedWindowsScmCheckpoint = z.infer<typeof SignedWindowsScmCheckpointSchema>;
+export function windowsScmCheckpointSigningBytes(input: unknown): Buffer {
+  const checkpoint = WindowsScmPolicyTrustSchema.parse(input);
+  return Buffer.from("CAMACHO_SCM_CHECKPOINT_SIGNATURE_V1\0" + canonicalSessionTrustJson(checkpoint), "utf8");
+}
 
 /** A signed operator intent, not a commercial enablement credential. */
 export const WindowsScmPolicySchema = z.strictObject({
