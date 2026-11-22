@@ -7,7 +7,7 @@
  * a generation counter.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
