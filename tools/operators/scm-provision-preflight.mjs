@@ -83,7 +83,9 @@ export function validateScmProvisionPair(service, desktop, shaOfAdapter, now = n
     pinnedKey(p.signer_public_key_pem, p.signer_spki_sha256, "ed25519");
     pinnedKey(h.recipient_public_key_pem, h.recipient_key_sha256, "rsa");
   }
-  requireCondition(win32.dirname(service.signer_private_file).toLowerCase() !==\n    win32.dirname(desktop.receiver_file).toLowerCase(), "SCM_PRIVATE_CUSTODY_NOT_SEPARATED");\n  requireCondition(isDeepStrictEqual(service.handoff, desktop.handoff) &&
+  requireCondition(win32.dirname(service.signer_private_file).toLowerCase() !==
+    win32.dirname(desktop.receiver_file).toLowerCase(), "SCM_PRIVATE_CUSTODY_NOT_SEPARATED");
+  requireCondition(isDeepStrictEqual(service.handoff, desktop.handoff) &&
     service.signer_public_key_pem === desktop.signer_public_key_pem &&
     service.signer_spki_sha256 === desktop.signer_spki_sha256,
     "SCM_CROSS_ROLE_BINDING_MISMATCH");
