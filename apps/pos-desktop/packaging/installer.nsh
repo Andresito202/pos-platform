@@ -1,23 +1,10 @@
-; Camacho POS — NSIS hooks for WinSW / SCM Local Service.
-; Requires elevation (perMachine). Does not delete commercial AppData.
-; commercialLogin / cross-session IPC gate remains NOT_PROVEN.
-; Fail-closed: install/upgrade MUST leave scm-install.ok under the payload.
-;
-; Do NOT use $COMMONAPPDATA — electron-builder NSIS 3.0.4 treats it as unknown
-; (warning 6000 → pack fails). Marker lives under $INSTDIR (always defined).
+; Camacho POS Colombia — Windows NSIS commercial safety boundary.
+; No test, sample or diagnostic service may be installed by this product hook.
+; Cross-session SERVICE/DESKTOP authentication and signing remain uncertified.
 
 !macro customInstall
-  DetailPrint "Camacho: registering POS Local Service (WinSW/SCM)"
-  ; Clear prior success marker so upgrade cannot reuse a stale OK file.
-  Delete "$INSTDIR\resources\service-payload\scm-install.ok"
-  nsExec::ExecToLog '"$WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\service-payload\install-camacho-local-service.ps1" -Action Install -InstallProfile LAB -PayloadDir "$INSTDIR\resources\service-payload" -Json'
-  Pop $0
-  DetailPrint "Camacho service install exit=$0"
-  ; Authoritative acceptance: helper writes scm-install.ok only after NT SERVICE bind + Running.
-  ; Relative jumps avoid duplicate labels when the macro is expanded more than once.
-  IfFileExists "$INSTDIR\resources\service-payload\scm-install.ok" +3 0
-    DetailPrint "Camacho SCM registration missing scm-install.ok (helper exit=$0) — aborting installer"
-    Abort "WINSW_SCM_REGISTRATION_FAILED"
+  DetailPrint "Camacho POS commercial SCM release is not certified"
+  Abort "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN"
 !macroend
 
 !macro customUnInstall
