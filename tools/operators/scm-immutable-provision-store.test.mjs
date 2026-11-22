@@ -30,6 +30,19 @@ function pair(){
 }
 const adapter=()=>nativeSha;
 const encode=p=>serializeScmCandidate(p,adapter,now);
+
+it("checks signed approval scope and rejects using the Service signer as the approval root",()=>{
+ const p=pair(),record=encode(p),h=p.service.handoff;
+ const binding={installationId:h.installation_id,deviceId:h.device_id,revision:h.revision,
+  policyReference:h.policy_reference,authorityPin:"f".repeat(64)};
+ const base={root:path("provisions"),expectedSha256:record.sha256,minRevision:1,
+  hashOfAdapter:adapter,now,platform:"win32",invoke:()=>({status:0,stdout:Buffer.from(record.payload).toString("base64")})};
+ assert.equal(recoverPinnedScmCandidate({...base,expectedBinding:binding}).commercial_ready,false);
+ for(const change of [{installationId:h.device_id},{deviceId:h.installation_id},{revision:2},
+  {policyReference:"wrong"},{authorityPin:p.service.signer_spki_sha256}]){
+  assert.throws(()=>recoverPinnedScmCandidate({...base,expectedBinding:{...binding,...change}}),/SCM_RECOVERY_APPROVAL_BINDING_REJECTED/);
+ }
+});
 describe("immutable candidate storage",()=>{
  it("serializes validated public metadata with no release authority",()=>{
   const v=encode(pair()),o=JSON.parse(v.payload);

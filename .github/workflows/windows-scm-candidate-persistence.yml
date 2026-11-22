@@ -10,6 +10,11 @@ on:
       - 'tools/operators/write-scm-candidate-once.ps1'
       - 'tools/operators/read-scm-candidate-verified.ps1'
       - 'tools/operators/scm-provision-preflight.mjs'
+      - 'tools/operators/scm-approved-candidate-recovery.ts'
+      - 'tools/operators/scm-immutable-provision-store.d.mts'
+      - 'packages/contracts/src/windows-scm-policy.ts'
+      - 'packages/local-channel/src/windows-scm-policy.ts'
+      - 'packages/local-channel/tests/windows-scm-policy.test.ts'
       - 'package.json'
   push:
     branches: [main]
@@ -20,6 +25,11 @@ on:
       - 'tools/operators/write-scm-candidate-once.ps1'
       - 'tools/operators/read-scm-candidate-verified.ps1'
       - 'tools/operators/scm-provision-preflight.mjs'
+      - 'tools/operators/scm-approved-candidate-recovery.ts'
+      - 'tools/operators/scm-immutable-provision-store.d.mts'
+      - 'packages/contracts/src/windows-scm-policy.ts'
+      - 'packages/local-channel/src/windows-scm-policy.ts'
+      - 'packages/local-channel/tests/windows-scm-policy.test.ts'
       - 'package.json'
   workflow_dispatch:
 
@@ -43,3 +53,19 @@ jobs:
           node-version: 22.19.0
       - name: Verify negative invariants without writing Windows files
         run: node --test tools/operators/scm-immutable-provision-store.test.mjs
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Install dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Verify signed policy and read-only recovery boundary
+        shell: pwsh
+        run: |
+          pnpm --filter @pos-platform/local-channel test -- tests/windows-scm-policy.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/local-channel typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @pos-platform/contracts typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
