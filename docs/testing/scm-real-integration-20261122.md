@@ -67,6 +67,10 @@ Local Windows / Node 22.19.0:
 - Native SERVICE-to-Electron interoperability, revocation/restart and recovery on the actual Windows installation.
 - Explicit root/candidate transition and validity renewal before attempting those operations.
 
+Executable physical-prep procedure (does not lift the commercial gate):
+`docs/testing/scm-windows-physical-certification-procedure-20261122.md`.
+Helper action `PreparePhysicalCertification` installs WinSW identity/ACLs with owner attestation and requires an observed commercial gate denial; NSIS and `-Action Install` remain fail-closed.
+
 SCM commercial remains disabled. PR #127 stays Draft and must not be merged by this task.
 
 The local Windows execution environment became unavailable after the private-PEM regression passed. Subsequent publication and CI diagnosis continued through GitHub on this same branch; no further local execution is claimed.
