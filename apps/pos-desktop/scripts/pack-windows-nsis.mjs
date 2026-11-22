@@ -16,6 +16,10 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { assertCommercialNsisReleaseReady } from "./assert-commercial-nsis-release.mjs";
+
+// Fail before touching any staging files, invoking build tools, or producing EXEs.
+assertCommercialNsisReleaseReady(process.env);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktop = join(here, "..");
