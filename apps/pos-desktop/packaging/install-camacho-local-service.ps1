@@ -18,7 +18,7 @@ param(
   [Parameter(Mandatory = $true)][ValidateSet('Install', 'Uninstall', 'Status')][string]$Action,
   [Parameter(Mandatory = $true)][string]$PayloadDir,
   [string]$DataDirectory,
-  [ValidateSet('LAB', 'COMMERCIAL')][string]$InstallProfile = 'LAB',
+  [ValidateSet('LAB', 'COMMERCIAL')][string]$InstallProfile,
   [string]$InstallationId = '018f0000-0000-7000-8000-0000000000a1',
   [string]$DeviceId = '018f0000-0000-7000-8000-0000000000a2',
   [string]$TenantId = '018f0000-0000-7000-8000-0000000000a3',
@@ -545,6 +545,7 @@ switch ($Action) {
     } 0
   }
   'Install' {
+    if ([string]::IsNullOrWhiteSpace($InstallProfile)) { throw 'INSTALL_PROFILE_REQUIRED' }
     if ($InstallProfile -eq 'COMMERCIAL') { Assert-CommercialInstallPreflight }
     Assert-Admin
     Clear-ScmInstallOkMarker
