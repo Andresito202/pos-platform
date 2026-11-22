@@ -4,7 +4,11 @@
 
 Este repositorio se desarrolla sobre **una única línea activa**. La existencia de una idea técnicamente interesante no autoriza a abrir otra línea.
 
-### Línea activa vigente — decisión del propietario 2026-11-21
+### Continuidad vigente — puesta en marcha 2026-11-22
+
+Puesta en marcha desde main — 2026-11-22. PR #115 MERGED; main baa5fd8568ebc3d080f7e474b0d986ff45f5dbc7, árbol idéntico a 2b0ad709. Los cinco workflows post-merge terminaron SUCCESS, incluido Main push governance. La rama codex/business-cash-consolidation-20261120 está INTEGRATED; conservar el ref no la reactiva. El objetivo vigente es ejecutar el producto existente desde main; no hay autorización para otra rama ni desarrollo directo en main. Las referencias anteriores a líneas activas conservan alcance histórico. El propietario autorizó expresamente reutilizar esa misma rama para una PR exclusivamente documental; la excepción no habilita cambios de producto ni otra línea. Ninguno de estos hechos acredita operación comercial.
+
+### Decisión histórica del propietario 2026-11-21
 
 - Única rama activa: `codex/business-cash-consolidation-20261120`. Se continúa esta rama existente; no crear, renombrar ni abrir otra para la consolidación. La orden expresa del propietario del 2026-11-21 sustituye la selección anterior y autoriza commits, publicación e integración mediante PR, CI del HEAD exacto y verificación post-merge. Base de esta continuación: `3471d39fe0963f5c092deb2e61aae6720a1f4465`.
 - Rama canónica de entrega: `main`, mediante el flujo de PR y verificación existente. No desarrollar en paralelo en main.

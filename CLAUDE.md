@@ -4,7 +4,7 @@
 
 Este repositorio no acepta desarrollo paralelo por iniciativa de una IA.
 
-- **Línea activa vigente:** `cursor/commercial-design-review-0d11`
+- **Continuidad vigente:** puesta en marcha desde `main` (`baa5fd85`); PR #115 integrada. Las ramas anteriores no son líneas activas.
 - **Rama canónica del producto:** `main`
 - El trabajo nuevo continúa sobre la línea activa mientras la gobernanza no la cambie explícitamente.
 - No abrir otra rama porque una IA considere que su enfoque es más limpio, moderno o conveniente.
