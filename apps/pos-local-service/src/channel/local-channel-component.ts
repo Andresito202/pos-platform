@@ -12,10 +12,11 @@ import type { ServiceConfig } from "../config.js";
 import type { OperationConfirmationComponent } from "../operations/operation-confirmation-component.js";
 import type { CommercialComponent } from "../commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../commercial/commercial-request-handler.js";
-import { LocalChannelAuthenticator, localChannelEndpoint } from "@pos-platform/local-channel";
+import { LocalChannelAuthenticator, localChannelEndpoint, readWindowsScmProvision } from "@pos-platform/local-channel";
 import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
+import { WindowsScmChannelTransport } from "./windows-scm-transport.js";
 
 const LOCAL_SCHEMA_VERSION = "5";
 const RESULT_SCHEMA_VERSION = "1.0.0";
@@ -56,7 +57,8 @@ export class LocalChannelComponent implements RuntimeComponent {
       commercial,
       connectionId => this.getLocalOperatorRegistry()?.resolve(connectionId) ?? null,
     );
-    this.endpoint = localChannelEndpoint(config.installation_id);
+    const endpoint = localChannelEndpoint(config.installation_id);
+    this.endpoint = config.windows_scm_handoff_file === undefined ? endpoint : `${endpoint}-scm`;
   }
 
   async start(): Promise<void> {
@@ -64,6 +66,11 @@ export class LocalChannelComponent implements RuntimeComponent {
       throw new Error("production local channel requires Windows");
     }
 
+    // The main entry retains its commercial SCM release gate. A selected SCM
+    // provision must never fall back to the per-user shared-secret pipe.
+    const scmProvision = this.config.windows_scm_handoff_file === undefined ? undefined
+      : readWindowsScmProvision(this.config.windows_scm_handoff_file, "SERVICE",
+        this.config.installation_id, this.config.device_id);
     const secret = loadOrCreateWindowsLocalChannelSecret(
       this.config.data_directory,
       this.config.installation_id,
@@ -71,7 +78,15 @@ export class LocalChannelComponent implements RuntimeComponent {
     const authenticator = new LocalChannelAuthenticator(secret, undefined, {
       replayStateStore: new SqliteReplayStateStore(this.localDatabase.database),
     });
-    secret.fill(0);
+    let scmTransport: WindowsScmChannelTransport | undefined;
+    try {
+      if (scmProvision) scmTransport = new WindowsScmChannelTransport(scmProvision, this.localDatabase.database, secret);
+    } catch (error) {
+      authenticator.destroy();
+      throw error;
+    } finally {
+      secret.fill(0);
+    }
 
     const server = new LocalChannelServer(
       this.endpoint,
@@ -89,6 +104,7 @@ export class LocalChannelComponent implements RuntimeComponent {
           this.localOperatorRegistry?.release(connectionId);
         }
       },
+      scmTransport,
     );
 
     try {
