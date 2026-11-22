@@ -105,10 +105,24 @@ export interface ServiceDescriptorInput {
   /** El bundle del servicio, ya extraído del artefacto. */
   readonly bundle: string;
   readonly workingDirectory: string;
-  /** Variables requeridas y, opcionalmente, la ruta de provisión SCM. */
+  /** Variables requeridas y, opcionalmente, el par de provisión SCM autenticada. */
   readonly environment: Readonly<Record<string, string>>;
   /** Explicit installer intent. Never infer commercial readiness from base POS vars. */
   readonly commercialLogin?: boolean;
+}
+
+const OPTIONAL_SCM_ENVIRONMENT = Object.freeze([
+  "POS_WINDOWS_SCM_HANDOFF_FILE",
+  "POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE",
+] as const);
+
+function managedScmPath(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (!/^[a-z]:\\/i.test(value) || !win32.isAbsolute(value) ||
+      win32.normalize(value) !== value || value.slice(2).includes(":") || /[\x00-\x1f]/.test(value)) {
+    throw new Error("SCM_MANAGED_PATH_REJECTED");
+  }
+  return value;
 }
 
 export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
@@ -126,16 +140,22 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
     throw new Error(`service descriptor is missing required environment: ${missing.join(", ")}`);
   }
   const unexpected = Object.keys(input.environment).filter(
-    (key) => !REQUIRED_ENVIRONMENT.includes(key) && key !== "POS_WINDOWS_SCM_HANDOFF_FILE",
+    (key) => !REQUIRED_ENVIRONMENT.includes(key) &&
+      !(OPTIONAL_SCM_ENVIRONMENT as readonly string[]).includes(key),
   );
   if (unexpected.length > 0) {
     // `parseServiceConfig` rechaza cualquier `POS_*` desconocida: dejar pasar
     // una aquí produciría un servicio que no arranca y un diagnóstico opaco.
     throw new Error(`service descriptor carries unexpected environment: ${unexpected.join(", ")}`);
   }
-  const handoff = input.environment.POS_WINDOWS_SCM_HANDOFF_FILE;
-  if (handoff !== undefined && (!/^[a-z]:\\/i.test(handoff) || !win32.isAbsolute(handoff) ||
-      win32.normalize(handoff) !== handoff || handoff.slice(2).includes(":") || /[\x00-\x1f]/.test(handoff))) {
+  const handoff = managedScmPath(input.environment.POS_WINDOWS_SCM_HANDOFF_FILE);
+  const central = managedScmPath(input.environment.POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE);
+  // Online Central authority is mandatory with the managed SERVICE handoff.
+  // Emitting only one of the pair would fail closed at LocalChannelComponent.start.
+  if ((handoff === undefined) !== (central === undefined)) {
+    throw new Error("SCM_CENTRAL_PROVISION_REQUIRED");
+  }
+  if (handoff !== undefined && central !== undefined && handoff === central) {
     throw new Error("SCM_MANAGED_PATH_REJECTED");
   }
 
@@ -173,6 +193,7 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
       (key) => `  <env name="${key}" value="${escapeXml(input.environment[key] ?? "")}"/>`,
     ),
     ...(handoff === undefined ? [] : [`  <env name="POS_WINDOWS_SCM_HANDOFF_FILE" value="${escapeXml(handoff)}"/>`]),
+    ...(central === undefined ? [] : [`  <env name="POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE" value="${escapeXml(central)}"/>`]),
     "</service>",
   ];
   return `${lines.join("\n")}\n`;

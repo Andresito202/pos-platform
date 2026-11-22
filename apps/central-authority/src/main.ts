@@ -12,6 +12,7 @@ import { prepareFactusPayRuntime } from "./factus-pay-runtime.js";
 import { FACTUS_PAY_COLLECTION_WEBHOOK_PATH } from "./factus-pay-webhook-handler.js";
 import { prepareBusinessAdministrationRuntime } from "./business-administration-runtime.js";
 import { createCentralRouter } from "./central-router.js";
+import { isScmCheckpointUrl } from "./scm-checkpoint-http.js";
 import { prepareScmCheckpointRuntime } from "./scm-checkpoint-runtime.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
@@ -165,7 +166,7 @@ const scmProvision = process.env.CENTRAL_SCM_PROVISION_FILE;
 const scmHandler = scmProvision === undefined ? undefined : await prepareScmCheckpointRuntime(pool, scmProvision);
 
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, createCentralRouter(async (request, response) => {
-  if (request.url === "/v1/scm/checkpoint") {
+  if (isScmCheckpointUrl(request.url)) {
     if (scmHandler) await scmHandler(request, response);
     else send(response, 503, { code: "SCM_NOT_PROVISIONED" });
     return;

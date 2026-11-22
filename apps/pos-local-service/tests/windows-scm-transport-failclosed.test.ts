@@ -66,4 +66,34 @@ describe("SCM transport fail-closed lifecycle", () => {
     expect(stop).toHaveBeenCalledTimes(1);
     await expect(transport.start(() => undefined)).rejects.toThrow("SCM_TRANSPORT_STOPPED");
   });
+
+  it("Central authority loss during poll destroys Electron sockets and stops native admission", async () => {
+    vi.useFakeTimers();
+    const { Socket } = await import("node:net");
+    const stop = vi.fn();
+    const mock = adapter({ stop, accept: vi.fn(async () => { throw Error("NO_CONNECTION"); }) });
+    const centralAuthority = {
+      start: vi.fn(async () => undefined),
+      assertCurrent: vi.fn(),
+      stop: vi.fn(async () => undefined),
+    };
+    const transport = new WindowsScmChannelTransport(
+      provision, dummyDatabase, Buffer.alloc(32, 1),
+      { adapter: mock, seal: () => { throw Error("must not publish"); } },
+      centralAuthority,
+    );
+    await transport.start(() => undefined);
+    const socket = new Socket();
+    const destroyed = vi.spyOn(socket, "destroy");
+    (transport as unknown as { sockets: Set<InstanceType<typeof Socket>> }).sockets.add(socket);
+    centralAuthority.assertCurrent.mockImplementation(() => { throw Error("SCM_CENTRAL_AUTHORITY_REQUIRED"); });
+    await vi.advanceTimersByTimeAsync(110);
+    const closing = transport.stop();
+    await vi.runOnlyPendingTimersAsync();
+    await closing;
+    expect(destroyed).toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(centralAuthority.stop).toHaveBeenCalledOnce();
+    await expect(transport.start(() => undefined)).rejects.toThrow("SCM_TRANSPORT_STOPPED");
+  });
 });
