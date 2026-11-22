@@ -5,6 +5,7 @@ const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const revision = z.number().int().positive().safe();
 const scope = { installation_id: z.uuid(), device_id: z.uuid() };
 const validity = { not_before: z.iso.datetime(), expires_at: z.iso.datetime() };
+const publicKeyPem = z.string().min(40).max(4096).regex(/^-----BEGIN PUBLIC KEY-----\r?\n(?:[A-Za-z0-9+/=]+\r?\n)+-----END PUBLIC KEY-----\r?\n?$/);
 
 /** External installer-owned trust/checkpoint. Never learned from a candidate,
  * capsule, operator-supplied digest or BUSINESS/GLOBAL/license authority. */
@@ -13,7 +14,7 @@ export const WindowsScmPolicyTrustSchema = z.strictObject({
   service_id: z.literal("CamachoPOSLocalService"),
   ...scope, ...validity,
   trust_revision: revision,
-  authority_public_key_pem: z.string().min(40).max(4096),
+  authority_public_key_pem: publicKeyPem,
   authority_spki_sha256: hash,
   current_policy_revision: revision,
   current_candidate_sha256: hash,
@@ -58,7 +59,7 @@ export const SignedWindowsScmPolicySchema = z.strictObject({
  * capsule signer. A cached checkpoint never permits offline SCM admission. */
 export const WindowsScmCentralProvisionSchema = z.strictObject({
   origin: z.url().refine(value => { const u = new URL(value); return u.protocol === "https:" && u.origin === value && !u.username && !u.password; }),
-  root_public_key_pem: z.string().min(40).max(4096),
+  root_public_key_pem: publicKeyPem,
   root_spki_sha256: hash,
   candidate_file: z.string().min(1).max(2048),
   policy: SignedWindowsScmPolicySchema,

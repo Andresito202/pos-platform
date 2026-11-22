@@ -51,14 +51,14 @@ Local Windows / Node 22.19.0:
 
 - New API cases: 6 passed initially; additional per-device limiter case executed separately after its implementation.
 - New SERVICE checkpoint and socket-stop cases: 10 passed.
-- New Central issuer cases: 2 passed.
+- New Central issuer cases: 3 passed, including rejection of private authority PEM before signing/publication. Total new locally passed cases: 20.
 - Typechecks: Central, SERVICE and migration runner passed before the final documentation update; final status belongs to the PR HEAD checks.
 - `git diff --check`: clean when inspected.
 - ARCH-003 found an existing cross-project test import from local-channel into Central. Local-channel now signs verifier fixtures locally; Central issuer tests live under Central. Executable boundary validation passed after the fix. The historical verifier cases were not rerun locally.
 - The 16 historical architecture-validator tests were also executed inadvertently; they passed. This was an unnecessary repeat, not new SCM evidence.
 - New real PostgreSQL/HTTPS integration file: 3 cases skipped locally because no explicit disposable database was provisioned. Docker daemon access from this session was denied. No local PostgreSQL integration PASS is claimed.
 
-`.github/workflows/scm-real-integration.yml` runs only the three pending PostgreSQL 16.14 + verified HTTPS integration cases. The 19 locally approved new cases are not manually repeated in this dedicated workflow. It uses original 004/012 and new 034 SQL, real DeviceProof, replay rejection, concurrent idempotent publication, immutable SQL grants, live SERVICE consumption and persistent revocation. Its temporary TLS material and database are test fixtures only. It does not certify the native Windows peer, real Electron process identity, Windows ACL/DPAPI custody or installer recovery. Initial run 45075652224 failed before checkout/tests because fixed host port 55436 was already occupied. The workflow now requests a dynamic Docker host port. No integration PASS is inferred from that infrastructure failure; inspect the successor exact-HEAD result.
+`.github/workflows/scm-real-integration.yml` runs only the three pending PostgreSQL 16.14 + verified HTTPS integration cases. The locally approved new cases are not manually repeated in this dedicated workflow. It uses original 004/012 and new 034 SQL, real DeviceProof, replay rejection, concurrent idempotent publication, immutable SQL grants, live SERVICE consumption and persistent revocation. Its temporary TLS material and database are test fixtures only. It does not certify the native Windows peer, real Electron process identity, Windows ACL/DPAPI custody or installer recovery. Initial run 45075652224 failed before checkout/tests because fixed host port 55436 was already occupied. The workflow now requests a dynamic Docker host port. Run 45075781608 then reached SQL setup but failed because the disposable database was not owned by pos_schema_owner; the fixture now creates that disposable database with the correct owner. Neither failure is integration PASS; inspect the successor exact-HEAD result.
 
 ## Certification still pending
 
@@ -68,3 +68,5 @@ Local Windows / Node 22.19.0:
 - Explicit root/candidate transition and validity renewal before attempting those operations.
 
 SCM commercial remains disabled. PR #127 stays Draft and must not be merged by this task.
+
+The local Windows execution environment became unavailable after the private-PEM regression passed. Subsequent publication and CI diagnosis continued through GitHub on this same branch; no further local execution is claimed.

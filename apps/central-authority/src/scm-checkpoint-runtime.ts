@@ -17,7 +17,9 @@ function managed(file: string): string {
 export async function prepareScmCheckpointRuntime(pool: Pool, provisionFile: string) {
   const provision = JSON.parse(managed(provisionFile)) as { signer_private_file: string; root_public_key_file: string; checkpoints: unknown[] };
   const key = createPrivateKey(managed(provision.signer_private_file));
-  const root = createPublicKey(managed(provision.root_public_key_file));
+  const rootPem = managed(provision.root_public_key_file);
+  if (!rootPem.trim().startsWith("-----BEGIN PUBLIC KEY-----")) throw Error("SCM_PUBLIC_ROOT_REQUIRED");
+  const root = createPublicKey(rootPem);
   if (key.asymmetricKeyType !== "ed25519" || root.asymmetricKeyType !== "ed25519" ||
       !createPublicKey(key).export({ type: "spki", format: "der" }).equals(root.export({ type: "spki", format: "der" }))) throw Error("SCM_CENTRAL_SIGNER_REJECTED");
   const pin = createHash("sha256").update(root.export({ type: "spki", format: "der" })).digest("hex");

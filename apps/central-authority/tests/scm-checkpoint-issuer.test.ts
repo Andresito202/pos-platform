@@ -14,3 +14,9 @@ it("Central rejects a failed signer without publishing a partial checkpoint", as
   const issuer = new ScmCheckpointIssuer({ sign: async () => Buffer.alloc(32) });
   await expect(issuer.issue(checkpoint)).rejects.toThrow("SCM_CHECKPOINT_SIGNER_REJECTED");
 });
+it("rejects private authority material before invoking the signer or publishing", async () => {
+  let calls = 0;
+  const issuer = new ScmCheckpointIssuer({ sign: async () => { calls++; return Buffer.alloc(64); } });
+  await expect(issuer.issue({ ...checkpoint, authority_public_key_pem: keys.privateKey.export({ type: "pkcs8", format: "pem" }).toString() })).rejects.toThrow();
+  expect(calls).toBe(0);
+});

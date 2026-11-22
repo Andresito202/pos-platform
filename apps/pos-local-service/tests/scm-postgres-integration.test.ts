@@ -32,7 +32,7 @@ describe.runIf(Boolean(serverUrl))("SCM PostgreSQL -> authenticated HTTPS -> SER
     for (const role of ["pos_schema_owner", "pos_migrator", "pos_platform_app", "pos_app", "pos_worker", "pos_reporting", "pos_platform_admin"]) {
       if (!(await admin.query("SELECT 1 FROM pg_roles WHERE rolname=$1", [role])).rowCount) await admin.query(`CREATE ROLE ${role} ${role === "pos_platform_app" ? "LOGIN" : "NOLOGIN"} NOSUPERUSER NOBYPASSRLS`);
     }
-    await admin.query(`CREATE DATABASE "${database}"`); created = true;
+    await admin.query(`CREATE DATABASE "${database}" OWNER pos_schema_owner`); created = true;
     url.pathname = "/" + database; root = createPostgresPool(url.href, 1);
     await root.query("CREATE SCHEMA platform AUTHORIZATION pos_schema_owner; CREATE SCHEMA identity AUTHORIZATION pos_schema_owner; GRANT USAGE ON SCHEMA platform,identity TO pos_platform_app");
     await root.query("SET ROLE pos_schema_owner");
