@@ -1,6 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { assertInitialScmCandidateState, serializeScmCandidate, inspectScmCandidateBytes, persistInitialScmCandidate } from "./scm-immutable-provision-store.mjs";
 
 const signer=generateKeyPairSync("ed25519").publicKey;
@@ -61,4 +63,12 @@ describe("immutable candidate storage",()=>{
  it("refuses non-Windows persistence before filesystem access",()=>{
   assert.throws(()=>persistInitialScmCandidate({pair:pair(),root:path("provisions"),hashOfAdapter:adapter,now,platform:"linux"}),/SCM_STORE_WINDOWS_REQUIRED/);
  });
+ it("PowerShell native writer parses without execution", { skip:process.platform!=="win32" },()=>{
+  const script=fileURLToPath(new URL("./write-scm-candidate-once.ps1",import.meta.url));
+  const escaped=script.replaceAll("'","''");
+  const cmd=`$tokens=$null; $errors=$null; $source=[IO.File]::ReadAllText('${escaped}'); [void][System.Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors); if($errors.Count -ne 0){ $errors | Out-String | Write-Error; exit 1 }`;
+  const result=spawnSync("powershell.exe",["-NoProfile","-NonInteractive","-Command",cmd],{encoding:"utf8"});
+  assert.equal(result.status,0,result.stderr||result.stdout);
+ });
+
 });
