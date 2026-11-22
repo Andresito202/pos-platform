@@ -96,7 +96,7 @@ describe("SCM operator preflight (no native invocation, no commercial enablement
   });
   it("rejects shared private custody between service and desktop", () => {
     const [s, d] = pair();
-    d.receiver_file = String.raw`C:\\ProgramData\\CamachoPOS\\service\\private\\receiver.json`;
+    d.receiver_file = String.raw`C:\ProgramData\CamachoPOS\service\private\receiver.json`;
     assert.throws(() => validate(s, d), /SCM_PRIVATE_CUSTODY_NOT_SEPARATED/);
   });
   it("never reads or creates any private key file", () => {
