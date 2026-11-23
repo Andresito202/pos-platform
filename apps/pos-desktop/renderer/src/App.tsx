@@ -214,21 +214,23 @@ function LocalApp(): React.JSX.Element {
                 : "El POS no ha podido verificar una sesión autorizada."}
           </p>
           {loading ? (
-            <div data-testid="authorization-loading" role="status">Cargando permisos…</div>
+            <div data-testid="authorization-loading" role="status" className="pos-entry-banner pos-entry-banner--info">
+              Cargando permisos…
+            </div>
           ) : unauthenticated ? (
-            <div data-testid="authorization-unauthenticated" role="status">
+            <div data-testid="authorization-unauthenticated" role="status" className="pos-entry-banner pos-entry-banner--info">
               No hay una sesión iniciada en este dispositivo.
             </div>
           ) : authorization.phase === "denied" ? (
-            <div data-testid="authorization-denied" role="alert">
+            <div data-testid="authorization-denied" role="alert" className="pos-entry-banner pos-entry-banner--warning">
               La sesión no dispone de permisos efectivos para operar en este POS.
             </div>
           ) : authorization.phase === "expired" ? (
-            <div data-testid="authorization-expired" role="alert">
+            <div data-testid="authorization-expired" role="alert" className="pos-entry-banner pos-entry-banner--warning">
               La verificación del backend indica que la sesión expiró. Es necesario autenticarse de nuevo.
             </div>
           ) : authorization.phase === "error" ? (
-            <div data-testid="authorization-error" role="alert">
+            <div data-testid="authorization-error" role="alert" className="pos-entry-banner pos-entry-banner--error">
               {authorization.message}
             </div>
           ) : null}

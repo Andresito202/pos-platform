@@ -82,8 +82,10 @@ export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=
 
   return (
     <section className="pos-local-login" aria-label="Acceso de operador local">
-      {loading ? <p role="status">Consultando sesión local…</p> : !supported ? (
-        <p role="status">Acceso local no habilitado para este servicio.</p>
+      {loading ? (
+        <p role="status" className="pos-entry-banner pos-entry-banner--info">Consultando sesión local…</p>
+      ) : !supported ? (
+        <p role="status" className="pos-entry-banner pos-entry-banner--warning">Acceso local no habilitado para este servicio.</p>
       ) : operator ? (
         <>
           <h3>Sesión local activa</h3>

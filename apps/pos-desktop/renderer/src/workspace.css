@@ -50,6 +50,8 @@
   gap: 0;
   padding: 0;
   align-items: stretch;
+  min-width: 0;
+  overflow-x: clip;
   background: #edf2f7;
 }
 .pos-entry-brand {
@@ -59,7 +61,9 @@
   align-items: start;
   justify-content: center;
   padding: clamp(28px, 4.5vw, 64px);
+  min-width: 0;
   min-height: 100vh;
+  overflow: hidden;
   border: 0;
   border-radius: 0 0 120px 0;
   background: #082e50;
@@ -68,37 +72,68 @@
 .pos-entry-brand::before { display: none; }
 .pos-entry-brand .pos-brand--entry {
   width: min(100%, 420px);
+  max-width: 100%;
   background: #fff;
   border-radius: 12px;
 }
-.pos-entry-brand h2 { font-size: clamp(28px, 2.8vw, 42px); margin: 28px 0 12px; line-height: 1.15; }
+.pos-entry-brand h2 { font-size: clamp(28px, 2.8vw, 42px); margin: 24px 0 10px; line-height: 1.15; }
 .pos-entry-brand p { font-size: 18px; color: #e2eaf1; max-width: 28ch; }
 .pos-entry-card {
   width: calc(100% - 48px);
-  max-width: none;
+  max-width: 100%;
+  min-width: 0;
   justify-self: center;
   align-self: center;
   margin: 24px 24px 24px 8px;
-  padding: clamp(28px, 3vw, 40px);
+  padding: clamp(24px, 2.8vw, 36px);
   border: 1px solid #e1e7ef;
   border-top: 3px solid var(--camacho-brand-yellow);
   border-radius: 18px;
   box-shadow: 0 10px 36px #10283d12;
   background: #fff;
+  overflow-wrap: anywhere;
 }
-.pos-entry-card h1 { font-size: clamp(28px, 2.4vw, 34px); margin: 0 0 8px; color: #10283d; }
-.pos-entry-lead { margin: 0 0 8px; font-size: 17px; font-weight: 600; color: #34495a; }
-.pos-entry-copy { margin: 0 0 12px; font-size: 14px; color: #536475; }
+.pos-entry-card h1 { font-size: clamp(28px, 2.4vw, 34px); margin: 0 0 6px; color: #10283d; }
+.pos-entry-lead { margin: 0 0 6px; font-size: 17px; font-weight: 600; color: #34495a; }
+.pos-entry-copy { margin: 0 0 10px; font-size: 14px; color: #536475; }
 .pos-entry-eyebrow {
   display: block;
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   color: #805500;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: .08em;
 }
+.pos-entry-card .pos-entry-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  border-left-width: 3px;
+  font-size: 14px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.pos-entry-card .pos-entry-banner--info {
+  background: #eef5f8;
+  color: #1f3b4d;
+  border-color: #c5d6e0;
+  border-left-color: #2577b0;
+}
+.pos-entry-card .pos-entry-banner--warning {
+  background: var(--camacho-warning-soft);
+  color: var(--camacho-warning);
+  border-color: #dcc68b;
+  border-left-color: #b48700;
+}
+.pos-entry-card .pos-entry-banner--error {
+  background: var(--camacho-danger-soft);
+  color: var(--camacho-danger);
+  border-color: #efcaca;
+  border-left-color: var(--camacho-danger);
+}
 .pos-entry-card [role="status"],
-.pos-entry-card [role="alert"] { margin: 12px 0 16px; }
+.pos-entry-card [role="alert"] { margin: 0 0 12px; }
 .pos-entry-card .pos-local-login-message[role="alert"] {
   background: var(--camacho-danger-soft);
   color: var(--camacho-danger);
@@ -106,7 +141,7 @@
   border-left: 3px solid var(--camacho-danger);
   border-radius: 6px;
   padding: 10px 12px;
-  margin: 8px 0 12px;
+  margin: 4px 0 10px;
 }
 .pos-entry-card > button.pos-entry-secondary {
   width: 100%;
@@ -123,12 +158,13 @@
   border-color: #2577b0;
   color: #142b3a;
 }
-.pos-local-login form { display: grid; gap: 8px; }
-.pos-local-login label { font-weight: 700; margin-top: 8px; }
+.pos-local-login { min-width: 0; }
+.pos-local-login form { display: grid; gap: 6px; }
+.pos-local-login label { font-weight: 700; margin-top: 6px; }
 .pos-local-login input { width: 100%; min-height: 48px; border-radius: 8px; }
 .pos-local-login button[type="submit"] {
   min-height: 52px;
-  margin: 16px 0 4px;
+  margin: 12px 0 4px;
   background: var(--camacho-brand-yellow);
   color: #142b3a;
   font-size: 18px;
@@ -141,7 +177,13 @@
   color: #142b3a;
   border-color: #a67c00;
 }
-.pos-password-field { display: flex; align-items: stretch; gap: 0; }
+.pos-local-login button[type="submit"]:focus-visible,
+.pos-password-field .pos-password-toggle:focus-visible,
+.pos-entry-card > button.pos-entry-secondary:focus-visible {
+  outline: 3px solid var(--camacho-blue);
+  outline-offset: 2px;
+}
+.pos-password-field { display: flex; align-items: stretch; gap: 0; min-width: 0; }
 .pos-password-field input {
   min-width: 0;
   flex: 1;
@@ -160,7 +202,12 @@
   background: #f3f6f8;
   color: #142b3a;
 }
-.pos-entry-card .pos-status { margin-top: 16px; }
+.pos-password-field .pos-password-toggle:not(:disabled):hover {
+  background: #e9eef2;
+  border-color: var(--camacho-blue);
+}
+.pos-entry-card .pos-status { margin-top: 12px; }
+.pos-local-login small { margin-top: 8px; }
 .pos-sidebar .pos-subtitle { display: block; }
 @media (min-width: 1600px) {
   .pos-entry { grid-template-columns: minmax(0, 1.05fr) minmax(520px, 640px); }
