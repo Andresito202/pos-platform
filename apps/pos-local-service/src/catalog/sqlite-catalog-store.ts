@@ -31,6 +31,8 @@ export interface CatalogProduct {
   readonly code: string;
   readonly name: string;
   readonly stockControlled: boolean;
+  readonly version: number;
+  readonly primaryMediaId: string | null;
 }
 
 export interface CatalogPresentation {
@@ -40,6 +42,7 @@ export interface CatalogPresentation {
   readonly unitCode: string;
   readonly unitPrecision: number;
   readonly barcode: string | null;
+  readonly version: number;
 }
 
 export interface CatalogPrice {
@@ -103,21 +106,24 @@ export type RegisterProductOutcome =
 
 interface ProductRow {
   id: string; code: string; name: string; stock_controlled: number;
+  version: number; primary_media_id: string | null;
 }
 interface PresentationRow {
   id: string; product_id: string; name: string;
-  unit_code: string; unit_precision: number; barcode: string | null;
+  unit_code: string; unit_precision: number; barcode: string | null; version: number;
 }
 interface PriceRow { amount: string; currency_code: string }
 interface NextSequenceRow { next_sequence: number }
 
-const PRODUCT_COLUMNS = "id, code, name, stock_controlled";
-const PRESENTATION_COLUMNS = "id, product_id, name, unit_code, unit_precision, barcode";
+const PRODUCT_COLUMNS = "id, code, name, stock_controlled, version, primary_media_id";
+const PRESENTATION_COLUMNS = "id, product_id, name, unit_code, unit_precision, barcode, version";
 
 function toProduct(row: ProductRow): CatalogProduct {
   return {
     id: row.id, code: row.code, name: row.name,
     stockControlled: row.stock_controlled === 1,
+    version: row.version,
+    primaryMediaId: row.primary_media_id,
   };
 }
 
@@ -125,6 +131,7 @@ function toPresentation(row: PresentationRow): CatalogPresentation {
   return {
     id: row.id, productId: row.product_id, name: row.name,
     unitCode: row.unit_code, unitPrecision: row.unit_precision, barcode: row.barcode,
+    version: row.version,
   };
 }
 
@@ -246,9 +253,9 @@ export class SqliteCatalogStore {
     const rows = this.database.native.prepare(
       `SELECT
          p.id AS product_id, p.code AS product_code, p.name AS product_name,
-         p.stock_controlled,
+         p.stock_controlled, p.version AS product_version, p.primary_media_id,
          cp.id AS presentation_id, cp.name AS presentation_name,
-         cp.unit_code, cp.unit_precision, cp.barcode,
+         cp.unit_code, cp.unit_precision, cp.barcode, cp.version AS presentation_version,
          pr.amount AS price_amount, pr.currency_code
        FROM catalog_product p
        INNER JOIN catalog_presentation cp
@@ -263,8 +270,10 @@ export class SqliteCatalogStore {
       scope.tenantId, scope.companyId, like, like, like, like, limit + 1, offset,
     ) as Array<{
       product_id: string; product_code: string; product_name: string; stock_controlled: number;
+      product_version: number; primary_media_id: string | null;
       presentation_id: string; presentation_name: string; unit_code: string; unit_precision: number;
-      barcode: string | null; price_amount: string; currency_code: string;
+      barcode: string | null; presentation_version: number;
+      price_amount: string; currency_code: string;
     }>;
 
     const hasMore = rows.length > limit;
@@ -276,6 +285,8 @@ export class SqliteCatalogStore {
           code: row.product_code,
           name: row.product_name,
           stockControlled: row.stock_controlled === 1,
+          version: row.product_version,
+          primaryMediaId: row.primary_media_id,
         },
         presentation: {
           id: row.presentation_id,
@@ -284,6 +295,7 @@ export class SqliteCatalogStore {
           unitCode: row.unit_code,
           unitPrecision: row.unit_precision,
           barcode: row.barcode,
+          version: row.presentation_version,
         },
         price: { amount: row.price_amount, currencyCode: row.currency_code },
       })),
@@ -767,5 +779,323 @@ export class SqliteCatalogStore {
       notes: row.notes,
       version: row.version,
     };
+  }
+
+  updateProduct(input: {
+    readonly scope: SyncScope;
+    readonly sessionId: string;
+    readonly operatorUserId: string;
+    readonly operationId: string;
+    readonly productId: string;
+    readonly expectedVersion: number;
+    readonly name?: string;
+    readonly code?: string;
+    readonly status?: "ACTIVE" | "INACTIVE";
+    readonly presentationId?: string;
+    readonly presentationExpectedVersion?: number;
+    readonly presentationName?: string;
+    readonly barcode?: string | null;
+    readonly reason: string | null;
+    readonly idempotencyKey: string;
+    readonly requestChecksum: string;
+    readonly correlationId: string;
+    readonly causationId: string | null;
+  }):
+    | { readonly kind: "UPDATED"; readonly productId: string; readonly version: number; readonly presentationVersion: number | null }
+    | { readonly kind: "IDEMPOTENT"; readonly productId: string; readonly version: number; readonly presentationVersion: number | null }
+    | { readonly kind: "NOT_FOUND" }
+    | { readonly kind: "VERSION_CONFLICT"; readonly currentVersion: number }
+    | { readonly kind: "PRESENTATION_VERSION_CONFLICT"; readonly currentVersion: number }
+    | { readonly kind: "CODE_ALREADY_REGISTERED"; readonly productId: string }
+    | { readonly kind: "BARCODE_ALREADY_REGISTERED"; readonly presentationId: string }
+    | { readonly kind: "IDEMPOTENCY_CONFLICT" } {
+    return this.database.native.transaction(() => {
+      const nowIso = this.now().toISOString();
+      const priorOp = this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (priorOp !== undefined) {
+        if (priorOp.payload_checksum !== input.requestChecksum) return { kind: "IDEMPOTENCY_CONFLICT" as const };
+        const product = this.database.native.prepare(
+          `SELECT version FROM catalog_product WHERE tenant_id=? AND company_id=? AND id=?`,
+        ).get(input.scope.tenantId, input.scope.companyId, input.productId) as { version: number } | undefined;
+        if (!product) return { kind: "NOT_FOUND" as const };
+        let presentationVersion: number | null = null;
+        if (input.presentationId) {
+          const presentation = this.database.native.prepare(
+            `SELECT version FROM catalog_presentation WHERE tenant_id=? AND id=? AND product_id=?`,
+          ).get(input.scope.tenantId, input.presentationId, input.productId) as { version: number } | undefined;
+          presentationVersion = presentation?.version ?? null;
+        }
+        return {
+          kind: "IDEMPOTENT" as const,
+          productId: input.productId,
+          version: product.version,
+          presentationVersion,
+        };
+      }
+
+      const current = this.database.native.prepare(
+        `SELECT version FROM catalog_product WHERE tenant_id=? AND company_id=? AND id=?`,
+      ).get(input.scope.tenantId, input.scope.companyId, input.productId) as { version: number } | undefined;
+      if (!current) return { kind: "NOT_FOUND" as const };
+      if (current.version !== input.expectedVersion) {
+        return { kind: "VERSION_CONFLICT" as const, currentVersion: current.version };
+      }
+
+      if (input.code !== undefined) {
+        const duplicate = this.database.native.prepare(
+          `SELECT id FROM catalog_product
+           WHERE tenant_id=? AND company_id=? AND code=? AND id<>?`,
+        ).get(input.scope.tenantId, input.scope.companyId, input.code, input.productId) as { id: string } | undefined;
+        if (duplicate) return { kind: "CODE_ALREADY_REGISTERED" as const, productId: duplicate.id };
+      }
+
+      const nextVersion = current.version + 1;
+      const updated = this.database.native.prepare(
+        `UPDATE catalog_product
+         SET name=COALESCE(?, name),
+             code=COALESCE(?, code),
+             status=COALESCE(?, status),
+             version=?,
+             updated_at=?
+         WHERE tenant_id=? AND company_id=? AND id=? AND version=?`,
+      ).run(
+        input.name ?? null,
+        input.code ?? null,
+        input.status ?? null,
+        nextVersion,
+        nowIso,
+        input.scope.tenantId, input.scope.companyId, input.productId, input.expectedVersion,
+      );
+      if (updated.changes !== 1) {
+        return { kind: "VERSION_CONFLICT" as const, currentVersion: current.version };
+      }
+
+      let presentationVersion: number | null = null;
+      if (input.presentationId !== undefined) {
+        const presentation = this.database.native.prepare(
+          `SELECT version FROM catalog_presentation
+           WHERE tenant_id=? AND id=? AND product_id=? AND status='ACTIVE'`,
+        ).get(input.scope.tenantId, input.presentationId, input.productId) as { version: number } | undefined;
+        if (!presentation) return { kind: "NOT_FOUND" as const };
+        if (presentation.version !== input.presentationExpectedVersion) {
+          return {
+            kind: "PRESENTATION_VERSION_CONFLICT" as const,
+            currentVersion: presentation.version,
+          };
+        }
+        if (input.barcode !== undefined && input.barcode !== null) {
+          const duplicateBarcode = this.database.native.prepare(
+            `SELECT id FROM catalog_presentation
+             WHERE tenant_id=? AND barcode=? AND id<>?`,
+          ).get(input.scope.tenantId, input.barcode, input.presentationId) as { id: string } | undefined;
+          if (duplicateBarcode) {
+            return {
+              kind: "BARCODE_ALREADY_REGISTERED" as const,
+              presentationId: duplicateBarcode.id,
+            };
+          }
+        }
+        presentationVersion = presentation.version + 1;
+        this.database.native.prepare(
+          `UPDATE catalog_presentation
+           SET name=COALESCE(?, name),
+               barcode=CASE WHEN ? THEN ? ELSE barcode END,
+               version=?,
+               updated_at=?
+           WHERE tenant_id=? AND id=? AND version=?`,
+        ).run(
+          input.presentationName ?? null,
+          input.barcode !== undefined ? 1 : 0,
+          input.barcode === undefined ? null : input.barcode,
+          presentationVersion,
+          nowIso,
+          input.scope.tenantId, input.presentationId, presentation.version,
+        );
+      }
+
+      this.database.native.prepare(
+        `INSERT INTO runtime_operations(
+          operation_id, idempotency_key, payload_checksum, status, result_code, created_at, updated_at)
+         VALUES (?,?,?,'SUCCEEDED','PRODUCT_UPDATED',?,?)`,
+      ).run(input.operationId, input.idempotencyKey, input.requestChecksum, nowIso, nowIso);
+      this.database.native.prepare(
+        `INSERT INTO local_operation_audit(
+          tenant_id, company_id, branch_id, device_id,
+          actor_type, actor_id, session_id,
+          action_code, resource_type, resource_id,
+          correlation_id, causation_id, reason_code, details_json, created_at
+        ) VALUES (?,?,?,?,'USER',?,?,'CATALOG_PRODUCT_UPDATE','CATALOG_PRODUCT',?,?,?,?,?,?)`,
+      ).run(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
+        input.operatorUserId, input.sessionId, input.productId, input.correlationId, input.causationId,
+        input.reason,
+        canonicalJson({
+          expected_version: input.expectedVersion,
+          version: nextVersion,
+          name: input.name ?? null,
+          code: input.code ?? null,
+          status: input.status ?? null,
+          presentation_id: input.presentationId ?? null,
+        }),
+        nowIso,
+      );
+
+      return {
+        kind: "UPDATED" as const,
+        productId: input.productId,
+        version: nextVersion,
+        presentationVersion,
+      };
+    })();
+  }
+
+  supersedePrice(input: {
+    readonly scope: SyncScope;
+    readonly sessionId: string;
+    readonly operatorUserId: string;
+    readonly operationId: string;
+    readonly priceId: string;
+    readonly presentationId: string;
+    readonly amount: string;
+    readonly currencyCode: string;
+    readonly idempotencyKey: string;
+    readonly requestChecksum: string;
+    readonly correlationId: string;
+    readonly causationId: string | null;
+  }):
+    | { readonly kind: "PUBLISHED"; readonly priceId: string; readonly presentationId: string }
+    | { readonly kind: "IDEMPOTENT"; readonly priceId: string; readonly presentationId: string }
+    | { readonly kind: "NOT_FOUND" }
+    | { readonly kind: "IDEMPOTENCY_CONFLICT" } {
+    return this.database.native.transaction(() => {
+      const nowIso = this.now().toISOString();
+      const priorOp = this.database.native.prepare(
+        "SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?",
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (priorOp !== undefined) {
+        if (priorOp.payload_checksum !== input.requestChecksum) return { kind: "IDEMPOTENCY_CONFLICT" as const };
+        const active = this.database.native.prepare(
+          `SELECT id FROM catalog_price
+           WHERE tenant_id=? AND presentation_id=? AND status='ACTIVE'`,
+        ).get(input.scope.tenantId, input.presentationId) as { id: string } | undefined;
+        return {
+          kind: "IDEMPOTENT" as const,
+          priceId: active?.id ?? input.priceId,
+          presentationId: input.presentationId,
+        };
+      }
+
+      const presentation = this.database.native.prepare(
+        `SELECT cp.id
+         FROM catalog_presentation cp
+         JOIN catalog_product p ON p.tenant_id=cp.tenant_id AND p.id=cp.product_id
+         WHERE cp.tenant_id=? AND cp.id=? AND p.company_id=? AND cp.status='ACTIVE' AND p.status='ACTIVE'`,
+      ).get(input.scope.tenantId, input.presentationId, input.scope.companyId) as { id: string } | undefined;
+      if (!presentation) return { kind: "NOT_FOUND" as const };
+
+      this.database.native.prepare(
+        `UPDATE catalog_price SET status='INACTIVE', updated_at=?
+         WHERE tenant_id=? AND presentation_id=? AND status='ACTIVE'`,
+      ).run(nowIso, input.scope.tenantId, input.presentationId);
+      this.database.native.prepare(
+        `INSERT INTO catalog_price(
+          id, tenant_id, presentation_id, amount, currency_code, status, created_at, updated_at
+        ) VALUES (?,?,?,?,?,'ACTIVE',?,?)`,
+      ).run(
+        input.priceId, input.scope.tenantId, input.presentationId,
+        input.amount, input.currencyCode, nowIso, nowIso,
+      );
+      this.database.native.prepare(
+        `INSERT INTO runtime_operations(
+          operation_id, idempotency_key, payload_checksum, status, result_code, created_at, updated_at)
+         VALUES (?,?,?,'SUCCEEDED','PRICE_PUBLISHED',?,?)`,
+      ).run(input.operationId, input.idempotencyKey, input.requestChecksum, nowIso, nowIso);
+      this.database.native.prepare(
+        `INSERT INTO local_operation_audit(
+          tenant_id, company_id, branch_id, device_id,
+          actor_type, actor_id, session_id,
+          action_code, resource_type, resource_id,
+          correlation_id, causation_id, reason_code, details_json, created_at
+        ) VALUES (?,?,?,?,'USER',?,?,'CATALOG_PRICE_PUBLISH','CATALOG_PRESENTATION',?,?,?,NULL,?,?)`,
+      ).run(
+        input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
+        input.operatorUserId, input.sessionId, input.presentationId, input.correlationId, input.causationId,
+        canonicalJson({ price_id: input.priceId, amount: input.amount, currency_code: input.currencyCode }),
+        nowIso,
+      );
+      return {
+        kind: "PUBLISHED" as const,
+        priceId: input.priceId,
+        presentationId: input.presentationId,
+      };
+    })();
+  }
+
+  attachPrimaryMedia(input: {
+    readonly scope: SyncScope;
+    readonly productId: string;
+    readonly expectedVersion: number;
+    readonly mediaId: string;
+    readonly operatorUserId: string;
+  }):
+    | { readonly kind: "ATTACHED"; readonly version: number }
+    | { readonly kind: "NOT_FOUND" }
+    | { readonly kind: "VERSION_CONFLICT"; readonly currentVersion: number } {
+    const nowIso = this.now().toISOString();
+    const current = this.database.native.prepare(
+      `SELECT version FROM catalog_product WHERE tenant_id=? AND company_id=? AND id=?`,
+    ).get(input.scope.tenantId, input.scope.companyId, input.productId) as { version: number } | undefined;
+    if (!current) return { kind: "NOT_FOUND" };
+    if (current.version !== input.expectedVersion) {
+      return { kind: "VERSION_CONFLICT", currentVersion: current.version };
+    }
+    const next = current.version + 1;
+    const updated = this.database.native.prepare(
+      `UPDATE catalog_product
+       SET primary_media_id=?, version=?, updated_at=?
+       WHERE tenant_id=? AND company_id=? AND id=? AND version=?`,
+    ).run(
+      input.mediaId, next, nowIso,
+      input.scope.tenantId, input.scope.companyId, input.productId, input.expectedVersion,
+    );
+    if (updated.changes !== 1) return { kind: "VERSION_CONFLICT", currentVersion: current.version };
+    return { kind: "ATTACHED", version: next };
+  }
+
+  clearPrimaryMedia(input: {
+    readonly scope: SyncScope;
+    readonly productId: string;
+    readonly expectedVersion: number;
+    readonly operatorUserId: string;
+    readonly retireMedia: (mediaId: string) => boolean;
+  }):
+    | { readonly kind: "ATTACHED"; readonly version: number }
+    | { readonly kind: "NOT_FOUND" }
+    | { readonly kind: "VERSION_CONFLICT"; readonly currentVersion: number } {
+    const nowIso = this.now().toISOString();
+    const current = this.database.native.prepare(
+      `SELECT version, primary_media_id FROM catalog_product
+       WHERE tenant_id=? AND company_id=? AND id=?`,
+    ).get(input.scope.tenantId, input.scope.companyId, input.productId) as {
+      version: number; primary_media_id: string | null;
+    } | undefined;
+    if (!current) return { kind: "NOT_FOUND" };
+    if (current.version !== input.expectedVersion) {
+      return { kind: "VERSION_CONFLICT", currentVersion: current.version };
+    }
+    if (current.primary_media_id) input.retireMedia(current.primary_media_id);
+    const next = current.version + 1;
+    const updated = this.database.native.prepare(
+      `UPDATE catalog_product
+       SET primary_media_id=NULL, version=?, updated_at=?
+       WHERE tenant_id=? AND company_id=? AND id=? AND version=?`,
+    ).run(
+      next, nowIso,
+      input.scope.tenantId, input.scope.companyId, input.productId, input.expectedVersion,
+    );
+    if (updated.changes !== 1) return { kind: "VERSION_CONFLICT", currentVersion: current.version };
+    return { kind: "ATTACHED", version: next };
   }
 }

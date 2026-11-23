@@ -1122,6 +1122,123 @@ export const CatalogProductRegisterResultSchema = z.strictObject({
 export const CatalogProductRegisterResponseSchema =
   createResponseEnvelopeSchema(CatalogProductRegisterResultSchema);
 
+export const CatalogProductUpdateRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    expected_version: z.number().int().positive(),
+    name: z.string().min(1).max(200).optional(),
+    code: z.string().min(1).max(64).optional(),
+    status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+    presentation_id: UuidSchema.optional(),
+    presentation_expected_version: z.number().int().positive().optional(),
+    presentation_name: z.string().min(1).max(200).optional(),
+    barcode: BarcodeSchema.nullable().optional(),
+    reason: z.string().min(1).max(300).nullable().optional(),
+  }),
+).safeExtend({ message_type: z.literal("catalog.product.update") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogProductUpdateResultSchema = z.strictObject({
+  outcome: z.enum([
+    "UPDATED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "NOT_FOUND",
+    "VERSION_CONFLICT",
+    "PRESENTATION_VERSION_CONFLICT",
+    "CODE_ALREADY_REGISTERED",
+    "BARCODE_ALREADY_REGISTERED",
+    "INVALID_INPUT",
+    "IDEMPOTENCY_CONFLICT",
+  ]),
+  product_id: UuidSchema.nullable(),
+  version: z.number().int().positive().nullable(),
+  presentation_version: z.number().int().positive().nullable(),
+  current_version: z.number().int().positive().nullable(),
+});
+export const CatalogProductUpdateResponseSchema =
+  createResponseEnvelopeSchema(CatalogProductUpdateResultSchema);
+
+export const CatalogPricePublishRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    amount: PositiveScale6Schema,
+    currency_code: CurrencyCodeSchema,
+  }),
+).safeExtend({ message_type: z.literal("catalog.price.publish") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogPricePublishResultSchema = z.strictObject({
+  outcome: z.enum([
+    "PUBLISHED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "NOT_FOUND",
+    "INVALID_AMOUNT",
+    "IDEMPOTENCY_CONFLICT",
+  ]),
+  price_id: UuidSchema.nullable(),
+  presentation_id: UuidSchema.nullable(),
+});
+export const CatalogPricePublishResponseSchema =
+  createResponseEnvelopeSchema(CatalogPricePublishResultSchema);
+
+export const CatalogMediaPutRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    expected_version: z.number().int().positive(),
+    content_base64: z.string().min(1).max(400_000),
+  }),
+).safeExtend({ message_type: z.literal("catalog.media.put") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogMediaClearRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    expected_version: z.number().int().positive(),
+  }),
+).safeExtend({ message_type: z.literal("catalog.media.clear") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogMediaMutateResultSchema = z.strictObject({
+  outcome: z.enum([
+    "ATTACHED",
+    "UNAUTHORIZED",
+    "NOT_FOUND",
+    "VERSION_CONFLICT",
+    "INVALID",
+  ]),
+  media_id: UuidSchema.nullable(),
+  product_id: UuidSchema.nullable(),
+  version: z.number().int().positive().nullable(),
+  current_version: z.number().int().positive().nullable(),
+  reason: z.string().min(1).max(64).nullable(),
+});
+export const CatalogMediaMutateResponseSchema =
+  createResponseEnvelopeSchema(CatalogMediaMutateResultSchema);
+
+export const CatalogMediaGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ media_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("catalog.media.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogMediaGetResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  media_id: UuidSchema.nullable(),
+  mime_type: z.enum(["image/jpeg", "image/png", "image/webp"]).nullable(),
+  width_px: z.number().int().positive().nullable(),
+  height_px: z.number().int().positive().nullable(),
+  content_base64: z.string().min(1).max(400_000).nullable(),
+});
+export const CatalogMediaGetResponseSchema =
+  createResponseEnvelopeSchema(CatalogMediaGetResultSchema);
+
 // ── catalog.item.find · catalog.item.get ─────────────────────────────────────
 
 /**
@@ -1176,6 +1293,10 @@ export const CatalogItemResultSchema = z.strictObject({
   /** Units held by ACTIVE reservations. null when NOT_TRACKED. */
   quantity_reserved: NonNegativeScale6Schema.nullable(),
   availability_state: CatalogAvailabilityStateSchema.nullable(),
+  product_version: z.number().int().positive().nullable(),
+  presentation_version: z.number().int().positive().nullable(),
+  /** Verified media reference — never a raw filesystem path or remote URL. */
+  media_id: UuidSchema.nullable(),
 });
 
 export const CatalogItemResponseSchema = createResponseEnvelopeSchema(CatalogItemResultSchema);
@@ -1205,6 +1326,9 @@ export const CatalogItemListItemSchema = z.strictObject({
   quantity_on_hand: NonNegativeScale6Schema.nullable(),
   quantity_reserved: NonNegativeScale6Schema.nullable(),
   availability_state: CatalogAvailabilityStateSchema,
+  product_version: z.number().int().positive(),
+  presentation_version: z.number().int().positive(),
+  media_id: UuidSchema.nullable(),
 });
 
 export const CatalogItemListResultSchema = z.strictObject({
@@ -2147,6 +2271,11 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "customer.marketing.unsubscribe",
   "customer.marketing.get",
   "catalog.product.register",
+  "catalog.product.update",
+  "catalog.price.publish",
+  "catalog.media.put",
+  "catalog.media.clear",
+  "catalog.media.get",
   "catalog.item.find",
   "catalog.item.get",
   "catalog.item.list",
@@ -2213,6 +2342,11 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:customer.marketing.unsubscribe",
   "pos:customer.marketing.get",
   "pos:catalog.product.register",
+  "pos:catalog.product.update",
+  "pos:catalog.price.publish",
+  "pos:catalog.media.put",
+  "pos:catalog.media.clear",
+  "pos:catalog.media.get",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   "pos:catalog.item.list",
@@ -2269,6 +2403,10 @@ export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResult
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
 export type FiscalNumberingSyncResult = z.infer<typeof FiscalNumberingSyncResultSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
+export type CatalogProductUpdateResult = z.infer<typeof CatalogProductUpdateResultSchema>;
+export type CatalogPricePublishResult = z.infer<typeof CatalogPricePublishResultSchema>;
+export type CatalogMediaMutateResult = z.infer<typeof CatalogMediaMutateResultSchema>;
+export type CatalogMediaGetResult = z.infer<typeof CatalogMediaGetResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
 export type CatalogItemListItem = z.infer<typeof CatalogItemListItemSchema>;
 export type CatalogAvailabilityState = z.infer<typeof CatalogAvailabilityStateSchema>;

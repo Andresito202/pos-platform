@@ -2416,6 +2416,39 @@ ALTER TABLE bakery_production_recipe_deviation ADD COLUMN approval_id TEXT
   CHECK(approval_id IS NULL OR length(approval_id)=36);
 `.trim();
 
+/**
+ * MIGRATION_030: catalog media refs (filesystem payloads) + product.primary_media_id
+ * + presentation.version for UC-CAT-002 concurrency. Does not rewrite 001–029.
+ * Brand/category/description columns remain absent until their schema is authorized.
+ */
+const MIGRATION_030 = `
+CREATE TABLE catalog_media (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  content_sha256 TEXT NOT NULL CHECK(length(content_sha256) = 64),
+  mime_type TEXT NOT NULL CHECK(mime_type IN ('image/jpeg','image/png','image/webp')),
+  byte_size INTEGER NOT NULL CHECK(byte_size > 0 AND byte_size <= 262144),
+  width_px INTEGER NOT NULL CHECK(width_px BETWEEN 32 AND 512),
+  height_px INTEGER NOT NULL CHECK(height_px BETWEEN 32 AND 512),
+  storage_relpath TEXT NOT NULL CHECK(length(storage_relpath) BETWEEN 8 AND 240),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','RETIRED')),
+  created_by_actor_id TEXT NOT NULL CHECK(length(created_by_actor_id) = 36),
+  created_at TEXT NOT NULL,
+  retired_at TEXT,
+  CHECK ((status = 'RETIRED') = (retired_at IS NOT NULL)),
+  PRIMARY KEY (tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX catalog_media_company_idx
+  ON catalog_media(tenant_id, company_id, status);
+
+ALTER TABLE catalog_product ADD COLUMN primary_media_id TEXT
+  CHECK(primary_media_id IS NULL OR length(primary_media_id) = 36);
+
+ALTER TABLE catalog_presentation ADD COLUMN version INTEGER NOT NULL DEFAULT 1
+  CHECK(version >= 1);
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2446,6 +2479,7 @@ const MIGRATIONS = [
   { version: 27, sql: MIGRATION_027, checksum: createHash("sha256").update(MIGRATION_027).digest("hex") },
   { version: 28, sql: MIGRATION_028, checksum: createHash("sha256").update(MIGRATION_028).digest("hex") },
   { version: 29, sql: MIGRATION_029, checksum: createHash("sha256").update(MIGRATION_029).digest("hex") },
+  { version: 30, sql: MIGRATION_030, checksum: createHash("sha256").update(MIGRATION_030).digest("hex") },
 ] as const;
 
 /**

@@ -20,6 +20,12 @@ export const PermissionCode = {
   INVENTORY_STOCK_ADJUST: "INVENTORY_STOCK_ADJUST",
   CATALOG_PRODUCT_READ: "CATALOG_PRODUCT_READ",
   CATALOG_PRODUCT_REGISTER: "CATALOG_PRODUCT_REGISTER",
+  /** UC-CAT-002 — update/deactivate commercial product fields (not stock, not price). */
+  CATALOG_PRODUCT_UPDATE: "CATALOG_PRODUCT_UPDATE",
+  /** Publish a new active presentation price (supersedes prior ACTIVE price). */
+  CATALOG_PRICE_PUBLISH: "CATALOG_PRICE_PUBLISH",
+  /** Attach/replace/retire verified catalog media references (not arbitrary URLs). */
+  CATALOG_MEDIA_MANAGE: "CATALOG_MEDIA_MANAGE",
   CUSTOMERS_CUSTOMER_READ: "CUSTOMERS_CUSTOMER_READ",
   CUSTOMERS_CUSTOMER_REGISTER: "CUSTOMERS_CUSTOMER_REGISTER",
   PAYMENTS_PAYMENT_READ: "PAYMENTS_PAYMENT_READ",

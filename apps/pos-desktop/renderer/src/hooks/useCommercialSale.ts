@@ -17,6 +17,7 @@ import type {
   SalesReceiptGetResult,
 } from "@pos-platform/contracts";
 import { buildEnvelope, callCommercial, callCommercialEnvelope, newIdempotencyKey, type CommercialEnvelope } from "../pos-service.js";
+import { onCatalogInventoryChanged } from "../catalog-invalidate.js";
 import { playConfirmationChime, shouldPlayChime } from "../confirmation-sound.js";
 import { toScale6 } from "../scale6.js";
 import { parseCopMicros } from "../money-display.js";
@@ -331,6 +332,12 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   }, [canReadCatalog]);
 
   useEffect(() => { if (canReadCatalog) void listCatalogItems(); }, [canReadCatalog, listCatalogItems]);
+  useEffect(() => {
+    if (!canReadCatalog) return;
+    return onCatalogInventoryChanged(() => {
+      void listCatalogItems(catalogQuery.current);
+    });
+  }, [canReadCatalog, listCatalogItems]);
   const loadMoreCatalogItems = () => listCatalogItems(catalogQuery.current, catalogItems.length);
 
   const addCatalogItem = useCallback((item: CatalogItemListItem, quantity: string): void => {

@@ -28,7 +28,9 @@ type CommercialRequest = Extract<
       | "payment.transfer.confirm" | "payment.factus_pay.collect" | "payment.factus_pay.verify" | "payment.factus_pay.resume" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
       | "fiscal.document.issue" | "fiscal.numbering.sync"
-      | "catalog.product.register" | "catalog.item.find" | "catalog.item.get" | "catalog.item.list" | "admin.metrics.get"
+      | "catalog.product.register" | "catalog.product.update" | "catalog.price.publish"
+      | "catalog.media.put" | "catalog.media.clear" | "catalog.media.get"
+      | "catalog.item.find" | "catalog.item.get" | "catalog.item.list" | "admin.metrics.get"
       | "inventory.stock.receive" | "inventory.stock.adjust" | "inventory.stock.get"
       | "inventory.batch.list" | "inventory.batch.status"
       | "inventory.conversion.rule.approve" | "inventory.conversion.execute"
@@ -250,6 +252,11 @@ export class CommercialRequestHandler {
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
       case "fiscal.numbering.sync": return this.syncNumberingRanges(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
+      case "catalog.product.update": return this.updateProduct(request, connectionId);
+      case "catalog.price.publish": return this.publishPrice(request, connectionId);
+      case "catalog.media.put": return this.putCatalogMedia(request, connectionId);
+      case "catalog.media.clear": return this.clearCatalogMedia(request, connectionId);
+      case "catalog.media.get": return this.getCatalogMedia(request, connectionId);
       case "catalog.item.find":
       case "catalog.item.get": return this.findCatalogItem(request, connectionId);
       case "admin.metrics.get": return this.getAdminMetrics(request, connectionId);
@@ -1006,6 +1013,203 @@ export class CommercialRequestHandler {
     return rejected(request, result.kind, { outcome: result.kind, ...empty });
   }
 
+  private updateProduct(
+    request: Extract<CommercialRequest, { message_type: "catalog.product.update" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      product_id: null, version: null, presentation_version: null, current_version: null,
+    };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const payload = request.payload;
+    const result = this.commercial.updateProduct.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        productId: payload.product_id,
+        expectedVersion: payload.expected_version,
+        ...(payload.name !== undefined ? { name: payload.name } : {}),
+        ...(payload.code !== undefined ? { code: payload.code } : {}),
+        ...(payload.status !== undefined ? { status: payload.status } : {}),
+        ...(payload.presentation_id !== undefined
+          ? { presentationId: payload.presentation_id }
+          : {}),
+        ...(payload.presentation_expected_version !== undefined
+          ? { presentationExpectedVersion: payload.presentation_expected_version }
+          : {}),
+        ...(payload.presentation_name !== undefined
+          ? { presentationName: payload.presentation_name }
+          : {}),
+        ...(payload.barcode !== undefined ? { barcode: payload.barcode } : {}),
+        reason: payload.reason ?? null,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    if (result.kind === "UPDATED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        product_id: result.productId,
+        version: result.version,
+        presentation_version: result.presentationVersion,
+        current_version: null,
+      });
+    }
+    if (result.kind === "VERSION_CONFLICT" || result.kind === "PRESENTATION_VERSION_CONFLICT") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, ...empty, current_version: result.currentVersion,
+      });
+    }
+    if (result.kind === "CODE_ALREADY_REGISTERED") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, product_id: result.productId, version: null,
+        presentation_version: null, current_version: null,
+      });
+    }
+    if (result.kind === "BARCODE_ALREADY_REGISTERED") {
+      return rejected(request, result.kind, { outcome: result.kind, ...empty });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  private publishPrice(
+    request: Extract<CommercialRequest, { message_type: "catalog.price.publish" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = { price_id: null, presentation_id: null };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const result = this.commercial.supersedePrice.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        presentationId: request.payload.presentation_id,
+        amount: request.payload.amount,
+        currencyCode: request.payload.currency_code,
+        idempotencyKey: request.idempotency_key ?? "",
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    if (result.kind === "PUBLISHED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        price_id: result.priceId,
+        presentation_id: result.presentationId,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  private putCatalogMedia(
+    request: Extract<CommercialRequest, { message_type: "catalog.media.put" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      media_id: null, product_id: null, version: null, current_version: null, reason: null,
+    };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const result = this.commercial.manageCatalogMedia.put(
+      this.scope(), authenticated.snapshot, {
+        productId: request.payload.product_id,
+        expectedVersion: request.payload.expected_version,
+        contentBase64: request.payload.content_base64,
+      },
+    );
+    if (result.kind === "ATTACHED") {
+      return succeeded(request, "ATTACHED", {
+        outcome: "ATTACHED",
+        media_id: result.mediaId,
+        product_id: result.productId,
+        version: result.version,
+        current_version: null,
+        reason: null,
+      });
+    }
+    if (result.kind === "VERSION_CONFLICT") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, ...empty, current_version: result.currentVersion,
+      });
+    }
+    if (result.kind === "INVALID") {
+      return rejected(request, result.kind, { outcome: result.kind, ...empty, reason: result.reason });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  private clearCatalogMedia(
+    request: Extract<CommercialRequest, { message_type: "catalog.media.clear" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      media_id: null, product_id: null, version: null, current_version: null, reason: null,
+    };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const result = this.commercial.manageCatalogMedia.clear(
+      this.scope(), authenticated.snapshot, {
+        productId: request.payload.product_id,
+        expectedVersion: request.payload.expected_version,
+      },
+    );
+    if (result.kind === "ATTACHED") {
+      return succeeded(request, "ATTACHED", {
+        outcome: "ATTACHED",
+        media_id: result.mediaId,
+        product_id: result.productId,
+        version: result.version,
+        current_version: null,
+        reason: null,
+      });
+    }
+    if (result.kind === "VERSION_CONFLICT") {
+      return rejected(request, result.kind, {
+        outcome: result.kind, ...empty, current_version: result.currentVersion,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
+  private getCatalogMedia(
+    request: Extract<CommercialRequest, { message_type: "catalog.media.get" }>,
+    connectionId: string,
+  ): unknown {
+    const empty = {
+      media_id: null, mime_type: null, width_px: null, height_px: null, content_base64: null,
+    };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const result = this.commercial.manageCatalogMedia.get(
+      this.scope(), authenticated.snapshot, request.payload.media_id,
+    );
+    if (result.kind === "FOUND") {
+      return succeeded(request, "FOUND", {
+        outcome: "FOUND",
+        media_id: result.mediaId,
+        mime_type: result.mimeType,
+        width_px: result.widthPx,
+        height_px: result.heightPx,
+        content_base64: result.contentBase64,
+      });
+    }
+    return rejected(request, result.kind, { outcome: result.kind, ...empty });
+  }
+
   // ── catalog.item.find · catalog.item.get ───────────────────────────────────
 
   /** Las dos formas de buscar comparten resultado porque devuelven lo mismo. */
@@ -1019,6 +1223,7 @@ export class CommercialRequestHandler {
       stock_controlled: null, price_amount: null, currency_code: null,
       quantity_available: null, quantity_on_hand: null, quantity_reserved: null,
       availability_state: null,
+      product_version: null, presentation_version: null, media_id: null,
     };
 
     const authenticated = this.authenticate(connectionId);
@@ -1054,6 +1259,9 @@ export class CommercialRequestHandler {
         quantity_on_hand: result.availability.quantity_on_hand,
         quantity_reserved: result.availability.quantity_reserved,
         availability_state: result.availability.availability_state,
+        product_version: product.version,
+        presentation_version: presentation.version,
+        media_id: product.primaryMediaId,
       });
     }
     if (result.kind === "NOT_FOUND") {
@@ -1138,6 +1346,9 @@ export class CommercialRequestHandler {
         quantity_on_hand: availability.quantity_on_hand,
         quantity_reserved: availability.quantity_reserved,
         availability_state: availability.availability_state,
+        product_version: product.version,
+        presentation_version: presentation.version,
+        media_id: product.primaryMediaId,
       })),
       has_more: result.hasMore,
     });

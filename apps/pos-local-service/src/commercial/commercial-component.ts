@@ -22,6 +22,10 @@ import { CloseCashShiftUseCase } from "../cash/close-cash-shift-use-case.js";
 import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
 import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
+import { UpdateProductUseCase } from "../catalog/update-product-use-case.js";
+import { SupersedePriceUseCase } from "../catalog/supersede-price-use-case.js";
+import { ManageCatalogMediaUseCase } from "../catalog/manage-catalog-media-use-case.js";
+import { CatalogMediaStore } from "../catalog/catalog-media-store.js";
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
 import { ListCatalogItemsUseCase } from "../catalog/list-catalog-items-use-case.js";
 import { AddPresentationUseCase, UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
@@ -134,6 +138,9 @@ export class CommercialComponent implements RuntimeComponent {
         readonly registerCustomer: RegisterCustomerUseCase;
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
+        readonly updateProduct: UpdateProductUseCase;
+        readonly supersedePrice: SupersedePriceUseCase;
+        readonly manageCatalogMedia: ManageCatalogMediaUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
         readonly listCatalogItems: ListCatalogItemsUseCase;
         readonly receiveStock: ReceiveStockUseCase;
@@ -261,6 +268,9 @@ export class CommercialComponent implements RuntimeComponent {
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
+  get updateProduct(): UpdateProductUseCase { return this.ready.updateProduct; }
+  get supersedePrice(): SupersedePriceUseCase { return this.ready.supersedePrice; }
+  get manageCatalogMedia(): ManageCatalogMediaUseCase { return this.ready.manageCatalogMedia; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
@@ -421,6 +431,12 @@ export class CommercialComponent implements RuntimeComponent {
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct: new RegisterProductUseCase(catalogStore),
+      updateProduct: new UpdateProductUseCase(catalogStore),
+      supersedePrice: new SupersedePriceUseCase(catalogStore),
+      manageCatalogMedia: new ManageCatalogMediaUseCase(
+        catalogStore,
+        new CatalogMediaStore(database, this.config.data_directory, this.now),
+      ),
       addPresentation: new AddPresentationUseCase(catalogStore),
       upsertFoodPolicy: new UpsertFoodPolicyUseCase(catalogStore),
       findCatalogItem: new FindCatalogItemUseCase(catalogStore, inventoryStore),
