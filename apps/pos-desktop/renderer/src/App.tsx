@@ -188,9 +188,11 @@ function LocalApp(): React.JSX.Element {
     return (
       <main className="pos-entry" aria-busy={loading}>
         <section className="pos-entry-brand" aria-label="Identidad Camacho POS Colombia">
-          <BrandMark variant="entry" />
-          <h2>Acceso seguro al<br />punto de venta</h2>
-          <p>Inicia sesión para continuar con tu operación.</p>
+          <div className="pos-entry-brand-content">
+            <BrandMark variant="entry" />
+            <h2>Acceso seguro al<br />punto de venta</h2>
+            <p>Inicia sesión para continuar con tu operación.</p>
+          </div>
         </section>
         <section className="pos-entry-card" aria-label="Estado de acceso">
           <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>

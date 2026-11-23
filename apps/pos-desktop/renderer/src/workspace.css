@@ -46,7 +46,7 @@
 .pos-screen .pos-primary-action:not(:disabled):hover { background: #f4bd14; color: #142b3a; border-color: #a67c00; }
 .pos-screen .pos-primary-action:disabled { background: #e2e7eb; color: #536475; border-color: #d6dfe6; }
 .pos-entry {
-  grid-template-columns: minmax(0, 1fr) minmax(440px, 46vw);
+  grid-template-columns: minmax(0, 0.78fr) minmax(480px, 1.22fr);
   gap: 0;
   padding: 0;
   align-items: stretch;
@@ -55,36 +55,93 @@
   background: #edf2f7;
 }
 .pos-entry-brand {
+  --entry-brand-ink: #f3f8fc;
+  position: relative;
+  isolation: isolate;
   align-self: stretch;
   display: flex;
   flex-direction: column;
   align-items: start;
   justify-content: center;
-  padding: clamp(28px, 4.5vw, 64px);
+  padding: clamp(32px, 5vw, 72px) clamp(28px, 4.5vw, 64px);
   min-width: 0;
   min-height: 100vh;
   overflow: hidden;
   border: 0;
-  border-radius: 0 0 120px 0;
-  background: #082e50;
-  color: #fff;
+  border-radius: 0 0 64px 0;
+  color: var(--entry-brand-ink);
+  background:
+    radial-gradient(120% 90% at 12% 8%, rgb(37 119 176 / 28%) 0%, transparent 52%),
+    radial-gradient(90% 70% at 88% 92%, rgb(255 196 0 / 10%) 0%, transparent 48%),
+    linear-gradient(155deg, #061c30 0%, #0a2f4f 42%, #071f35 100%);
 }
-.pos-entry-brand::before { display: none; }
+.pos-entry-brand::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: .7;
+  background-image:
+    linear-gradient(rgb(226 238 248 / 7%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(226 238 248 / 7%) 1px, transparent 1px),
+    linear-gradient(135deg, transparent 48%, rgb(255 196 0 / 8%) 49.5%, rgb(255 196 0 / 8%) 50.5%, transparent 52%);
+  background-size: 40px 40px, 40px 40px, 220px 220px;
+  background-position: 0 0, 0 0, 12% 70%;
+  mask-image: radial-gradient(ellipse 90% 80% at 25% 30%, #000 18%, transparent 82%);
+}
+.pos-entry-brand::after {
+  content: "";
+  position: absolute;
+  inset: 8% -12% -18% 18%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 22% 78%, rgb(37 119 176 / 28%) 0%, transparent 55%),
+    url("./assets/login-waves.svg") 40% 70% / 120% no-repeat;
+  opacity: .7;
+  filter: saturate(0.9) brightness(1.05);
+}
+.pos-entry-brand-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0;
+  max-width: 440px;
+  width: min(100%, 440px);
+}
 .pos-entry-brand .pos-brand--entry {
-  width: min(100%, 420px);
+  width: min(100%, 390px);
   max-width: 100%;
-  background: #fff;
-  border-radius: 12px;
+  margin: 0 0 10px;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+  filter: drop-shadow(0 10px 24px rgb(0 8 20 / 45%));
 }
-.pos-entry-brand h2 { font-size: clamp(28px, 2.8vw, 42px); margin: 24px 0 10px; line-height: 1.15; }
-.pos-entry-brand p { font-size: 18px; color: #e2eaf1; max-width: 28ch; }
+.pos-entry-brand h2 {
+  font-size: clamp(26px, 2.6vw, 38px);
+  margin: 22px 0 12px;
+  line-height: 1.18;
+  letter-spacing: -.02em;
+  font-weight: 700;
+  color: #fff;
+  text-wrap: balance;
+}
+.pos-entry-brand p {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.5;
+  color: #c9d8e6;
+  max-width: 30ch;
+}
 .pos-entry-card {
-  width: calc(100% - 48px);
-  max-width: 100%;
+  width: calc(100% - 56px);
+  max-width: 560px;
   min-width: 0;
   justify-self: center;
   align-self: center;
-  margin: 24px 24px 24px 8px;
+  margin: 28px 28px 28px 12px;
   padding: clamp(24px, 2.8vw, 36px);
   border: 1px solid #e1e7ef;
   border-top: 3px solid var(--camacho-brand-yellow);
@@ -210,13 +267,14 @@
 .pos-local-login small { margin-top: 8px; }
 .pos-sidebar .pos-subtitle { display: block; }
 @media (min-width: 1600px) {
-  .pos-entry { grid-template-columns: minmax(0, 1.05fr) minmax(520px, 640px); }
-  .pos-entry-brand { padding: clamp(36px, 5vw, 72px); }
-  .pos-entry-card { max-width: 640px; width: calc(100% - 56px); }
+  .pos-entry { grid-template-columns: minmax(0, 0.9fr) minmax(520px, 1.15fr); }
+  .pos-entry-brand { padding: clamp(40px, 5.5vw, 80px) clamp(36px, 5vw, 72px); }
+  .pos-entry-card { max-width: 600px; width: calc(100% - 64px); }
 }
 @media (max-width: 1366px) {
-  .pos-entry { grid-template-columns: minmax(0, 1fr) minmax(400px, 42vw); }
-  .pos-entry-card { width: calc(100% - 36px); margin: 20px 18px 20px 4px; padding: 28px; }
+  .pos-entry { grid-template-columns: minmax(0, 0.9fr) minmax(420px, 1.1fr); }
+  .pos-entry-card { width: calc(100% - 40px); margin: 20px 20px 20px 8px; padding: 28px; }
+  .pos-entry-brand .pos-brand--entry { width: min(100%, 340px); }
 }
 @media (max-width: 1150px) { .pos-sale-layout { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 800px) {
@@ -225,9 +283,11 @@
  .pos-sidebar .pos-local-session-control { margin-top: 12px; padding-top: 0; }
  .pos-sidebar .pos-subtitle { display: block; }
  .pos-entry { grid-template-columns: minmax(0, 1fr); padding-bottom: 24px; }
- .pos-entry-brand { min-height: auto; width: 100%; padding: 24px; border-radius: 0; }
- .pos-entry-brand h2 { font-size: 27px; margin: 16px 0 4px; }
- .pos-entry-brand .pos-brand--entry { max-width: 280px; }
+ .pos-entry-brand { min-height: auto; width: 100%; padding: 28px 24px; border-radius: 0; }
+ .pos-entry-brand::after { inset: auto -20% -40% 20%; height: 70%; opacity: .4; }
+ .pos-entry-brand-content { max-width: none; width: 100%; }
+ .pos-entry-brand h2 { font-size: 26px; margin: 16px 0 8px; }
+ .pos-entry-brand .pos-brand--entry { max-width: 300px; width: min(100%, 300px); }
  .pos-entry-card { width: calc(100% - 32px); margin: 20px 16px; padding: 24px; }
  .pos-content { padding: 14px; }
  .pos-cart-list li { grid-template-columns: minmax(0, 1fr) auto; }

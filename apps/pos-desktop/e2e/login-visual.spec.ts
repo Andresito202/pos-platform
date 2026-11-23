@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = join(here, "smoke-entry.mjs");
-const artifactDir = "/opt/cursor/artifacts/camacho-pos-login-closeout-20261123";
+const artifactDir = "/opt/cursor/artifacts/camacho-pos-login-refine-20261123";
 const require = createRequire(import.meta.url);
 const executablePath = require("electron") as string;
 
