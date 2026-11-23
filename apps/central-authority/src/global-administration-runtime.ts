@@ -28,7 +28,9 @@ export async function prepareGlobalAdministrationRuntime(input:{pool:Pool;provis
     limits:{maximumBodyBytes:l.maximum_body_bytes,maximumPendingFlows:l.maximum_pending_flows,requestsPerWindow:l.requests_per_window,
       maximumBuckets:l.maximum_buckets,requestWindowMs:l.request_window_ms,loginWindowMs:l.login_window_ms,
       maximumLoginPerAddress:l.maximum_login_per_address,maximumLoginPerAccount:l.maximum_login_per_account},
-    ...(p.fulfillment_policies?{fulfillmentPolicies:p.fulfillment_policies}:{}),licenseAuthority:input.licenseAuthority});
+    ...(p.fulfillment_policies?{fulfillmentPolicies:p.fulfillment_policies}:{}),
+    ...(p.subscription_collection?{subscriptionCollection:p.subscription_collection}:{}),
+    licenseAuthority:input.licenseAuthority});
   const assets=createGlobalAdministrationAssets({directory:p.renderer.directory,maximumAssetBytes:p.renderer.maximum_asset_bytes,origin:input.origin});
   return async(req:Parameters<typeof api>[0],res:Parameters<typeof api>[1])=>{
     if(req.url==="/platform"||req.url?.startsWith("/platform/")){

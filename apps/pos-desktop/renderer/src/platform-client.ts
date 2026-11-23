@@ -1,4 +1,4 @@
-import {LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseAllocationRequestSchema,LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
+import {LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseAllocationRequestSchema,LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,SubscriptionQuoteRequestSchema,SubscriptionPaymentConfirmRequestSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
 export class PlatformRequestError extends Error { constructor(message:string,readonly status:number){super(message);this.name="PlatformRequestError";} }
 export type PublishedOffer=LicenseOfferDraft&{version:number;status:"DRAFT"|"ACTIVE";published_at?:string|null};
 const decode=(value:string)=>Uint8Array.from(atob(value.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
@@ -80,6 +80,34 @@ export class PlatformClient{
   }
   save(offer:LicenseOfferDraft,expectedVersion:number,correlationId:string){return this.post("license-offers/save",{offer,expectedVersion,correlationId});}
   publish(planId:string,expectedVersion:number,correlationId:string){return this.post("license-offers/publish",{planId,expectedVersion,correlationId});}
+  setEntitlements(planId:string,expectedVersion:number,entitlements:readonly string[],correlationId:string){
+    return this.post("license-offers/set-entitlements",{planId:UuidSchema.parse(planId),expectedVersion,entitlements,correlationId:UuidSchema.parse(correlationId)});
+  }
+  async createSubscriptionQuote(request:unknown){
+    const body=SubscriptionQuoteRequestSchema.parse(request);
+    const result=await this.post("subscription-quotes/create",body);
+    if(!UuidSchema.safeParse(result.quoteId).success||!UuidSchema.safeParse(result.paymentId).success
+      ||!Number.isSafeInteger(result.totalMinor)||Number(result.totalMinor)<=0||result.currencyCode!=="COP"
+      ||typeof result.expiresAt!=="string"||!Number.isFinite(Date.parse(result.expiresAt))
+      ||typeof result.quoteChecksum!=="string"||!/^[a-f0-9]{64}$/.test(result.quoteChecksum)
+      ||typeof result.idempotent!=="boolean"){
+      throw Error("Central no confirmó la cotización. Reintenta con la misma clave de idempotencia.");
+    }
+    return {
+      quoteId:String(result.quoteId),paymentId:String(result.paymentId),totalMinor:Number(result.totalMinor),
+      currencyCode:"COP" as const,expiresAt:String(result.expiresAt),quoteChecksum:String(result.quoteChecksum),
+      idempotent:result.idempotent,
+    };
+  }
+  async confirmSubscriptionPayment(request:unknown){
+    const body=SubscriptionPaymentConfirmRequestSchema.parse(request);
+    const result=await this.post("subscription-quotes/confirm-payment",body);
+    if(!UuidSchema.safeParse(result.paymentId).success||!UuidSchema.safeParse(result.quoteId).success
+      ||result.status!=="CONFIRMED"||typeof result.idempotent!=="boolean"){
+      throw Error("Central no confirmó la evidencia de pago. Conserva el mismo pago para reintentar.");
+    }
+    return {paymentId:String(result.paymentId),quoteId:String(result.quoteId),status:"CONFIRMED" as const,idempotent:result.idempotent};
+  }
   async assignmentContext(licenseId:string){
     const result=LicenseAssignmentContextSchema.parse(await this.post("licenses/assignment-context",LicenseAssignmentContextRequestSchema.parse({licenseId})));
     if(result.licenseId!==licenseId)throw Error("Central devolvió otra licencia. No se cargaron opciones.");

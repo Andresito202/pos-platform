@@ -61,7 +61,7 @@ export function PlatformLicenseFulfillment({ client }: { client: PlatformClient 
   }
   return <section className="pos-admin-surface" aria-label="Emisión y asignación de licencias">
     <h3>Emitir licencia y asignar cajas</h3>
-    <p>Central valida el pago de suscripción, las políticas comerciales, la credencial del dispositivo y los cupos pagados. Estos formularios no cobran ni registran pagos manuales.</p>
+    <p>Central valida el pago de suscripción ya confirmado en Cotización, las políticas comerciales, la credencial del dispositivo y los cupos pagados. La apertura del cobro y la evidencia se registran en el panel de cotización.</p>
     <form onSubmit={event => { event.preventDefault(); void issue(); }}>
       <label className="pos-field">Pago confirmado<input aria-label="Pago confirmado" value={payment} maxLength={36} disabled={busy} onChange={event => { setPayment(event.target.value); setIssued(null); }} required /></label>
       <button type="submit" disabled={busy || !payment.trim()}>Emitir o recuperar licencia del pago</button>

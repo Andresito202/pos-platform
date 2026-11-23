@@ -17,5 +17,21 @@ export const SubscriptionQuoteTermsSchema=z.strictObject({
   service_from:UtcDateTimeSchema,service_until:UtcDateTimeSchema.nullable(),support_until:UtcDateTimeSchema.nullable(),
   expires_at:UtcDateTimeSchema,
 });
+/**
+ * GLOBAL records verified collection evidence against an already opened
+ * subscription payment. Amounts stay quote-owned; the client cannot submit a
+ * payable total or invent entitlements.
+ */
+export const SubscriptionPaymentConfirmRequestSchema=z.strictObject({
+  payment_id:UuidSchema,
+  observation_reference:z.string().trim().min(1).max(160),
+  correlation_id:UuidV7Schema,
+});
+/** Platform merchant binding for subscription QR/FACTUS collection. Provision only. */
+export const SubscriptionCollectionBindingSchema=z.strictObject({
+  tenant_id:UuidSchema,company_id:UuidSchema,branch_id:UuidSchema,integration_id:UuidSchema,
+});
 export type SubscriptionQuoteRequest=z.infer<typeof SubscriptionQuoteRequestSchema>;
 export type SubscriptionQuoteTerms=z.infer<typeof SubscriptionQuoteTermsSchema>;
+export type SubscriptionPaymentConfirmRequest=z.infer<typeof SubscriptionPaymentConfirmRequestSchema>;
+export type SubscriptionCollectionBinding=z.infer<typeof SubscriptionCollectionBindingSchema>;
