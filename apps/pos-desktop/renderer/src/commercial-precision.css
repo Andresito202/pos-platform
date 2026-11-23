@@ -67,7 +67,7 @@ legend { padding: 0 6px; font-weight: 600; }
 .pos-screen .pos-primary-action:not(:disabled):hover { background: #075a43; border-color: #075a43; color: #fff; }
 .pos-primary-action { background: var(--camacho-green); border-radius: var(--camacho-radius); min-height: 44px; }
 .pos-primary-action:disabled { background: #d8e0e5; color: #435867; }
-.pos-sale-layout { grid-template-columns: minmax(0, 1fr) minmax(300px, 340px); gap: 20px; align-items: start; }
+.pos-sale-layout { grid-template-columns: minmax(0, 1fr) minmax(340px, .92fr); gap: 20px; align-items: start; }
 .pos-sale-products { padding: 18px; background: #fff; border: 1px solid var(--camacho-border); border-radius: var(--camacho-radius); }
 .pos-sale-cart { padding: 20px; background: #fff; border-radius: var(--camacho-radius); border-top: 3px solid var(--camacho-brand-yellow); }
 .pos-cart-list li { align-items: center; flex-wrap: wrap; padding: 12px 0; font-variant-numeric: tabular-nums; }

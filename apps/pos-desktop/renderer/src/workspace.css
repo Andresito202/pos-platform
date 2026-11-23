@@ -1,5 +1,5 @@
 /* Reference-directed workspace shared by every authorized role. */
-.pos-shell { grid-template-columns: 224px minmax(0, 1fr); }
+.pos-shell { grid-template-columns: minmax(196px, 208px) minmax(0, 1fr); }
 .pos-shell[data-navigation-open="false"] { grid-template-columns: minmax(0, 1fr); }
 .pos-sidebar[hidden], #pos-denominations[hidden] { display: none; }
 .pos-sidebar { display: flex; flex-direction: column; background: #152530; padding: 18px 12px; }
@@ -538,28 +538,28 @@
 }
 
 .pos-cart-table-container .pos-cart-table th:nth-child(1) {
-    width: 25%;
+    width: 28%;
     text-align: left !important;
 }
 
 .pos-cart-table-container .pos-cart-table th:nth-child(2) {
-    width: 15%;
+    width: 16%;
     text-align: left !important;
 }
 
 .pos-cart-table-container .pos-cart-table th:nth-child(3) {
-    width: 12%;
+    width: 22%;
     text-align: center !important;
 }
 
 .pos-cart-table-container .pos-cart-table th:nth-child(4),
 .pos-cart-table-container .pos-cart-table th:nth-child(5) {
-    width: 19%;
+    width: 14%;
     text-align: right !important;
 }
 
 .pos-cart-table-container .pos-cart-table th:nth-child(6) {
-    width: 10%;
+    width: 6%;
 }
 
 .pos-cart-table-container .pos-cart-table td {
@@ -575,6 +575,17 @@
     text-align: right;
 }
 
+.pos-cart-line-name {
+    display: block;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.pos-cart-line-unit {
+    color: #536475;
+    overflow-wrap: anywhere;
+}
+
 button.pos-cart-remove {
     color: #dc2626 !important;
     background: #fff0f0 !important;
@@ -586,27 +597,6 @@ button.pos-cart-remove svg path {
     stroke: #dc2626 !important;
     width: 20px !important;
     height: 20px !important;
-}
-
-.pos-cart-table-container .pos-cart-table th:nth-child(1) {
-    width: 20%;
-}
-
-.pos-cart-table-container .pos-cart-table th:nth-child(2) {
-    width: 13%;
-}
-
-.pos-cart-table-container .pos-cart-table th:nth-child(3) {
-    width: 25%;
-}
-
-.pos-cart-table-container .pos-cart-table th:nth-child(4),
-.pos-cart-table-container .pos-cart-table th:nth-child(5) {
-    width: 16%;
-}
-
-.pos-cart-table-container .pos-cart-table th:nth-child(6) {
-    width: 10%;
 }
 
 .pos-quantity-controls {
@@ -630,4 +620,123 @@ button.pos-cart-remove svg path {
     min-height: 40px !important;
     padding: 4px !important;
     font-size: 18px;
+}
+
+.pos-tile-quantity {
+    display: grid;
+    gap: 6px;
+    max-width: 220px;
+}
+
+.pos-barcode-lookup {
+    display: grid;
+    gap: 10px;
+    margin-top: 8px;
+    padding: 12px;
+    border: 1px solid #e0e5e9;
+    border-radius: 10px;
+    background: #f8fafb;
+}
+
+.pos-barcode-lookup h3 {
+    margin: 0;
+    font-size: 15px;
+}
+
+.pos-barcode-lookup-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: end;
+}
+
+.pos-barcode-lookup-row label {
+    display: grid;
+    gap: 6px;
+    min-width: 0;
+}
+
+.pos-found-item {
+    display: grid;
+    gap: 10px;
+    padding-top: 4px;
+}
+
+.pos-found-item p {
+    margin: 0;
+}
+
+.pos-found-item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pos-payment-card-header {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+.pos-payment-stat {
+    display: grid;
+    gap: 4px;
+    padding: 10px 12px;
+    border: 1px solid #e0e5e9;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.pos-payment-stat span {
+    color: #536475;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.pos-payment-stat strong {
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.pos-payment-sale-id {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: #536475;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.pos-payment-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.pos-payment-actions .pos-primary-action {
+    grid-column: 1 / -1;
+}
+
+.pos-sale-results {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.pos-sale-results .pos-result-success,
+.pos-sale-results .pos-result-pending {
+    margin-top: 0;
+}
+
+@media (max-width: 700px) {
+    .pos-barcode-lookup-row,
+    .pos-payment-card-header,
+    .pos-payment-actions {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pos-payment-actions .pos-primary-action {
+        grid-column: auto;
+    }
 }
