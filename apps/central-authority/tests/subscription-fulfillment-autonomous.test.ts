@@ -153,7 +153,7 @@ describe("subscription webhook replay after successful inbox acknowledgment", ()
       tenant_id:uuidV7(),company_id:uuidV7(),integration_id:uuidV7(),
       external_transaction_id:uuidV7(),amount_scale6:"49900.000000",currency_code:"COP",
     };
-    const pool={query:vi.fn(async()=>({rows:[row]}))};
+    const pool={query:vi.fn(async(_sql:string,_params?:unknown[])=>({rows:[row]}))};
     const fulfillment=new SubscriptionLicenseFulfillment(pool as never,provision,policies);
     const enqueue=vi.spyOn(fulfillment,"enqueueFromWebhookObservation").mockResolvedValue("ENQUEUED");
     await expect(fulfillment.recoverUnqueuedSubscriptionWebhooks()).resolves.toEqual({recovered:1,errors:[]});
@@ -170,7 +170,7 @@ describe("subscription webhook replay after successful inbox acknowledgment", ()
   });
 
   it("does not enqueue POS webhooks and surfaces transient replay failures",async()=>{
-    const pool={query:vi.fn(async()=>({rows:[]}))};
+    const pool={query:vi.fn(async(_sql:string,_params?:unknown[])=>({rows:[]}))};
     const fulfillment=new SubscriptionLicenseFulfillment(pool as never,provision,policies);
     const enqueue=vi.spyOn(fulfillment,"enqueueFromWebhookObservation");
     await expect(fulfillment.recoverUnqueuedSubscriptionWebhooks()).resolves.toEqual({recovered:0,errors:[]});
