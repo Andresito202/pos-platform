@@ -11,6 +11,16 @@ export type PaymentsAggregate = {
   readonly pending_transfer_count: number;
 };
 
+/**
+ * Aggregates from the local SQLite writer for this installation.
+ *
+ * Evidence: sales/payments rows carry `installation_id`; no inbox path currently
+ * imports foreign installations' commercial facts into this DB. Queries still
+ * filter by `installation_id` so INSTALLATION_BRANCH cannot silently include
+ * restored or foreign rows. `cash_shift` has no installation column — bound by
+ * `origin_device_id`. `inventory_stock` is a branch projection without
+ * installation ownership (counted for the authorized branch in this local DB).
+ */
 export class SqliteAdminMetricsStore {
   constructor(private readonly database: LocalDatabase) {}
 
@@ -22,14 +32,21 @@ export class SqliteAdminMetricsStore {
       ? this.database.native.prepare(
         `SELECT fiscal_total_amount
          FROM sales_sales
-         WHERE tenant_id=? AND company_id=? AND branch_id=? AND status='COMPLETED'`,
-      ).all(scope.tenantId, scope.companyId, scope.branchId) as Array<{ fiscal_total_amount: string }>
+         WHERE tenant_id=? AND company_id=? AND branch_id=?
+           AND installation_id=? AND status='COMPLETED'`,
+      ).all(
+        scope.tenantId, scope.companyId, scope.branchId, scope.installationId,
+      ) as Array<{ fiscal_total_amount: string }>
       : this.database.native.prepare(
         `SELECT fiscal_total_amount
          FROM sales_sales
-         WHERE tenant_id=? AND company_id=? AND branch_id=? AND status='COMPLETED'
+         WHERE tenant_id=? AND company_id=? AND branch_id=?
+           AND installation_id=? AND status='COMPLETED'
            AND business_date=?`,
-      ).all(scope.tenantId, scope.companyId, scope.branchId, options.businessDate) as Array<{ fiscal_total_amount: string }>;
+      ).all(
+        scope.tenantId, scope.companyId, scope.branchId, scope.installationId,
+        options.businessDate,
+      ) as Array<{ fiscal_total_amount: string }>;
 
     const amountUnits = rows.reduce(
       (sum, row) => sum + scale6ToBigInt(row.fiscal_total_amount),
@@ -51,22 +68,28 @@ export class SqliteAdminMetricsStore {
     const row = this.database.native.prepare(
       `SELECT count(*) AS count
        FROM cash_shift
-       WHERE tenant_id=? AND company_id=? AND branch_id=? AND status IN ('OPEN','CLOSING')`,
-    ).get(scope.tenantId, scope.companyId, scope.branchId) as { count: number };
+       WHERE tenant_id=? AND company_id=? AND branch_id=?
+         AND origin_device_id=? AND status IN ('OPEN','CLOSING')`,
+    ).get(
+      scope.tenantId, scope.companyId, scope.branchId, scope.deviceId,
+    ) as { count: number };
     return row.count;
   }
 
   /**
-   * Collected money = CONFIRMED payments only. CREATED/PENDING/CANCELLED/FAILED
-   * transfers are never summed into confirmed amounts. Method totals are taken
-   * from `confirmed_amount` (scale-6 text → bigint), not JavaScript number.
+   * Collected money = CONFIRMED payments only. CREATED/PENDING/CANCELLED/FAILED/
+   * PARTIALLY_CONFIRMED transfers are never summed into confirmed amounts.
+   * Method totals use `confirmed_amount` (scale-6 text → bigint).
    */
   readPayments(scope: SyncScope): PaymentsAggregate {
     const confirmed = this.database.native.prepare(
       `SELECT payment_method, confirmed_amount
        FROM payments_payments
-       WHERE tenant_id=? AND company_id=? AND branch_id=? AND status='CONFIRMED'`,
-    ).all(scope.tenantId, scope.companyId, scope.branchId) as Array<{
+       WHERE tenant_id=? AND company_id=? AND branch_id=?
+         AND installation_id=? AND status='CONFIRMED'`,
+    ).all(
+      scope.tenantId, scope.companyId, scope.branchId, scope.installationId,
+    ) as Array<{
       payment_method: string;
       confirmed_amount: string;
     }>;
@@ -87,9 +110,12 @@ export class SqliteAdminMetricsStore {
       `SELECT count(*) AS count
        FROM payments_payments
        WHERE tenant_id=? AND company_id=? AND branch_id=?
+         AND installation_id=?
          AND payment_method='TRANSFER'
          AND status IN ('CREATED','PENDING','REVIEW_REQUIRED')`,
-    ).get(scope.tenantId, scope.companyId, scope.branchId) as { count: number };
+    ).get(
+      scope.tenantId, scope.companyId, scope.branchId, scope.installationId,
+    ) as { count: number };
 
     return {
       confirmed_count: confirmed.length,

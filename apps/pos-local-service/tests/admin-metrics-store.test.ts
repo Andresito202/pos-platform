@@ -15,7 +15,9 @@ const COMPANY_B = "018f0000-0000-7000-8000-000000000012";
 const BRANCH_A = "018f0000-0000-7000-8000-000000000003";
 const BRANCH_B = "018f0000-0000-7000-8000-000000000013";
 const DEVICE = "018f0000-0000-7000-8000-000000000004";
+const DEVICE_OTHER = "018f0000-0000-7000-8000-000000000044";
 const INSTALL = "018f0000-0000-7000-8000-000000000005";
+const INSTALL_OTHER = "018f0000-0000-7000-8000-000000000055";
 const USER = "018f0000-0000-7000-8000-000000000006";
 const NOW = "2026-09-07T10:00:00.000Z";
 
@@ -59,13 +61,21 @@ function seedSale(
   db: LocalDatabase,
   scope: Pick<SyncScope, "tenantId" | "companyId" | "branchId">,
   amount: string,
-  status: "COMPLETED" | "READY_FOR_PAYMENT" = "COMPLETED",
+  options: {
+    status?: "COMPLETED" | "READY_FOR_PAYMENT";
+    businessDate?: string;
+    createdAt?: string;
+    installationId?: string;
+    deviceId?: string;
+  } = {},
 ): void {
   const saleId = randomUUID();
   const operationId = registerOperation(db, saleId);
   const saleNumber = (db.native.prepare(
     "SELECT COALESCE(MAX(sale_number), 0) + 1 AS next FROM sales_sales WHERE tenant_id=? AND branch_id=?",
   ).get(scope.tenantId, scope.branchId) as { next: number }).next;
+  const status = options.status ?? "COMPLETED";
+  const createdAt = options.createdAt ?? NOW;
   db.native.prepare(
     `INSERT INTO sales_sales(
       id, tenant_id, company_id, branch_id, cash_register_id, cash_shift_id,
@@ -82,7 +92,7 @@ function seedSale(
     ) VALUES (
       ?,?,?,?,NULL,NULL,
       ?,?,'USER',?,
-      'POS',?, '2026-09-07','America/Bogota',-300,
+      'POS',?,?,'America/Bogota',-300,
       'A',?,'COP',
       ?,'0.000000','0.000000',?,
       '0.000000',?,
@@ -94,12 +104,12 @@ function seedSale(
     )`,
   ).run(
     saleId, scope.tenantId, scope.companyId, scope.branchId,
-    DEVICE, INSTALL, USER,
-    status, saleNumber,
+    options.deviceId ?? DEVICE, options.installationId ?? INSTALL, USER,
+    status, options.businessDate ?? "2026-09-07", saleNumber,
     amount, amount, amount,
     "c".repeat(64), operationId, `sale:${saleId}`, "b".repeat(64),
-    randomUUID(), NOW,
-    status === "COMPLETED" ? NOW : null,
+    randomUUID(), createdAt,
+    status === "COMPLETED" ? createdAt : null,
   );
 }
 
@@ -107,8 +117,9 @@ function seedPayment(
   db: LocalDatabase,
   scope: Pick<SyncScope, "tenantId" | "companyId" | "branchId">,
   method: "CASH" | "TRANSFER" | "QR",
-  status: "CONFIRMED" | "CREATED" | "CANCELLED",
+  status: "CONFIRMED" | "CREATED" | "CANCELLED" | "PARTIALLY_CONFIRMED" | "PENDING",
   amount: string,
+  options: { installationId?: string; deviceId?: string } = {},
 ): void {
   const paymentId = randomUUID();
   const groupId = randomUUID();
@@ -143,7 +154,7 @@ function seedPayment(
   ).run(
     paymentId, scope.tenantId, scope.companyId, scope.branchId, groupId, method, status,
     amount, status === "CONFIRMED" ? amount : "0.000000",
-    DEVICE, INSTALL, USER,
+    options.deviceId ?? DEVICE, options.installationId ?? INSTALL, USER,
     status === "CONFIRMED" ? "USER" : null,
     status === "CONFIRMED" ? USER : null,
     method === "QR" ? "FACTUS_PAY" : null,
@@ -155,30 +166,102 @@ function seedPayment(
   );
 }
 
+function seedOpenShift(
+  db: LocalDatabase,
+  scope: SyncScope,
+  deviceId: string,
+  registerCode: string,
+): void {
+  const registerId = randomUUID();
+  const shiftId = randomUUID();
+  db.native.prepare(
+    `INSERT INTO cash_register(
+      id, tenant_id, company_id, branch_id, code, code_normalized, name,
+      currency_code, status, created_at, version, last_seen_sequence
+    ) VALUES (?,?,?,?,?,?,?,'COP','ACTIVE',?,1,1)`,
+  ).run(
+    registerId, scope.tenantId, scope.companyId, scope.branchId,
+    registerCode, registerCode, `Caja ${registerCode}`, NOW,
+  );
+  db.native.prepare(
+    `INSERT INTO cash_shift(
+      id, tenant_id, company_id, branch_id, cash_register_id, origin_device_id,
+      opened_by_actor_type, opened_by_actor_id, opened_at, business_date, timezone_id,
+      utc_offset_minutes, currency_code, status, closed_by_actor_type, closed_by_actor_id,
+      closed_at, opening_idempotency_key, opening_request_checksum, closing_idempotency_key,
+      closing_request_checksum, cash_register_projection_sequence, last_movement_sequence,
+      version, created_at, server_recorded_at
+    ) VALUES (
+      ?,?,?,?,?,?,
+      'USER',?,?,?,'America/Bogota',
+      -300,'COP','OPEN',NULL,NULL,
+      NULL,?,? ,NULL,
+      NULL,1,0,
+      1,?,NULL
+    )`,
+  ).run(
+    shiftId, scope.tenantId, scope.companyId, scope.branchId, registerId, deviceId,
+    USER, NOW, "2026-09-07",
+    `open:${shiftId}`, "d".repeat(64), NOW,
+  );
+}
+
 describe("SqliteAdminMetricsStore isolation and payment semantics", () => {
-  it("aísla ventas completadas por empresa y sucursal y filtra fecha comercial", async () => {
+  it("aísla ventas por empresa, sucursal e instalación y filtra business_date comercial", async () => {
     const db = await openDatabase();
     seedSale(db, SCOPE_A, "1000.000000");
     seedSale(db, SCOPE_A, "500.000000");
-    seedSale(db, SCOPE_A, "200.000000", "READY_FOR_PAYMENT");
+    seedSale(db, SCOPE_A, "200.000000", { status: "READY_FOR_PAYMENT" });
+    seedSale(db, SCOPE_A, "8888.000000", { installationId: INSTALL_OTHER, deviceId: DEVICE_OTHER });
+    seedSale(db, SCOPE_A, "400.000000", {
+      businessDate: "2026-09-06",
+      createdAt: "2026-09-07T18:00:00.000Z",
+    });
     seedSale(db, SCOPE_BRANCH_B, "9999.000000");
     seedSale(db, SCOPE_TENANT_B, "7777.000000");
 
     const store = new SqliteAdminMetricsStore(db);
-    expect(store.readSales(SCOPE_A)).toEqual({ count: 2, amount: "1500.000000" });
-    expect(store.readSales(SCOPE_A, { businessDate: "2026-09-07" })).toEqual({ count: 2, amount: "1500.000000" });
-    expect(store.readSales(SCOPE_A, { businessDate: "2026-09-06" })).toEqual({ count: 0, amount: "0.000000" });
+    // Cumulative includes every COMPLETED row for this installation (any business_date).
+    expect(store.readSales(SCOPE_A)).toEqual({ count: 3, amount: "1900.000000" });
+    expect(store.readSales(SCOPE_A, { businessDate: "2026-09-07" })).toEqual({
+      count: 2, amount: "1500.000000",
+    });
+    expect(store.readSales(SCOPE_A, { businessDate: "2026-09-06" })).toEqual({
+      count: 1, amount: "400.000000",
+    });
     expect(store.readSales(SCOPE_BRANCH_B)).toEqual({ count: 1, amount: "9999.000000" });
     expect(store.readSales(SCOPE_TENANT_B)).toEqual({ count: 1, amount: "7777.000000" });
   });
 
-  it("suma solo pagos CONFIRMADOS y no cuenta transferencias pendientes como recaudo", async () => {
+  it("no usa created_at UTC como fecha comercial de hoy", async () => {
+    const db = await openDatabase();
+    // Instant still 2026-09-07 in Bogotá, but business_date belongs to prior commercial day.
+    seedSale(db, SCOPE_A, "111.000000", {
+      businessDate: "2026-09-06",
+      createdAt: "2026-09-07T04:30:00.000Z",
+    });
+    seedSale(db, SCOPE_A, "222.000000", {
+      businessDate: "2026-09-07",
+      createdAt: "2026-09-07T04:30:00.000Z",
+    });
+    const store = new SqliteAdminMetricsStore(db);
+    expect(store.readSales(SCOPE_A, { businessDate: "2026-09-07" })).toEqual({
+      count: 1, amount: "222.000000",
+    });
+  });
+
+  it("suma solo pagos CONFIRMADOS de la instalación y excluye parciales/pendientes", async () => {
     const db = await openDatabase();
     seedPayment(db, SCOPE_A, "CASH", "CONFIRMED", "1000.000000");
     seedPayment(db, SCOPE_A, "TRANSFER", "CONFIRMED", "2500.000000");
     seedPayment(db, SCOPE_A, "QR", "CONFIRMED", "300.000000");
     seedPayment(db, SCOPE_A, "TRANSFER", "CREATED", "8000.000000");
+    seedPayment(db, SCOPE_A, "TRANSFER", "PENDING", "700.000000");
     seedPayment(db, SCOPE_A, "TRANSFER", "CANCELLED", "50.000000");
+    seedPayment(db, SCOPE_A, "TRANSFER", "PARTIALLY_CONFIRMED", "90.000000");
+    seedPayment(db, SCOPE_A, "CASH", "CONFIRMED", "55.000000", {
+      installationId: INSTALL_OTHER, deviceId: DEVICE_OTHER,
+    });
     seedPayment(db, SCOPE_BRANCH_B, "CASH", "CONFIRMED", "111.000000");
     seedPayment(db, SCOPE_TENANT_B, "TRANSFER", "CONFIRMED", "222.000000");
 
@@ -189,10 +272,18 @@ describe("SqliteAdminMetricsStore isolation and payment semantics", () => {
       confirmed_cash_amount: "1000.000000",
       confirmed_transfer_amount: "2500.000000",
       confirmed_qr_amount: "300.000000",
-      pending_transfer_count: 1,
+      pending_transfer_count: 2,
     });
     expect(store.readPayments(SCOPE_BRANCH_B).confirmed_amount).toBe("111.000000");
     expect(store.readPayments(SCOPE_TENANT_B).confirmed_amount).toBe("222.000000");
+  });
+
+  it("cuenta turnos abiertos solo del dispositivo de la instalación", async () => {
+    const db = await openDatabase();
+    seedOpenShift(db, SCOPE_A, DEVICE, "CAJA1");
+    seedOpenShift(db, SCOPE_A, DEVICE_OTHER, "CAJA2");
+    const store = new SqliteAdminMetricsStore(db);
+    expect(store.readCash(SCOPE_A)).toBe(1);
   });
 
   it("no duplica importe sumando ventas fiscales con pagos confirmados en el store", async () => {
@@ -204,7 +295,6 @@ describe("SqliteAdminMetricsStore isolation and payment semantics", () => {
     const payments = store.readPayments(SCOPE_A);
     expect(sales.amount).toBe("1000.000000");
     expect(payments.confirmed_amount).toBe("1000.000000");
-    // Consumers must not add these figures; they measure different facts.
     expect(sales.amount).toBe(payments.confirmed_amount);
   });
 });

@@ -48,6 +48,8 @@ describe("AdministrativeControlPanel dashboard metrics", () => {
     expect(screen.getByText("Transferencias pendientes")).toBeTruthy();
     expect(screen.getAllByText(/Acumulado histórico/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Fecha comercial 2026-09-07/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/no es consolidado multicaja/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Stock de sucursal en esta base local/)).toBeTruthy();
     expect(screen.getByText(/No es dinero recibido/)).toBeTruthy();
     expect(screen.queryByText("null")).toBeNull();
   });

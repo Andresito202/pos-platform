@@ -50,9 +50,13 @@ function LocalAdministrativeControlPanel(): React.JSX.Element {
     hasLoadedValue,
   });
 
-  const scopeFootnote = "Esta instalación · sucursal autorizada · no es consolidado de empresa.";
+  const scopeFootnote =
+    "Esta instalación y sucursal autorizada · SQLite local · no es consolidado multicaja ni de empresa.";
+  const inventoryFootnote =
+    "Stock de sucursal en esta base local · no acredita consolidado de otras cajas.";
   const cumulativeFootnote = `Acumulado histórico · ${scopeFootnote}`;
-  const todayFootnote = `Fecha comercial ${metrics.metrics_business_date} (${metrics.metrics_period_timezone}) · ${scopeFootnote}`;
+  const todayFootnote =
+    `Fecha comercial ${metrics.metrics_business_date} (${metrics.metrics_period_timezone}) · filtro por business_date · ${scopeFootnote}`;
 
   const salesCount = presentAdminMetricCount(metrics.sales_completed_count, {
     whenNull: "unavailable",
@@ -119,7 +123,7 @@ function LocalAdministrativeControlPanel(): React.JSX.Element {
         <MetricCard title="Importe vendido" presentation={salesAmount} footnote={cumulativeFootnote} />
         <MetricCard title="Ventas de hoy" presentation={salesTodayCount} footnote={todayFootnote} />
         <MetricCard title="Importe de hoy" presentation={salesTodayAmount} footnote={todayFootnote} />
-        <MetricCard title="Productos en inventario" presentation={inventory} footnote={scopeFootnote} />
+        <MetricCard title="Productos en inventario" presentation={inventory} footnote={inventoryFootnote} />
         <MetricCard title="Turnos abiertos" presentation={openShifts} footnote={scopeFootnote} />
       </div>
 

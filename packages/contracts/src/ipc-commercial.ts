@@ -1526,11 +1526,18 @@ export const AdminMetricsGetResultSchema = z.strictObject({
   payments_confirmed_qr_amount: NonNegativeScale6Schema.nullable(),
   /** Transfer rows still awaiting confirmation — informational, not collected. */
   payments_pending_transfer_count: z.number().int().nonnegative().nullable(),
-  /** Honest scope label for UI — never implies multicaja/company consolidation. */
+  /**
+   * Honest scope label for UI — never implies multicaja/company consolidation.
+   * Sales/payments: local SQLite rows for this `installation_id` + authorized branch.
+   * Cash shifts: same branch bound to this installation's `device_id`.
+   * Inventory: branch stock projection present in this local DB (no installation column).
+   */
   metrics_scope: z.enum([
     "INSTALLATION_BRANCH",
   ]),
+  /** Commercial calendar used to derive `metrics_business_date` and "today" sales. */
   metrics_period_timezone: z.literal("America/Bogota"),
+  /** YYYY-MM-DD in `metrics_period_timezone`; compared to sales `business_date`, not UTC `created_at`. */
   metrics_business_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
