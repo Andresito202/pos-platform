@@ -167,6 +167,20 @@ La tabla no crea roles financieros. Cada celda exige el permiso atómico corresp
 | Exportar información | Sí | Condicional | Condicional | No | No |
 | Ver auditoría | Sí | Condicional | Solo sede | Condicional | No |
 
+### Códigos atómicos de lectura agregada (REP-001)
+
+Central concede estos códigos de forma explícita. Un rol local o un permiso
+operativo **no** los implica.
+
+| Código canónico | Lectura habilitada en `admin.metrics.get` | No implica / no sustituye |
+|---|---|---|
+| `REPORTING_SALES_AGGREGATE_READ` | `sales_completed_count`, `sales_completed_amount` (COMPLETED, scope sucursal) | `SALES_RECEIPT_READ`, `SALES_SALE_CREATE` |
+| `REPORTING_CASH_AGGREGATE_READ` | `cash_open_shift_count` (OPEN/CLOSING) | `CASH_SHIFT_OPEN`, `CASH_SHIFT_CLOSE` |
+| `REPORTING_PAYMENTS_AGGREGATE_READ` | Pagos `CONFIRMED` + conteo de transferencias pendientes (no recaudo) | `PAYMENTS_PAYMENT_READ`, `PAYMENTS_TRANSFER_CONFIRM` |
+
+`null` en el resultado significa permiso ausente o no publicado. Un cero real
+solo aparece cuando el permiso está concedido y no hay filas en el alcance.
+
 ## Domicilios
 
 | Acción | OWNER | GENERAL_ADMIN | BRANCH_MANAGER | PREPARATION_OPERATOR | COURIER | CUSTOMER |

@@ -14,6 +14,7 @@ import type { SyncScope } from "../sync/durable-sync-store.js";
 import { boundIdentityFromClaims, type BoundSessionIdentity } from "../session/session-binding-registry.js";
 import type { CommercialComponent } from "./commercial-component.js";
 import { localOperatorAuthorization, type LocalAuthorizedSession } from "../security/local-operator-development-bridge.js";
+import { commercialBusinessDate } from "../admin/commercial-calendar.js";
 
 const RESULT_SCHEMA_VERSION = "1.0.0";
 
@@ -1298,8 +1299,19 @@ export class CommercialRequestHandler {
       outcome: "AVAILABLE" as const,
       sales_completed_count: null,
       sales_completed_amount: null,
+      sales_completed_today_count: null,
+      sales_completed_today_amount: null,
       inventory_tracked_count: null,
       cash_open_shift_count: null,
+      payments_confirmed_count: null,
+      payments_confirmed_amount: null,
+      payments_confirmed_cash_amount: null,
+      payments_confirmed_transfer_amount: null,
+      payments_confirmed_qr_amount: null,
+      payments_pending_transfer_count: null,
+      metrics_scope: "INSTALLATION_BRANCH" as const,
+      metrics_period_timezone: "America/Bogota" as const,
+      metrics_business_date: commercialBusinessDate(new Date()),
     };
     const authenticated = this.authenticate(connectionId);
     if ("rejection" in authenticated) {

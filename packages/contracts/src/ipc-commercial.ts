@@ -1712,10 +1712,42 @@ export const AdminMetricsGetRequestSchema = createRequestEnvelopeSchema(
 
 export const AdminMetricsGetResultSchema = z.strictObject({
   outcome: z.literal("AVAILABLE"),
+  /** Historical cumulative COMPLETED sales in the installation branch scope. */
   sales_completed_count: z.number().int().nonnegative().nullable(),
   sales_completed_amount: NonNegativeScale6Schema.nullable(),
+  /**
+   * COMPLETED sales whose `business_date` equals the commercial date
+   * (`America/Bogota`). Never a relabel of the cumulative totals.
+   */
+  sales_completed_today_count: z.number().int().nonnegative().nullable(),
+  sales_completed_today_amount: NonNegativeScale6Schema.nullable(),
   inventory_tracked_count: z.number().int().nonnegative().nullable(),
   cash_open_shift_count: z.number().int().nonnegative().nullable(),
+  /**
+   * Confirmed payments only (`payments_payments.status = 'CONFIRMED'`).
+   * Pending/reported transfers never appear here as collected money.
+   * null = aggregate permission absent or unavailable — never coerced to 0.
+   */
+  payments_confirmed_count: z.number().int().nonnegative().nullable(),
+  payments_confirmed_amount: NonNegativeScale6Schema.nullable(),
+  payments_confirmed_cash_amount: NonNegativeScale6Schema.nullable(),
+  payments_confirmed_transfer_amount: NonNegativeScale6Schema.nullable(),
+  payments_confirmed_qr_amount: NonNegativeScale6Schema.nullable(),
+  /** Transfer rows still awaiting confirmation — informational, not collected. */
+  payments_pending_transfer_count: z.number().int().nonnegative().nullable(),
+  /**
+   * Honest scope label for UI — never implies multicaja/company consolidation.
+   * Sales/payments: local SQLite rows for this `installation_id` + authorized branch.
+   * Cash shifts: same branch bound to this installation's `device_id`.
+   * Inventory: branch stock projection present in this local DB (no installation column).
+   */
+  metrics_scope: z.enum([
+    "INSTALLATION_BRANCH",
+  ]),
+  /** Commercial calendar used to derive `metrics_business_date` and "today" sales. */
+  metrics_period_timezone: z.literal("America/Bogota"),
+  /** YYYY-MM-DD in `metrics_period_timezone`; compared to sales `business_date`, not UTC `created_at`. */
+  metrics_business_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
 export const AdminMetricsGetResponseSchema =

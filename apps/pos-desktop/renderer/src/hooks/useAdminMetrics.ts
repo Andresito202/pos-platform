@@ -6,8 +6,19 @@ const EMPTY: AdminMetricsGetResult = {
   outcome: "AVAILABLE",
   sales_completed_count: null,
   sales_completed_amount: null,
+  sales_completed_today_count: null,
+  sales_completed_today_amount: null,
   inventory_tracked_count: null,
   cash_open_shift_count: null,
+  payments_confirmed_count: null,
+  payments_confirmed_amount: null,
+  payments_confirmed_cash_amount: null,
+  payments_confirmed_transfer_amount: null,
+  payments_confirmed_qr_amount: null,
+  payments_pending_transfer_count: null,
+  metrics_scope: "INSTALLATION_BRANCH",
+  metrics_period_timezone: "America/Bogota",
+  metrics_business_date: "1970-01-01",
 };
 
 export function useAdminMetrics(enabled: boolean): {

@@ -184,6 +184,14 @@ describe("local operator backend authorization",()=>{
     const response=handler.handle({protocol_version:"1.0.0",message_type:"cart.waiting.list",request_id:randomUUID(),correlation_id:randomUUID(),payload_schema_version:"1.0.0",payload:{}},"A");
     expect(response).toMatchObject({status:"REJECTED",result_code:"UNAUTHORIZED",result:{carts:[]}});
   });
+  it("ADMINISTRADOR local no recibe grants REPORTING_* (Central debe concederlos)", async () => {
+    const {sessions,read}=setup("ADMINISTRADOR"); await sessions.login("A","operator","valid");
+    const permissions = read("A").result!.permissions;
+    expect(permissions).not.toContain(CanonicalPermission.REPORTING_SALES_AGGREGATE_READ);
+    expect(permissions).not.toContain(CanonicalPermission.REPORTING_CASH_AGGREGATE_READ);
+    expect(permissions).not.toContain(CanonicalPermission.REPORTING_PAYMENTS_AGGREGATE_READ);
+  });
+
   it.each(["SUPERVISOR", "ADMINISTRADOR"] as const)("%s reviews payments without inheriting cashier operations", async role => {
     const {sessions,read}=setup(role);
     await sessions.login("A", role === "SUPERVISOR" ? "supervisor.local" : "admin.local", "valid");
