@@ -43,7 +43,9 @@ Estados: `AVAILABLE`, `LOW`, `OUT_OF_STOCK`, `RESTRICTED`,
 
 ## Pendiente 3C / multicaja
 
-- Canal de invalidación entre ventanas/dispositivos.
-- Atomicidad de archivo completo.
-- Cambio de `stock_controlled` en actualización.
-- Zona horaria por sucursal en evaluación de vencimiento (hoy America/Bogota fija).
+Estado revisado en `docs/product/bloque-3c5-pendientes-transversales.md` (3C-5):
+
+- Canal de invalidación entre ventanas/dispositivos — PARTIAL / BLOCKED_EXTERNAL.
+- Atomicidad de archivo completo — PARTIAL por diseño (fila + idempotencia).
+- Cambio de `stock_controlled` en actualización — PARTIAL (sin contrato de update).
+- Zona horaria por sucursal en evaluación de vencimiento — PENDING (hoy America/Bogota fija).
