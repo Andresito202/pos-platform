@@ -66,8 +66,14 @@ describe("catalog media session cache", () => {
         content_base64: btoa("image-bytes"),
       },
     });
-    window.posService["catalog.media.get"] = () =>
-      new Promise((resolve) => { pending.push(resolve); });
+    Object.defineProperty(window, "posService", {
+      value: {
+        ...window.posService,
+        "catalog.media.get": () => new Promise((resolve) => { pending.push(resolve); }),
+      },
+      writable: true,
+      configurable: true,
+    });
     const oldLoad = resolveCatalogMediaUrl(id);
     expect(pending).toHaveLength(1);
 
@@ -89,8 +95,14 @@ describe("catalog media session cache", () => {
     const id = "33333333-3333-4333-8333-333333333333";
     bindCatalogMediaSession({ username: "admin", role: "ADMINISTRADOR", epoch: 1 });
     let finish: ((value: unknown) => void) | undefined;
-    window.posService["catalog.media.get"] = () =>
-      new Promise((resolve) => { finish = resolve; });
+    Object.defineProperty(window, "posService", {
+      value: {
+        ...window.posService,
+        "catalog.media.get": () => new Promise((resolve) => { finish = resolve; }),
+      },
+      writable: true,
+      configurable: true,
+    });
     const loading = resolveCatalogMediaUrl(id);
     clearCatalogMediaCache();
     finish!({
