@@ -30,7 +30,6 @@ const MAX_MEDIA_ENTRIES = 256;
 const MAX_MEDIA_BYTES = 32 * 1024 * 1024;
 let cachedBytes = 0;
 let cacheGeneration = 0;
-const mediaGeneration = new Map<string, number>();
 const memory = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<string | null>>();
 
@@ -50,7 +49,6 @@ function revokeAll(): void {
   cacheGeneration += 1;
   for (const id of memory.keys()) removeEntry(id);
   inflight.clear();
-  mediaGeneration.clear();
 }
 
 /** Bind cache to the current local operator session. Wipes prior session media. */
@@ -81,7 +79,6 @@ export function peekCatalogMediaUrl(mediaId: string): string | null {
 }
 
 export function forgetCatalogMedia(mediaId: string): void {
-  mediaGeneration.set(mediaId, (mediaGeneration.get(mediaId) ?? 0) + 1);
   removeEntry(mediaId);
   inflight.delete(mediaId);
 }
@@ -95,14 +92,13 @@ export async function resolveCatalogMediaUrl(mediaId: string): Promise<string | 
 
   const loadScope = activeScopeKey;
   const loadGeneration = cacheGeneration;
-  const loadMediaGeneration = mediaGeneration.get(mediaId) ?? 0;
   const load = (async (): Promise<string | null> => {
     try {
       const response = await callCommercial<CatalogMediaGetResult>(
         "catalog.media.get",
         { media_id: mediaId },
       );
-      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || loadMediaGeneration !== (mediaGeneration.get(mediaId) ?? 0)) return null;
+      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || inflight.get(mediaId) !== load) return null;
       if (
         response.status !== "SUCCEEDED"
         || response.result === null
@@ -115,7 +111,7 @@ export async function resolveCatalogMediaUrl(mediaId: string): Promise<string | 
       const binary = Uint8Array.from(atob(response.result.content_base64), (c) => c.charCodeAt(0));
       if (binary.byteLength > MAX_MEDIA_BYTES) return null;
       const blob = new Blob([binary], { type: response.result.mime_type });
-      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || loadMediaGeneration !== (mediaGeneration.get(mediaId) ?? 0)) return null;
+      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || inflight.get(mediaId) !== load) return null;
       const previous = memory.get(mediaId);
       if (previous !== undefined) removeEntry(mediaId);
       while (memory.size >= MAX_MEDIA_ENTRIES || cachedBytes + binary.byteLength > MAX_MEDIA_BYTES) {
