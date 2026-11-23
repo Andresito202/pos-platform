@@ -6,6 +6,7 @@ import {
   uuidV7,
 } from "@pos-platform/contracts";
 import { SubscriptionLicenseContracts } from "../src/subscription-license-contracts.js";
+import { SubscriptionLicenseFulfillment } from "../src/subscription-license-fulfillment.js";
 
 describe("subscription autonomous fulfillment authorization boundary", () => {
   it("rejects SERVICE issue when fulfillment is not provisioned", async () => {
@@ -130,5 +131,50 @@ describe("subscription fulfillment recovery and concurrency semantics", () => {
     expect(filter("SUBSCRIPTION_QUOTE")).toBe("ENQUEUE");
     expect(filter("POS_SALE")).toBe("IGNORE");
     expect(filter(null)).toBe("IGNORE");
+  });
+});
+
+describe("subscription webhook replay after successful inbox acknowledgment", () => {
+  const provision=SubscriptionFulfillmentProvisionSchema.parse({
+    profile:"CAMACHO_SUBSCRIPTION_FULFILLMENT_V1",
+    policy_reference:"TEST_POLICY",
+    expected_database:"pos_central",
+    migration_checksum:"b".repeat(64),
+    lock_timeout_ms:2000,statement_timeout_ms:10000,claim_ttl_ms:30000,
+    poll_interval_ms:1000,max_attempts:8,base_backoff_ms:500,max_backoff_ms:8000,
+  });
+  const policies=[{
+    policy_reference:"TEST_POLICY",tax_policy_reference:"TEST_TAX",
+    support_policy_reference:"TEST_SUPPORT",
+  }];
+
+  it("replays a persisted Factus subscription event without another webhook",async()=>{
+    const row={
+      tenant_id:uuidV7(),company_id:uuidV7(),integration_id:uuidV7(),
+      external_transaction_id:uuidV7(),amount_scale6:"49900.000000",currency_code:"COP",
+    };
+    const pool={query:vi.fn(async()=>({rows:[row]}))};
+    const fulfillment=new SubscriptionLicenseFulfillment(pool as never,provision,policies);
+    const enqueue=vi.spyOn(fulfillment,"enqueueFromWebhookObservation").mockResolvedValue("ENQUEUED");
+    await expect(fulfillment.recoverUnqueuedSubscriptionWebhooks()).resolves.toEqual({recovered:1,errors:[]});
+    expect(enqueue).toHaveBeenCalledWith({
+      tenantId:row.tenant_id,companyId:row.company_id,integrationId:row.integration_id,
+      externalTransactionId:row.external_transaction_id,
+      amountScale6:row.amount_scale6,currencyCode:"COP",
+    });
+    const sql=String(pool.query.mock.calls[0]?.[0]);
+    expect(sql).toContain("g.collection_subject_type='SUBSCRIPTION_QUOTE'");
+    expect(sql).toContain("j.payment_id IS NULL");
+    expect(sql).toContain("i.provider_status='paid'");
+    expect(sql).toContain("i.amount=q.total_minor::numeric/power");
+  });
+
+  it("does not enqueue POS webhooks and surfaces transient replay failures",async()=>{
+    const pool={query:vi.fn(async()=>({rows:[]}))};
+    const fulfillment=new SubscriptionLicenseFulfillment(pool as never,provision,policies);
+    const enqueue=vi.spyOn(fulfillment,"enqueueFromWebhookObservation");
+    await expect(fulfillment.recoverUnqueuedSubscriptionWebhooks()).resolves.toEqual({recovered:0,errors:[]});
+    expect(enqueue).not.toHaveBeenCalled();
+    await expect(fulfillment.recoverUnqueuedSubscriptionWebhooks(0)).rejects.toThrow("FULFILLMENT_RECOVERY_LIMIT_INVALID");
   });
 });
