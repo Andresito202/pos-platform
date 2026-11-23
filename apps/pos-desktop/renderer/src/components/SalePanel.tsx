@@ -174,7 +174,9 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
               <span className="pos-product-price">{formatScale6Display(item.price_amount)}</span>
             </button>
           ))}
-          {!sale.catalogBusy && sale.catalogItems.length === 0 && <p>Sin productos vendibles.</p>}
+          {!sale.catalogBusy && sale.catalogItems.length === 0 && (
+            <p className="pos-product-empty" role="status">Sin productos vendibles. Busca por nombre, código o barras.</p>
+          )}
         </div>
         {sale.catalogHasMore && <button type="button" data-testid="catalog-load-more"
           disabled={sale.catalogBusy} onClick={() => { void sale.loadMoreCatalogItems(); }}>Cargar más productos</button>}

@@ -203,7 +203,7 @@ function LocalApp(): React.JSX.Element {
               {loading
                 ? "Validando sesión"
                 : unauthenticated
-                  ? "Accede con tu cuenta local para continuar"
+                  ? "Accede con las credenciales autorizadas de tu empresa."
                   : authorization.phase === "denied"
                     ? "Acceso denegado"
                     : authorization.phase === "expired"
@@ -214,7 +214,7 @@ function LocalApp(): React.JSX.Element {
               {loading
                 ? "Comprobando la sesión y los permisos efectivos."
                 : unauthenticated
-                  ? "Identifícate para acceder a las funciones locales autorizadas de tu perfil."
+                  ? "Usa tu usuario y contraseña para continuar en este punto de venta."
                   : "El POS no ha podido verificar una sesión autorizada."}
             </p>
             {loading ? (

@@ -176,7 +176,22 @@ legend { padding: 0 6px; font-weight: 600; }
 .pos-result-success { background: var(--camacho-green-soft); border-color: #bedbcc; color: #17623c; border-radius: var(--camacho-radius); }
 .pos-result-pending { background: var(--camacho-warning-soft); border-color: #dcc68b; color: var(--camacho-warning); border-radius: var(--camacho-radius); }
 .pos-screen [role="alert"] { border-left: 3px solid var(--camacho-danger); padding: 12px; overflow-wrap: anywhere; }
-.pos-admin-header { padding-bottom: 20px; }
+.pos-admin-header { padding-bottom: 20px; gap: 16px; align-items: start; }
+.pos-admin-header .pos-admin-eyebrow { display: inline-block; margin-bottom: 6px; }
+.pos-admin-header p { margin: 6px 0 0; max-width: 52rem; line-height: 1.45; }
+.pos-admin-audit-toolbar label { display: grid; gap: 6px; font-weight: 600; }
+.pos-admin-audit-toolbar input { width: 100%; min-width: 0; }
+.pos-admin-audit-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.pos-admin-audit-actions button,
+.pos-admin-audit-toolbar button {
+  min-height: 44px;
+}
+.pos-admin-audit-actions button:focus-visible,
+.pos-admin-audit-toolbar button:focus-visible,
+.pos-admin-header button:focus-visible {
+  outline: 3px solid var(--camacho-blue);
+  outline-offset: 2px;
+}
 .pos-scope-chip { border-radius: 3px; font-size: 12px; }
 .pos-screen .pos-admin-tabs button:not(.pos-primary-action):not(.pos-product-tile) { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; }
 .pos-screen .pos-admin-tabs button[aria-current="page"]:not(.pos-primary-action):not(.pos-product-tile) { border-bottom-color: var(--camacho-green); box-shadow: none; color: var(--camacho-blue-text); }
