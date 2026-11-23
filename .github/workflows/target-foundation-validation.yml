@@ -91,7 +91,7 @@ jobs:
 
   supply-chain-baseline:
     name: Repository policy, dependency inventory and vulnerability audit
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || inputs.run_commercial_license_runtime_cert)) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || (inputs.run_commercial_license_runtime_cert || (inputs.owner_authorization == 'OWNER_AUTHORIZED_COMMERCIAL_RUNTIME_CERT' && github.ref == 'refs/heads/cursor/commercial-license-global-c53a')))) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -183,7 +183,7 @@ jobs:
 
   validate:
     name: TypeScript, SQLite and PostgreSQL 16.14
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || inputs.run_commercial_license_runtime_cert)) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || (inputs.run_commercial_license_runtime_cert || (inputs.owner_authorization == 'OWNER_AUTHORIZED_COMMERCIAL_RUNTIME_CERT' && github.ref == 'refs/heads/cursor/commercial-license-global-c53a')))) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -340,7 +340,7 @@ jobs:
 
   runtime-windows:
     name: Windows local runtime platform checks
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || inputs.run_commercial_license_runtime_cert)) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || (inputs.run_commercial_license_runtime_cert || (inputs.owner_authorization == 'OWNER_AUTHORIZED_COMMERCIAL_RUNTIME_CERT' && github.ref == 'refs/heads/cursor/commercial-license-global-c53a')))) }}
     runs-on: windows-2022
     timeout-minutes: 15
 
@@ -382,7 +382,7 @@ jobs:
 
   provenance:
     name: Provenance evidence
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || inputs.run_commercial_license_runtime_cert)) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || (inputs.run_commercial_license_runtime_cert || (inputs.owner_authorization == 'OWNER_AUTHORIZED_COMMERCIAL_RUNTIME_CERT' && github.ref == 'refs/heads/cursor/commercial-license-global-c53a')))) }}
     needs:
       - supply-chain-baseline
       - validate
@@ -570,7 +570,7 @@ jobs:
   # owner_authorization=OWNER_AUTHORIZED_COMMERCIAL_RUNTIME_CERT.
   commercial-license-runtime-cert:
     name: Commercial license runtime cert (PR #130)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_commercial_license_runtime_cert }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/cursor/commercial-license-global-c53a' && inputs.owner_authorization == 'OWNER_AUTHORIZED_COMMERCIAL_RUNTIME_CERT' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
