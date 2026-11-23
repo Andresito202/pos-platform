@@ -16,6 +16,9 @@ export interface UpdateProductRequest {
   readonly expectedVersion: number;
   readonly name?: string;
   readonly code?: string;
+  readonly description?: string | null;
+  readonly brand?: string | null;
+  readonly category?: string | null;
   readonly status?: "ACTIVE" | "INACTIVE";
   readonly presentationId?: string;
   readonly presentationExpectedVersion?: number;
@@ -42,7 +45,7 @@ export type UpdateProductResult =
 
 /**
  * UC-CAT-002 — commercial fields only. Does not change stock, price, unit_code,
- * unit_precision, brand/category (no local persistence), or invent media bytes.
+ * unit_precision, or invent media bytes.
  */
 export class UpdateProductUseCase {
   constructor(private readonly catalogStore: SqliteCatalogStore) {}
@@ -65,6 +68,9 @@ export class UpdateProductUseCase {
 
     const hasProductChange = request.name !== undefined
       || request.code !== undefined
+      || request.description !== undefined
+      || request.brand !== undefined
+      || request.category !== undefined
       || request.status !== undefined;
     const hasPresentationChange = request.presentationName !== undefined
       || request.barcode !== undefined;
@@ -77,7 +83,10 @@ export class UpdateProductUseCase {
 
     const checksum = createHash("sha256").update(canonicalJson({
       barcode: request.barcode ?? null,
+      brand: request.brand === undefined ? null : request.brand,
+      category: request.category === undefined ? null : request.category,
       code: request.code ?? null,
+      description: request.description === undefined ? null : request.description,
       expected_version: request.expectedVersion,
       idempotency_key: request.idempotencyKey,
       name: request.name ?? null,
@@ -98,6 +107,11 @@ export class UpdateProductUseCase {
       expectedVersion: request.expectedVersion,
       ...(request.name !== undefined ? { name: request.name.trim() } : {}),
       ...(request.code !== undefined ? { code: request.code.trim() } : {}),
+      ...(request.description !== undefined
+        ? { description: request.description?.trim() || null }
+        : {}),
+      ...(request.brand !== undefined ? { brand: request.brand?.trim() || null } : {}),
+      ...(request.category !== undefined ? { category: request.category?.trim() || null } : {}),
       ...(request.status !== undefined ? { status: request.status } : {}),
       ...(request.presentationId !== undefined ? { presentationId: request.presentationId } : {}),
       ...(request.presentationExpectedVersion !== undefined

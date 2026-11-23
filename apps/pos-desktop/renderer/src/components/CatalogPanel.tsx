@@ -6,6 +6,7 @@ import {
 } from "@pos-platform/contracts";
 import { formatScale6Display } from "../money-display.js";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
+import { CatalogImport } from "./CatalogImport.js";
 import { ProductAvatar } from "./ProductAvatar.js";
 import { PharmacyPanel } from "./PharmacyPanel.js";
 import { BakeryPanel } from "./BakeryPanel.js";
@@ -22,6 +23,9 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
   const catalog = useCatalogAdmin();
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [brand, setBrand] = useState("");
+  const [category, setCategory] = useState("");
   const [presentationName, setPresentationName] = useState("");
   const [unitCode, setUnitCode] = useState("UND");
   const [unitPrecision, setUnitPrecision] = useState("0");
@@ -45,6 +49,9 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
   const [editExpectedVersion, setEditExpectedVersion] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [editCode, setEditCode] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editBrand, setEditBrand] = useState("");
+  const [editCategory, setEditCategory] = useState("");
   const [editStatus, setEditStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
   const [editPresentationId, setEditPresentationId] = useState<string | null>(null);
   const [editPresentationVersion, setEditPresentationVersion] = useState<number | null>(null);
@@ -66,6 +73,9 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
     setEditExpectedVersion(item.product_version);
     setEditName(item.name);
     setEditCode(item.code);
+    setEditDescription(item.description ?? "");
+    setEditBrand(item.brand ?? "");
+    setEditCategory(item.category ?? "");
     setEditStatus("ACTIVE");
     setEditPresentationId(item.presentation_id);
     setEditPresentationVersion(item.presentation_version);
@@ -97,10 +107,16 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
     <section data-testid="catalog-panel">
       <h2>Catálogo</h2>
       <p className="pos-catalog-edit-note" data-testid="catalog-edit-preparation">
-        Alta y edición autorizada de nombre, códigos, presentación, precio y fotografía.
-        La unidad y la precisión no se cambian aquí. El stock se gestiona en Inventario.
-        La planilla CSV de existencias no es alta masiva de catálogo ni soporte XLSX.
+        Alta y edición autorizada de nombre, descripción, marca, categoría, códigos,
+        presentación, precio y fotografía. La unidad y la precisión no se cambian en
+        edición. El stock se gestiona en Inventario con su propia planilla.
       </p>
+
+      {permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) && (
+        <CatalogImport
+          enabled={permissions.has(CanonicalPermission.CATALOG_PRODUCT_REGISTER) && !catalog.busy}
+        />
+      )}
 
       <input
         data-testid="product-code-input"
@@ -114,6 +130,27 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
         value={name}
         onChange={(e) => { setName(e.target.value); }}
         placeholder="Nombre del producto"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="product-description-input"
+        value={description}
+        onChange={(e) => { setDescription(e.target.value); }}
+        placeholder="Descripción comercial (opcional)"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="product-brand-input"
+        value={brand}
+        onChange={(e) => { setBrand(e.target.value); }}
+        placeholder="Marca (opcional)"
+        disabled={catalog.busy}
+      />
+      <input
+        data-testid="product-category-input"
+        value={category}
+        onChange={(e) => { setCategory(e.target.value); }}
+        placeholder="Categoría (opcional)"
         disabled={catalog.busy}
       />
       <input
@@ -222,6 +259,9 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
           void catalog.registerProduct({
             code: code.trim(),
             name: name.trim(),
+            description: description.trim() === "" ? null : description.trim(),
+            brand: brand.trim() === "" ? null : brand.trim(),
+            category: category.trim() === "" ? null : category.trim(),
             stockControlled,
             presentationName: presentationName.trim(),
             unitCode: unitCode.trim(),
@@ -314,6 +354,9 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
                   presentation_id: editPresentationId,
                   code: editCode,
                   name: editName,
+                  description: editDescription.trim() === "" ? null : editDescription.trim(),
+                  brand: editBrand.trim() === "" ? null : editBrand.trim(),
+                  category: editCategory.trim() === "" ? null : editCategory.trim(),
                   presentation_name: editPresentationName,
                   unit_code: "UND",
                   unit_precision: 0,
@@ -345,6 +388,27 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
                     value={editCode}
                     onChange={(e) => { setEditCode(e.target.value); }}
                     placeholder="Código interno"
+                    disabled={catalog.busy}
+                  />
+                  <input
+                    data-testid="edit-product-description-input"
+                    value={editDescription}
+                    onChange={(e) => { setEditDescription(e.target.value); }}
+                    placeholder="Descripción comercial"
+                    disabled={catalog.busy}
+                  />
+                  <input
+                    data-testid="edit-product-brand-input"
+                    value={editBrand}
+                    onChange={(e) => { setEditBrand(e.target.value); }}
+                    placeholder="Marca"
+                    disabled={catalog.busy}
+                  />
+                  <input
+                    data-testid="edit-product-category-input"
+                    value={editCategory}
+                    onChange={(e) => { setEditCategory(e.target.value); }}
+                    placeholder="Categoría"
                     disabled={catalog.busy}
                   />
                   <select
@@ -380,6 +444,9 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
                         expectedVersion: editExpectedVersion,
                         name: editName.trim(),
                         code: editCode.trim(),
+                        description: editDescription.trim() === "" ? null : editDescription.trim(),
+                        brand: editBrand.trim() === "" ? null : editBrand.trim(),
+                        category: editCategory.trim() === "" ? null : editCategory.trim(),
                         status: editStatus,
                         presentationId: editPresentationId,
                         presentationExpectedVersion: editPresentationVersion,

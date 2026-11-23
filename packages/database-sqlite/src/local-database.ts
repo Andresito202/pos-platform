@@ -2419,7 +2419,7 @@ ALTER TABLE bakery_production_recipe_deviation ADD COLUMN approval_id TEXT
 /**
  * MIGRATION_030: catalog media refs (filesystem payloads) + product.primary_media_id
  * + presentation.version for UC-CAT-002 concurrency. Does not rewrite 001–029.
- * Brand/category/description columns remain absent until their schema is authorized.
+ * Brand/category/description arrive in MIGRATION_031.
  */
 const MIGRATION_030 = `
 CREATE TABLE catalog_media (
@@ -2447,6 +2447,20 @@ ALTER TABLE catalog_product ADD COLUMN primary_media_id TEXT
 
 ALTER TABLE catalog_presentation ADD COLUMN version INTEGER NOT NULL DEFAULT 1
   CHECK(version >= 1);
+`.trim();
+
+/**
+ * MIGRATION_031: commercial description / brand / category on catalog_product.
+ * Nullable text attributes for UC-CAT-002 admin edit and spreadsheet import.
+ * Does not rewrite 001–030. Does not invent category_id FK tables.
+ */
+const MIGRATION_031 = `
+ALTER TABLE catalog_product ADD COLUMN description TEXT
+  CHECK(description IS NULL OR length(description) BETWEEN 1 AND 2000);
+ALTER TABLE catalog_product ADD COLUMN brand TEXT
+  CHECK(brand IS NULL OR length(brand) BETWEEN 1 AND 120);
+ALTER TABLE catalog_product ADD COLUMN category TEXT
+  CHECK(category IS NULL OR length(category) BETWEEN 1 AND 120);
 `.trim();
 
 const MIGRATIONS = [
@@ -2480,6 +2494,7 @@ const MIGRATIONS = [
   { version: 28, sql: MIGRATION_028, checksum: createHash("sha256").update(MIGRATION_028).digest("hex") },
   { version: 29, sql: MIGRATION_029, checksum: createHash("sha256").update(MIGRATION_029).digest("hex") },
   { version: 30, sql: MIGRATION_030, checksum: createHash("sha256").update(MIGRATION_030).digest("hex") },
+  { version: 31, sql: MIGRATION_031, checksum: createHash("sha256").update(MIGRATION_031).digest("hex") },
 ] as const;
 
 /**

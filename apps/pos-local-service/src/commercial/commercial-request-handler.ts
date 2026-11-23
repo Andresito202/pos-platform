@@ -980,6 +980,9 @@ export class CommercialRequestHandler {
       {
         code: payload.code,
         name: payload.name,
+        ...(payload.description !== undefined ? { description: payload.description } : {}),
+        ...(payload.brand !== undefined ? { brand: payload.brand } : {}),
+        ...(payload.category !== undefined ? { category: payload.category } : {}),
         stockControlled: payload.stock_controlled,
         presentationName: payload.presentation_name,
         unitCode: payload.unit_code,
@@ -1034,6 +1037,9 @@ export class CommercialRequestHandler {
         expectedVersion: payload.expected_version,
         ...(payload.name !== undefined ? { name: payload.name } : {}),
         ...(payload.code !== undefined ? { code: payload.code } : {}),
+        ...(payload.description !== undefined ? { description: payload.description } : {}),
+        ...(payload.brand !== undefined ? { brand: payload.brand } : {}),
+        ...(payload.category !== undefined ? { category: payload.category } : {}),
         ...(payload.status !== undefined ? { status: payload.status } : {}),
         ...(payload.presentation_id !== undefined
           ? { presentationId: payload.presentation_id }
@@ -1219,6 +1225,7 @@ export class CommercialRequestHandler {
   ): unknown {
     const empty = {
       product_id: null, presentation_id: null, code: null, name: null,
+      description: null, brand: null, category: null,
       presentation_name: null, unit_code: null, unit_precision: null, barcode: null,
       stock_controlled: null, price_amount: null, currency_code: null,
       quantity_available: null, quantity_on_hand: null, quantity_reserved: null,
@@ -1247,6 +1254,9 @@ export class CommercialRequestHandler {
         presentation_id: presentation.id,
         code: product.code,
         name: product.name,
+        description: product.description,
+        brand: product.brand,
+        category: product.category,
         presentation_name: presentation.name,
         unit_code: presentation.unitCode,
         unit_precision: presentation.unitPrecision,
@@ -1335,6 +1345,9 @@ export class CommercialRequestHandler {
         presentation_id: presentation.id,
         code: product.code,
         name: product.name,
+        description: product.description,
+        brand: product.brand,
+        category: product.category,
         presentation_name: presentation.name,
         unit_code: presentation.unitCode,
         unit_precision: presentation.unitPrecision,

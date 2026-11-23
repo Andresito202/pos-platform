@@ -37,6 +37,9 @@ export interface CatalogFiscalAttributesInput {
 export interface CatalogAdminInput {
   readonly code: string;
   readonly name: string;
+  readonly description?: string | null;
+  readonly brand?: string | null;
+  readonly category?: string | null;
   readonly stockControlled: boolean;
   readonly presentationName: string;
   readonly unitCode: string;
@@ -62,6 +65,9 @@ export interface UpdateProductInput {
   readonly expectedVersion: number;
   readonly name?: string;
   readonly code?: string;
+  readonly description?: string | null;
+  readonly brand?: string | null;
+  readonly category?: string | null;
   readonly status?: "ACTIVE" | "INACTIVE";
   readonly presentationId?: string;
   readonly presentationExpectedVersion?: number;
@@ -174,6 +180,13 @@ export function useCatalogAdmin(): CatalogAdminState & {
         {
           code: input.code,
           name: input.name,
+          ...(input.description !== undefined
+            ? { description: input.description?.trim() || null }
+            : {}),
+          ...(input.brand !== undefined ? { brand: input.brand?.trim() || null } : {}),
+          ...(input.category !== undefined
+            ? { category: input.category?.trim() || null }
+            : {}),
           stock_controlled: input.stockControlled,
           presentation_name: input.presentationName,
           unit_code: input.unitCode,
@@ -244,6 +257,9 @@ export function useCatalogAdmin(): CatalogAdminState & {
           expected_version: input.expectedVersion,
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.code !== undefined ? { code: input.code } : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+          ...(input.brand !== undefined ? { brand: input.brand } : {}),
+          ...(input.category !== undefined ? { category: input.category } : {}),
           ...(input.status !== undefined ? { status: input.status } : {}),
           ...(input.presentationId !== undefined ? { presentation_id: input.presentationId } : {}),
           ...(input.presentationExpectedVersion !== undefined

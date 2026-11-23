@@ -55,6 +55,9 @@ const FOUND_ITEM = succeeded({
   presentation_id: PRESENTATION,
   code: "ARZ-500",
   name: "Arroz",
+  description: null,
+  brand: null,
+  category: null,
   presentation_name: "Bolsa 500g",
   unit_code: "GRM",
   unit_precision: 0,
@@ -66,6 +69,9 @@ const FOUND_ITEM = succeeded({
   quantity_on_hand: "20.000000",
   quantity_reserved: "0.000000",
   availability_state: "AVAILABLE",
+  product_version: 1,
+  presentation_version: 1,
+  media_id: null,
 });
 
 function install(overrides: Record<string, unknown>): void {

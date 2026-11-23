@@ -80,7 +80,14 @@ describe("additive local v25 transform migration", () => {
       DROP TABLE IF EXISTS company_pharmacy_establishment;
       DROP TABLE IF EXISTS catalog_food_policy;
       DROP TRIGGER local_schema_migrations_no_delete;
-      DELETE FROM local_schema_migrations WHERE version IN (25,26,27,28,29);
+      DROP INDEX IF EXISTS catalog_media_company_idx;
+      DROP TABLE IF EXISTS catalog_media;
+      ALTER TABLE catalog_product DROP COLUMN description;
+      ALTER TABLE catalog_product DROP COLUMN brand;
+      ALTER TABLE catalog_product DROP COLUMN category;
+      ALTER TABLE catalog_product DROP COLUMN primary_media_id;
+      ALTER TABLE catalog_presentation DROP COLUMN version;
+      DELETE FROM local_schema_migrations WHERE version IN (25,26,27,28,29,30,31);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;

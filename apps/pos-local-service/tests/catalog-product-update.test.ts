@@ -171,6 +171,9 @@ describe("UC-CAT-002 product update", () => {
         expectedVersion: 1,
         name: "Café molido",
         code: "EDIT-001B",
+        description: "Tueste medio",
+        brand: "Café Local",
+        category: "Bebidas",
         presentationId,
         presentationExpectedVersion: 1,
         presentationName: "Paquete",
@@ -185,9 +188,71 @@ describe("UC-CAT-002 product update", () => {
     const product = catalogStore.findActiveProduct(SCOPE, productId);
     expect(product?.name).toBe("Café molido");
     expect(product?.code).toBe("EDIT-001B");
+    expect(product?.description).toBe("Tueste medio");
+    expect(product?.brand).toBe("Café Local");
+    expect(product?.category).toBe("Bebidas");
     const presentation = catalogStore.findActivePresentation(SCOPE, presentationId);
     expect(presentation?.name).toBe("Paquete");
     expect(presentation?.barcode).toBe("7701234567002");
+    const listed = catalogStore.listSellableItems(SCOPE, "Café", 10, 0);
+    expect(listed.items[0]?.product).toMatchObject({
+      description: "Tueste medio",
+      brand: "Café Local",
+      category: "Bebidas",
+    });
+  });
+
+  it("registers description brand and category on alta and keeps them on idempotent retry", async () => {
+    const { register, catalogStore } = await buildEnv();
+    const first = register.execute(
+      SCOPE, SESSION, auth(["CATALOG_PRODUCT_REGISTER"]), {
+        code: "EDIT-DESC",
+        name: "Con atributos",
+        description: "Detalle comercial",
+        brand: "Marca X",
+        category: "Abarrotes",
+        stockControlled: true,
+        presentationName: "Unidad",
+        unitCode: "UND",
+        unitPrecision: 0,
+        barcode: null,
+        priceAmount: "900.000000",
+        currencyCode: "COP",
+        idempotencyKey: "reg:desc-001",
+        correlationId: CORRELATION,
+        causationId: null,
+      },
+      NOW,
+    );
+    expect(first.kind).toBe("REGISTERED");
+    if (first.kind !== "REGISTERED" && first.kind !== "IDEMPOTENT") throw new Error(first.kind);
+    const product = catalogStore.findActiveProduct(SCOPE, first.productId);
+    expect(product).toMatchObject({
+      description: "Detalle comercial",
+      brand: "Marca X",
+      category: "Abarrotes",
+    });
+    const again = register.execute(
+      SCOPE, SESSION, auth(["CATALOG_PRODUCT_REGISTER"]), {
+        code: "EDIT-DESC",
+        name: "Con atributos",
+        description: "Detalle comercial",
+        brand: "Marca X",
+        category: "Abarrotes",
+        stockControlled: true,
+        presentationName: "Unidad",
+        unitCode: "UND",
+        unitPrecision: 0,
+        barcode: null,
+        priceAmount: "900.000000",
+        currencyCode: "COP",
+        idempotencyKey: "reg:desc-001",
+        correlationId: CORRELATION,
+        causationId: null,
+      },
+      NOW,
+    );
+    expect(again.kind).toBe("IDEMPOTENT");
   });
 
   it("rejects concurrent version conflicts and duplicate identifiers", async () => {

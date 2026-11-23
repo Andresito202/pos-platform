@@ -1,23 +1,45 @@
-# Pendiente — importación XLSX y alta masiva (siguiente bloque)
+# Bloque 3A — importación XLSX/CSV de catálogo y existencias
 
-## Separación vigente
+## Separación vigente (no mezclar writers)
 
-1. **Catálogo:** alta unitaria (`catalog.product.register`) y edición
-   (`catalog.product.update` / `catalog.price.publish` / media).
-2. **Existencias:** recepción/ajuste unitarios e `InventoryCsvImport` →
-   `inventory.stock.receive` / adjust.
+1. **Catálogo:** plantilla `camacho-catalogo.csv|xlsx` → preview → confirm
+   - Alta: `catalog.product.register`
+   - Actualización comercial: `catalog.product.update`
+   - Precio: `catalog.price.publish`
+2. **Existencias:** plantilla `camacho-existencias.csv|xlsx` → preview → confirm
+   - Solo `inventory.stock.receive` (suma, no sobrescribe saldo)
+   - Identidad idempotente `inventory-csv:{import_id}:{row_id}`
 
-CSV de existencias **no** es soporte nativo de XLSX ni alta masiva de productos.
+La selección de archivo **no escribe**. La confirmación puede fallar a mitad;
+las filas ya confirmadas permanecen y el reintento con la misma identidad no
+duplica.
 
-## Contratos / validaciones que faltan para XLSX
+## Columnas de catálogo
 
-- Formato canónico de columnas (código, nombre, presentación, unidad, precisión,
-  barcode, precio, moneda, stock inicial opcional).
-- Idempotencia por fila y rechazo de unidades incompatibles con historia.
-- Separación explícita fila-catálogo vs fila-existencia (no mezclar en un solo
-  writer genérico).
-- Límite de tamaño, encoding y rechazo de macros/OLE.
-- Permisos dedicados distintos de `INVENTORY_STOCK_RECEIVE`.
-- Evidencia de aislamiento tenant/company y de no-double-post en reintentos.
+`import_id`, `row_id`, `codigo_producto`, `nombre`, `descripcion`, `marca`,
+`categoria`, `codigo_barras`, `presentacion`, `unidad`, `precision`,
+`cantidad_por_presentacion` (informativa en 3A), `precio_venta`, `moneda`,
+`control_existencias`, `estado`.
 
-Hasta autorizar ese bloque, no se simula XLSX en UI.
+Unidad/precisión de productos con historia: si difieren del registrado, se
+rechaza `UNIT_CHANGE_FORBIDDEN` (no se muta la unidad base).
+
+## Columnas de existencias
+
+Compatibles con el CSV legado de 7 columnas, o con lote opcional:
+
+`lote`, `fecha_fabricacion`, `fecha_vencimiento`, `referencia_proveedor`,
+`documento_recibo` — solo con `PURCHASE_RECEIPT` y campos de lote completos.
+
+## Campos administrativos persistidos (SQLite MIGRATION_031)
+
+`catalog_product.description`, `brand`, `category` — lectura/escritura real vía
+register/update/list/find. No viven solo en React.
+
+## Pendiente 3B / 3C
+
+- Aplicar `cantidad_por_presentacion` como regla de conversión autorizada.
+- Canal multicaja de invalidación de catálogo/inventario.
+- Importación atómica de archivo completo (hoy es por fila).
+- Alta de presentaciones adicionales en la misma planilla.
+- Cambio de `stock_controlled` en actualización (solo en alta hoy).

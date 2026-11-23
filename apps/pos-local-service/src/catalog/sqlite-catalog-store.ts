@@ -30,6 +30,9 @@ export interface CatalogProduct {
   readonly id: string;
   readonly code: string;
   readonly name: string;
+  readonly description: string | null;
+  readonly brand: string | null;
+  readonly category: string | null;
   readonly stockControlled: boolean;
   readonly version: number;
   readonly primaryMediaId: string | null;
@@ -82,6 +85,9 @@ export interface RegisterProductInput {
   readonly operationId: string;
   readonly code: string;
   readonly name: string;
+  readonly description: string | null;
+  readonly brand: string | null;
+  readonly category: string | null;
   readonly stockControlled: boolean;
   readonly presentationName: string;
   readonly unitCode: string;
@@ -105,7 +111,9 @@ export type RegisterProductOutcome =
   | { readonly kind: "BARCODE_ALREADY_REGISTERED"; readonly presentationId: string };
 
 interface ProductRow {
-  id: string; code: string; name: string; stock_controlled: number;
+  id: string; code: string; name: string;
+  description: string | null; brand: string | null; category: string | null;
+  stock_controlled: number;
   version: number; primary_media_id: string | null;
 }
 interface PresentationRow {
@@ -115,12 +123,16 @@ interface PresentationRow {
 interface PriceRow { amount: string; currency_code: string }
 interface NextSequenceRow { next_sequence: number }
 
-const PRODUCT_COLUMNS = "id, code, name, stock_controlled, version, primary_media_id";
+const PRODUCT_COLUMNS =
+  "id, code, name, description, brand, category, stock_controlled, version, primary_media_id";
 const PRESENTATION_COLUMNS = "id, product_id, name, unit_code, unit_precision, barcode, version";
 
 function toProduct(row: ProductRow): CatalogProduct {
   return {
     id: row.id, code: row.code, name: row.name,
+    description: row.description,
+    brand: row.brand,
+    category: row.category,
     stockControlled: row.stock_controlled === 1,
     version: row.version,
     primaryMediaId: row.primary_media_id,
@@ -253,6 +265,7 @@ export class SqliteCatalogStore {
     const rows = this.database.native.prepare(
       `SELECT
          p.id AS product_id, p.code AS product_code, p.name AS product_name,
+         p.description AS product_description, p.brand AS product_brand, p.category AS product_category,
          p.stock_controlled, p.version AS product_version, p.primary_media_id,
          cp.id AS presentation_id, cp.name AS presentation_name,
          cp.unit_code, cp.unit_precision, cp.barcode, cp.version AS presentation_version,
@@ -263,13 +276,16 @@ export class SqliteCatalogStore {
        INNER JOIN catalog_price pr
          ON pr.tenant_id=cp.tenant_id AND pr.presentation_id=cp.id AND pr.status='ACTIVE'
        WHERE p.tenant_id=? AND p.company_id=? AND p.status='ACTIVE'
-         AND (? IS NULL OR p.name LIKE ? OR p.code LIKE ? OR cp.barcode LIKE ?)
+         AND (? IS NULL OR p.name LIKE ? OR p.code LIKE ? OR cp.barcode LIKE ?
+              OR IFNULL(p.brand,'') LIKE ? OR IFNULL(p.category,'') LIKE ?)
        ORDER BY p.name COLLATE NOCASE ASC, cp.name COLLATE NOCASE ASC, cp.id ASC
        LIMIT ? OFFSET ?`,
     ).all(
-      scope.tenantId, scope.companyId, like, like, like, like, limit + 1, offset,
+      scope.tenantId, scope.companyId, like, like, like, like, like, like, limit + 1, offset,
     ) as Array<{
-      product_id: string; product_code: string; product_name: string; stock_controlled: number;
+      product_id: string; product_code: string; product_name: string;
+      product_description: string | null; product_brand: string | null; product_category: string | null;
+      stock_controlled: number;
       product_version: number; primary_media_id: string | null;
       presentation_id: string; presentation_name: string; unit_code: string; unit_precision: number;
       barcode: string | null; presentation_version: number;
@@ -284,6 +300,9 @@ export class SqliteCatalogStore {
           id: row.product_id,
           code: row.product_code,
           name: row.product_name,
+          description: row.product_description,
+          brand: row.product_brand,
+          category: row.product_category,
           stockControlled: row.stock_controlled === 1,
           version: row.product_version,
           primaryMediaId: row.primary_media_id,
@@ -368,13 +387,15 @@ export class SqliteCatalogStore {
 
       this.database.native.prepare(
         `INSERT INTO catalog_product(
-          id, tenant_id, company_id, code, name, status, stock_controlled,
+          id, tenant_id, company_id, code, name, description, brand, category,
+          status, stock_controlled,
           registered_by_actor_id, idempotency_key, correlation_id,
           version, created_at, updated_at
-        ) VALUES (?,?,?,?,?,'ACTIVE',?,?,?,?,1,?,?)`,
+        ) VALUES (?,?,?,?,?,?,?,?,'ACTIVE',?,?,?,?,1,?,?)`,
       ).run(
         input.productId, input.scope.tenantId, input.scope.companyId,
-        input.code, input.name, input.stockControlled ? 1 : 0,
+        input.code, input.name, input.description, input.brand, input.category,
+        input.stockControlled ? 1 : 0,
         input.operatorUserId, input.idempotencyKey, input.correlationId,
         nowIso, nowIso,
       );
@@ -472,6 +493,9 @@ export class SqliteCatalogStore {
         presentation_id: input.presentationId,
         code: input.code,
         name: input.name,
+        description: input.description,
+        brand: input.brand,
+        category: input.category,
         stock_controlled: input.stockControlled,
         presentation_name: input.presentationName,
         unit_code: input.unitCode,
@@ -790,6 +814,9 @@ export class SqliteCatalogStore {
     readonly expectedVersion: number;
     readonly name?: string;
     readonly code?: string;
+    readonly description?: string | null;
+    readonly brand?: string | null;
+    readonly category?: string | null;
     readonly status?: "ACTIVE" | "INACTIVE";
     readonly presentationId?: string;
     readonly presentationExpectedVersion?: number;
@@ -856,6 +883,9 @@ export class SqliteCatalogStore {
         `UPDATE catalog_product
          SET name=COALESCE(?, name),
              code=COALESCE(?, code),
+             description=CASE WHEN ? THEN ? ELSE description END,
+             brand=CASE WHEN ? THEN ? ELSE brand END,
+             category=CASE WHEN ? THEN ? ELSE category END,
              status=COALESCE(?, status),
              version=?,
              updated_at=?
@@ -863,6 +893,12 @@ export class SqliteCatalogStore {
       ).run(
         input.name ?? null,
         input.code ?? null,
+        input.description !== undefined ? 1 : 0,
+        input.description === undefined ? null : input.description,
+        input.brand !== undefined ? 1 : 0,
+        input.brand === undefined ? null : input.brand,
+        input.category !== undefined ? 1 : 0,
+        input.category === undefined ? null : input.category,
         input.status ?? null,
         nextVersion,
         nowIso,
@@ -936,6 +972,9 @@ export class SqliteCatalogStore {
           version: nextVersion,
           name: input.name ?? null,
           code: input.code ?? null,
+          description: input.description === undefined ? null : input.description,
+          brand: input.brand === undefined ? null : input.brand,
+          category: input.category === undefined ? null : input.category,
           status: input.status ?? null,
           presentation_id: input.presentationId ?? null,
         }),
