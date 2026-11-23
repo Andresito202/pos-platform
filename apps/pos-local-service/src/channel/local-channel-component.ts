@@ -17,6 +17,11 @@ import { SqliteReplayStateStore } from "./sqlite-replay-state.js";
 import { LocalChannelServer, type ChannelRequestContext } from "./server.js";
 import { loadOrCreateWindowsLocalChannelSecret } from "./secret.js";
 import { WindowsScmChannelTransport } from "./windows-scm-transport.js";
+import { ScmCentralCheckpointGuard, readScmCentralProvision } from "./scm-central-checkpoint.js";
+import { ScmCheckpointFloorMarker } from "./scm-checkpoint-floor.js";
+import type { DeviceCredentialProvider } from "../sync/device-credential.js";
+import type { EncryptedFileSecretStore } from "../security/encrypted-secret-store.js";
+import { join } from "node:path";
 
 const LOCAL_SCHEMA_VERSION = "5";
 const RESULT_SCHEMA_VERSION = "1.0.0";
@@ -38,6 +43,8 @@ export class LocalChannelComponent implements RuntimeComponent {
   private authenticator: LocalChannelAuthenticator | undefined;
   private readonly commercialHandler: CommercialRequestHandler;
   private localOperatorRegistry: LocalOperatorSessionRegistry | undefined;
+  private scmAuthority: ScmCentralCheckpointGuard | undefined;
+  private scmAuthorityFault: string | undefined;
 
   private getLocalOperatorRegistry(): LocalOperatorSessionRegistry | undefined {
     if (!this.localOperatorSessions) return undefined;
@@ -51,6 +58,8 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly operationConfirmation: OperationConfirmationComponent,
     private readonly commercial: CommercialComponent,
     private readonly localOperatorSessions?: () => LocalOperatorSessionRegistry,
+    private readonly scmCentralDependencies?: () => { credentials: DeviceCredentialProvider; store: EncryptedFileSecretStore },
+    private readonly onScmAuthorityLost?: (reason: string) => void,
   ) {
     this.commercialHandler = new CommercialRequestHandler(
       config,
@@ -80,7 +89,33 @@ export class LocalChannelComponent implements RuntimeComponent {
     });
     let scmTransport: WindowsScmChannelTransport | undefined;
     try {
-      if (scmProvision) scmTransport = new WindowsScmChannelTransport(scmProvision, this.localDatabase.database, secret);
+      if (scmProvision) {
+        if (!this.config.windows_scm_central_provision_file || !this.scmCentralDependencies) throw Error("SCM_CENTRAL_PROVISION_REQUIRED");
+        const dependencies = this.scmCentralDependencies();
+        const floor = new ScmCheckpointFloorMarker(join(this.config.data_directory, "security"));
+        const guard = new ScmCentralCheckpointGuard(
+          readScmCentralProvision(this.config.windows_scm_central_provision_file),
+          scmProvision,
+          dependencies.credentials,
+          dependencies.store,
+          undefined,
+          fetch,
+          floor,
+        );
+        this.scmAuthority = guard;
+        scmTransport = new WindowsScmChannelTransport(
+          scmProvision,
+          this.localDatabase.database,
+          secret,
+          {
+            onFatal: (reason) => {
+              this.scmAuthorityFault = reason;
+              this.onScmAuthorityLost?.(reason);
+            },
+          },
+          guard,
+        );
+      }
     } catch (error) {
       authenticator.destroy();
       throw error;
@@ -304,6 +339,12 @@ export class LocalChannelComponent implements RuntimeComponent {
             protocol_version: request.protocol_version,
             service_state: this.runtimeState(),
             schema_version: LOCAL_SCHEMA_VERSION,
+            ...(this.config.windows_scm_handoff_file === undefined ? {} : {
+              scm_authority_state: this.scmAuthorityFault !== undefined
+                ? "FAULTED"
+                : (this.scmAuthority?.authorityState ?? "ABSENT"),
+              ...(this.scmAuthorityFault === undefined ? {} : { scm_authority_fault: this.scmAuthorityFault }),
+            }),
           },
         };
 

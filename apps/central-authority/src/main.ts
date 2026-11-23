@@ -12,6 +12,8 @@ import { prepareFactusPayRuntime } from "./factus-pay-runtime.js";
 import { FACTUS_PAY_COLLECTION_WEBHOOK_PATH } from "./factus-pay-webhook-handler.js";
 import { prepareBusinessAdministrationRuntime } from "./business-administration-runtime.js";
 import { createCentralRouter } from "./central-router.js";
+import { isScmCheckpointUrl } from "./scm-checkpoint-http.js";
+import { prepareScmCheckpointRuntime } from "./scm-checkpoint-runtime.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -160,7 +162,15 @@ const businessHandler = await (async () => {
   catch (error) { await pool.end(); throw error; }
 })();
 
+const scmProvision = process.env.CENTRAL_SCM_PROVISION_FILE;
+const scmHandler = scmProvision === undefined ? undefined : await prepareScmCheckpointRuntime(pool, scmProvision);
+
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, createCentralRouter(async (request, response) => {
+  if (isScmCheckpointUrl(request.url)) {
+    if (scmHandler) await scmHandler(request, response);
+    else send(response, 503, { code: "SCM_NOT_PROVISIONED" });
+    return;
+  }
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";

@@ -47,11 +47,17 @@ const required = [
 ];
 
 const nshForbidden = [
-  { re: /-InstallProfile LAB|-Action Install/, why: 'no diagnostic service install in distributable NSIS' },
+  { re: /-InstallProfile LAB|-Action Install|-Action PreparePhysicalCertification/, why: 'no diagnostic or physical-prep service install in distributable NSIS' },
   { re: /\$COMMONAPPDATA/, why: 'unknown NSIS var → makensis warning 6000' },
 ];
 const nshRequired = [
   { re: /Abort "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN"/, why: 'refuse uncertified installer' },
+];
+const helperRequired = [
+  { re: /PreparePhysicalCertification/, why: 'explicit physical-prep action distinct from commercial Install' },
+  { re: /Assert-PhysicalCertificationAttestation/, why: 'owner attestation required for physical prep' },
+  { re: /physical-certification-prep\.ok/, why: 'auditable prep marker distinct from commercial scm-install.ok' },
+  { re: /SCM_PROVISION_ACL_TARGET_MISSING/, why: 'ACL grant covers authenticated SCM provision files' },
 ];
 
 let failed = 0;
@@ -102,6 +108,15 @@ for (const r of nshRequired) {
     failed++;
   } else {
     console.log(`PASS nsh required: ${r.re}`);
+  }
+}
+
+for (const r of helperRequired) {
+  if (!r.re.test(helperRaw)) {
+    console.error(`FAIL helper required missing ${r.re} (${r.why})`);
+    failed++;
+  } else {
+    console.log(`PASS helper required: ${r.re}`);
   }
 }
 

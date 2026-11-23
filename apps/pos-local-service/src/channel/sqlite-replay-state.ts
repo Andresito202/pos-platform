@@ -125,7 +125,13 @@ export class SqliteWindowsHandoffLeaseAuthority
     for(const connection of connections)try{connection.close();}catch{/* keep closing the rest */}
   }
   /** Polling is supplementary; every request still checks synchronously. */
-  checkConnections():void{for(const id of [...this.connected.keys()])try{this.assertConnectionActive(id);}catch{}}
+  checkConnections():void{
+    let failed=false, failure:unknown;
+    for(const id of [...this.connected.keys()])try{this.assertConnectionActive(id);}catch(error){if(!failed){failed=true;failure=error;}}
+    // Examine every connection before reporting failure; the transport must
+    // stop rather than continue with uncertain durable revocation state.
+    if(failed)throw failure;
+  }
 
   /** MAC verification precedes operation admission. Fence its cleanup too:
    * an out-of-window host clock must never prune live lease tombstones. */

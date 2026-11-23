@@ -28,6 +28,8 @@
  * 7C señaló como capaz de invertir la decisión a favor de un host propio.
  */
 
+import { win32 } from "node:path";
+
 /** Identificador del servicio en el SCM. Fija además el nombre de la cuenta virtual. */
 export const SERVICE_ID = "CamachoPOSLocalService";
 export const SERVICE_NAME = "Camacho POS Local Service";
@@ -103,10 +105,37 @@ export interface ServiceDescriptorInput {
   /** El bundle del servicio, ya extraído del artefacto. */
   readonly bundle: string;
   readonly workingDirectory: string;
-  /** Las nueve variables que `parseServiceConfig` exige, ni una más. */
+  /**
+   * WinSW log directory under ProgramData. Required for commercial packaging:
+   * the virtual service account cannot write under Program Files.
+   */
+  readonly logDirectory?: string;
+  /** Variables requeridas y, opcionalmente, el par de provisión SCM autenticada. */
   readonly environment: Readonly<Record<string, string>>;
   /** Explicit installer intent. Never infer commercial readiness from base POS vars. */
   readonly commercialLogin?: boolean;
+}
+
+const OPTIONAL_SCM_ENVIRONMENT = Object.freeze([
+  "POS_WINDOWS_SCM_HANDOFF_FILE",
+  "POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE",
+] as const);
+
+const NONCOMMERCIAL_SEGMENTS = Object.freeze([
+  "lab-data", ".lab-state", "camachoposcmlab", "design-review-runtime", "preprod",
+]);
+
+function managedScmPath(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (!/^[a-z]:\\/i.test(value) || !win32.isAbsolute(value) ||
+      win32.normalize(value) !== value || value.slice(2).includes(":") || /[\x00-\x1f]/.test(value)) {
+    throw new Error("SCM_MANAGED_PATH_REJECTED");
+  }
+  const segments = value.toLowerCase().split(/[\\/]/);
+  if (segments.some((segment) => (NONCOMMERCIAL_SEGMENTS as readonly string[]).includes(segment))) {
+    throw new Error("SCM_NONCOMMERCIAL_PATH_REJECTED");
+  }
+  return value;
 }
 
 export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
@@ -124,13 +153,25 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
     throw new Error(`service descriptor is missing required environment: ${missing.join(", ")}`);
   }
   const unexpected = Object.keys(input.environment).filter(
-    (key) => !REQUIRED_ENVIRONMENT.includes(key),
+    (key) => !REQUIRED_ENVIRONMENT.includes(key) &&
+      !(OPTIONAL_SCM_ENVIRONMENT as readonly string[]).includes(key),
   );
   if (unexpected.length > 0) {
     // `parseServiceConfig` rechaza cualquier `POS_*` desconocida: dejar pasar
     // una aquí produciría un servicio que no arranca y un diagnóstico opaco.
     throw new Error(`service descriptor carries unexpected environment: ${unexpected.join(", ")}`);
   }
+  const handoff = managedScmPath(input.environment.POS_WINDOWS_SCM_HANDOFF_FILE);
+  const central = managedScmPath(input.environment.POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE);
+  // Online Central authority is mandatory with the managed SERVICE handoff.
+  // Emitting only one of the pair would fail closed at LocalChannelComponent.start.
+  if ((handoff === undefined) !== (central === undefined)) {
+    throw new Error("SCM_CENTRAL_PROVISION_REQUIRED");
+  }
+  if (handoff !== undefined && central !== undefined && handoff === central) {
+    throw new Error("SCM_MANAGED_PATH_REJECTED");
+  }
+  const logDirectory = managedScmPath(input.logDirectory);
 
   const lines = [
     "<service>",
@@ -140,6 +181,8 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
     `  <executable>${escapeXml(input.nodeExecutable)}</executable>`,
     `  <arguments>${escapeXml(`"${input.bundle}"`)}</arguments>`,
     `  <workingdirectory>${escapeXml(input.workingDirectory)}</workingdirectory>`,
+    // WinSW logs must not write under Program Files (virtual account has no write).
+    ...(logDirectory === undefined ? [] : [`  <logpath>${escapeXml(logDirectory)}</logpath>`]),
     "  <startmode>Automatic</startmode>",
     // WinSW 2.12 XmlServiceConfig reads <domain>/<user> only — <username> is ignored
     // and the service silently installs as LocalSystem (HasServiceAccount => false).
@@ -165,6 +208,8 @@ export function buildServiceDescriptor(input: ServiceDescriptorInput): string {
     ...REQUIRED_ENVIRONMENT.map(
       (key) => `  <env name="${key}" value="${escapeXml(input.environment[key] ?? "")}"/>`,
     ),
+    ...(handoff === undefined ? [] : [`  <env name="POS_WINDOWS_SCM_HANDOFF_FILE" value="${escapeXml(handoff)}"/>`]),
+    ...(central === undefined ? [] : [`  <env name="POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE" value="${escapeXml(central)}"/>`]),
     "</service>",
   ];
   return `${lines.join("\n")}\n`;

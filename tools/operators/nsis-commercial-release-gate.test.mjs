@@ -42,9 +42,9 @@ test("packer refuses before materializing desktop/NSIS resources", () => {
   assert.doesNotMatch(result.stderr, /PACK_WINDOWS_NSIS_DIST_MISSING/);
 });
 
-test("packaging hook cannot auto-install diagnostic service", () => {
+test("packaging hook cannot auto-install diagnostic or physical-prep service", () => {
   assert.match(nsh, /Abort "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN"/);
-  assert.doesNotMatch(nsh, /-Action Install|-InstallProfile LAB/);
+  assert.doesNotMatch(nsh, /-Action Install|-Action PreparePhysicalCertification|-InstallProfile LAB/);
 });
 
 test("installer rejects before SCM or data mutations and has no sample defaults", () => {
@@ -58,6 +58,40 @@ test("installer rejects before SCM or data mutations and has no sample defaults"
   assert.match(ps, /COMMERCIAL_LAB_DIRECTORY_REJECTED/);
   assert.match(ps, /COMMERCIAL_IDENTITY_INVALID_OR_SAMPLE/);
   assert.match(ps, /SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN/);
+  assert.match(ps, /\$ScmHandoffFile/);
+  assert.match(ps, /\$ScmCentralProvisionFile/);
+  assert.match(ps, /SCM_CENTRAL_PROVISION_REQUIRED/);
+  assert.match(ps, /Apply-ScmProvisionEnv/);
+  assert.match(ps, /__CAMACHO_POS_WINDOWS_SCM_HANDOFF_FILE__/);
+  assert.match(ps, /__CAMACHO_POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE__/);
+});
+
+test("physical certification prep is explicit, attested, and commercially gated", () => {
+  assert.match(ps, /PreparePhysicalCertification/);
+  assert.match(ps, /Assert-PhysicalCertificationAttestation/);
+  assert.match(ps, /Assert-ScmProvisionBinding/);
+  assert.match(ps, /SCM_HANDOFF_IDENTITY_MISMATCH/);
+  assert.match(ps, /PHYSICAL_ATTESTATION_REQUIRED/);
+  assert.match(ps, /PHYSICAL_PREP_UNEXPECTED_COMMERCIAL_START/);
+  assert.match(ps, /physical-certification-prep\.ok/);
+  assert.match(ps, /Grant-ServiceRuntimeAcls/);
+  assert.match(ps, /SCM_PROVISION_ACL_TARGET_MISSING/);
+  assert.match(ps, /expectedCommercialGateDenial/);
+  assert.doesNotMatch(ps, /commercialReady\s*=\s*\$true|commercial_ready\s*=\s*true/);
+  const prep = ps.indexOf("  'PreparePhysicalCertification' {");
+  const install = ps.indexOf("  'Install' {");
+  assert.ok(prep > install);
+  assert.match(ps.slice(prep), /commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'/);
+});
+
+test("staged WinSW template builder requires the authenticated SCM pair placeholders", async () => {
+  const stage = readFileSync(join(root, "apps/pos-desktop/scripts/stage-nsis-service-payload.mjs"), "utf8");
+  assert.match(stage, /POS_WINDOWS_SCM_HANDOFF_FILE/);
+  assert.match(stage, /POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE/);
+  assert.match(stage, /SCM_CENTRAL_PROVISION_REQUIRED/);
+  assert.match(stage, /WINSW_TEMPLATE_SCM_OR_LOGPATH_INCOMPLETE/);
+  assert.match(stage, /<logpath>/);
+  assert.doesNotMatch(stage, /POS_SCM_COMMERCIAL_READY|commercialLogin:\s*true/);
 });
 
 test("PowerShell helper parses without executing installation", { skip: process.platform !== "win32" }, () => {

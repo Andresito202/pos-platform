@@ -26,6 +26,7 @@ const CONFIG_ENVIRONMENT_KEYS = new Set([
   "POS_AUTHORIZATION_TRUST_PROVISION_FILE",
   "POS_WINDOWS_COMMERCIAL_PROVISION_FILE",
   "POS_WINDOWS_SCM_HANDOFF_FILE",
+  "POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE",
   "POS_LICENSE_CAPACITY_PROVISION_FILE",
   "POS_QR001_PUBLIC_KEY_FILE",
   "POS_QR001_KEY_ID",
@@ -49,6 +50,7 @@ const ServiceConfigSchema = z.strictObject({
   windows_scale_profile_file:z.string().refine(isAbsolute).optional(),
   windows_commercial_provision_file:z.string().refine(isAbsolute).optional(),
   windows_scm_handoff_file:z.string().refine(isAbsolute).optional(),
+  windows_scm_central_provision_file:z.string().refine(isAbsolute).optional(),
   license_capacity_provision_file:z.string().refine(isAbsolute).optional(),
   qr001_public_key_file:z.string().refine(isAbsolute).optional(),
   qr001_key_id:z.string().regex(/^[A-Za-z0-9._-]{1,96}$/).optional(),
@@ -70,6 +72,37 @@ const ServiceConfigSchema = z.strictObject({
   }
   if ((value.session_trust_environment === undefined) !== (value.session_trust_root_public_key_pem === undefined)) {
     context.addIssue({ code: "custom", path: ["session_trust_environment"], message: "session trust environment and root public key must be configured together" });
+  }
+  if ((value.windows_scm_handoff_file === undefined) !== (value.windows_scm_central_provision_file === undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["windows_scm_central_provision_file"],
+      message: "Windows SCM handoff and Central provision must be configured together",
+    });
+  }
+  if (value.windows_scm_handoff_file !== undefined &&
+      value.windows_scm_central_provision_file !== undefined &&
+      value.windows_scm_handoff_file === value.windows_scm_central_provision_file) {
+    context.addIssue({
+      code: "custom",
+      path: ["windows_scm_central_provision_file"],
+      message: "Windows SCM handoff and Central provision must be distinct managed paths",
+    });
+  }
+  for (const [pathKey, pathValue] of [
+    ["windows_scm_handoff_file", value.windows_scm_handoff_file],
+    ["windows_scm_central_provision_file", value.windows_scm_central_provision_file],
+  ] as const) {
+    if (pathValue === undefined) continue;
+    const segments = pathValue.toLowerCase().split(/[\\/]/);
+    if (segments.some((segment) =>
+      [".lab-state", "lab-data", "camachoposcmlab", "design-review-runtime", "preprod"].includes(segment))) {
+      context.addIssue({
+        code: "custom",
+        path: [pathKey],
+        message: "Windows SCM managed paths cannot use lab or preprod locations",
+      });
+    }
   }
   if (value.session_trust_artifact_path !== undefined && !isAbsolute(value.session_trust_artifact_path)) {
     context.addIssue({ code: "custom", path: ["session_trust_artifact_path"], message: "session trust artifact path must be absolute" });
@@ -112,6 +145,7 @@ export function parseServiceConfig(environment: NodeJS.ProcessEnv): ServiceConfi
     session_trust_transport_token_file: environment.POS_SESSION_TRUST_TRANSPORT_TOKEN_FILE,
     windows_commercial_provision_file: environment.POS_WINDOWS_COMMERCIAL_PROVISION_FILE,
     windows_scm_handoff_file: environment.POS_WINDOWS_SCM_HANDOFF_FILE,
+    windows_scm_central_provision_file: environment.POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE,
     license_capacity_provision_file: environment.POS_LICENSE_CAPACITY_PROVISION_FILE,
     qr001_public_key_file:environment.POS_QR001_PUBLIC_KEY_FILE,
     qr001_key_id:environment.POS_QR001_KEY_ID,

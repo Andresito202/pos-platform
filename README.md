@@ -1,4 +1,9 @@
 <p align="center">
+
+## Continuidad autorizada - SCM PR #127 - 2026-11-22
+
+Por orden expresa del propietario se continua exclusivamente `codex/scm-real-integration-20261122`, PR #127, desde `3da69e30`. Objetivo IN_PROGRESS: conectar PostgreSQL Central, API SCM autenticada, SERVICE y transporte Electron existentes. Esta instruccion sustituye la seleccion historica de linea activa para este alcance; no autoriza otra PR, merge ni desarrollo en main. SCM comercial permanece deshabilitado. Estado y limites: [integracion SCM](docs/testing/scm-real-integration-20261122.md).
+
   <img src="docs/brand/camacho-pos-colombia-logo-960.png"
        alt="Camacho POS Colombia — Vende. Controla. Sigue operando."
        width="640">

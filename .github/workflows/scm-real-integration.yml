@@ -1,0 +1,60 @@
+name: SCM Central SERVICE integration
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/scm-real-integration.yml'
+      - 'apps/central-authority/src/scm-checkpoint-*.ts'
+      - 'apps/central-authority/tests/scm-checkpoint-*.test.ts'
+      - 'apps/pos-local-service/src/channel/scm-central-checkpoint.ts'
+      - 'apps/pos-local-service/src/channel/windows-scm-transport.ts'
+      - 'apps/pos-local-service/tests/scm-*.test.ts'
+      - 'packages/database-postgres/src/scm-checkpoint-repository.ts'
+      - 'tools/target-migrations/sql/postgres/034_scm_checkpoints.*.sql'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scm-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16.14
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432/tcp']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.19.0
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
+        with:
+          version: 9.15.0
+          run_install: false
+      - run: pnpm install --frozen-lockfile
+      - name: Verify pending PostgreSQL and HTTPS integration cases
+        env:
+          SCM_TEST_SERVER_URL: postgres://postgres@127.0.0.1:${{ job.services.postgres.ports[5432] }}/postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "$RUNNER_TEMP/scm-test.key" -out "$RUNNER_TEMP/scm-test.crt" -days 1 -subj /CN=localhost -addext 'subjectAltName=IP:127.0.0.1,DNS:localhost'
+          SCM_TEST_TLS_KEY="$RUNNER_TEMP/scm-test.key" SCM_TEST_TLS_CERT="$RUNNER_TEMP/scm-test.crt" NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/scm-test.crt" pnpm --filter @pos-platform/pos-local-service test -- tests/scm-postgres-integration.test.ts
+      - name: Typecheck affected runtime and migration runner
+        run: |
+          pnpm --filter @pos-platform/central-authority typecheck
+          pnpm --filter @pos-platform/pos-local-service typecheck
+          pnpm --filter @pos-platform/target-migrations typecheck

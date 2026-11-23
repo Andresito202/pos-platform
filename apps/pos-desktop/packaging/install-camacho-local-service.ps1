@@ -15,7 +15,7 @@
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)][ValidateSet('Install', 'Uninstall', 'Status')][string]$Action,
+  [Parameter(Mandatory = $true)][ValidateSet('Install', 'Uninstall', 'Status', 'PreparePhysicalCertification')][string]$Action,
   [Parameter(Mandatory = $true)][string]$PayloadDir,
   [string]$DataDirectory,
   [string]$InstallationId,
@@ -23,6 +23,12 @@ param(
   [string]$TenantId,
   [string]$CompanyId,
   [string]$BranchId,
+  # Authenticated SCM pair for the managed SERVICE. Both required together; never
+  # a commercial enable flag. Install still fails closed until physical certification.
+  [string]$ScmHandoffFile,
+  [string]$ScmCentralProvisionFile,
+  # Owner attestation JSON for PreparePhysicalCertification only. Never an enable flag.
+  [string]$PhysicalCertificationAttestation,
   [switch]$Json
 )
 Set-StrictMode -Version Latest
@@ -186,8 +192,23 @@ function Get-ScmInstallOkMarkerPaths {
   )
 }
 
+function Get-PhysicalCertificationMarkerPaths {
+  return @(
+    (Join-Path $PayloadDir 'physical-certification-prep.ok'),
+    (Join-Path $env:ProgramData 'CamachoPOS\logs\physical-certification-prep.ok')
+  )
+}
+
 function Clear-ScmInstallOkMarker {
   foreach ($marker in Get-ScmInstallOkMarkerPaths) {
+    if (Test-Path -LiteralPath $marker) {
+      Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Clear-PhysicalCertificationMarker {
+  foreach ($marker in Get-PhysicalCertificationMarkerPaths) {
     if (Test-Path -LiteralPath $marker) {
       Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
     }
@@ -213,6 +234,34 @@ function Write-ScmInstallOkMarker {
   Write-HelperLog ("SCM_INSTALL_OK_MARKERS written payload={0}" -f $json)
 }
 
+function Write-PhysicalCertificationMarker {
+  param([Parameter(Mandatory = $true)]$Payload)
+  $body = [ordered]@{
+    at = [DateTime]::UtcNow.ToString('o')
+    profile = 'CAMACHO_SCM_PHYSICAL_CERTIFICATION_PREP_V1'
+    purpose = 'PHYSICAL_CERTIFICATION_PREP'
+    serviceId = $serviceId
+    startName = [string]$Payload.startName
+    status = [string]$Payload.status
+    identityOk = [bool]$Payload.identityOk
+    startType = [string]$Payload.startType
+    commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+    commercialReady = $false
+    expectedCommercialGateDenial = [bool]$Payload.expectedCommercialGateDenial
+    ownerAuthorizationId = [string]$Payload.ownerAuthorizationId
+    attestationSha256 = [string]$Payload.attestationSha256
+    scmHandoffFile = [string]$ScmHandoffFile
+    scmCentralProvisionFile = [string]$ScmCentralProvisionFile
+  }
+  $json = ($body | ConvertTo-Json -Compress)
+  foreach ($marker in Get-PhysicalCertificationMarkerPaths) {
+    $dir = Split-Path -Parent $marker
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    Set-Content -LiteralPath $marker -Value $json -Encoding ASCII
+  }
+  Write-HelperLog ("PHYSICAL_CERT_PREP_MARKERS written payload={0}" -f $json)
+}
+
 function Assert-Payload {
   foreach ($p in @($winswExe, $template, $nodeExe, $bundle)) {
     if (-not (Test-Path -LiteralPath $p -PathType Leaf)) {
@@ -229,9 +278,24 @@ function Assert-Payload {
   }
 }
 
-function Assert-CommercialProvisionReady {
-  # Refuse all commercial installs until native SERVICE/DESKTOP provisioning
-  # and cross-session interoperability have been physically certified.
+function Assert-ManagedScmPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  if ([string]::IsNullOrWhiteSpace($Path)) { throw 'SCM_MANAGED_PATH_REJECTED' }
+  if ($Path -notmatch '^[A-Za-z]:\\') { throw 'SCM_MANAGED_PATH_REJECTED' }
+  if ($Path -match '[\x00-\x1f]') { throw 'SCM_MANAGED_PATH_REJECTED' }
+  if (($Path.Substring(2)).Contains(':')) { throw 'SCM_MANAGED_PATH_REJECTED' }
+  $full = [System.IO.Path]::GetFullPath($Path)
+  if (-not [string]::Equals($full, $Path, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'SCM_MANAGED_PATH_REJECTED'
+  }
+  $segments = $full -split '[\\/]'
+  if (@($segments | Where-Object {
+    $_ -match '^(?i:lab-data|\.lab-state|camachoposcmlab|design-review-runtime|preprod)$'
+  }).Count -ne 0) { throw 'SCM_NONCOMMERCIAL_PATH_REJECTED' }
+}
+
+function Assert-CommercialInstallInputs {
+  # Shared identity/path checks. Does not enable commercial SCM.
   if ([string]::IsNullOrWhiteSpace($DataDirectory)) { throw 'COMMERCIAL_DATA_DIRECTORY_REQUIRED' }
   if ($DataDirectory -notmatch '^[A-Za-z]:\\') { throw 'COMMERCIAL_DATA_DIRECTORY_NOT_LOCAL_ABSOLUTE' }
   $canonical = [System.IO.Path]::GetFullPath($DataDirectory)
@@ -246,16 +310,170 @@ function Assert-CommercialProvisionReady {
       throw 'COMMERCIAL_IDENTITY_INVALID_OR_SAMPLE'
     }
   }
+  $hasHandoff = -not [string]::IsNullOrWhiteSpace($ScmHandoffFile)
+  $hasCentral = -not [string]::IsNullOrWhiteSpace($ScmCentralProvisionFile)
+  if ($hasHandoff -ne $hasCentral) { throw 'SCM_CENTRAL_PROVISION_REQUIRED' }
+  if ($hasHandoff) {
+    Assert-ManagedScmPath -Path $ScmHandoffFile
+    Assert-ManagedScmPath -Path $ScmCentralProvisionFile
+    if ([string]::Equals($ScmHandoffFile, $ScmCentralProvisionFile, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw 'SCM_MANAGED_PATH_REJECTED'
+    }
+  }
+}
+
+function Assert-CommercialProvisionReady {
+  # Refuse all commercial installs until native SERVICE/DESKTOP provisioning
+  # and cross-session interoperability have been physically certified.
+  Assert-CommercialInstallInputs
   throw 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
 }
 
+function Assert-ScmProvisionBinding {
+  # Public JSON only: never open signer_private_file / receiver contents.
+  $raw = [IO.File]::ReadAllText($ScmHandoffFile)
+  $provision = $raw | ConvertFrom-Json
+  if ([string]$provision.role -ne 'SERVICE') { throw 'SCM_PROVISION_ROLE_MISMATCH' }
+  if ($null -eq $provision.handoff) { throw 'SCM_HANDOFF_SHAPE_REJECTED' }
+  $h = $provision.handoff
+  if (-not [string]::Equals([string]$h.installation_id, $InstallationId, [System.StringComparison]::OrdinalIgnoreCase) -or
+      -not [string]::Equals([string]$h.device_id, $DeviceId, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'SCM_HANDOFF_IDENTITY_MISMATCH'
+  }
+  if ([string]$h.service_id -ne $serviceId) { throw 'SCM_HANDOFF_SERVICE_MISMATCH' }
+  $script:scmNestedAclTargets = New-Object System.Collections.Generic.List[string]
+  foreach ($prop in @('adapter_file', 'signer_private_file')) {
+    $pathValue = [string]$provision.$prop
+    if (-not [string]::IsNullOrWhiteSpace($pathValue)) {
+      Assert-ManagedScmPath -Path $pathValue
+      [void]$script:scmNestedAclTargets.Add($pathValue)
+    }
+  }
+  if ($null -ne $h.capsule_file -and -not [string]::IsNullOrWhiteSpace([string]$h.capsule_file)) {
+    Assert-ManagedScmPath -Path ([string]$h.capsule_file)
+    [void]$script:scmNestedAclTargets.Add([string]$h.capsule_file)
+  }
+  $centralRaw = [IO.File]::ReadAllText($ScmCentralProvisionFile)
+  $central = $centralRaw | ConvertFrom-Json
+  if ($null -ne $central.candidate_file -and -not [string]::IsNullOrWhiteSpace([string]$central.candidate_file)) {
+    Assert-ManagedScmPath -Path ([string]$central.candidate_file)
+    [void]$script:scmNestedAclTargets.Add([string]$central.candidate_file)
+  }
+  Write-HelperLog ("SCM_PROVISION_BINDING_OK nestedAclTargets={0}" -f $script:scmNestedAclTargets.Count)
+}
+
+function Assert-PhysicalCertificationAttestation {
+  if ([string]::IsNullOrWhiteSpace($PhysicalCertificationAttestation)) {
+    throw 'PHYSICAL_ATTESTATION_REQUIRED'
+  }
+  Assert-ManagedScmPath -Path $PhysicalCertificationAttestation
+  if (-not (Test-Path -LiteralPath $PhysicalCertificationAttestation -PathType Leaf)) {
+    throw 'PHYSICAL_ATTESTATION_MISSING'
+  }
+  $raw = [IO.File]::ReadAllText($PhysicalCertificationAttestation)
+  $att = $raw | ConvertFrom-Json
+  $required = @(
+    'profile', 'purpose', 'commercial_ready', 'commercial_gate', 'owner_authorization_id',
+    'target_machine', 'installation_id', 'device_id', 'issued_at', 'expires_at', 'scope'
+  )
+  foreach ($key in $required) {
+    if (-not ($att.PSObject.Properties.Name -contains $key)) { throw 'PHYSICAL_ATTESTATION_SHAPE_REJECTED' }
+  }
+  if (@($att.PSObject.Properties).Count -ne $required.Count) { throw 'PHYSICAL_ATTESTATION_SHAPE_REJECTED' }
+  if ([string]$att.profile -ne 'CAMACHO_SCM_PHYSICAL_CERTIFICATION_ATTESTATION_V1') {
+    throw 'PHYSICAL_ATTESTATION_PROFILE_REJECTED'
+  }
+  if ([string]$att.purpose -ne 'PHYSICAL_CERTIFICATION_PREP') {
+    throw 'PHYSICAL_ATTESTATION_PURPOSE_REJECTED'
+  }
+  if ($att.commercial_ready -ne $false) { throw 'PHYSICAL_ATTESTATION_COMMERCIAL_CLAIM_REJECTED' }
+  if ([string]$att.commercial_gate -ne 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN') {
+    throw 'PHYSICAL_ATTESTATION_GATE_REJECTED'
+  }
+  $ownerId = [string]$att.owner_authorization_id
+  if ($ownerId.Trim().Length -lt 8 -or $ownerId.Length -gt 128) {
+    throw 'PHYSICAL_ATTESTATION_OWNER_ID_REJECTED'
+  }
+  $machine = [string]$att.target_machine
+  if ($machine.Trim().Length -lt 1 -or $machine.Length -gt 128) {
+    throw 'PHYSICAL_ATTESTATION_MACHINE_REJECTED'
+  }
+  foreach ($pair in @(
+    @{ Expected = $InstallationId; Actual = [string]$att.installation_id },
+    @{ Expected = $DeviceId; Actual = [string]$att.device_id }
+  )) {
+    if ($pair.Actual -notmatch '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' -or
+        $pair.Actual -match '^018f0000-0000-7000-8000-0000000000a[1-5]$' -or
+        -not [string]::Equals($pair.Expected, $pair.Actual, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw 'PHYSICAL_ATTESTATION_IDENTITY_REJECTED'
+    }
+  }
+  if ([string]::Equals($att.installation_id, $att.device_id, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'PHYSICAL_ATTESTATION_IDENTITY_REJECTED'
+  }
+  $from = [DateTime]::Parse([string]$att.issued_at, $null, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+  $until = [DateTime]::Parse([string]$att.expires_at, $null, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+  $now = [DateTime]::UtcNow
+  if ($until -le $from -or $from -gt $now -or $now -ge $until) { throw 'PHYSICAL_ATTESTATION_WINDOW_INVALID' }
+  $expectedScope = @('WINSW_INSTALL', 'ACL_DPAPI_EVIDENCE', 'NATIVE_TRANSPORT_EVIDENCE')
+  $scope = @($att.scope)
+  if ($scope.Count -ne $expectedScope.Count) { throw 'PHYSICAL_ATTESTATION_SCOPE_REJECTED' }
+  for ($i = 0; $i -lt $expectedScope.Count; $i++) {
+    if ([string]$scope[$i] -ne $expectedScope[$i]) { throw 'PHYSICAL_ATTESTATION_SCOPE_REJECTED' }
+  }
+  $script:physicalAttestationOwnerId = $ownerId
+  $script:physicalAttestationSha256 = Get-FileSha256Hex -Path $PhysicalCertificationAttestation
+  Write-HelperLog ("PHYSICAL_ATTESTATION_OK owner={0} sha256={1}" -f $ownerId, $script:physicalAttestationSha256)
+}
+
 function Resolve-DataDirectory {
-  Assert-CommercialProvisionReady
+  param([switch]$ForPhysicalCertificationPrep)
+  if ($ForPhysicalCertificationPrep) {
+    Assert-CommercialInstallInputs
+    Assert-PhysicalCertificationAttestation
+    $hasHandoff = -not [string]::IsNullOrWhiteSpace($ScmHandoffFile)
+    $hasCentral = -not [string]::IsNullOrWhiteSpace($ScmCentralProvisionFile)
+    if (-not ($hasHandoff -and $hasCentral)) { throw 'SCM_CENTRAL_PROVISION_REQUIRED' }
+    if (-not (Test-Path -LiteralPath $ScmHandoffFile -PathType Leaf)) { throw 'SCM_HANDOFF_FILE_MISSING' }
+    if (-not (Test-Path -LiteralPath $ScmCentralProvisionFile -PathType Leaf)) { throw 'SCM_CENTRAL_PROVISION_FILE_MISSING' }
+    Assert-ScmProvisionBinding
+  } else {
+    Assert-CommercialProvisionReady
+  }
   return $DataDirectory
 }
 
+function Apply-ScmProvisionEnv {
+  param([Parameter(Mandatory = $true)][string]$Xml)
+  $hasHandoff = -not [string]::IsNullOrWhiteSpace($ScmHandoffFile)
+  $hasCentral = -not [string]::IsNullOrWhiteSpace($ScmCentralProvisionFile)
+  if ($hasHandoff -ne $hasCentral) { throw 'SCM_CENTRAL_PROVISION_REQUIRED' }
+  if (-not $hasHandoff) {
+    # Base commercial install without SCM transport: strip pair placeholders.
+    $Xml = [regex]::Replace($Xml, '(?m)^\s*<env name="POS_WINDOWS_SCM_HANDOFF_FILE"[^/]*/>\r?\n?', '')
+    $Xml = [regex]::Replace($Xml, '(?m)^\s*<env name="POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE"[^/]*/>\r?\n?', '')
+    if ($Xml -match 'POS_WINDOWS_SCM_(?:HANDOFF|CENTRAL_PROVISION)_FILE') {
+      throw 'WINSW_TEMPLATE_SCM_PLACEHOLDER_STUCK'
+    }
+    return $Xml
+  }
+  Assert-ManagedScmPath -Path $ScmHandoffFile
+  Assert-ManagedScmPath -Path $ScmCentralProvisionFile
+  if ([string]::Equals($ScmHandoffFile, $ScmCentralProvisionFile, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'SCM_MANAGED_PATH_REJECTED'
+  }
+  if ($Xml -notmatch '__CAMACHO_POS_WINDOWS_SCM_HANDOFF_FILE__' -or
+      $Xml -notmatch '__CAMACHO_POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE__') {
+    throw 'WINSW_TEMPLATE_MISSING_SCM_PAIR'
+  }
+  $Xml = $Xml.Replace('__CAMACHO_POS_WINDOWS_SCM_HANDOFF_FILE__', (Escape-XmlValue $ScmHandoffFile))
+  $Xml = $Xml.Replace('__CAMACHO_POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE__', (Escape-XmlValue $ScmCentralProvisionFile))
+  return $Xml
+}
+
 function Materialize-Xml {
-  $script:resolvedDataDirectory = Resolve-DataDirectory
+  param([switch]$ForPhysicalCertificationPrep)
+  $script:resolvedDataDirectory = Resolve-DataDirectory -ForPhysicalCertificationPrep:$ForPhysicalCertificationPrep
   New-Item -ItemType Directory -Force -Path $script:resolvedDataDirectory | Out-Null
   New-Item -ItemType Directory -Force -Path (Join-Path $script:resolvedDataDirectory 'security') | Out-Null
   New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
@@ -271,6 +489,7 @@ function Materialize-Xml {
   $xml = $xml.Replace('__CAMACHO_POS_TENANT_ID__', (Escape-XmlValue $TenantId))
   $xml = $xml.Replace('__CAMACHO_POS_COMPANY_ID__', (Escape-XmlValue $CompanyId))
   $xml = $xml.Replace('__CAMACHO_POS_BRANCH_ID__', (Escape-XmlValue $BranchId))
+  $xml = Apply-ScmProvisionEnv -Xml $xml
   if ($xml -notmatch '<logpath>') {
     throw 'WINSW_TEMPLATE_MISSING_LOGPATH'
   }
@@ -279,6 +498,12 @@ function Materialize-Xml {
   }
   if ($xml -notmatch '(?s)<serviceaccount>.*<domain>NT SERVICE</domain>.*<user>CamachoPOSLocalService</user>') {
     throw 'WINSW_TEMPLATE_MISSING_VIRTUAL_SERVICEACCOUNT'
+  }
+  if ($ForPhysicalCertificationPrep) {
+    if ($xml -notmatch 'POS_WINDOWS_SCM_HANDOFF_FILE' -or
+        $xml -notmatch 'POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE') {
+      throw 'WINSW_TEMPLATE_SCM_PAIR_NOT_MATERIALIZED'
+    }
   }
   [IO.File]::WriteAllText($xmlPath, $xml, [Text.UTF8Encoding]::new($false))
 }
@@ -432,6 +657,27 @@ function Grant-ServiceRuntimeAcls {
   if (Test-Path -LiteralPath $camachoRoot) {
     $targets += @{ Path = $camachoRoot; Right = 'RX'; Directory = $true }
   }
+  # Authenticated SCM provisions and nested managed paths must be readable by
+  # the virtual account after certification. Never broaden to Users/Everyone.
+  $scmPaths = New-Object System.Collections.Generic.List[string]
+  foreach ($scmPath in @($ScmHandoffFile, $ScmCentralProvisionFile)) {
+    if (-not [string]::IsNullOrWhiteSpace($scmPath)) { [void]$scmPaths.Add($scmPath) }
+  }
+  if ($null -ne $script:scmNestedAclTargets) {
+    foreach ($nested in $script:scmNestedAclTargets) { [void]$scmPaths.Add([string]$nested) }
+  }
+  foreach ($scmPath in $scmPaths) {
+    Assert-ManagedScmPath -Path $scmPath
+    if (-not (Test-Path -LiteralPath $scmPath)) {
+      throw ("SCM_PROVISION_ACL_TARGET_MISSING:{0}" -f $scmPath)
+    }
+    $isDirectory = (Test-Path -LiteralPath $scmPath -PathType Container)
+    $parent = Split-Path -Parent $scmPath
+    if (-not [string]::IsNullOrWhiteSpace($parent) -and (Test-Path -LiteralPath $parent -PathType Container)) {
+      $targets += @{ Path = $parent; Right = 'RX'; Directory = $true }
+    }
+    $targets += @{ Path = $scmPath; Right = 'RX'; Directory = $isDirectory }
+  }
   foreach ($t in $targets) {
     Grant-PathAclViaIcacls -Path $t.Path -RightToken $t.Right -SidValue $sid -Directory:$t.Directory
     Assert-EffectiveAclViaIcacls -Path $t.Path -SidValue $sid -ExpectedRight $t.Right
@@ -536,22 +782,40 @@ switch ($Action) {
     Assert-CommercialProvisionReady
     Assert-Admin
     Clear-ScmInstallOkMarker
+    Clear-PhysicalCertificationMarker
     Assert-Payload
-    # Verify native tools exist before mutating SCM.
     [void](Resolve-System32Tool -FileName 'sc.exe')
     [void](Resolve-System32Tool -FileName 'icacls.exe')
     [void](Resolve-System32Tool -FileName 'certutil.exe')
     Materialize-Xml
+    # Unreachable while the commercial gate remains NOT_PROVEN; retained for
+    # the authorized post-certification Install path without changing the gate.
+    Write-Result @{
+      ok = $false
+      error = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+    } 4
+  }
+  'PreparePhysicalCertification' {
+    # Explicit owner-attested prep. Does NOT clear the commercial release gate,
+    # does NOT enable Electron commercial SCM login, and is never invoked by NSIS.
+    Assert-Admin
+    Clear-ScmInstallOkMarker
+    Clear-PhysicalCertificationMarker
+    Assert-Payload
+    [void](Resolve-System32Tool -FileName 'sc.exe')
+    [void](Resolve-System32Tool -FileName 'icacls.exe')
+    [void](Resolve-System32Tool -FileName 'certutil.exe')
+    Materialize-Xml -ForPhysicalCertificationPrep
 
     $existing = Get-ScmQuery
     if ($existing.present) {
       $stopInfo = Stop-ScmServiceNative
-      Write-HelperLog ("PRE_INSTALL_STOP {0}" -f ($stopInfo.notes -join ' | '))
+      Write-HelperLog ("PRE_PHYSICAL_STOP {0}" -f ($stopInfo.notes -join ' | '))
       if (Test-Path -LiteralPath $winswExe -PathType Leaf) {
         [void](Invoke-WinSW -WinSwArguments @('uninstall'))
       }
       $del = Invoke-NativeTool -FileName 'sc.exe' -ArgumentList @('delete', $serviceId)
-      Write-HelperLog ("PRE_INSTALL_SC_DELETE exit={0} out={1}" -f $del.exitCode, $del.combined)
+      Write-HelperLog ("PRE_PHYSICAL_SC_DELETE exit={0} out={1}" -f $del.exitCode, $del.combined)
       Start-Sleep -Seconds 2
     }
 
@@ -561,6 +825,7 @@ switch ($Action) {
         ok = $false
         error = 'WINSW_INSTALL_FAILED'
         exitCode = $installCode
+        commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
       } (Get-ScmDiagnostics)) 5
     }
 
@@ -573,6 +838,7 @@ switch ($Action) {
         startName = $startNameAfterInstall
         expectedStartName = $serviceAccount
         xmlSnippet = (Get-XmlAccountSnippet)
+        commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
       } (Get-ScmDiagnostics)) 7
     }
 
@@ -584,51 +850,73 @@ switch ($Action) {
         error = 'SERVICE_ACL_GRANT_FAILED'
         message = [string]$_.Exception.Message
         startName = $startNameAfterInstall
+        commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
       } (Get-ScmDiagnostics)) 9
     }
 
     $startCode = Invoke-WinSW -WinSwArguments @('start')
-    $qAfterStart = Get-ScmQuery
-    $running = $qAfterStart.present -and ($qAfterStart.state -eq 'RUNNING' -or $qAfterStart.state -eq 'START_PENDING')
-    if (-not $running) {
-      Write-Result (Merge-Result @{
-        ok = $false
-        error = 'WINSW_START_FAILED'
-        exitCode = $startCode
-        status = $qAfterStart.state
-        startName = $startNameAfterInstall
-      } (Get-ScmDiagnostics)) 6
-    }
-
     Start-Sleep -Seconds 5
     $qStable = Get-ScmQuery
     $cfgStable = Get-ScmConfig
     $startName = [string]$cfgStable.startName
     $identityOk = $startName -eq $serviceAccount
     $stillRunning = $qStable.present -and ($qStable.state -eq 'RUNNING' -or $qStable.state -eq 'START_PENDING')
-    $autoOk = ($cfgStable.startType -eq 'AUTO_START' -or $cfgStable.startType -eq 'AUTO')
-    if (-not ($stillRunning -and $identityOk)) {
+    $helperLog = Join-Path $logDirectory 'winsw-helper.log'
+    $serviceLogTail = ''
+    if (Test-Path -LiteralPath $logDirectory) {
+      $logFile = Get-ChildItem -LiteralPath $logDirectory -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne 'winsw-helper.log' -and $_.Name -ne 'physical-certification-prep.ok' } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+      if ($null -ne $logFile) {
+        try {
+          $serviceLogTail = Get-Content -LiteralPath $logFile.FullName -Tail 40 -ErrorAction SilentlyContinue |
+            Out-String
+        } catch { $serviceLogTail = '' }
+      }
+    }
+    $gateDenied = ($serviceLogTail -match 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN') -or
+      ($serviceLogTail -match 'runtime\.start_failed')
+    # With the authenticated SCM pair materialized, commercial entry must remain
+    # fail-closed. Identity + ACL success with an expected gate denial is the
+    # physical-prep evidence; a stable commercial RUNNING start is not.
+    if (-not $identityOk) {
       Write-Result (Merge-Result @{
         ok = $false
-        error = $(if (-not $identityOk) { 'WINSW_VIRTUAL_ACCOUNT_NOT_BOUND' } else { 'WINSW_START_NOT_STABLE' })
+        error = 'WINSW_VIRTUAL_ACCOUNT_NOT_BOUND'
         registered = $qStable.present
         status = $qStable.state
         startName = $startName
-        identityOk = $identityOk
-        startType = $cfgStable.startType
-        dataDirectory = $script:resolvedDataDirectory
-        logDirectory = $logDirectory
-        xml = $xmlPath
+        startExitCode = $startCode
         commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
-        authenticodeProduct = 'RT-009-B_BLOCKED'
       } (Get-ScmDiagnostics)) 7
     }
-    if (-not $autoOk) {
-      Write-HelperLog ("WARN_START_TYPE_NOT_AUTO raw={0}" -f $cfgStable.startType)
+    if ($stillRunning) {
+      Write-Result (Merge-Result @{
+        ok = $false
+        error = 'PHYSICAL_PREP_UNEXPECTED_COMMERCIAL_START'
+        registered = $true
+        status = $qStable.state
+        startName = $startName
+        note = 'SCM commercial entry must remain blocked during physical prep'
+        commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+      } (Get-ScmDiagnostics)) 10
+    }
+    if (-not $gateDenied) {
+      Write-Result (Merge-Result @{
+        ok = $false
+        error = 'PHYSICAL_PREP_GATE_DENIAL_NOT_OBSERVED'
+        registered = $qStable.present
+        status = $qStable.state
+        startName = $startName
+        startExitCode = $startCode
+        commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+      } (Get-ScmDiagnostics)) 11
     }
 
     $success = @{
       ok = $true
+      purpose = 'PHYSICAL_CERTIFICATION_PREP'
       registered = $true
       status = [string]$qStable.state
       startName = $startName
@@ -637,16 +925,22 @@ switch ($Action) {
       dataDirectory = $script:resolvedDataDirectory
       logDirectory = $logDirectory
       xml = $xmlPath
+      expectedCommercialGateDenial = $true
+      ownerAuthorizationId = [string]$script:physicalAttestationOwnerId
+      attestationSha256 = [string]$script:physicalAttestationSha256
       commercialGate = 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
+      commercialReady = $false
       authenticodeProduct = 'RT-009-B_BLOCKED'
-      note = 'Service installed under NT SERVICE virtual account; commercial Desktop/NT SERVICE IPC remains NOT_PROVEN'
+      note = 'WinSW identity and SCM ACLs prepared; commercial SCM start remains fail-closed'
+      helperLog = $helperLog
     }
-    Write-ScmInstallOkMarker -Payload $success
+    Write-PhysicalCertificationMarker -Payload $success
     Write-Result $success 0
   }
   'Uninstall' {
     Assert-Admin
     Clear-ScmInstallOkMarker
+    Clear-PhysicalCertificationMarker
     [void](Resolve-System32Tool -FileName 'sc.exe')
     $stopNotes = New-Object System.Collections.Generic.List[string]
     $q = Get-ScmQuery

@@ -3,6 +3,7 @@ import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { WindowsScmHandoffProvision } from "@pos-platform/contracts";
 import type { AttestedWindowsPipe, WindowsPipeAdapter } from "@pos-platform/local-channel";
 import { WindowsScmChannelTransport } from "../src/channel/windows-scm-transport.js";
+import { SqliteWindowsHandoffLeaseAuthority } from "../src/channel/sqlite-replay-state.js";
 
 const provision = {
   role: "SERVICE",
@@ -24,6 +25,16 @@ function adapter(overrides: Partial<WindowsPipeAdapter> = {}): WindowsPipeAdapte
 afterEach(() => { vi.useRealTimers(); });
 
 describe("SCM transport fail-closed lifecycle", () => {
+  it("reports lease check failure after checking all active connections", () => {
+    const ledger = new SqliteWindowsHandoffLeaseAuthority(dummyDatabase, provision.handoff);
+    const internals = ledger as unknown as {connected:Map<string, unknown>; assertConnectionActive:(id:string)=>void};
+    internals.connected.set("first", {}); internals.connected.set("second", {});
+    const check = vi.spyOn(internals, "assertConnectionActive").mockImplementation(id => {
+      if (id === "first") throw Error("DURABLE_LEDGER_FAILED");
+    });
+    expect(() => ledger.checkConnections()).toThrow("DURABLE_LEDGER_FAILED");
+    expect(check.mock.calls.map(([id]) => id)).toEqual(["first", "second"]);
+  });
   it("a native listen exception stops the transport and forbids subsequent starts", async () => {
     const mock = adapter({ listen: vi.fn(() => { throw Error("NATIVE_LISTEN_FAILED"); }) });
     const transport = new WindowsScmChannelTransport(
@@ -53,6 +64,43 @@ describe("SCM transport fail-closed lifecycle", () => {
     await vi.runOnlyPendingTimersAsync();
     await closing;
     expect(stop).toHaveBeenCalledTimes(1);
+    await expect(transport.start(() => undefined)).rejects.toThrow("SCM_TRANSPORT_STOPPED");
+  });
+
+  it("Central authority loss during poll destroys Electron sockets and stops native admission", async () => {
+    vi.useFakeTimers();
+    const { Socket } = await import("node:net");
+    const stop = vi.fn();
+    const onFatal = vi.fn();
+    const mock = adapter({ stop, accept: vi.fn(async () => { throw Error("NO_CONNECTION"); }) });
+    const centralAuthority = {
+      authorityState: "ACTIVE" as "ABSENT" | "ACTIVE" | "FAULTED" | "STOPPED",
+      start: vi.fn(async () => { centralAuthority.authorityState = "ACTIVE"; }),
+      assertCurrent: vi.fn(),
+      stop: vi.fn(async () => { centralAuthority.authorityState = "STOPPED"; }),
+    };
+    const transport = new WindowsScmChannelTransport(
+      provision, dummyDatabase, Buffer.alloc(32, 1),
+      { adapter: mock, seal: () => { throw Error("must not publish"); }, onFatal },
+      centralAuthority,
+    );
+    await transport.start(() => undefined);
+    const socket = new Socket();
+    const destroyed = vi.spyOn(socket, "destroy");
+    (transport as unknown as { sockets: Set<InstanceType<typeof Socket>> }).sockets.add(socket);
+    centralAuthority.assertCurrent.mockImplementation(() => {
+      centralAuthority.authorityState = "FAULTED";
+      throw Error("SCM_CENTRAL_AUTHORITY_REQUIRED");
+    });
+    await vi.advanceTimersByTimeAsync(110);
+    const closing = transport.stop();
+    await vi.runOnlyPendingTimersAsync();
+    await closing;
+    expect(destroyed).toHaveBeenCalled();
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(centralAuthority.stop).toHaveBeenCalledOnce();
+    expect(centralAuthority.authorityState).toBe("STOPPED");
+    expect(onFatal).toHaveBeenCalledWith("SCM_TRANSPORT_DURABILITY_FAILED");
     await expect(transport.start(() => undefined)).rejects.toThrow("SCM_TRANSPORT_STOPPED");
   });
 });

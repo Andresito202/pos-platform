@@ -82,6 +82,56 @@ describe("descriptor de servicio WinSW", () => {
     expect(() => parseServiceConfig({ ...VALUES, POS_EXTRA: "1" })).toThrow();
   });
 
+  it("incluye logpath ProgramData y el par SCM handoff+Central, sin habilitar login comercial", () => {
+    const path = "C:\\ProgramData\\CamachoPOS\\handoff & provision.json";
+    const central = "C:\\ProgramData\\CamachoPOS\\central-authority.json";
+    const logDirectory = "C:\\ProgramData\\CamachoPOS\\logs";
+    const xml = buildServiceDescriptor({
+      ...INSTALLATION,
+      logDirectory,
+      environment: {
+        ...VALUES,
+        POS_WINDOWS_SCM_HANDOFF_FILE: path,
+        POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: central,
+      },
+    });
+    expect(xml).toContain(`<logpath>${logDirectory}</logpath>`);
+    const environment = environmentFromXml(xml);
+    expect(environment.POS_WINDOWS_SCM_HANDOFF_FILE).toBe(path);
+    expect(environment.POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE).toBe(central);
+    // WinSW emits Windows absolute paths; node:path.isAbsolute accepts them only on win32.
+    if (process.platform === "win32") {
+      expect(() => parseServiceConfig(environment)).not.toThrow();
+    }
+    for (const invalid of ["relative.json", "C:\\data\\..\\handoff.json", "C:\\data\\x.json:stream", "C:\\data\\x\n.json"]) {
+      expect(() => descriptor({
+        ...VALUES,
+        POS_WINDOWS_SCM_HANDOFF_FILE: invalid,
+        POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: central,
+      })).toThrow("SCM_MANAGED_PATH_REJECTED");
+    }
+    expect(() => descriptor({...VALUES, POS_WINDOWS_SCM_HANDOFF_FILE: path}))
+      .toThrow("SCM_CENTRAL_PROVISION_REQUIRED");
+    expect(() => descriptor({...VALUES, POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: central}))
+      .toThrow("SCM_CENTRAL_PROVISION_REQUIRED");
+    expect(() => descriptor({
+      ...VALUES,
+      POS_WINDOWS_SCM_HANDOFF_FILE: path,
+      POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: path,
+    })).toThrow("SCM_MANAGED_PATH_REJECTED");
+    expect(() => descriptor({
+      ...VALUES,
+      POS_WINDOWS_SCM_HANDOFF_FILE: "C:\\ProgramData\\CamachoPOS\\lab-data\\handoff.json",
+      POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: central,
+    })).toThrow("SCM_NONCOMMERCIAL_PATH_REJECTED");
+    expect(() => buildServiceDescriptor({...INSTALLATION, commercialLogin:true,
+      environment:{
+        ...VALUES,
+        POS_WINDOWS_SCM_HANDOFF_FILE:path,
+        POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE:central,
+      }})).toThrow("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
+  });
+
   it("rechaza anunciar login comercial desde la cuenta virtual: DPAPI/logon SID incompatibles", () => {
     expect(() => descriptor({
       ...VALUES,

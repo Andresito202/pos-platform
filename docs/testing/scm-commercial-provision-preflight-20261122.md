@@ -35,15 +35,17 @@ acceder a los archivos bajo el token correspondiente, que el servicio
 `CamachoPOSLocalService` esté instalado, que exista interoperabilidad SCM ni
 que el POS pueda iniciar sesión.
 
-La verificación definitiva requiere, por separado: instalación SCM autorizada
-sin reutilizar el servicio `PosLocalService` de `.lab-state`, lectura protegida
-real de los JSON bajo SERVICE/DESKTOP, registro correcto de WinSW bajo
-`NT SERVICE\CamachoPOSLocalService`, prueba
-`apps/pos-local-service/tests/windows-scm-physical.test.ts` con
+La verificación definitiva sigue el procedimiento
+`docs/testing/scm-windows-physical-certification-procedure-20261122.md`:
+atestación del propietario, helper `-Action PreparePhysicalCertification`
+(sin NSIS comercial), lectura protegida real de los JSON bajo SERVICE/DESKTOP,
+registro WinSW bajo `NT SERVICE\CamachoPOSLocalService`, ACL del par SCM,
+prueba `apps/pos-local-service/tests/windows-scm-physical.test.ts` con
 `CAMACHO_SCM_PHYSICAL_PROVISION`, evidencias de autenticación negativa,
 revocación persistida y posterior decisión de liberación del gate comercial.
 Mantener `SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN` hasta completar
-esa certificación.
+esa certificación. El preflight opcionalmente acepta el JSON Central como
+tercer argumento; nunca marca `commercial_ready:true`.
 
 Pruebas sin Windows ni credenciales:
 `node --test tools/operators/scm-provision-preflight.test.mjs`.

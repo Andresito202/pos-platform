@@ -228,6 +228,9 @@ async function main() {
   if (!sqliteNode) throw new Error("BETTER_SQLITE3_WIN32_X64_MISSING_IN_ARTIFACT");
 
   // --- WinSW XML (commercialLogin=false; mirrors windows-service-descriptor.ts) ---
+  // Template keeps SCM path placeholders so the elevated helper can materialize the
+  // authenticated handoff+Central pair after physical certification. Until then the
+  // commercial Install action still fails closed on SCM_COMMERCIAL…_NOT_PROVEN.
   const buildServiceDescriptor = (input) => {
     if (input.commercialLogin === true) throw new Error("SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN");
     if (Object.hasOwn(input.environment, "POS_WINDOWS_COMMERCIAL_PROVISION_FILE")) {
@@ -245,9 +248,30 @@ async function main() {
       "POS_BRANCH_ID",
     ];
     for (const k of req) if (!(k in input.environment)) throw new Error(`missing ${k}`);
+    if (!input.logDirectory) throw new Error("WINSW_LOGPATH_REQUIRED");
+    const handoff = input.environment.POS_WINDOWS_SCM_HANDOFF_FILE;
+    const central = input.environment.POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE;
+    if ((handoff === undefined) !== (central === undefined)) {
+      throw new Error("SCM_CENTRAL_PROVISION_REQUIRED");
+    }
+    if (handoff !== undefined && central !== undefined && handoff === central) {
+      throw new Error("SCM_MANAGED_PATH_REJECTED");
+    }
+    const unexpected = Object.keys(input.environment).filter(
+      (key) => !req.includes(key) &&
+        key !== "POS_WINDOWS_SCM_HANDOFF_FILE" &&
+        key !== "POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE",
+    );
+    if (unexpected.length > 0) throw new Error(`unexpected environment: ${unexpected.join(", ")}`);
     const esc = (s) =>
       String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-    const envLines = req.map((k) => `  <env name="${k}" value="${esc(input.environment[k])}"/>`);
+    const envLines = [
+      ...req.map((k) => `  <env name="${k}" value="${esc(input.environment[k])}"/>`),
+      ...(handoff === undefined ? [] : [
+        `  <env name="POS_WINDOWS_SCM_HANDOFF_FILE" value="${esc(handoff)}"/>`,
+        `  <env name="POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE" value="${esc(central)}"/>`,
+      ]),
+    ];
     return [
       "<service>",
       `  <id>${SERVICE_ID}</id>`,
@@ -300,11 +324,18 @@ async function main() {
       POS_TENANT_ID: "__CAMACHO_POS_TENANT_ID__",
       POS_COMPANY_ID: "__CAMACHO_POS_COMPANY_ID__",
       POS_BRANCH_ID: "__CAMACHO_POS_BRANCH_ID__",
+      // Placeholders only. The elevated helper fills or strips this pair.
+      POS_WINDOWS_SCM_HANDOFF_FILE: "__CAMACHO_POS_WINDOWS_SCM_HANDOFF_FILE__",
+      POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: "__CAMACHO_POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE__",
     },
     commercialLogin: false,
   });
   const xmlPath = join(outDir, `${SERVICE_ID}.xml.template`);
   writeFileSync(xmlPath, xml, "utf8");
+  if (!xml.includes("<logpath>") || !xml.includes("POS_WINDOWS_SCM_HANDOFF_FILE") ||
+      !xml.includes("POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE")) {
+    throw new Error("WINSW_TEMPLATE_SCM_OR_LOGPATH_INCOMPLETE");
+  }
 
   const helperSrc = join(desktop, "packaging", "install-camacho-local-service.ps1");
   if (!existsSync(helperSrc)) throw new Error("SERVICE_INSTALL_HELPER_MISSING");

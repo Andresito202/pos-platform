@@ -1,6 +1,7 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
 import {
   WindowsScmPolicySchema, WindowsScmPolicyTrustSchema, SignedWindowsScmPolicySchema,
+  SignedWindowsScmCheckpointSchema, windowsScmCheckpointSigningBytes,
   type WindowsScmPolicy, type WindowsScmPolicyTrust,
 } from "@pos-platform/contracts";
 import { canonicalJson } from "./canonical-json.js";
@@ -8,6 +9,30 @@ import { readWindowsManagedBytes } from "./windows-native-pipe.js";
 
 const reject = (): never => { throw Error("SCM_SIGNED_POLICY_REJECTED"); };
 const domain = "CAMACHO_SCM_APPROVAL_SIGNATURE_V1\0";
+
+/** Signature authenticity and scope only. A once-valid restored snapshot is
+ * indistinguishable here; freshness requires an independent trusted anchor. */
+export function verifyWindowsScmCheckpoint(input: unknown, root: Readonly<{
+  publicKeyPem: string; spkiSha256: string; installationId: string; deviceId: string;
+}>, now = new Date()): Readonly<WindowsScmPolicyTrust> {
+  const envelope = SignedWindowsScmCheckpointSchema.parse(input);
+  const checkpoint = envelope.checkpoint;
+  if (!root.publicKeyPem.trim().startsWith("-----BEGIN PUBLIC KEY-----") ||
+      !/^[a-f0-9]{64}$/.test(root.spkiSha256)) reject();
+  const key = createPublicKey(root.publicKeyPem);
+  const pin = createHash("sha256").update(key.export({format:"der", type:"spki"})).digest("hex");
+  const signature = Buffer.from(envelope.signature, "base64url");
+  active(checkpoint, now);
+  if (key.asymmetricKeyType !== "ed25519" || pin !== root.spkiSha256 ||
+      checkpoint.authority_spki_sha256 !== pin ||
+      !createPublicKey(checkpoint.authority_public_key_pem).export({format:"der", type:"spki"}).equals(key.export({format:"der", type:"spki"})) ||
+      checkpoint.installation_id !== root.installationId || checkpoint.device_id !== root.deviceId ||
+      signature.length !== 64 || signature.toString("base64url") !== envelope.signature ||
+      !verify(null, windowsScmCheckpointSigningBytes(checkpoint), key, signature)) reject();
+  return Object.freeze({...checkpoint,
+    revoked_policy_ids:Object.freeze([...checkpoint.revoked_policy_ids]) as unknown as string[],
+    revoked_authority_pins:Object.freeze([...checkpoint.revoked_authority_pins]) as unknown as string[]});
+}
 
 /** Validate a checkpoint transition after both states have been authenticated
  * by the external custodian. This check neither authenticates nor persists a

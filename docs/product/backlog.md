@@ -1,5 +1,10 @@
 # Backlog maestro
 
+## Continuidad autorizada - SCM PR #127 - 2026-11-22
+
+Por orden expresa del propietario se continua exclusivamente `codex/scm-real-integration-20261122`, PR #127, desde `3da69e30`. Objetivo IN_PROGRESS: conectar PostgreSQL Central, API SCM autenticada, SERVICE y transporte Electron existentes. Esta instruccion sustituye la seleccion historica de linea activa para este alcance; no autoriza otra PR, merge ni desarrollo en main. SCM comercial permanece deshabilitado. Estado y limites: [integracion SCM](../testing/scm-real-integration-20261122.md).
+
+
 ## Puesta en marcha vigente — 2026-11-22
 
 Puesta en marcha desde main — 2026-11-22. PR #115 MERGED; main baa5fd8568ebc3d080f7e474b0d986ff45f5dbc7, árbol idéntico a 2b0ad709. Los cinco workflows post-merge terminaron SUCCESS, incluido Main push governance. La rama codex/business-cash-consolidation-20261120 está INTEGRATED; conservar el ref no la reactiva. El objetivo vigente es ejecutar el producto existente desde main; no hay autorización para otra rama ni desarrollo directo en main. Las referencias anteriores a líneas activas conservan alcance histórico. El propietario autorizó expresamente reutilizar esa misma rama para una PR exclusivamente documental; la excepción no habilita cambios de producto ni otra línea. Ninguno de estos hechos acredita operación comercial.
