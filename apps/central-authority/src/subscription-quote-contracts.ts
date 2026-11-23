@@ -674,18 +674,6 @@ export class SubscriptionQuoteContracts{
         providerReference:String(row.provider_reference),amountScale6,
         totalMinor:Number(row.total_minor),expiresAt:row.expires_at,
       };
-      const actor=await permissions.findActivePlatformPermissionForSession(
-        sessionId,CentralAdministrationOperation.LICENSE_ISSUE,this.limits.reauthenticationMs,
-      );
-      if(!actor)throw Error("LICENSING_GLOBAL_LICENSE_ISSUE_REQUIRED");
-      const payload=canonicalSessionTrustJson({
-        payment_id:meta.paymentId,quote_id:meta.quoteId,provider_reference:meta.providerReference,
-        amount_scale6:meta.amountScale6,tenant_id:meta.tenantId,company_id:meta.companyId,
-      });
-      await c.query(`INSERT INTO audit.audit_events(id,actor_type,actor_id,session_id,action_code,resource_type,resource_reference_kind,resource_id,
-        correlation_id,schema_version,reported_at,server_recorded_at,result,new_value,payload_checksum)
-        VALUES($1,'PLATFORM_ACCOUNT',$2,$3,'SUBSCRIPTION_COLLECTION_QR_RECOVERED','SUBSCRIPTION_QUOTE','INSTANCE',$4,$5,1,clock_timestamp(),clock_timestamp(),'SUCCEEDED',$6::jsonb,$7)`,
-        [uuidV7(),actor.user_id,sessionId,meta.quoteId,request.correlation_id,payload,sha256(payload)]);
       await c.query("COMMIT");
     }catch(error){
       await c.query("ROLLBACK");
@@ -704,6 +692,34 @@ export class SubscriptionQuoteContracts{
       ||opened.amountScale6!==meta.amountScale6
       ||opened.currencyCode!=="COP"){
       throw new SubscriptionFactusPayGatewayError("FACTUS_PAY_COLLECTION_MISMATCH");
+    }
+    // A provider failure must never produce a successful QR recovery audit event.
+    const auditClient=await this.pool.connect();
+    try{
+      await auditClient.query("BEGIN");
+      await auditClient.query(
+        "SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true),set_config('app.tenant_id','',true)",
+        [`${this.limits.lockTimeoutMs}ms`,`${this.limits.statementTimeoutMs}ms`],
+      );
+      const actor=await new PostgresPlatformAdministrationSessionRepository(auditClient)
+        .findActivePlatformPermissionForSession(
+          sessionId,CentralAdministrationOperation.LICENSE_ISSUE,this.limits.reauthenticationMs,
+        );
+      if(!actor)throw Error("LICENSING_GLOBAL_LICENSE_ISSUE_REQUIRED");
+      const payload=canonicalSessionTrustJson({
+        payment_id:meta.paymentId,quote_id:meta.quoteId,provider_reference:meta.providerReference,
+        amount_scale6:meta.amountScale6,tenant_id:meta.tenantId,company_id:meta.companyId,
+      });
+      await auditClient.query(`INSERT INTO audit.audit_events(id,actor_type,actor_id,session_id,action_code,resource_type,resource_reference_kind,resource_id,
+        correlation_id,schema_version,reported_at,server_recorded_at,result,new_value,payload_checksum)
+        VALUES($1,'PLATFORM_ACCOUNT',$2,$3,'SUBSCRIPTION_COLLECTION_QR_RECOVERED','SUBSCRIPTION_QUOTE','INSTANCE',$4,$5,1,clock_timestamp(),clock_timestamp(),'SUCCEEDED',$6::jsonb,$7)`,
+        [uuidV7(),actor.user_id,sessionId,meta.quoteId,request.correlation_id,payload,sha256(payload)]);
+      await auditClient.query("COMMIT");
+    }catch(error){
+      await auditClient.query("ROLLBACK").catch(()=>undefined);
+      throw error;
+    }finally{
+      auditClient.release();
     }
     return {
       paymentId:meta.paymentId,
