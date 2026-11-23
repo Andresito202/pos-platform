@@ -455,9 +455,11 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
           setWaitingCarts(current => current.filter(cart => cart.id !== activeWaiting.id));
           setActiveWaiting(null);
         }
+        // Reservation reduces availableUnits; tiles must re-read inventory.
+        void listCatalogItems(catalogQuery.current);
       },
     );
-  }, [lines, shift, sale, customerId, activeWaiting, runChange]);
+  }, [lines, shift, sale, customerId, activeWaiting, runChange, listCatalogItems]);
 
   const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;
@@ -482,9 +484,10 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
       (result) => {
         setPayment(result);
         if (shouldPlayChime(result)) playConfirmationChime();
+        if (result.sale_completed === true) void listCatalogItems(catalogQuery.current);
       },
     );
-  }, [sale, busy, payment, transferConfirmation, transferReceiptAmount, factusPayConfirmation, run]);
+  }, [sale, busy, payment, transferConfirmation, transferReceiptAmount, factusPayConfirmation, run, listCatalogItems]);
 
   /**
    * Cerrar el turno con el efectivo contado.
@@ -668,9 +671,10 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         setTransferConfirmation(result);
         if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") setTransfer({ ...current, status: "CONFIRMED" });
         if (shouldPlayChime(result)) playConfirmationChime();
+        if (result.sale_completed === true) void listCatalogItems(catalogQuery.current);
       },
     );
-  }, [transfer, runChange]);
+  }, [transfer, runChange, listCatalogItems]);
 
   /**
    * FACTUS Pay — Generar QR. No cobra la venta; sólo crea cobro pendiente
@@ -739,9 +743,10 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
       (result) => {
         setFactusPayConfirmation(result);
         if (shouldPlayChime(result)) playConfirmationChime();
+        if (result.sale_completed === true) void listCatalogItems(catalogQuery.current);
       },
     );
-  }, [factusPay, run]);
+  }, [factusPay, run, listCatalogItems]);
 
   /** After POS restart: recover durable pending FACTUS Pay for the open sale. */
   const resumeFactusPay = useCallback(async (): Promise<void> => {

@@ -5,7 +5,12 @@ import {
   toRoleAssignments,
 } from "@pos-platform/application";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
+import type { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
+import {
+  readCatalogAvailability,
+  type CatalogAvailability,
+} from "./catalog-availability.js";
 import type { SellableCatalogItem, SqliteCatalogStore } from "./sqlite-catalog-store.js";
 
 export const PERMISSION_CATALOG_PRODUCT_READ = "CATALOG_PRODUCT_READ";
@@ -16,12 +21,19 @@ export interface ListCatalogItemsRequest {
   readonly offset: number;
 }
 
+export type ListedCatalogItem = SellableCatalogItem & {
+  readonly availability: CatalogAvailability;
+};
+
 export type ListCatalogItemsResult =
-  | { readonly kind: "FOUND"; readonly items: readonly SellableCatalogItem[]; readonly hasMore: boolean }
+  | { readonly kind: "FOUND"; readonly items: readonly ListedCatalogItem[]; readonly hasMore: boolean }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
 
 export class ListCatalogItemsUseCase {
-  constructor(private readonly catalogStore: SqliteCatalogStore) {}
+  constructor(
+    private readonly catalogStore: SqliteCatalogStore,
+    private readonly inventoryStore: SqliteInventoryStore,
+  ) {}
 
   execute(
     scope: SyncScope,
@@ -44,6 +56,19 @@ export class ListCatalogItemsUseCase {
       request.limit,
       request.offset,
     );
-    return { kind: "FOUND", ...result };
+
+    return {
+      kind: "FOUND",
+      hasMore: result.hasMore,
+      items: result.items.map((item) => ({
+        ...item,
+        availability: readCatalogAvailability(
+          this.inventoryStore,
+          scope,
+          item.presentation.id,
+          item.product.stockControlled,
+        ),
+      })),
+    };
   }
 }

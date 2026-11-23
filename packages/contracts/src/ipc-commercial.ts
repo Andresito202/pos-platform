@@ -1140,6 +1140,18 @@ export const CatalogItemGetRequestSchema = createRequestEnvelopeSchema(
 ).safeExtend({ message_type: z.literal("catalog.item.get") })
   .superRefine(forbidCallerAssertedIdentity);
 
+/**
+ * Sellable availability projected from inventory for cashier surfaces.
+ * `NOT_TRACKED` = product is not stock-controlled (no invented zero).
+ * LOW / RESTRICTED labels require commercial threshold / pharmacy projection
+ * that is not part of this catalog list contract yet.
+ */
+export const CatalogAvailabilityStateSchema = z.enum([
+  "AVAILABLE",
+  "OUT_OF_STOCK",
+  "NOT_TRACKED",
+]);
+
 export const CatalogItemResultSchema = z.strictObject({
   outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
   product_id: UuidSchema.nullable(),
@@ -1157,6 +1169,13 @@ export const CatalogItemResultSchema = z.strictObject({
    */
   price_amount: PositiveScale6Schema.nullable(),
   currency_code: CurrencyCodeSchema.nullable(),
+  /** Units available to sell (sellable − reserved). null when NOT_TRACKED. */
+  quantity_available: NonNegativeScale6Schema.nullable(),
+  /** Physical on-hand. null when NOT_TRACKED. */
+  quantity_on_hand: NonNegativeScale6Schema.nullable(),
+  /** Units held by ACTIVE reservations. null when NOT_TRACKED. */
+  quantity_reserved: NonNegativeScale6Schema.nullable(),
+  availability_state: CatalogAvailabilityStateSchema.nullable(),
 });
 
 export const CatalogItemResponseSchema = createResponseEnvelopeSchema(CatalogItemResultSchema);
@@ -1182,6 +1201,10 @@ export const CatalogItemListItemSchema = z.strictObject({
   stock_controlled: z.boolean(),
   price_amount: PositiveScale6Schema,
   currency_code: CurrencyCodeSchema,
+  quantity_available: NonNegativeScale6Schema.nullable(),
+  quantity_on_hand: NonNegativeScale6Schema.nullable(),
+  quantity_reserved: NonNegativeScale6Schema.nullable(),
+  availability_state: CatalogAvailabilityStateSchema,
 });
 
 export const CatalogItemListResultSchema = z.strictObject({
@@ -2248,6 +2271,7 @@ export type FiscalNumberingSyncResult = z.infer<typeof FiscalNumberingSyncResult
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
 export type CatalogItemListItem = z.infer<typeof CatalogItemListItemSchema>;
+export type CatalogAvailabilityState = z.infer<typeof CatalogAvailabilityStateSchema>;
 export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;

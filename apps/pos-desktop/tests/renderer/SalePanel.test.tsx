@@ -62,6 +62,10 @@ const FOUND_ITEM = succeeded({
   stock_controlled: true,
   price_amount: "3500.000000",
   currency_code: "COP",
+  quantity_available: "20.000000",
+  quantity_on_hand: "20.000000",
+  quantity_reserved: "0.000000",
+  availability_state: "AVAILABLE",
 });
 
 function install(overrides: Record<string, unknown>): void {

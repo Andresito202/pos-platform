@@ -45,6 +45,11 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
   return (
     <section data-testid="catalog-panel">
       <h2>Catálogo</h2>
+      <p className="pos-catalog-edit-note" data-testid="catalog-edit-preparation">
+        Alta de productos disponible. La edición segura de nombre, códigos, precio y
+        fotografía queda preparada en documentación; aún no hay caso de uso ni IPC de
+        actualización. La planilla CSV de existencias no es alta masiva de catálogo.
+      </p>
 
       <input
         data-testid="product-code-input"

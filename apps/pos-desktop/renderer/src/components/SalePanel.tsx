@@ -2,6 +2,7 @@ import { CanonicalPermission } from "@pos-platform/contracts";
 import { ProductAvatar } from "./ProductAvatar.js";
 import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
 import { useEffect, useState } from "react";
+import { presentCatalogAvailability } from "../catalog-availability-display.js";
 import { formatCopMicros, formatCopPesos, formatScale6Display, parseCopMicros, remainingPayableScale6 } from "../money-display.js";
 import { toScale6 } from "../scale6.js";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
@@ -170,16 +171,32 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             onChange={event => setTileQuantity(event.target.value)} />
         </label>
         <div className="pos-touch-grid" data-testid="touch-product-grid">
-          {sale.catalogItems.map(item => (
-            <button type="button" className="pos-product-tile" data-testid={`catalog-product-${item.presentation_id}`}
-              key={item.presentation_id} disabled={sale.busy || sale.unresolved || sale.sale !== null}
-              onClick={() => sale.addCatalogItem(item, tileQuantity.trim())}>
-              <ProductAvatar item={item} />
-              <strong className="pos-product-name-value">{item.name}</strong>
-              <span className="pos-product-presentation">{item.presentation_name}</span>
-              <span className="pos-product-price">{formatScale6Display(item.price_amount)}</span>
-            </button>
-          ))}
+          {sale.catalogItems.map(item => {
+            const availability = presentCatalogAvailability(item);
+            const outOfStock = item.availability_state === "OUT_OF_STOCK";
+            return (
+              <button
+                type="button"
+                className="pos-product-tile"
+                data-testid={`catalog-product-${item.presentation_id}`}
+                data-availability={availability.state}
+                key={item.presentation_id}
+                disabled={sale.busy || sale.unresolved || sale.sale !== null || outOfStock}
+                onClick={() => sale.addCatalogItem(item, tileQuantity.trim())}
+              >
+                <ProductAvatar item={item} />
+                <strong className="pos-product-name-value">{item.name}</strong>
+                <span className="pos-product-code">{item.code}</span>
+                <span className="pos-product-presentation">
+                  {item.presentation_name} · {item.unit_code}
+                </span>
+                <span className="pos-product-price">{formatScale6Display(item.price_amount)}</span>
+                <span className="pos-product-stock" data-testid={`catalog-stock-${item.presentation_id}`}>
+                  {availability.label}
+                </span>
+              </button>
+            );
+          })}
           {!sale.catalogBusy && sale.catalogItems.length === 0 && (
             <p className="pos-product-empty" role="status">Sin productos vendibles. Busca por nombre, código o barras.</p>
           )}
@@ -213,6 +230,18 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
               <span data-testid="found-item-name">{sale.foundItem.name}</span>
               {" · "}
               <span data-testid="found-item-price">{sale.foundItem.price_amount ?? "sin precio"}</span>
+              {sale.foundItem.availability_state !== null && (
+                <>
+                  {" · "}
+                  <span data-testid="found-item-stock">
+                    {presentCatalogAvailability({
+                      availability_state: sale.foundItem.availability_state,
+                      quantity_available: sale.foundItem.quantity_available,
+                      unit_code: sale.foundItem.unit_code ?? "",
+                    }).label}
+                  </span>
+                </>
+              )}
             </p>
             <label>Cantidad
               <input

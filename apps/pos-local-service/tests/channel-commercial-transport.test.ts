@@ -160,6 +160,8 @@ const COMMERCIAL_CASES = [
       code: "ARZ-500", name: "Arroz", presentation_name: "Bolsa 500g",
       unit_code: "GRM", unit_precision: 0, barcode: "7701234567890",
       stock_controlled: true, price_amount: "3500.000000", currency_code: "COP",
+      quantity_available: "0.000000", quantity_on_hand: "0.000000",
+      quantity_reserved: "0.000000", availability_state: "OUT_OF_STOCK",
     },
   },
   {

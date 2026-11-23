@@ -9,6 +9,7 @@ import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../src/catalog/register-product-use-case.js";
 import { FindCatalogItemUseCase } from "../src/catalog/find-catalog-item-use-case.js";
+import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
 import type { StoredAuthorizationSnapshot } from "../src/authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../src/sync/durable-sync-store.js";
 
@@ -58,11 +59,13 @@ async function buildEnv() {
   directories.push(dir);
   const database = LocalDatabase.open({ dataDirectory: dir });
   databases.push(database);
-  const store = new SqliteCatalogStore(database, new DurableSyncStore(database), () => NOW);
+  const sync = new DurableSyncStore(database);
+  const store = new SqliteCatalogStore(database, sync, () => NOW);
+  const inventory = new SqliteInventoryStore(database, sync, () => NOW);
   return {
     database, store,
     register: new RegisterProductUseCase(store),
-    find: new FindCatalogItemUseCase(store),
+    find: new FindCatalogItemUseCase(store, inventory),
   };
 }
 

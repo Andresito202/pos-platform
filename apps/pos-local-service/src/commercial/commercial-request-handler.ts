@@ -1017,6 +1017,8 @@ export class CommercialRequestHandler {
       product_id: null, presentation_id: null, code: null, name: null,
       presentation_name: null, unit_code: null, unit_precision: null, barcode: null,
       stock_controlled: null, price_amount: null, currency_code: null,
+      quantity_available: null, quantity_on_hand: null, quantity_reserved: null,
+      availability_state: null,
     };
 
     const authenticated = this.authenticate(connectionId);
@@ -1048,6 +1050,10 @@ export class CommercialRequestHandler {
         // `null` es «sin precio activo», no gratis.
         price_amount: price?.amount ?? null,
         currency_code: price?.currencyCode ?? null,
+        quantity_available: result.availability.quantity_available,
+        quantity_on_hand: result.availability.quantity_on_hand,
+        quantity_reserved: result.availability.quantity_reserved,
+        availability_state: result.availability.availability_state,
       });
     }
     if (result.kind === "NOT_FOUND") {
@@ -1116,7 +1122,7 @@ export class CommercialRequestHandler {
 
     return succeeded(request, "FOUND", {
       outcome: "FOUND",
-      items: result.items.map(({ product, presentation, price }) => ({
+      items: result.items.map(({ product, presentation, price, availability }) => ({
         product_id: product.id,
         presentation_id: presentation.id,
         code: product.code,
@@ -1128,6 +1134,10 @@ export class CommercialRequestHandler {
         stock_controlled: product.stockControlled,
         price_amount: price.amount,
         currency_code: price.currencyCode,
+        quantity_available: availability.quantity_available,
+        quantity_on_hand: availability.quantity_on_hand,
+        quantity_reserved: availability.quantity_reserved,
+        availability_state: availability.availability_state,
       })),
       has_more: result.hasMore,
     });
