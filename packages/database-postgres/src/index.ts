@@ -11,4 +11,5 @@ export * from "./platform-webauthn-material-repository.js";
 export * from "./business-initial-webauthn-transaction.js";
 export * from "./platform-security-event-repository.js";
 export * from "./subscription-license-outbox.js";
+export * from "./subscription-license-fulfillment-queue.js";
 export * from "./platform-webauthn-factor-reference-repository.js";

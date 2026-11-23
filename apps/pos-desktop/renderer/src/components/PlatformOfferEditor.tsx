@@ -1,14 +1,28 @@
 import {useState} from "react";
-import {LicenseOfferV2Schema,formatCopPesos,parseCopPesos,uuidV7,type LicenseOfferDraft} from "@pos-platform/contracts";
+import {CASH_REGISTER_ENTITLEMENT,LicenseOfferV2Schema,LicenseSectorEntitlement,formatCopPesos,parseCopPesos,uuidV7,type LicenseOfferDraft} from "@pos-platform/contracts";
 import type {PlatformClient,PublishedOffer} from "../platform-client.js";
+
+const SECTOR_OPTIONS=[
+  {code:LicenseSectorEntitlement.FARMACIA,label:"Farmacia"},
+  {code:LicenseSectorEntitlement.SALSAMENTARIA,label:"Salsamentaria"},
+  {code:LicenseSectorEntitlement.PASTELERIA,label:"Pastelería"},
+] as const;
 
 /** Existing styles. SQL, not this form, publishes price authority. */
 export function PlatformOfferEditor({client,offers,onChanged}:{client:PlatformClient;offers:readonly PublishedOffer[];onChanged:()=>Promise<void>}){
   const [selected,setSelected]=useState<PublishedOffer|null>(null),[draft,setDraft]=useState<{id:string;version:number}|null>(null);
   const [preview,setPreview]=useState<LicenseOfferDraft|null>(null),[confirmed,setConfirmed]=useState(false),[revision,setRevision]=useState(0);
   const [busy,setBusy]=useState(false),[message,setMessage]=useState<string|null>(null),[error,setError]=useState<string|null>(null);
+  const [sectors,setSectors]=useState<string[]>([]);
   const legacy=selected!==null&&!("profile" in selected);
-  function choose(offer:PublishedOffer|null){setSelected(offer);setDraft(null);setPreview(null);setConfirmed(false);setMessage(null);setError(null);}
+  function choose(offer:PublishedOffer|null){
+    setSelected(offer);setDraft(null);setPreview(null);setConfirmed(false);setMessage(null);setError(null);
+    const persisted=(offer?.features??[])
+      .filter(feature=>feature.enabled&&feature.capability_code!==CASH_REGISTER_ENTITLEMENT)
+      .map(feature=>feature.capability_code)
+      .filter(code=>SECTOR_OPTIONS.some(option=>option.code===code));
+    setSectors(persisted);
+  }
   function review(form:HTMLFormElement){
     setError(null);setMessage(null);
     try{const f=new FormData(form),model=String(f.get("billing_model"));
@@ -35,6 +49,21 @@ export function PlatformOfferEditor({client,offers,onChanged}:{client:PlatformCl
       setDraft(null);setSelected(null);setPreview(null);setConfirmed(false);setRevision(v=>v+1);
       setMessage("Central publicó la versión del plan. No se ha realizado ningún cobro ni activación.");await onChanged();
     }catch(e){setError(e instanceof Error?e.message:"No se pudo publicar el plan.");}finally{setBusy(false);}
+  }
+  async function saveEntitlements(){
+    const target=draft??(selected?.status==='DRAFT'?selected:null);
+    if(!target){setError("Guarda un borrador antes de asignar módulos.");return;}
+    setBusy(true);setError(null);
+    try{
+      const entitlements=[CASH_REGISTER_ENTITLEMENT,...sectors];
+      const result=await client.setEntitlements(target.id,target.version,entitlements,uuidV7());
+      if(result.planId!==target.id||result.version!==target.version)throw Error("Central no confirmó los módulos del plan.");
+      setDraft({id:result.planId,version:result.version});
+      setSectors(result.entitlements.filter(code=>SECTOR_OPTIONS.some(option=>option.code===code)));
+      setMessage("Central guardó POS base y los módulos sectoriales del borrador. Publica para que entren en cotizaciones.");
+      await onChanged();
+    }catch(e){setError(e instanceof Error?e.message:"No se pudieron guardar los módulos.");}
+    finally{setBusy(false);}
   }
 
   const codes = [...new Set(offers.filter(offer => "profile" in offer).map(offer => offer.code))];
@@ -65,6 +94,15 @@ export function PlatformOfferEditor({client,offers,onChanged}:{client:PlatformCl
       <p>{active?"Publicado: $ "+formatCopPesos(active.price_minor)+" → propuesta: $ "+formatCopPesos(preview.price_minor):"Nueva versión sin publicación previa"}</p>
       <p>Adicional $ {formatCopPesos(preview.additional_register_price_minor)} · soporte $ {formatCopPesos(preview.support_price_minor)} COP · {"support_term_months" in preview?preview.support_term_months:"—"} meses</p>
       <button type="button" disabled={busy} onClick={()=>void save()}>Guardar borrador</button><button type="button" disabled={busy} onClick={()=>setPreview(null)}>Cancelar edición</button></div>}
+    <fieldset className="pos-form-grid" disabled={busy||(!draft&&selected?.status!=='DRAFT')}>
+      <legend>Módulos del borrador (POS base siempre incluido)</legend>
+      {SECTOR_OPTIONS.map(option=><label key={option.code}>
+        <input type="checkbox" checked={sectors.includes(option.code)}
+          onChange={e=>setSectors(current=>e.target.checked?[...current,option.code]:current.filter(code=>code!==option.code))}/>
+        {option.label}
+      </label>)}
+      <button type="button" onClick={()=>void saveEntitlements()}>Guardar módulos en borrador</button>
+    </fieldset>
     <label><input type="checkbox" aria-label="Confirmar publicación" checked={confirmed} disabled={busy||(!draft&&selected?.status!=='DRAFT')} onChange={e=>setConfirmed(e.target.checked)}/>Confirmo publicar esta versión de precio.</label>
     <button type="button" onClick={()=>void publish()} disabled={busy||!confirmed||(!draft&&selected?.status!=='DRAFT')}>Publicar versión guardada</button>
     <button type="button" disabled={busy} onClick={()=>void onChanged().catch(()=>setError("No se pudo recuperar el catálogo desde Central."))}>Recuperar catálogo de Central</button>

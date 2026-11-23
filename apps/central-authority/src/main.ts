@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
 import { CentralDeviceCredentialIssuer, DeviceEnrollmentHttpHandler, type DeviceEnrollmentTransportContext } from "@pos-platform/device-trust";
 import { createPostgresPool, PostgresDeviceRegistryRepository } from "@pos-platform/database-postgres";
+import { GlobalAdministrationProvisionSchema } from "@pos-platform/contracts";
 import { prepareGlobalAdministrationRuntime } from "./global-administration-runtime.js";
 import { prepareLicenseCapacityRuntime } from "./license-capacity-runtime.js";
 import { parseCentralDeploymentConfiguration, verifyCentralRuntimeDatabase, verifyCentralTlsIdentity } from "./central-deployment-configuration.js";
@@ -11,6 +12,8 @@ import { SessionTrustPublication } from "./session-trust-publication.js";
 import { prepareFactusPayRuntime } from "./factus-pay-runtime.js";
 import { FACTUS_PAY_COLLECTION_WEBHOOK_PATH } from "./factus-pay-webhook-handler.js";
 import { prepareBusinessAdministrationRuntime } from "./business-administration-runtime.js";
+import { prepareSubscriptionFulfillmentRuntime } from "./subscription-fulfillment-runtime.js";
+import { prepareSubscriptionFactusPayGateway } from "./subscription-factus-pay-gateway-runtime.js";
 import { createCentralRouter } from "./central-router.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
@@ -111,6 +114,33 @@ try {
   await pool.end();
   throw error;
 }
+const subscriptionFactusPayGatewayFile = process.env.CENTRAL_SUBSCRIPTION_FACTUS_PAY_GATEWAY_FILE;
+const subscriptionFactusPayGateway = subscriptionFactusPayGatewayFile === undefined
+  ? null
+  : prepareSubscriptionFactusPayGateway(subscriptionFactusPayGatewayFile);
+
+const subscriptionFulfillmentProvision = process.env.CENTRAL_SUBSCRIPTION_FULFILLMENT_PROVISION_FILE;
+const subscriptionFulfillmentRuntime = await (async () => {
+  if (!subscriptionFulfillmentProvision || !globalProvision) return null;
+  try {
+    const globalPolicy = GlobalAdministrationProvisionSchema.parse(
+      JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(globalProvision))),
+    );
+    if (!globalPolicy.fulfillment_policies?.length) {
+      throw new Error("LICENSING_FULFILLMENT_POLICY_REQUIRED");
+    }
+    return await prepareSubscriptionFulfillmentRuntime({
+      pool,
+      provisionFile: subscriptionFulfillmentProvision,
+      approvedPolicies: globalPolicy.fulfillment_policies,
+      factusPay: subscriptionFactusPayGateway,
+    });
+  } catch (error) {
+    await pool.end();
+    throw error;
+  }
+})();
+
 const globalHandler = await (async () => {
   if (!globalProvision || !deployment) return undefined;
   const environment = deployment.environment;
@@ -126,10 +156,13 @@ const globalHandler = await (async () => {
       portal: await prepareGlobalAdministrationRuntime({
         pool, provisionFile: globalProvision, origin: deployment.origin,
         licenseAuthority: licenseRuntime.authority,
+        subscriptionFulfillment: subscriptionFulfillmentRuntime?.fulfillment ?? null,
+        factusPay: subscriptionFactusPayGateway,
       }),
       activation: licenseRuntime.handler,
     };
   } catch (error) {
+    subscriptionFulfillmentRuntime?.stopWorker();
     await pool.end();
     throw error;
   }
@@ -150,7 +183,25 @@ const limiter = new FixedWindowRateLimiter();
 const factusPayProvision = process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
 const factusPayHandler = factusPayProvision === undefined
   ? undefined
-  : await prepareFactusPayRuntime(pool, factusPayProvision);
+  : await prepareFactusPayRuntime(
+    pool,
+    factusPayProvision,
+    subscriptionFulfillmentRuntime
+      ? {
+        onSubscriptionObservation: async (observation, keyContext) => {
+          await subscriptionFulfillmentRuntime.fulfillment.enqueueFromWebhookObservation({
+            tenantId: keyContext.tenantId,
+            companyId: keyContext.companyId,
+            integrationId: keyContext.integrationId,
+            externalTransactionId: observation.external_transaction_id,
+            amountScale6: observation.amount,
+            currencyCode: observation.currency_code,
+          });
+          void subscriptionFulfillmentRuntime.fulfillment.processDue(4);
+        },
+      }
+      : undefined,
+  );
 
 const businessHandler = await (async () => {
   if (businessProvision === undefined) return undefined;

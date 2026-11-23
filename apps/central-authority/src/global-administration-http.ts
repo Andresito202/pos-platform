@@ -11,8 +11,12 @@ import {GlobalAdministrationSessions,type GlobalAdministrationPolicy} from "./gl
 import {LicenseOfferDrafts} from "./license-offer-drafts.js";
 import {FixedWindowRateLimiter} from "./fixed-window-rate-limiter.js";
 import {SubscriptionLicenseContracts,type FulfillmentPolicyReferences} from "./subscription-license-contracts.js";
+import {SubscriptionQuoteContracts} from "./subscription-quote-contracts.js";
 import {readCommercialJsonBody,inspectCommercialHeaders,validateCommercialAssertion,sendCommercialJson} from "./commercial-https-request-boundary.js";
 import type {LicenseCapacityAuthority} from "./license-capacity-authority.js";
+import type {SubscriptionCollectionBinding} from "@pos-platform/contracts";
+import type {SubscriptionFactusPayGateway} from "./subscription-factus-pay-gateway.js";
+import type {SubscriptionLicenseFulfillment} from "./subscription-license-fulfillment.js";
 
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 const exact=(o:Record<string,unknown>,keys:string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -26,14 +30,20 @@ export interface GlobalAdministrationHttpLimits{
 /** The same Central HTTPS listener mounts this closed control-plane handler.
  * GLOBAL cookies cannot authorize BUSINESS, and request IDs never authenticate. */
 export function createGlobalAdministrationHandler(input:{pool:Pool;policy:GlobalAdministrationPolicy;limits:GlobalAdministrationHttpLimits;
-  fulfillmentPolicies?:readonly FulfillmentPolicyReferences[];licenseAuthority?:LicenseCapacityAuthority}){
+  fulfillmentPolicies?:readonly FulfillmentPolicyReferences[];subscriptionCollection?:SubscriptionCollectionBinding;
+  factusPay?:SubscriptionFactusPayGateway|null;licenseAuthority?:LicenseCapacityAuthority;
+  subscriptionFulfillment?:SubscriptionLicenseFulfillment|null}){
   const {policy,limits}=input;
   if(!Object.values(limits).every(n=>Number.isSafeInteger(n)&&n>0))throw Error("GLOBAL_HTTP_EXPLICIT_LIMITS_REQUIRED");
   const sessions=new GlobalAdministrationSessions(input.pool,policy),offers=new LicenseOfferDrafts(input.pool,policy.maximumReauthenticationAgeMs,
     {origin:policy.origin,lockTimeoutMs:policy.lockTimeoutMs,statementTimeoutMs:policy.statementTimeoutMs});
   const limiter=new FixedWindowRateLimiter(limits.requestsPerWindow,limits.maximumBuckets,limits.requestWindowMs);
-  const licenses=new SubscriptionLicenseContracts(input.pool,input.fulfillmentPolicies??null,{reauthenticationMs:policy.maximumReauthenticationAgeMs,
-    lockTimeoutMs:policy.lockTimeoutMs,statementTimeoutMs:policy.statementTimeoutMs});
+  const licenseLimits={reauthenticationMs:policy.maximumReauthenticationAgeMs,
+    lockTimeoutMs:policy.lockTimeoutMs,statementTimeoutMs:policy.statementTimeoutMs};
+  // HTTP GLOBAL path stays session-bound; autonomous SERVICE issue is the fulfillment worker.
+  const licenses=new SubscriptionLicenseContracts(input.pool,input.fulfillmentPolicies??null,licenseLimits,null);
+  const quotes=new SubscriptionQuoteContracts(input.pool,input.fulfillmentPolicies??null,input.subscriptionCollection??null,licenseLimits,input.factusPay??null);
+  const fulfillment=input.subscriptionFulfillment??null;
   const pending=new Map<string,{email:string;challenge:string;csrf:string;expiresAt:number}>();
   let starting=0;
   const flowCookie=(value:string,age:number)=>`${FLOW}=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${age}`;
@@ -161,10 +171,10 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         sendCommercialJson(res,200,result);
         return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/subscription-quotes/create","/v1/platform/subscription-quotes/pending","/v1/platform/subscription-quotes/recover-collection","/v1/platform/subscription-quotes/verify-payment","/v1/platform/subscription-quotes/confirm-bank-manual","/v1/platform/subscription-quotes/fulfillment-status","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
       const session=await sessions.authorize(request,(path==="/v1/platform/licenses/revoke-activation"||path==="/v1/platform/licenses/activations")?CentralAdministrationOperation.LICENSE_REVOKE:
-        path?.startsWith("/v1/platform/licenses/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
+        path?.startsWith("/v1/platform/licenses/")||path?.startsWith("/v1/platform/subscription-quotes/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
       if(!session){sendCommercialJson(res,401,{code:"GLOBAL_AUTHORIZATION_REJECTED"});return;}
       if(path==="/v1/platform/session"&&exact(b,[])){sendCommercialJson(res,200,{authenticated:true,scope:"GLOBAL",permissions:[CanonicalPermission.LICENSE_PLAN_MANAGE]});return;}
       if(path==="/v1/platform/license-offers/list"&&exact(b,[])){sendCommercialJson(res,200,{offers:await offers.published()});return;}
@@ -175,6 +185,100 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         sendCommercialJson(res,200,await offers.setEntitlements(session,String(b.planId),Number(b.expectedVersion),b.entitlements,String(b.correlationId)));return;}
       if(path==="/v1/platform/license-offers/publish"&&exact(b,["planId","expectedVersion","correlationId"])){
         sendCommercialJson(res,200,await offers.publish(session,String(b.planId),Number(b.expectedVersion),String(b.correlationId)));return;}
+      if(path==="/v1/platform/subscription-quotes/create"){
+        sendCommercialJson(res,200,await quotes.create(session,b));return;
+      }
+      if(path==="/v1/platform/subscription-quotes/pending"&&exact(b,[])){
+        sendCommercialJson(res,200,await quotes.listPending(session));return;
+      }
+      if(path==="/v1/platform/subscription-quotes/recover-collection"){
+        sendCommercialJson(res,200,await quotes.recoverCollection(session,b));return;
+      }
+      if(path==="/v1/platform/subscription-quotes/fulfillment-status"&&exact(b,[])){
+        if(!fulfillment){sendCommercialJson(res,409,{code:"SUBSCRIPTION_FULFILLMENT_NOT_PROVISIONED"});return;}
+        sendCommercialJson(res,200,{jobs:await fulfillment.queue.listRecent(100)});return;
+      }
+      if(path==="/v1/platform/subscription-quotes/verify-payment"){
+        const verified=await quotes.verifyPayment(session,b);
+        const correlationId=typeof b.correlation_id==="string"?b.correlation_id:uuidV7();
+        if(fulfillment&&verified.source){
+          await fulfillment.enqueueConfirmedPayment({
+            paymentId:verified.paymentId,
+            source:verified.source,
+            correlationId,
+          });
+        }
+        try{
+          const issued=await licenses.issue(session,verified.paymentId,correlationId);
+          if(fulfillment)await fulfillment.recordIssued(verified.paymentId,issued.licenseId);
+          sendCommercialJson(res,200,{
+            ...verified,
+            licenseId:issued.licenseId,
+            contractStatus:issued.contractStatus,
+            activationStatus:issued.activationStatus,
+            licenseIdempotent:issued.idempotent,
+            issueActor:issued.actorKind,
+          });
+        }catch(error){
+          // Payment is CONFIRMED and queued; try SERVICE recovery before failing the HTTP call.
+          if(fulfillment){
+            const recovery=await fulfillment.tryIssueAsService(verified.paymentId,correlationId);
+            if(recovery.issued){
+              sendCommercialJson(res,200,{
+                ...verified,
+                licenseId:recovery.issued.licenseId,
+                contractStatus:recovery.issued.contractStatus,
+                activationStatus:recovery.issued.activationStatus,
+                licenseIdempotent:recovery.issued.idempotent,
+                issueActor:recovery.issued.actorKind,
+              });
+              return;
+            }
+          }
+          throw error;
+        }
+        return;
+      }
+      if(path==="/v1/platform/subscription-quotes/confirm-bank-manual"){
+        const confirmed=await quotes.confirmBankManual(session,b);
+        const correlationId=typeof b.correlation_id==="string"?b.correlation_id:uuidV7();
+        if(fulfillment){
+          await fulfillment.enqueueConfirmedPayment({
+            paymentId:confirmed.paymentId,
+            source:confirmed.source,
+            correlationId,
+          });
+        }
+        try{
+          const issued=await licenses.issue(session,confirmed.paymentId,correlationId);
+          if(fulfillment)await fulfillment.recordIssued(confirmed.paymentId,issued.licenseId);
+          sendCommercialJson(res,200,{
+            ...confirmed,
+            licenseId:issued.licenseId,
+            contractStatus:issued.contractStatus,
+            activationStatus:issued.activationStatus,
+            licenseIdempotent:issued.idempotent,
+            issueActor:issued.actorKind,
+          });
+        }catch(error){
+          if(fulfillment){
+            const recovery=await fulfillment.tryIssueAsService(confirmed.paymentId,correlationId);
+            if(recovery.issued){
+              sendCommercialJson(res,200,{
+                ...confirmed,
+                licenseId:recovery.issued.licenseId,
+                contractStatus:recovery.issued.contractStatus,
+                activationStatus:recovery.issued.activationStatus,
+                licenseIdempotent:recovery.issued.idempotent,
+                issueActor:recovery.issued.actorKind,
+              });
+              return;
+            }
+          }
+          throw error;
+        }
+        return;
+      }
       if(path==="/v1/platform/licenses/assignment-context"){
         if(!input.licenseAuthority){sendCommercialJson(res,409,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;}
         sendCommercialJson(res,200,await input.licenseAuthority.assignmentContext(session,b));return;
@@ -198,9 +302,15 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(e instanceof Error&&/LICENSE_OFFER_(VERSION_CONFLICT|STALE_PUBLICATION_REJECTED|IDEMPOTENCY_CONFLICT)/.test(e.message)){
         sendCommercialJson(res,409,{code:"LICENSE_OFFER_VERSION_CONFLICT"});return;
       }
+      if(e instanceof Error&&/SUBSCRIPTION_QUOTE_IDEMPOTENCY_CONFLICT|SUBSCRIPTION_PAYMENT_EVIDENCE_CONFLICT|SUBSCRIPTION_PAYMENT_EVIDENCE_REUSED/.test(e.message)){
+        sendCommercialJson(res,409,{code:"SUBSCRIPTION_QUOTE_CONFLICT"});return;
+      }
+      if(e instanceof Error&&/SUBSCRIPTION_PAYMENT_NOT_VERIFIED|SUBSCRIPTION_PAYMENT_NOT_PAID|SUBSCRIPTION_PAYMENT_AMOUNT_MISMATCH|SUBSCRIPTION_QUOTE_EXPIRED|SUBSCRIPTION_BANK_DEPOSIT_DATE_INVALID|SUBSCRIPTION_BANK_MANUAL_ATTESTATION_REQUIRED/.test(e.message)){
+        sendCommercialJson(res,409,{code:e.message});return;
+      }
       const status=e instanceof Error&&"status" in e&&[400,413,415].includes(Number(e.status))?Number(e.status):
-        e instanceof Error&&["SUBSCRIPTION_FISCAL_SUPPORT_POLICY_REQUIRED","LICENSING_FULFILLMENT_POLICY_REQUIRED"].includes(e.message)?409:400;
-      sendCommercialJson(res,status,{code:status===409?"FISCAL_SUPPORT_POLICY_REQUIRED":"GLOBAL_REQUEST_REJECTED"});
+        e instanceof Error&&["SUBSCRIPTION_FISCAL_SUPPORT_POLICY_REQUIRED","LICENSING_FULFILLMENT_POLICY_REQUIRED","SUBSCRIPTION_COLLECTION_NOT_PROVISIONED"].includes(e.message)?409:400;
+      sendCommercialJson(res,status,{code:status===409?(e instanceof Error&&e.message==="SUBSCRIPTION_COLLECTION_NOT_PROVISIONED"?"SUBSCRIPTION_COLLECTION_NOT_PROVISIONED":"FISCAL_SUPPORT_POLICY_REQUIRED"):"GLOBAL_REQUEST_REJECTED"});
     }
   };
 }

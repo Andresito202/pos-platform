@@ -5,6 +5,8 @@ import {createRoot} from "react-dom/client";
 import "./App.css";
 import "./commercial-precision.css";
 import { PlatformLicenseFulfillment } from "./components/PlatformLicenseFulfillment.js";
+import { PlatformSubscriptionQuote } from "./components/PlatformSubscriptionQuote.js";
+import { PlatformBankManualConfirm } from "./components/PlatformBankManualConfirm.js";
 import { PlatformActivations } from "./components/PlatformActivations.js";
 import {PlatformClient,type PublishedOffer} from "./platform-client.js";
 import {PlatformOfferEditor} from "./components/PlatformOfferEditor.js";
@@ -44,6 +46,8 @@ export function PlatformAdministrationPortal(){
     <h1>Superadministración</h1>
     <PlatformTenantRegistration client={client} />
     <PlatformOfferEditor client={client} offers={offers} onChanged={refresh} />
+    <PlatformSubscriptionQuote client={client} offers={offers} />
+    <PlatformBankManualConfirm client={client} />
     <PlatformLicenseFulfillment client={client} />
     <PlatformActivations client={client} />
   </section>
