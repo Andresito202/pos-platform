@@ -84,6 +84,32 @@ export class SubscriptionLicenseFulfillment{
     });
   }
 
+  /**
+   * Enqueue a pending subscription payment for authoritative provider GET polling.
+   * Does not invent paid status — processDue/confirmPendingAsService must observe
+   * FACTUS Pay status "paid" (or a durable webhook inbox row) before issuing.
+   */
+  async enqueuePendingProviderPoll(input:{
+    paymentId:string;
+    correlationId:string;
+  }):Promise<"INSERTED"|"EXISTING">{
+    UuidSchema.parse(input.paymentId);
+    UuidSchema.parse(input.correlationId);
+    const preview=await this.loadPendingPayment(input.paymentId);
+    if(!preview.providerReference)throw Error("SUBSCRIPTION_PAYMENT_REFERENCE_REQUIRED");
+    const meta=await this.loadPaymentMeta(input.paymentId);
+    return this.queue.enqueue({
+      paymentId:input.paymentId,
+      quoteId:meta.quoteId,
+      tenantId:meta.tenantId,
+      companyId:meta.companyId,
+      confirmationSource:"PENDING_WEBHOOK",
+      correlationId:input.correlationId,
+      status:"PENDING",
+      confirmedAt:null,
+    });
+  }
+
   /** Immediate SERVICE issue attempt after confirm; failures leave the durable job. */
   async tryIssueAsService(paymentId:string,correlationId:string){
     UuidSchema.parse(paymentId);UuidSchema.parse(correlationId);

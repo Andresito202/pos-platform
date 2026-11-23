@@ -774,15 +774,69 @@ jobs:
           }finally{clearTimeout(timeout);}
           JS
 
-      - name: Observe real FACTUS Pay sandbox collection via Central adapter
+      - name: Focused PR130 continuity suites (no live provider)
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/central-authority test -- tests/pr130-sandbox-continuity.test.ts
+
+      - name: Observe/prepare FACTUS Pay sandbox collection via Central adapter
         env:
           FACTUS_PAY_SANDBOX_EMAIL: ${{ secrets.FACTUS_PAY_SANDBOX_EMAIL }}
           FACTUS_PAY_SANDBOX_PASSWORD: ${{ secrets.FACTUS_PAY_SANDBOX_PASSWORD }}
+          PR130_COLLECTION_MODE: prepare
+          # Private QR stays on the runner temp path and is never uploaded.
+          CAMACHO_PRIVATE_OPERATOR_DIR: ${{ runner.temp }}/pr130-private-operator
+          PR130_SANDBOX_COLLECTION_REFERENCE: ${{ secrets.PR130_SANDBOX_COLLECTION_REFERENCE }}
+          PR130_SANDBOX_COLLECTION_AMOUNT: ${{ secrets.PR130_SANDBOX_COLLECTION_AMOUNT }}
         run: |
           set -euo pipefail
           pnpm --filter @pos-platform/central-authority exec tsx ../../tools/operators/pr130-factus-pay-collection-observation.ts
           test -s "${CAMACHO_CERT_EVIDENCE_DIR}/factus-collection-observation.json"
+          # Refuse to upload private QR/continuity files with public artifacts.
+          if [ -d "${CAMACHO_PRIVATE_OPERATOR_DIR}" ]; then
+            test ! -e "${CAMACHO_CERT_EVIDENCE_DIR}/collection-qr.png"
+            test ! -e "${CAMACHO_CERT_EVIDENCE_DIR}/collection-continuity.json"
+          fi
           echo "FACTUS_PAY_COLLECTION_OBSERVED=true"
+          echo "OFFICIAL_SIMULATOR=https://pay-api-sandbox.factus.com.co/simulator"
+          echo "RUNTIME_VERIFIED=false"
+
+      - name: Poll same FACTUS reference after owner simulator payment (optional secrets)
+        env:
+          FACTUS_PAY_SANDBOX_EMAIL: ${{ secrets.FACTUS_PAY_SANDBOX_EMAIL }}
+          FACTUS_PAY_SANDBOX_PASSWORD: ${{ secrets.FACTUS_PAY_SANDBOX_PASSWORD }}
+          PR130_COLLECTION_MODE: poll
+          PR130_SANDBOX_COLLECTION_REFERENCE: ${{ secrets.PR130_SANDBOX_COLLECTION_REFERENCE }}
+          PR130_SANDBOX_COLLECTION_AMOUNT: ${{ secrets.PR130_SANDBOX_COLLECTION_AMOUNT }}
+          CAMACHO_PRIVATE_OPERATOR_DIR: ${{ runner.temp }}/pr130-private-operator
+        run: |
+          set -euo pipefail
+          if [ -z "${PR130_SANDBOX_COLLECTION_REFERENCE:-}" ] || [ -z "${PR130_SANDBOX_COLLECTION_AMOUNT:-}" ]; then
+            echo "PR130_CONTINUITY_SECRETS_ABSENT=skip_poll"
+            echo "OWNER_ACTION=prepare_locally_pay_official_simulator_set_PR130_SANDBOX_COLLECTION_REFERENCE_and_AMOUNT"
+            echo "RUNTIME_VERIFIED=false"
+            exit 0
+          fi
+          pnpm --filter @pos-platform/central-authority exec tsx ../../tools/operators/pr130-factus-pay-collection-observation.ts
+          echo "FACTUS_PAY_COLLECTION_POLL_EXECUTED=true"
+          echo "RUNTIME_VERIFIED=false"
+
+      - name: Fulfill license after authentic provider paid (optional; never forges paid)
+        env:
+          FACTUS_PAY_SANDBOX_EMAIL: ${{ secrets.FACTUS_PAY_SANDBOX_EMAIL }}
+          FACTUS_PAY_SANDBOX_PASSWORD: ${{ secrets.FACTUS_PAY_SANDBOX_PASSWORD }}
+          PR130_SANDBOX_COLLECTION_REFERENCE: ${{ secrets.PR130_SANDBOX_COLLECTION_REFERENCE }}
+          PR130_SANDBOX_COLLECTION_AMOUNT: ${{ secrets.PR130_SANDBOX_COLLECTION_AMOUNT }}
+          CAMACHO_PRIVATE_OPERATOR_DIR: ${{ runner.temp }}/pr130-private-operator
+        run: |
+          set -euo pipefail
+          if [ -z "${PR130_SANDBOX_COLLECTION_REFERENCE:-}" ] || [ -z "${PR130_SANDBOX_COLLECTION_AMOUNT:-}" ]; then
+            echo "PR130_CONTINUITY_SECRETS_ABSENT=skip_fulfillment"
+            echo "RUNTIME_VERIFIED=false"
+            exit 0
+          fi
+          pnpm --filter @pos-platform/central-authority exec tsx ../../tools/operators/pr130-lab-paid-fulfillment.ts
+          test -s "${CAMACHO_CERT_EVIDENCE_DIR}/factus-paid-fulfillment.json"
           echo "RUNTIME_VERIFIED=false"
 
       - name: Upload redacted certification evidence
@@ -801,3 +855,5 @@ jobs:
           echo "runtime_verified_declared=false"
           echo "wave7_factus_lock_untouched=true"
           echo "production_calls=forbidden"
+          echo "official_simulator=https://pay-api-sandbox.factus.com.co/simulator"
+          echo "private_qr_never_uploaded=true"

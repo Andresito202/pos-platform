@@ -157,7 +157,8 @@ export class SubscriptionQuoteContracts{
         [`subscription-quote:${request.tenant_id}:${request.company_id}:${request.idempotency_key}`]);
 
       const prior=(await c.query(
-        `SELECT q.id,q.request_checksum,q.quote_checksum,q.total_minor,q.currency_code,q.expires_at,p.id AS payment_id
+        `SELECT q.id,q.request_checksum,q.quote_checksum,q.total_minor,q.currency_exponent,q.currency_code,
+                q.expires_at,q.provider_reference,p.id AS payment_id,p.status AS payment_status
          FROM subscriptions.license_quotes q
          JOIN payments.payment_groups g ON g.collection_subject_id=q.id AND g.collection_subject_type='SUBSCRIPTION_QUOTE'
          JOIN payments.payments p ON p.payment_group_id=g.id AND p.tenant_id=g.tenant_id
@@ -166,7 +167,8 @@ export class SubscriptionQuoteContracts{
         [request.tenant_id,request.company_id,request.idempotency_key],
       )).rows[0] as {
         id:string;request_checksum:string;quote_checksum:string;total_minor:string|number;
-        currency_code:string;expires_at:Date;payment_id:string;
+        currency_exponent:number;currency_code:string;expires_at:Date;provider_reference:string;
+        payment_id:string;payment_status:string;
       }|undefined;
 
       const requestChecksum=sha256(canonicalSessionTrustJson({
@@ -177,6 +179,30 @@ export class SubscriptionQuoteContracts{
       if(prior){
         if(prior.request_checksum!==requestChecksum)throw Error("SUBSCRIPTION_QUOTE_IDEMPOTENCY_CONFLICT");
         await c.query("COMMIT");
+        // Preserve the original provider reference so retries never open a second
+        // FACTUS collection for the same immutable quote.
+        let qr:string|null=null;
+        let providerOpenStatus:"IDEMPOTENT_EXISTING"|"OPENED"|"PROVIDER_UNAVAILABLE"="IDEMPOTENT_EXISTING";
+        if(this.factusPay!==null){
+          try{
+            const amountScale6=subscriptionAmountToScale6(Number(prior.total_minor),Number(prior.currency_exponent));
+            const remainingSeconds=Math.max(60,Math.floor((prior.expires_at.getTime()-Date.now())/1000));
+            const recovered=await this.factusPay.recoverOrCreateCollection({
+              referenceCode:String(prior.provider_reference),
+              amountScale6,
+              expirationSeconds:remainingSeconds,
+            });
+            if(recovered.referenceCode!==String(prior.provider_reference)
+              ||recovered.amountScale6!==amountScale6
+              ||recovered.currencyCode!=="COP"){
+              throw new SubscriptionFactusPayGatewayError("FACTUS_PAY_COLLECTION_MISMATCH");
+            }
+            qr=recovered.qr;
+            providerOpenStatus="OPENED";
+          }catch{
+            providerOpenStatus="PROVIDER_UNAVAILABLE";
+          }
+        }
         return {
           quoteId:String(prior.id),
           paymentId:String(prior.payment_id),
@@ -184,10 +210,10 @@ export class SubscriptionQuoteContracts{
           currencyCode:String(prior.currency_code),
           expiresAt:prior.expires_at.toISOString(),
           quoteChecksum:String(prior.quote_checksum),
-          providerReference:null,
-          providerOpenStatus:"IDEMPOTENT_EXISTING" as const,
-          qr:null,
-          paymentStatus:"PENDING" as const,
+          providerReference:String(prior.provider_reference),
+          providerOpenStatus,
+          qr,
+          paymentStatus:(prior.payment_status==="CONFIRMED"?"CONFIRMED":"PENDING") as "CONFIRMED"|"PENDING",
           idempotent:true as const,
         };
       }
