@@ -41,8 +41,11 @@ export class SubscriptionLicenseContracts{
           AND p.currency_code=q.currency_code AND pa.currency_code=q.currency_code AND a.currency_code=q.currency_code
           AND p.confirmed_at<=q.expires_at AND p.confirmed_amount=q.total_minor::numeric/power(10::numeric,q.currency_exponent)
         FOR SHARE OF p,a`,[paymentId])).rows;
-      const q=rows[0];if(rows.length!==1||!q||q.paid_reference!==q.provider_reference||q.paid_integration!==q.integration_id||
-        q.evidence_snapshot?.quoteChecksum!==q.quote_checksum||q.evidence_snapshot?.quoteId!==q.id||q.evidence_snapshot?.providerReference!==q.provider_reference)
+      const q=rows[0];
+      const evidenceSource=q?.evidence_snapshot?.source;
+      if(rows.length!==1||!q||q.paid_reference!==q.provider_reference||q.paid_integration!==q.integration_id||
+        q.evidence_snapshot?.quoteChecksum!==q.quote_checksum||q.evidence_snapshot?.quoteId!==q.id||q.evidence_snapshot?.providerReference!==q.provider_reference||
+        (evidenceSource!=="FACTUS_PAY_GET"&&evidenceSource!=="FACTUS_PAY_WEBHOOK_INBOX"))
         throw Error("LICENSING_CONFIRMED_QUOTE_PAYMENT_REQUIRED");
       const terms=SubscriptionQuoteTermsSchema.parse(q.terms_snapshot);
       if(!this.approvedPolicies.some(p=>p.policy_reference===terms.policy_reference&&p.tax_policy_reference===terms.tax_policy_reference&&p.support_policy_reference===terms.support_policy_reference))

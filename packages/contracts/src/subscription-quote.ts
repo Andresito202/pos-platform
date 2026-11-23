@@ -18,20 +18,22 @@ export const SubscriptionQuoteTermsSchema=z.strictObject({
   expires_at:UtcDateTimeSchema,
 });
 /**
- * GLOBAL records verified collection evidence against an already opened
- * subscription payment. Amounts stay quote-owned; the client cannot submit a
- * payable total or invent entitlements.
+ * GLOBAL asks Central to verify an opened subscription payment against the
+ * authoritative Factus Pay channel (provider GET and/or signed webhook inbox).
+ * Free-text references are rejected: they never confirm a payment.
  */
-export const SubscriptionPaymentConfirmRequestSchema=z.strictObject({
+export const SubscriptionPaymentVerifyRequestSchema=z.strictObject({
   payment_id:UuidSchema,
-  observation_reference:z.string().trim().min(1).max(160),
   correlation_id:UuidV7Schema,
 });
+/** @deprecated Manual observation references are not authoritative; use verify. */
+export const SubscriptionPaymentConfirmRequestSchema=SubscriptionPaymentVerifyRequestSchema;
 /** Platform merchant binding for subscription QR/FACTUS collection. Provision only. */
 export const SubscriptionCollectionBindingSchema=z.strictObject({
   tenant_id:UuidSchema,company_id:UuidSchema,branch_id:UuidSchema,integration_id:UuidSchema,
 });
 export type SubscriptionQuoteRequest=z.infer<typeof SubscriptionQuoteRequestSchema>;
 export type SubscriptionQuoteTerms=z.infer<typeof SubscriptionQuoteTermsSchema>;
-export type SubscriptionPaymentConfirmRequest=z.infer<typeof SubscriptionPaymentConfirmRequestSchema>;
+export type SubscriptionPaymentVerifyRequest=z.infer<typeof SubscriptionPaymentVerifyRequestSchema>;
+export type SubscriptionPaymentConfirmRequest=SubscriptionPaymentVerifyRequest;
 export type SubscriptionCollectionBinding=z.infer<typeof SubscriptionCollectionBindingSchema>;

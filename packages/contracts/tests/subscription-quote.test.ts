@@ -2,6 +2,7 @@ import {expect,it} from "vitest";
 import {
   GlobalAdministrationProvisionSchema,
   SubscriptionPaymentConfirmRequestSchema,
+  SubscriptionPaymentVerifyRequestSchema,
   SubscriptionQuoteRequestSchema,
   previewLicenseOffer,
   uuidV7,
@@ -25,12 +26,22 @@ it("accepts quote requests without client-supplied prices or entitlements",()=>{
   expect(()=>SubscriptionQuoteRequestSchema.parse({...request,total_minor:1})).toThrow();
 });
 
-it("keeps confirm requests evidence-only without payable amounts",()=>{
-  const confirm=SubscriptionPaymentConfirmRequestSchema.parse({
-    payment_id:uuidV7(),observation_reference:"TRANSFER-BANCOLOMBIA-001",correlation_id:uuidV7(),
+it("rejects free-text observation references on payment verify",()=>{
+  const paymentId=uuidV7();
+  const correlationId=uuidV7();
+  const verify=SubscriptionPaymentVerifyRequestSchema.parse({
+    payment_id:paymentId,correlation_id:correlationId,
   });
-  expect(confirm.observation_reference).toContain("BANCOLOMBIA");
-  expect(()=>SubscriptionPaymentConfirmRequestSchema.parse({...confirm,amount:"100.00"})).toThrow();
+  expect(verify).toEqual({payment_id:paymentId,correlation_id:correlationId});
+  expect(()=>SubscriptionPaymentVerifyRequestSchema.parse({
+    payment_id:paymentId,observation_reference:"TRANSFER-BANCOLOMBIA-001",correlation_id:correlationId,
+  })).toThrow();
+  expect(()=>SubscriptionPaymentConfirmRequestSchema.parse({
+    payment_id:paymentId,observation_reference:"FAKE-REF",correlation_id:correlationId,
+  })).toThrow();
+  expect(()=>SubscriptionPaymentVerifyRequestSchema.parse({
+    payment_id:paymentId,correlation_id:correlationId,amount:"100.00",
+  })).toThrow();
 });
 
 it("prices quotes only from the published catalog selection",()=>{

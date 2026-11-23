@@ -2,7 +2,7 @@ import {useState} from "react";
 import {formatCopPesos,uuidV7,UuidSchema} from "@pos-platform/contracts";
 import type {PlatformClient,PublishedOffer} from "../platform-client.js";
 
-/** GLOBAL quote → open payment → confirm evidence. Does not invent catalog prices. */
+/** GLOBAL quote → open Factus collection when provisioned → verify provider/inbox. */
 export function PlatformSubscriptionQuote({
   client,offers,
 }:{client:PlatformClient;offers:readonly PublishedOffer[]}):React.JSX.Element{
@@ -12,11 +12,10 @@ export function PlatformSubscriptionQuote({
   const [planId,setPlanId]=useState(published[0]?.id??"");
   const [registers,setRegisters]=useState("0");
   const [support,setSupport]=useState(false);
-  const [observation,setObservation]=useState("");
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);
   const [quote,setQuote]=useState<Awaited<ReturnType<PlatformClient["createSubscriptionQuote"]>>|null>(null);
-  const [confirmed,setConfirmed]=useState<Awaited<ReturnType<PlatformClient["confirmSubscriptionPayment"]>>|null>(null);
+  const [verified,setVerified]=useState<Awaited<ReturnType<PlatformClient["verifySubscriptionPayment"]>>|null>(null);
   const selected=published.find(offer=>offer.id===planId)??null;
 
   async function createQuote(){
@@ -26,7 +25,7 @@ export function PlatformSubscriptionQuote({
     const extra=Number.parseInt(registers,10);
     if(!tenant.success||!company.success){setError("Indica tenant y empresa válidos del cliente registrado.");return;}
     if(!Number.isSafeInteger(extra)||extra<0||extra>10000){setError("Las cajas adicionales deben ser un entero entre 0 y 10000.");return;}
-    setBusy(true);setError(null);setConfirmed(null);
+    setBusy(true);setError(null);setVerified(null);
     try{
       setQuote(await client.createSubscriptionQuote({
         id:uuidV7(),
@@ -43,24 +42,22 @@ export function PlatformSubscriptionQuote({
     }finally{setBusy(false);}
   }
 
-  async function confirmPayment(){
+  async function verifyPayment(){
     if(busy||!quote)return;
-    if(observation.trim().length<1){setError("Registra la referencia de evidencia del pago recibido.");return;}
     setBusy(true);setError(null);
     try{
-      setConfirmed(await client.confirmSubscriptionPayment({
+      setVerified(await client.verifySubscriptionPayment({
         payment_id:quote.paymentId,
-        observation_reference:observation.trim(),
         correlation_id:uuidV7(),
       }));
     }catch(failure){
-      setError(failure instanceof Error?failure.message:"No se pudo confirmar la evidencia de pago.");
+      setError(failure instanceof Error?failure.message:"El cobro no está verificado. La licencia no puede emitirse.");
     }finally{setBusy(false);}
   }
 
-  return <section className="pos-admin-surface" aria-label="Cotización y evidencia de pago">
-    <h3>Cotizar licencia y registrar evidencia de pago</h3>
-    <p>Central toma el precio del plan publicado. Esta pantalla no inventa importes ni emite la licencia: tras confirmar el pago, usa el identificador en Emisión.</p>
+  return <section className="pos-admin-surface" aria-label="Cotización y verificación de pago">
+    <h3>Cotizar licencia y verificar cobro FACTUS Pay</h3>
+    <p>Central toma el precio del plan publicado. Una referencia escrita a mano no confirma el pago: solo el proveedor o el inbox de webhooks autorizados.</p>
     <fieldset disabled={busy||quote!==null} className="pos-form-grid">
       <legend>Cliente y plan publicado</legend>
       <label className="pos-field">Tenant del cliente<input aria-label="Tenant del cliente" value={tenantId} maxLength={36} onChange={e=>setTenantId(e.target.value)}/></label>
@@ -71,14 +68,19 @@ export function PlatformSubscriptionQuote({
       </select></label>
       <label className="pos-field">Cajas adicionales<input aria-label="Cajas adicionales" inputMode="numeric" value={registers} onChange={e=>setRegisters(e.target.value)}/></label>
       <label><input type="checkbox" checked={support} onChange={e=>setSupport(e.target.checked)}/>Incluir soporte opcional del catálogo</label>
-      <button type="button" disabled={busy||!selected} onClick={()=>void createQuote()}>Abrir cotización y cobro</button>
+      <button type="button" disabled={busy||!selected} onClick={()=>void createQuote()}>Abrir cotización</button>
     </fieldset>
     {quote&&<section aria-label="Cotización abierta">
       <p role="status">Cotización {quote.quoteId}. Pago pendiente {quote.paymentId}. Total $ {formatCopPesos(quote.totalMinor)} {quote.currencyCode}. Vence {new Date(quote.expiresAt).toLocaleString("es-CO")}.{quote.idempotent?" Recuperada por idempotencia.":""}</p>
-      <label className="pos-field">Referencia de evidencia de pago<input aria-label="Referencia de evidencia de pago" value={observation} maxLength={160} disabled={busy||confirmed!==null} onChange={e=>setObservation(e.target.value)}/></label>
-      <button type="button" disabled={busy||confirmed!==null||!observation.trim()} onClick={()=>void confirmPayment()}>Confirmar evidencia en Central</button>
+      {quote.providerOpenStatus==="OPENED"&&quote.qr
+        ?<p role="status">Cobro FACTUS abierto. Escanea el QR del proveedor para pagar; luego verifica.</p>
+        :quote.providerOpenStatus==="OPENED"
+          ?<p role="status">Cobro FACTUS abierto (referencia {quote.providerReference}). Verifica cuando el proveedor reporte paid.</p>
+          :<p role="status">El cobro permanece pendiente: proveedor {quote.providerOpenStatus==="NOT_CONFIGURED"?"no configurado":"no disponible"}. No se presenta como QR cobrable ni se puede emitir licencia.</p>}
+      {quote.providerOpenStatus==="OPENED"&&quote.qr&&<img alt="QR de cobro FACTUS Pay" src={quote.qr} width={220} height={220}/>}
+      <button type="button" disabled={busy||verified!==null} onClick={()=>void verifyPayment()}>Verificar cobro en Central</button>
     </section>}
-    {confirmed&&<p role="status">Pago {confirmed.paymentId} confirmado para la cotización {confirmed.quoteId}.{confirmed.idempotent?" Confirmación idempotente.":" Listo para emitir la licencia con este pago."}</p>}
+    {verified&&<p role="status">Pago {verified.paymentId} verificado para la cotización {verified.quoteId}.{verified.idempotent?" Verificación idempotente.":" Listo para emitir la licencia con este pago."}</p>}
     {busy&&<p role="status">Procesando en Central…</p>}
     {error&&<p role="alert">{error}</p>}
   </section>;

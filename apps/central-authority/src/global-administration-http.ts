@@ -15,6 +15,7 @@ import {SubscriptionQuoteContracts} from "./subscription-quote-contracts.js";
 import {readCommercialJsonBody,inspectCommercialHeaders,validateCommercialAssertion,sendCommercialJson} from "./commercial-https-request-boundary.js";
 import type {LicenseCapacityAuthority} from "./license-capacity-authority.js";
 import type {SubscriptionCollectionBinding} from "@pos-platform/contracts";
+import type {SubscriptionFactusPayGateway} from "./subscription-factus-pay-gateway.js";
 
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 const exact=(o:Record<string,unknown>,keys:string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -29,7 +30,7 @@ export interface GlobalAdministrationHttpLimits{
  * GLOBAL cookies cannot authorize BUSINESS, and request IDs never authenticate. */
 export function createGlobalAdministrationHandler(input:{pool:Pool;policy:GlobalAdministrationPolicy;limits:GlobalAdministrationHttpLimits;
   fulfillmentPolicies?:readonly FulfillmentPolicyReferences[];subscriptionCollection?:SubscriptionCollectionBinding;
-  licenseAuthority?:LicenseCapacityAuthority}){
+  factusPay?:SubscriptionFactusPayGateway|null;licenseAuthority?:LicenseCapacityAuthority}){
   const {policy,limits}=input;
   if(!Object.values(limits).every(n=>Number.isSafeInteger(n)&&n>0))throw Error("GLOBAL_HTTP_EXPLICIT_LIMITS_REQUIRED");
   const sessions=new GlobalAdministrationSessions(input.pool,policy),offers=new LicenseOfferDrafts(input.pool,policy.maximumReauthenticationAgeMs,
@@ -38,7 +39,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
   const licenseLimits={reauthenticationMs:policy.maximumReauthenticationAgeMs,
     lockTimeoutMs:policy.lockTimeoutMs,statementTimeoutMs:policy.statementTimeoutMs};
   const licenses=new SubscriptionLicenseContracts(input.pool,input.fulfillmentPolicies??null,licenseLimits);
-  const quotes=new SubscriptionQuoteContracts(input.pool,input.fulfillmentPolicies??null,input.subscriptionCollection??null,licenseLimits);
+  const quotes=new SubscriptionQuoteContracts(input.pool,input.fulfillmentPolicies??null,input.subscriptionCollection??null,licenseLimits,input.factusPay??null);
   const pending=new Map<string,{email:string;challenge:string;csrf:string;expiresAt:number}>();
   let starting=0;
   const flowCookie=(value:string,age:number)=>`${FLOW}=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${age}`;
@@ -166,7 +167,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         sendCommercialJson(res,200,result);
         return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/subscription-quotes/create","/v1/platform/subscription-quotes/confirm-payment","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/subscription-quotes/create","/v1/platform/subscription-quotes/verify-payment","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
       const session=await sessions.authorize(request,(path==="/v1/platform/licenses/revoke-activation"||path==="/v1/platform/licenses/activations")?CentralAdministrationOperation.LICENSE_REVOKE:
         path?.startsWith("/v1/platform/licenses/")||path?.startsWith("/v1/platform/subscription-quotes/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
@@ -183,8 +184,8 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(path==="/v1/platform/subscription-quotes/create"){
         sendCommercialJson(res,200,await quotes.create(session,b));return;
       }
-      if(path==="/v1/platform/subscription-quotes/confirm-payment"){
-        sendCommercialJson(res,200,await quotes.confirmPayment(session,b));return;
+      if(path==="/v1/platform/subscription-quotes/verify-payment"){
+        sendCommercialJson(res,200,await quotes.verifyPayment(session,b));return;
       }
       if(path==="/v1/platform/licenses/assignment-context"){
         if(!input.licenseAuthority){sendCommercialJson(res,409,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;}
@@ -209,8 +210,11 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(e instanceof Error&&/LICENSE_OFFER_(VERSION_CONFLICT|STALE_PUBLICATION_REJECTED|IDEMPOTENCY_CONFLICT)/.test(e.message)){
         sendCommercialJson(res,409,{code:"LICENSE_OFFER_VERSION_CONFLICT"});return;
       }
-      if(e instanceof Error&&/SUBSCRIPTION_QUOTE_IDEMPOTENCY_CONFLICT|SUBSCRIPTION_PAYMENT_EVIDENCE_CONFLICT/.test(e.message)){
+      if(e instanceof Error&&/SUBSCRIPTION_QUOTE_IDEMPOTENCY_CONFLICT|SUBSCRIPTION_PAYMENT_EVIDENCE_CONFLICT|SUBSCRIPTION_PAYMENT_EVIDENCE_REUSED/.test(e.message)){
         sendCommercialJson(res,409,{code:"SUBSCRIPTION_QUOTE_CONFLICT"});return;
+      }
+      if(e instanceof Error&&/SUBSCRIPTION_PAYMENT_NOT_VERIFIED|SUBSCRIPTION_PAYMENT_NOT_PAID|SUBSCRIPTION_PAYMENT_AMOUNT_MISMATCH|SUBSCRIPTION_QUOTE_EXPIRED/.test(e.message)){
+        sendCommercialJson(res,409,{code:e.message});return;
       }
       const status=e instanceof Error&&"status" in e&&[400,413,415].includes(Number(e.status))?Number(e.status):
         e instanceof Error&&["SUBSCRIPTION_FISCAL_SUPPORT_POLICY_REQUIRED","LICENSING_FULFILLMENT_POLICY_REQUIRED","SUBSCRIPTION_COLLECTION_NOT_PROVISIONED"].includes(e.message)?409:400;

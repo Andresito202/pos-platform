@@ -17,21 +17,24 @@ const offer={
 } as PublishedOffer;
 
 describe("PlatformSubscriptionQuote",()=>{
-  it("opens a catalog quote and confirms payment evidence without inventing amounts",async()=>{
+  it("opens a catalog quote and verifies payment without free-text references",async()=>{
+    const paymentId=uuidV7();
     const createSubscriptionQuote=vi.fn(async()=>({
-      quoteId:uuidV7(),paymentId:uuidV7(),totalMinor:4_990_000,currencyCode:"COP" as const,
-      expiresAt:"2026-11-24T00:00:00.000Z",quoteChecksum:"b".repeat(64),idempotent:false,
+      quoteId:uuidV7(),paymentId,totalMinor:4_990_000,currencyCode:"COP" as const,
+      expiresAt:"2026-11-24T00:00:00.000Z",quoteChecksum:"b".repeat(64),
+      providerReference:uuidV7(),providerOpenStatus:"OPENED" as const,qr:null,
+      paymentStatus:"PENDING" as const,idempotent:false,
     }));
-    const confirmSubscriptionPayment=vi.fn(async(request:{payment_id:string})=>({
+    const verifySubscriptionPayment=vi.fn(async(request:{payment_id:string})=>({
       paymentId:request.payment_id,quoteId:uuidV7(),status:"CONFIRMED" as const,idempotent:false,
     }));
-    const client={createSubscriptionQuote,confirmSubscriptionPayment} as unknown as PlatformClient;
+    const client={createSubscriptionQuote,verifySubscriptionPayment} as unknown as PlatformClient;
     render(<PlatformSubscriptionQuote client={client} offers={[offer]}/>);
 
     fireEvent.change(screen.getByLabelText("Tenant del cliente"),{target:{value:uuidV7()}});
     fireEvent.change(screen.getByLabelText("Empresa del cliente"),{target:{value:uuidV7()}});
     fireEvent.change(screen.getByLabelText("Plan publicado"),{target:{value:offer.id}});
-    fireEvent.click(screen.getByRole("button",{name:"Abrir cotización y cobro"}));
+    fireEvent.click(screen.getByRole("button",{name:"Abrir cotización"}));
 
     await waitFor(()=>expect(createSubscriptionQuote).toHaveBeenCalledOnce());
     const body=createSubscriptionQuote.mock.calls.at(0)?.at(0) as unknown as {
@@ -41,10 +44,33 @@ describe("PlatformSubscriptionQuote",()=>{
     expect(body.plan_version).toBe(2);
     expect(body.selection).toEqual({additional_registers:0,support:false});
     expect(body).not.toHaveProperty("total_minor");
+    expect(screen.queryByLabelText(/Referencia de evidencia/i)).toBeNull();
 
-    fireEvent.change(screen.getByLabelText("Referencia de evidencia de pago"),{target:{value:"TRANSFER-001"}});
-    fireEvent.click(screen.getByRole("button",{name:"Confirmar evidencia en Central"}));
-    await waitFor(()=>expect(confirmSubscriptionPayment).toHaveBeenCalledOnce());
-    expect(screen.getByText(/Pago .+ confirmado/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:"Verificar cobro en Central"}));
+    await waitFor(()=>expect(verifySubscriptionPayment).toHaveBeenCalledOnce());
+    expect(verifySubscriptionPayment.mock.calls.at(0)?.at(0)).toEqual({
+      payment_id:paymentId,
+      correlation_id:expect.any(String),
+    });
+    expect(screen.getByText(/Pago .+ verificado/i)).toBeTruthy();
+  });
+
+  it("keeps payment pending when Factus Pay is not configured",async()=>{
+    const createSubscriptionQuote=vi.fn(async()=>({
+      quoteId:uuidV7(),paymentId:uuidV7(),totalMinor:4_990_000,currencyCode:"COP" as const,
+      expiresAt:"2026-11-24T00:00:00.000Z",quoteChecksum:"b".repeat(64),
+      providerReference:uuidV7(),providerOpenStatus:"NOT_CONFIGURED" as const,qr:null,
+      paymentStatus:"PENDING" as const,idempotent:false,
+    }));
+    const verifySubscriptionPayment=vi.fn(async()=>{throw Error("El cobro sigue pendiente en el proveedor. No se emite licencia sin pago verificado.");});
+    const client={createSubscriptionQuote,verifySubscriptionPayment} as unknown as PlatformClient;
+    render(<PlatformSubscriptionQuote client={client} offers={[offer]}/>);
+    fireEvent.change(screen.getByLabelText("Tenant del cliente"),{target:{value:uuidV7()}});
+    fireEvent.change(screen.getByLabelText("Empresa del cliente"),{target:{value:uuidV7()}});
+    fireEvent.change(screen.getByLabelText("Plan publicado"),{target:{value:offer.id}});
+    fireEvent.click(screen.getByRole("button",{name:"Abrir cotización"}));
+    await waitFor(()=>expect(screen.getByText(/proveedor no configurado/i)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button",{name:"Verificar cobro en Central"}));
+    await waitFor(()=>expect(screen.getByRole("alert").textContent).toMatch(/no se emite licencia/i));
   });
 });

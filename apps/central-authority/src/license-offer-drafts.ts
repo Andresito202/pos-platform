@@ -121,7 +121,21 @@ export class LicenseOfferDrafts{
     return this.transaction(sessionId,async c=>{
       const rows=(await c.query(`SELECT DISTINCT ON(code,status) * FROM licensing.plans WHERE offer_profile IN ('CAMACHO_LICENSE_OFFER_V1','CAMACHO_LICENSE_OFFER_V2')
         AND status IN ('DRAFT','ACTIVE') ORDER BY code,status,version DESC`)).rows;
-      return rows.map(row=>({...this.offer(row),version:Number(row.version),status:String(row.status),published_at:row.status==='ACTIVE'?(row.updated_at as Date).toISOString():null}));
+      const result=[];
+      for(const row of rows){
+        const features=(await c.query(
+          "SELECT capability_code,enabled,limit_type,limit_value::text FROM licensing.plan_entitlements WHERE plan_id=$1 ORDER BY capability_code",
+          [row.id],
+        )).rows;
+        result.push({
+          ...this.offer(row),
+          version:Number(row.version),
+          status:String(row.status),
+          published_at:row.status==='ACTIVE'?(row.updated_at as Date).toISOString():null,
+          features,
+        });
+      }
+      return result;
     });
   }
   private offer(row:Record<string,unknown>):LicenseOfferDraft{

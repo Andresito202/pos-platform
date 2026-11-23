@@ -1,6 +1,9 @@
-import {LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseAllocationRequestSchema,LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,SubscriptionQuoteRequestSchema,SubscriptionPaymentConfirmRequestSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
+import {LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseAllocationRequestSchema,LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,SubscriptionQuoteRequestSchema,SubscriptionPaymentVerifyRequestSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
 export class PlatformRequestError extends Error { constructor(message:string,readonly status:number){super(message);this.name="PlatformRequestError";} }
-export type PublishedOffer=LicenseOfferDraft&{version:number;status:"DRAFT"|"ACTIVE";published_at?:string|null};
+export type PublishedOffer=LicenseOfferDraft&{
+  version:number;status:"DRAFT"|"ACTIVE";published_at?:string|null;
+  features?:ReadonlyArray<{capability_code:string;enabled:boolean;limit_type:string;limit_value:string|null}>;
+};
 const decode=(value:string)=>Uint8Array.from(atob(value.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
 const encode=(value:ArrayBuffer)=>btoa(String.fromCharCode(...new Uint8Array(value))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 
@@ -15,7 +18,15 @@ export class PlatformClient{
     const response=await this.transport(this.location.origin+"/v1/platform/"+path,{method:"POST",credentials:"same-origin",cache:"no-store",redirect:"error",
       ...(signal?{signal}:{}),headers:{"content-type":"application/json",...(csrf?{"x-csrf-token":csrf}:{})},body:JSON.stringify(body)});
     if(!response.ok){
-      if(response.status===409){const problem=await response.json() as {code?:unknown};if(problem.code==='LICENSE_OFFER_VERSION_CONFLICT')throw Error("Otro administrador cambió la versión. Recupera el catálogo antes de reintentar.");}
+      if(response.status===409){
+        const problem=await response.json() as {code?:unknown};
+        if(problem.code==='LICENSE_OFFER_VERSION_CONFLICT')throw Error("Otro administrador cambió la versión. Recupera el catálogo antes de reintentar.");
+        if(problem.code==='SUBSCRIPTION_PAYMENT_NOT_VERIFIED'||problem.code==='SUBSCRIPTION_PAYMENT_NOT_PAID')
+          throw Error("El cobro sigue pendiente en el proveedor. No se emite licencia sin pago verificado.");
+        if(problem.code==='SUBSCRIPTION_PAYMENT_AMOUNT_MISMATCH')throw Error("El importe observado no coincide con la cotización.");
+        if(problem.code==='SUBSCRIPTION_QUOTE_EXPIRED')throw Error("La cotización expiró. Abre una nueva cotización.");
+        if(problem.code==='SUBSCRIPTION_QUOTE_CONFLICT')throw Error("La evidencia de pago ya fue usada o entra en conflicto.");
+      }
       throw new PlatformRequestError(response.status===429?"Demasiados intentos; espera antes de continuar.":response.status===401||response.status===403?
         "Central rechazó la sesión o los permisos.":response.status===409?"La operación requiere políticas comerciales aprobadas.":"Central no pudo completar la operación.",response.status);
     }
@@ -73,15 +84,31 @@ export class PlatformClient{
     if(!Array.isArray(result.offers))throw Error("Catálogo de planes inválido.");
     return result.offers.map((raw:unknown)=>{
       if(!raw||typeof raw!=="object"||!("version" in raw)||!Number.isSafeInteger(raw.version)||Number(raw.version)<1||!("status" in raw)||!["DRAFT","ACTIVE"].includes(String(raw.status)))throw Error("Versión de plan inválida.");
-      const {version,status,features:_,published_at,...offer}=raw as Record<string,unknown>;
+      const {version,status,features,published_at,...offer}=raw as Record<string,unknown>;
       if(published_at!==undefined&&published_at!==null&&(typeof published_at!=="string"||!Number.isFinite(Date.parse(published_at))))throw Error("Fecha de publicación inválida.");
-      return {...LicenseOfferDraftSchema.parse(offer),version:Number(version),status:status as "DRAFT"|"ACTIVE",...(published_at!==undefined?{published_at:published_at as string|null}:{})};
+      const parsedFeatures=Array.isArray(features)?features.filter((row):row is {capability_code:string;enabled:boolean;limit_type:string;limit_value:string|null}=>{
+        return !!row&&typeof row==="object"&&typeof (row as {capability_code?:unknown}).capability_code==="string"
+          &&typeof (row as {enabled?:unknown}).enabled==="boolean"
+          &&typeof (row as {limit_type?:unknown}).limit_type==="string";
+      }).map(row=>({
+        capability_code:row.capability_code,enabled:row.enabled,limit_type:row.limit_type,
+        limit_value:row.limit_value===undefined||row.limit_value===null?null:String(row.limit_value),
+      })):[];
+      return {
+        ...LicenseOfferDraftSchema.parse(offer),version:Number(version),status:status as "DRAFT"|"ACTIVE",
+        features:parsedFeatures,
+        ...(published_at!==undefined?{published_at:published_at as string|null}:{}),
+      };
     });
   }
   save(offer:LicenseOfferDraft,expectedVersion:number,correlationId:string){return this.post("license-offers/save",{offer,expectedVersion,correlationId});}
   publish(planId:string,expectedVersion:number,correlationId:string){return this.post("license-offers/publish",{planId,expectedVersion,correlationId});}
-  setEntitlements(planId:string,expectedVersion:number,entitlements:readonly string[],correlationId:string){
-    return this.post("license-offers/set-entitlements",{planId:UuidSchema.parse(planId),expectedVersion,entitlements,correlationId:UuidSchema.parse(correlationId)});
+  async setEntitlements(planId:string,expectedVersion:number,entitlements:readonly string[],correlationId:string){
+    const result=await this.post("license-offers/set-entitlements",{planId:UuidSchema.parse(planId),expectedVersion,entitlements,correlationId:UuidSchema.parse(correlationId)});
+    if(result.planId!==planId||result.version!==expectedVersion||!Array.isArray(result.entitlements)){
+      throw Error("Central no confirmó los módulos del plan.");
+    }
+    return {planId:String(result.planId),version:Number(result.version),entitlements:result.entitlements.map(String)};
   }
   async createSubscriptionQuote(request:unknown){
     const body=SubscriptionQuoteRequestSchema.parse(request);
@@ -90,21 +117,27 @@ export class PlatformClient{
       ||!Number.isSafeInteger(result.totalMinor)||Number(result.totalMinor)<=0||result.currencyCode!=="COP"
       ||typeof result.expiresAt!=="string"||!Number.isFinite(Date.parse(result.expiresAt))
       ||typeof result.quoteChecksum!=="string"||!/^[a-f0-9]{64}$/.test(result.quoteChecksum)
-      ||typeof result.idempotent!=="boolean"){
+      ||typeof result.idempotent!=="boolean"
+      ||!["OPENED","NOT_CONFIGURED","PROVIDER_UNAVAILABLE","IDEMPOTENT_EXISTING"].includes(String(result.providerOpenStatus))
+      ||result.paymentStatus!=="PENDING"){
       throw Error("Central no confirmó la cotización. Reintenta con la misma clave de idempotencia.");
     }
     return {
       quoteId:String(result.quoteId),paymentId:String(result.paymentId),totalMinor:Number(result.totalMinor),
       currencyCode:"COP" as const,expiresAt:String(result.expiresAt),quoteChecksum:String(result.quoteChecksum),
+      providerReference:typeof result.providerReference==="string"?result.providerReference:null,
+      providerOpenStatus:result.providerOpenStatus as "OPENED"|"NOT_CONFIGURED"|"PROVIDER_UNAVAILABLE"|"IDEMPOTENT_EXISTING",
+      qr:typeof result.qr==="string"?result.qr:null,
+      paymentStatus:"PENDING" as const,
       idempotent:result.idempotent,
     };
   }
-  async confirmSubscriptionPayment(request:unknown){
-    const body=SubscriptionPaymentConfirmRequestSchema.parse(request);
-    const result=await this.post("subscription-quotes/confirm-payment",body);
+  async verifySubscriptionPayment(request:unknown){
+    const body=SubscriptionPaymentVerifyRequestSchema.parse(request);
+    const result=await this.post("subscription-quotes/verify-payment",body);
     if(!UuidSchema.safeParse(result.paymentId).success||!UuidSchema.safeParse(result.quoteId).success
       ||result.status!=="CONFIRMED"||typeof result.idempotent!=="boolean"){
-      throw Error("Central no confirmó la evidencia de pago. Conserva el mismo pago para reintentar.");
+      throw Error("Central no verificó el cobro con el proveedor. El pago permanece pendiente.");
     }
     return {paymentId:String(result.paymentId),quoteId:String(result.quoteId),status:"CONFIRMED" as const,idempotent:result.idempotent};
   }

@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 import {
   CentralAdministrationOperation,
-  SubscriptionPaymentConfirmRequestSchema,
+  SubscriptionPaymentVerifyRequestSchema,
   SubscriptionQuoteRequestSchema,
   SubscriptionQuoteTermsSchema,
   addLicenseCalendarMonths,
@@ -14,6 +14,10 @@ import {
 import {PostgresPlatformAdministrationSessionRepository,type Pool} from "@pos-platform/database-postgres";
 import {readPublishedLicenseOffer} from "./license-offer-reader.js";
 import type {FulfillmentPolicyReferences} from "./subscription-license-contracts.js";
+import {
+  SubscriptionFactusPayGatewayError,
+  type SubscriptionFactusPayGateway,
+} from "./subscription-factus-pay-gateway.js";
 
 type Policy=FulfillmentPolicyReferences;
 type PricingPreview=ReturnType<typeof previewLicenseOffer>;
@@ -30,6 +34,19 @@ function payableAmount(totalMinor:number,exponent:number):string{
   const whole=Math.trunc(totalMinor/scale);
   const fraction=String(totalMinor%scale).padStart(exponent,"0");
   return exponent===0?String(whole):`${whole}.${fraction}`;
+}
+
+/** Catalog minor units → Factus Pay scale-6 expected by the existing client. */
+export function subscriptionAmountToScale6(totalMinor:number,exponent:number):string{
+  const payable=payableAmount(totalMinor,exponent);
+  const [whole,frac=""]=payable.split(".");
+  return `${whole}.${frac.padEnd(6,"0").slice(0,6)}`;
+}
+
+function normalizeNumericText(value:string):string{
+  if(!/^(?:0|[1-9]\d{0,14})(?:\.\d{1,6})?$/.test(value))throw Error("SUBSCRIPTION_AMOUNT_FORMAT_INVALID");
+  const [whole,frac=""]=value.split(".");
+  return `${whole}.${frac.padEnd(6,"0").slice(0,6)}`;
 }
 
 function buildTerms(input:{
@@ -68,8 +85,9 @@ function buildTerms(input:{
 
 /**
  * Creates immutable subscription quotes from published catalog prices and opens
- * the matching QR payment group/attempt. Confirmation records provider evidence
- * without inventing amounts. LICENSE_ISSUE remains the only issuer of contracts.
+ * a Factus Pay collection when the gateway is provisioned. Confirmation requires
+ * provider GET paid status and/or a durable webhook inbox observation — never a
+ * free-text UI reference. LICENSE_ISSUE remains the only issuer of contracts.
  */
 export class SubscriptionQuoteContracts{
   constructor(
@@ -77,6 +95,7 @@ export class SubscriptionQuoteContracts{
     private readonly approvedPolicies:readonly Policy[]|null,
     private readonly collection:SubscriptionCollectionBinding|null,
     private readonly limits:{reauthenticationMs:number;lockTimeoutMs:number;statementTimeoutMs:number},
+    private readonly factusPay:SubscriptionFactusPayGateway|null=null,
   ){
     if(!Object.values(limits).every(n=>Number.isSafeInteger(n)&&n>0)||limits.statementTimeoutMs<=limits.lockTimeoutMs){
       throw Error("SUBSCRIPTION_QUOTE_EXPLICIT_LIMITS_REQUIRED");
@@ -144,6 +163,10 @@ export class SubscriptionQuoteContracts{
           currencyCode:String(prior.currency_code),
           expiresAt:prior.expires_at.toISOString(),
           quoteChecksum:String(prior.quote_checksum),
+          providerReference:null,
+          providerOpenStatus:"IDEMPOTENT_EXISTING" as const,
+          qr:null,
+          paymentStatus:"PENDING" as const,
           idempotent:true as const,
         };
       }
@@ -293,6 +316,50 @@ export class SubscriptionQuoteContracts{
       ))throw Error("LICENSING_GLOBAL_LICENSE_ISSUE_REQUIRED");
 
       await c.query("COMMIT");
+
+      // Provider I/O is outside the SQL transaction so locks are not held on network waits.
+      let providerOpenStatus:"OPENED"|"NOT_CONFIGURED"|"PROVIDER_UNAVAILABLE"="NOT_CONFIGURED";
+      let qr:string|null=null;
+      const amountScale6=subscriptionAmountToScale6(preview.subtotal_minor,terms.currency_exponent);
+      if(this.factusPay===null){
+        return {
+          quoteId:request.id,paymentId,totalMinor:preview.subtotal_minor,currencyCode:preview.currency_code,
+          expiresAt:terms.expires_at,quoteChecksum,providerReference,providerOpenStatus,qr,
+          paymentStatus:"PENDING" as const,idempotent:false as const,
+        };
+      }
+      try{
+        const opened=await this.factusPay.recoverOrCreateCollection({
+          referenceCode:providerReference,
+          amountScale6,
+          expirationSeconds:Math.max(60,Math.floor((Date.parse(terms.expires_at)-Date.now())/1000)),
+        });
+        if(opened.referenceCode!==providerReference||opened.amountScale6!==amountScale6||opened.currencyCode!=="COP"){
+          throw new SubscriptionFactusPayGatewayError("FACTUS_PAY_COLLECTION_MISMATCH");
+        }
+        qr=opened.qr;
+        providerOpenStatus="OPENED";
+        const follow=await this.pool.connect();
+        try{
+          await follow.query("BEGIN");
+          await follow.query(
+            "SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true),set_config('app.tenant_id','',true)",
+            [`${this.limits.lockTimeoutMs}ms`,`${this.limits.statementTimeoutMs}ms`],
+          );
+          await follow.query(
+            `UPDATE payments.payment_attempts
+             SET intent_reference=$2,version=version+1,server_recorded_at=clock_timestamp()
+             WHERE id=$1 AND status='PENDING'`,
+            [attemptId,`FACTUS_PAY_OPEN:${opened.status}:${opened.referenceCode}`],
+          );
+          await follow.query("COMMIT");
+        }catch{
+          await follow.query("ROLLBACK").catch(()=>undefined);
+        }finally{follow.release();}
+      }catch{
+        providerOpenStatus="PROVIDER_UNAVAILABLE";
+      }
+
       return {
         quoteId:request.id,
         paymentId,
@@ -300,6 +367,10 @@ export class SubscriptionQuoteContracts{
         currencyCode:preview.currency_code,
         expiresAt:terms.expires_at,
         quoteChecksum,
+        providerReference,
+        providerOpenStatus,
+        qr,
+        paymentStatus:"PENDING" as const,
         idempotent:false as const,
       };
     }catch(error){
@@ -310,9 +381,123 @@ export class SubscriptionQuoteContracts{
     }
   }
 
-  async confirmPayment(sessionId:string,raw:unknown){
-    const request=SubscriptionPaymentConfirmRequestSchema.parse(raw);
+  /**
+   * Authoritative verify only. Free-text references are rejected by schema.
+   * Provider GET runs outside the SQL transaction; confirmation then consumes
+   * that paid observation or a durable webhook inbox row under locks.
+   */
+  async verifyPayment(sessionId:string,raw:unknown){
+    const request=SubscriptionPaymentVerifyRequestSchema.parse(raw);
     UuidSchema.parse(sessionId);
+
+    const preview=await this.loadPaymentForVerify(sessionId,request.payment_id);
+    if(preview.kind==="CONFIRMED"){
+      return {paymentId:preview.paymentId,quoteId:preview.quoteId,status:"CONFIRMED" as const,idempotent:true as const};
+    }
+
+    let paidFromGet:{amountScale6:string}|null=null;
+    if(this.factusPay!==null){
+      try{
+        const detail=await this.factusPay.getCollection({
+          referenceCode:preview.providerReference,
+          expectedAmountScale6:preview.expectedScale6,
+        });
+        if(detail.status==="paid"&&detail.referenceCode===preview.providerReference
+          &&detail.amountScale6===preview.expectedScale6&&detail.currencyCode==="COP"){
+          paidFromGet={amountScale6:detail.amountScale6};
+        }
+      }catch(error){
+        if(error instanceof SubscriptionFactusPayGatewayError&&error.code==="FACTUS_PAY_AMOUNT_MISMATCH"){
+          throw Error("SUBSCRIPTION_PAYMENT_AMOUNT_MISMATCH");
+        }
+      }
+    }
+
+    return this.confirmPendingPayment(sessionId,request,paidFromGet);
+  }
+
+  private async loadPaymentForVerify(sessionId:string,paymentId:string){
+    const c=await this.pool.connect();
+    try{
+      await c.query("BEGIN");
+      await c.query(
+        "SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true),set_config('app.tenant_id','',true)",
+        [`${this.limits.lockTimeoutMs}ms`,`${this.limits.statementTimeoutMs}ms`],
+      );
+      await c.query('SELECT "authorization".lock_platform_sources_for_read()');
+      await c.query("SELECT id FROM identity.sessions WHERE id=$1 FOR SHARE",[sessionId]);
+      const permissions=new PostgresPlatformAdministrationSessionRepository(c);
+      if(!await permissions.findActivePlatformPermissionForSession(
+        sessionId,CentralAdministrationOperation.LICENSE_ISSUE,this.limits.reauthenticationMs,
+      ))throw Error("LICENSING_GLOBAL_LICENSE_ISSUE_REQUIRED");
+      if((await c.query(`SELECT 1 FROM identity.browser_session_handoffs h JOIN identity.sessions s ON s.id=h.session_id AND s.user_id=h.user_id
+        JOIN identity.users u ON u.id=s.user_id AND u.status='ACTIVE'
+        JOIN identity.user_credentials pwd ON pwd.id=h.password_credential_id AND pwd.user_id=u.id AND pwd.status='ACTIVE'
+          AND pwd.credential_type='PASSWORD' AND pwd.version=h.password_credential_version AND pwd.revoked_at IS NULL
+          AND (pwd.locked_until IS NULL OR pwd.locked_until<=clock_timestamp())
+        JOIN identity.mfa_factors f ON f.id=h.factor_id AND f.user_id=u.id AND f.status='ACTIVE' AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL
+        WHERE s.id=$1 AND h.tenant_id IS NULL AND h.membership_id IS NULL FOR SHARE OF u,pwd,f`,[sessionId])).rowCount!==1){
+        throw Error("LICENSING_CURRENT_GLOBAL_CREDENTIAL_REQUIRED");
+      }
+
+      const row=(await c.query(`SELECT p.id AS payment_id,p.status AS payment_status,p.expected_amount::text AS expected_amount,
+          p.currency_code,a.status AS attempt_status,a.provider_reference,a.evidence_snapshot,
+          q.id AS quote_id,q.quote_checksum,q.provider_reference AS quote_provider_reference,
+          q.expires_at,q.total_minor,q.currency_exponent
+        FROM payments.payments p
+        JOIN payments.payment_groups g ON g.id=p.payment_group_id AND g.tenant_id=p.tenant_id
+        JOIN payments.payment_attempts a ON a.payment_id=p.id AND a.tenant_id=p.tenant_id
+        JOIN subscriptions.license_quotes q ON q.id=g.collection_subject_id
+        WHERE p.id=$1 AND g.collection_subject_type='SUBSCRIPTION_QUOTE'
+        FOR SHARE OF p,a`,[paymentId])).rows[0] as {
+        payment_id:string;payment_status:string;expected_amount:string;currency_code:string;
+        attempt_status:string;provider_reference:string;evidence_snapshot:unknown;
+        quote_id:string;quote_checksum:string;quote_provider_reference:string;expires_at:Date;
+        total_minor:string|number;currency_exponent:number;
+      }|undefined;
+      if(!row)throw Error("SUBSCRIPTION_PAYMENT_NOT_FOUND");
+      if(row.provider_reference!==row.quote_provider_reference)throw Error("SUBSCRIPTION_PAYMENT_REFERENCE_MISMATCH");
+      if(row.currency_code!=="COP")throw Error("SUBSCRIPTION_PAYMENT_CURRENCY_MISMATCH");
+
+      if(row.payment_status==="CONFIRMED"&&row.attempt_status==="CONFIRMED"){
+        const evidence=row.evidence_snapshot as {quoteChecksum?:string;quoteId?:string;providerReference?:string;source?:string}|null;
+        if(evidence?.quoteChecksum!==row.quote_checksum||evidence?.quoteId!==row.quote_id
+          ||evidence?.providerReference!==row.quote_provider_reference
+          ||(evidence?.source!=="FACTUS_PAY_GET"&&evidence?.source!=="FACTUS_PAY_WEBHOOK_INBOX")){
+          throw Error("SUBSCRIPTION_PAYMENT_EVIDENCE_CONFLICT");
+        }
+        await c.query("COMMIT");
+        return {kind:"CONFIRMED" as const,paymentId:row.payment_id,quoteId:row.quote_id};
+      }
+      if(row.payment_status!=="PENDING"||row.attempt_status!=="PENDING"){
+        throw Error("SUBSCRIPTION_PAYMENT_NOT_PENDING");
+      }
+      if(row.expires_at.getTime()<=Date.now())throw Error("SUBSCRIPTION_QUOTE_EXPIRED");
+      const expectedScale6=subscriptionAmountToScale6(Number(row.total_minor),Number(row.currency_exponent));
+      if(normalizeNumericText(row.expected_amount)!==expectedScale6){
+        throw Error("SUBSCRIPTION_PAYMENT_AMOUNT_MISMATCH");
+      }
+      await c.query("COMMIT");
+      return {
+        kind:"PENDING" as const,
+        paymentId:row.payment_id,
+        quoteId:row.quote_id,
+        providerReference:row.provider_reference,
+        expectedScale6,
+      };
+    }catch(error){
+      await c.query("ROLLBACK");
+      throw error;
+    }finally{
+      c.release();
+    }
+  }
+
+  private async confirmPendingPayment(
+    sessionId:string,
+    request:{payment_id:string;correlation_id:string},
+    paidFromGet:{amountScale6:string}|null,
+  ){
     const c=await this.pool.connect();
     try{
       await c.query("BEGIN");
@@ -340,26 +525,30 @@ export class SubscriptionQuoteContracts{
       await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",["subscription-payment:"+request.payment_id]);
 
       const row=(await c.query(`SELECT p.id AS payment_id,p.status AS payment_status,p.expected_amount::text AS expected_amount,
-          p.confirmed_amount::text AS confirmed_amount,p.currency_code,a.id AS attempt_id,a.status AS attempt_status,
-          a.provider_reference,a.evidence_snapshot,q.id AS quote_id,q.quote_checksum,q.provider_reference AS quote_provider_reference,
-          q.expires_at,g.id AS group_id
+          p.currency_code,p.tenant_id,p.company_id,a.id AS attempt_id,a.status AS attempt_status,
+          a.provider_reference,a.integration_id,a.evidence_snapshot,q.id AS quote_id,q.quote_checksum,
+          q.provider_reference AS quote_provider_reference,q.expires_at,q.total_minor,q.currency_exponent,g.id AS group_id
         FROM payments.payments p
         JOIN payments.payment_groups g ON g.id=p.payment_group_id AND g.tenant_id=p.tenant_id
         JOIN payments.payment_attempts a ON a.payment_id=p.id AND a.tenant_id=p.tenant_id
         JOIN subscriptions.license_quotes q ON q.id=g.collection_subject_id
         WHERE p.id=$1 AND g.collection_subject_type='SUBSCRIPTION_QUOTE'
         FOR UPDATE OF p,a`,[request.payment_id])).rows[0] as {
-        payment_id:string;payment_status:string;expected_amount:string;confirmed_amount:string;currency_code:string;
-        attempt_id:string;attempt_status:string;provider_reference:string;evidence_snapshot:unknown;
-        quote_id:string;quote_checksum:string;quote_provider_reference:string;expires_at:Date;group_id:string;
+        payment_id:string;payment_status:string;expected_amount:string;currency_code:string;
+        tenant_id:string;company_id:string;attempt_id:string;attempt_status:string;
+        provider_reference:string;integration_id:string;evidence_snapshot:unknown;
+        quote_id:string;quote_checksum:string;quote_provider_reference:string;expires_at:Date;
+        total_minor:string|number;currency_exponent:number;group_id:string;
       }|undefined;
       if(!row)throw Error("SUBSCRIPTION_PAYMENT_NOT_FOUND");
       if(row.provider_reference!==row.quote_provider_reference)throw Error("SUBSCRIPTION_PAYMENT_REFERENCE_MISMATCH");
+      if(row.currency_code!=="COP")throw Error("SUBSCRIPTION_PAYMENT_CURRENCY_MISMATCH");
 
       if(row.payment_status==="CONFIRMED"&&row.attempt_status==="CONFIRMED"){
-        const evidence=row.evidence_snapshot as {quoteChecksum?:string;quoteId?:string;providerReference?:string}|null;
+        const evidence=row.evidence_snapshot as {quoteChecksum?:string;quoteId?:string;providerReference?:string;source?:string}|null;
         if(evidence?.quoteChecksum!==row.quote_checksum||evidence?.quoteId!==row.quote_id
-          ||evidence?.providerReference!==row.quote_provider_reference){
+          ||evidence?.providerReference!==row.quote_provider_reference
+          ||(evidence?.source!=="FACTUS_PAY_GET"&&evidence?.source!=="FACTUS_PAY_WEBHOOK_INBOX")){
           throw Error("SUBSCRIPTION_PAYMENT_EVIDENCE_CONFLICT");
         }
         await c.query("COMMIT");
@@ -371,14 +560,80 @@ export class SubscriptionQuoteContracts{
       }
       if(row.expires_at.getTime()<=Date.now())throw Error("SUBSCRIPTION_QUOTE_EXPIRED");
 
+      const expectedScale6=subscriptionAmountToScale6(Number(row.total_minor),Number(row.currency_exponent));
+      if(normalizeNumericText(row.expected_amount)!==expectedScale6){
+        throw Error("SUBSCRIPTION_PAYMENT_AMOUNT_MISMATCH");
+      }
+
+      let source:"FACTUS_PAY_GET"|"FACTUS_PAY_WEBHOOK_INBOX"|null=null;
+      let inboxId:string|null=null;
+      let providerAmount=expectedScale6;
+
+      if(paidFromGet!==null&&paidFromGet.amountScale6===expectedScale6){
+        source="FACTUS_PAY_GET";
+        providerAmount=paidFromGet.amountScale6;
+      }
+
+      if(source===null){
+        const inbox=(await c.query(
+          `SELECT id::text AS id,amount::text AS amount,currency_code,provider_status,processing_status,integration_id::text AS integration_id
+           FROM integrations.factus_pay_webhook_inbox
+           WHERE tenant_id=$1 AND company_id=$2 AND integration_id=$3
+             AND external_transaction_id=$4
+           FOR UPDATE`,
+          [row.tenant_id,row.company_id,row.integration_id,row.provider_reference],
+        )).rows[0] as {
+          id:string;amount:string;currency_code:string;provider_status:string;
+          processing_status:string;integration_id:string;
+        }|undefined;
+        if(!inbox){
+          throw Error(this.factusPay===null
+            ?"SUBSCRIPTION_PAYMENT_NOT_VERIFIED"
+            :"SUBSCRIPTION_PAYMENT_NOT_PAID");
+        }
+        if(inbox.integration_id!==row.integration_id)throw Error("SUBSCRIPTION_PAYMENT_INTEGRATION_MISMATCH");
+        if(inbox.currency_code!=="COP"||inbox.provider_status!=="paid"){
+          throw Error("SUBSCRIPTION_PAYMENT_NOT_PAID");
+        }
+        if(normalizeNumericText(inbox.amount)!==expectedScale6){
+          throw Error("SUBSCRIPTION_PAYMENT_AMOUNT_MISMATCH");
+        }
+        if(inbox.processing_status==="PROCESSED"){
+          throw Error("SUBSCRIPTION_PAYMENT_EVIDENCE_REUSED");
+        }
+        if(!["PENDING","RETRY_SCHEDULED","PROCESSING"].includes(inbox.processing_status)){
+          throw Error("SUBSCRIPTION_PAYMENT_NOT_VERIFIED");
+        }
+        if(inbox.processing_status==="PENDING"||inbox.processing_status==="RETRY_SCHEDULED"){
+          await c.query(
+            `UPDATE integrations.factus_pay_webhook_inbox
+             SET processing_status='PROCESSING',attempt_count=attempt_count+1,version=version+1
+             WHERE id=$1 AND processing_status IN ('PENDING','RETRY_SCHEDULED')`,
+            [inbox.id],
+          );
+        }
+        const consumed=await c.query(
+          `UPDATE integrations.factus_pay_webhook_inbox
+           SET processing_status='PROCESSED',processed_at=clock_timestamp(),version=version+1
+           WHERE id=$1 AND processing_status='PROCESSING'
+           RETURNING id`,
+          [inbox.id],
+        );
+        if(consumed.rowCount!==1)throw Error("SUBSCRIPTION_PAYMENT_EVIDENCE_REUSED");
+        source="FACTUS_PAY_WEBHOOK_INBOX";
+        inboxId=inbox.id;
+        providerAmount=normalizeNumericText(inbox.amount);
+      }
+
       const evidence={
         quoteId:row.quote_id,
         quoteChecksum:row.quote_checksum,
         providerReference:row.quote_provider_reference,
-        observationReference:request.observation_reference,
+        source,
+        amountScale6:providerAmount,
+        ...(inboxId?{inboxId}:{}),
       };
-      const evidenceJson=canonicalSessionTrustJson(evidence);
-      const evidenceChecksum=sha256(evidenceJson);
+      const evidenceChecksum=sha256(canonicalSessionTrustJson(evidence));
 
       await c.query(`UPDATE payments.payment_attempts
         SET status='CONFIRMED',evidence_snapshot=$2::jsonb,evidence_checksum=$3,provider_reported_at=clock_timestamp(),
@@ -395,7 +650,7 @@ export class SubscriptionQuoteContracts{
         FROM payments.payments p WHERE p.id=$3`,[uuidV7(),row.quote_id,row.payment_id]);
 
       const payload=canonicalSessionTrustJson({
-        payment_id:row.payment_id,quote_id:row.quote_id,observation_reference:request.observation_reference,
+        payment_id:row.payment_id,quote_id:row.quote_id,source,amount_scale6:providerAmount,
       });
       await c.query(`INSERT INTO audit.audit_events(id,actor_type,actor_id,session_id,action_code,resource_type,resource_reference_kind,resource_id,
         correlation_id,schema_version,reported_at,server_recorded_at,result,new_value,payload_checksum)

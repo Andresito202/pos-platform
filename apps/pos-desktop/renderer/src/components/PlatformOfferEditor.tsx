@@ -17,7 +17,11 @@ export function PlatformOfferEditor({client,offers,onChanged}:{client:PlatformCl
   const legacy=selected!==null&&!("profile" in selected);
   function choose(offer:PublishedOffer|null){
     setSelected(offer);setDraft(null);setPreview(null);setConfirmed(false);setMessage(null);setError(null);
-    setSectors([]);
+    const persisted=(offer?.features??[])
+      .filter(feature=>feature.enabled&&feature.capability_code!==CASH_REGISTER_ENTITLEMENT)
+      .map(feature=>feature.capability_code)
+      .filter(code=>SECTOR_OPTIONS.some(option=>option.code===code));
+    setSectors(persisted);
   }
   function review(form:HTMLFormElement){
     setError(null);setMessage(null);
@@ -54,7 +58,10 @@ export function PlatformOfferEditor({client,offers,onChanged}:{client:PlatformCl
       const entitlements=[CASH_REGISTER_ENTITLEMENT,...sectors];
       const result=await client.setEntitlements(target.id,target.version,entitlements,uuidV7());
       if(result.planId!==target.id||result.version!==target.version)throw Error("Central no confirmó los módulos del plan.");
+      setDraft({id:result.planId,version:result.version});
+      setSectors(result.entitlements.filter(code=>SECTOR_OPTIONS.some(option=>option.code===code)));
       setMessage("Central guardó POS base y los módulos sectoriales del borrador. Publica para que entren en cotizaciones.");
+      await onChanged();
     }catch(e){setError(e instanceof Error?e.message:"No se pudieron guardar los módulos.");}
     finally{setBusy(false);}
   }
