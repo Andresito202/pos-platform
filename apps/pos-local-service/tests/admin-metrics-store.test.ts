@@ -35,17 +35,26 @@ const SCOPE_TENANT_B: SyncScope = {
 };
 
 const directories: string[] = [];
+const databases: LocalDatabase[] = [];
+
 afterEach(() => {
-  while (directories.length > 0) {
-    const dir = directories.pop();
-    if (dir) rmSync(dir, { recursive: true, force: true });
+  try {
+    for (const database of databases.splice(0)) {
+      database.close();
+    }
+  } finally {
+    for (const dir of directories.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 
 async function openDatabase(): Promise<LocalDatabase> {
   const dir = await mkdtemp(join(tmpdir(), "pos-admin-metrics-"));
   directories.push(dir);
-  return LocalDatabase.open({ dataDirectory: dir });
+  const database = LocalDatabase.open({ dataDirectory: dir });
+  databases.push(database);
+  return database;
 }
 
 function registerOperation(db: LocalDatabase, seed: string): string {
