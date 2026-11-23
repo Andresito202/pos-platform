@@ -5,6 +5,10 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import { DurableSyncStore } from "../sync/durable-sync-store.js";
 import { scale6ToBigInt } from "../money.js";
+import {
+  commercialBusinessDate,
+  isLotEligibleOnCommercialDate,
+} from "../time/commercial-calendar.js";
 
 export type EstablishmentType =
   | "DROGUERIA"
@@ -561,7 +565,7 @@ export class SqlitePharmacyStore {
       if (evaluated.kind === "DENIED") return { kind: "DENIED", reason: evaluated.reason };
     }
 
-    const today = this.now().toISOString().slice(0, 10);
+    const today = commercialBusinessDate(this.now());
     const reservedLots = this.database.native.prepare(
       `SELECT l.id, l.status, l.expiry_date
        FROM inventory_reservation r
@@ -581,7 +585,7 @@ export class SqlitePharmacyStore {
       if (lot.status !== "AVAILABLE") {
         return { kind: "DENIED", reason: "PHARMACY_LOT_INELIGIBLE" };
       }
-      if (lot.expiry_date !== null && lot.expiry_date < today) {
+      if (!isLotEligibleOnCommercialDate(lot.expiry_date, today)) {
         return { kind: "DENIED", reason: "PHARMACY_LOT_INELIGIBLE" };
       }
     }

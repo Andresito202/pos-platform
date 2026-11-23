@@ -5,6 +5,10 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import { quantityFitsUnitPrecision } from "../quantity.js";
 import type { DurableSyncStore, SyncScope } from "../sync/durable-sync-store.js";
+import {
+  commercialBusinessDate,
+  isLotEligibleOnCommercialDate,
+} from "../time/commercial-calendar.js";
 
 /**
  * Inventario — `MIGRATION_015`.
@@ -231,6 +235,11 @@ export class SqliteInventoryStore {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
+  /** Fecha comercial America/Bogota para elegibilidad de vencimiento. */
+  private commercialDate(at: Date = this.now()): string {
+    return commercialBusinessDate(at);
+  }
+
   // ── Lectura ────────────────────────────────────────────────────────────────
 
   /** Existencia actual. `null` cuando la presentación nunca tuvo movimiento en esta sucursal. */
@@ -261,7 +270,7 @@ export class SqliteInventoryStore {
       const stock=this.getStock(scope,presentationId);
       return stock?scale6ToBigInt(stock.quantityOnHand):0n;
     }
-    const today=at.toISOString().slice(0,10);
+    const today=this.commercialDate(at);
     const rows=this.database.native.prepare(`SELECT quantity_on_hand FROM inventory_lot
       WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?
         AND status='AVAILABLE' AND (expiry_date IS NULL OR expiry_date>=?)`)
@@ -297,7 +306,7 @@ export class SqliteInventoryStore {
 
   private deductFefo(input:AppendMovementInput):{kind:"OK";lots:Array<{id:string;units:bigint}>}|
     {kind:"INSUFFICIENT_STOCK";available:string}{
-    const today=this.now().toISOString().slice(0,10);
+    const today=this.commercialDate();
     const rows=this.database.native.prepare(`SELECT id,quantity_on_hand FROM inventory_lot
       WHERE tenant_id=? AND company_id=? AND branch_id=? AND presentation_id=?
        AND status='AVAILABLE' AND (expiry_date IS NULL OR expiry_date>=?)
@@ -748,7 +757,7 @@ export class SqliteInventoryStore {
       // Physical loss/withdrawal from those lots remains possible with SHRINKAGE.
       if(input.reasonCode==="MATERIAL_CONSUMPTION" &&
         (record.status!=="AVAILABLE" ||
-         (record.expiry_date!==null && record.expiry_date<this.now().toISOString().slice(0,10))))
+         !isLotEligibleOnCommercialDate(record.expiry_date,this.commercialDate())))
         return {kind:"LOT_NOT_SELLABLE"} as AppendMovementOutcome;
       if(!/^(0|[1-9]\d{0,12})\.\d{6}$/.test(input.quantity)||scale6ToBigInt(input.quantity)<=0n)
         return {kind:"INVALID_QUANTITY"} as AppendMovementOutcome;
@@ -975,7 +984,7 @@ export class SqliteInventoryStore {
         }|undefined;
       if(!source)return {kind:"LOT_NOT_FOUND"};
       if(source.status!=="AVAILABLE"||
-         (source.expiry_date!==null&&source.expiry_date<this.now().toISOString().slice(0,10)))
+         !isLotEligibleOnCommercialDate(source.expiry_date,this.commercialDate()))
         return {kind:"LOT_NOT_SELLABLE"};
       if(scale6ToBigInt(source.quantity_on_hand)<sourceUnits)return {kind:"INSUFFICIENT_STOCK"};
       const destinationStock=this.getStock(input.scope,rule.target_presentation_id);
@@ -1095,7 +1104,7 @@ export class SqliteInventoryStore {
       return {kind:"REJECTED",available:bigIntToScale6(this.availableUnits(scope,presentationId))};
     }
     let allocated=0n;
-    const today=this.now().toISOString().slice(0,10);
+    const today=this.commercialDate();
     for(const lot of lots){
       allocated+=lot.units;
       const row=this.database.native.prepare(`SELECT presentation_id,status,expiry_date,quantity_on_hand
@@ -1106,7 +1115,7 @@ export class SqliteInventoryStore {
       if(!row
         ||row.presentation_id!==presentationId
         ||row.status!=="AVAILABLE"
-        ||(row.expiry_date!==null && row.expiry_date<today)
+        ||!isLotEligibleOnCommercialDate(row.expiry_date,today)
         ||scale6ToBigInt(row.quantity_on_hand)<lot.units){
         return {kind:"REJECTED",available:bigIntToScale6(this.availableUnits(scope,presentationId))};
       }
@@ -1198,7 +1207,7 @@ export class SqliteInventoryStore {
         movementId:uuidV7(),operationId:uuidV7(),presentationId:input.presentationId,
         movementType:"SALE",quantity:input.quantity,reasonCode:"RESERVATION_HOLD",
         saleId:input.referenceType==="SALE"?input.referenceId:null,
-        businessDate:this.now().toISOString().slice(0,10),
+        businessDate:this.commercialDate(),
         idempotencyKey:input.idempotencyKey,requestChecksum:input.requestChecksum,
         correlationId:input.correlationId,causationId:input.causationId,
       });
@@ -1580,7 +1589,7 @@ export class SqliteInventoryStore {
         if(inputMass!==outputMass+shrinkMass)return {kind:"MASS_RECONCILIATION_FAILED"};
       }
 
-      const today=this.now().toISOString().slice(0,10);
+      const today=this.commercialDate();
       const when=this.now().toISOString();
       const orderId=uuidV7();
       const lines:Array<{
@@ -1608,7 +1617,7 @@ export class SqliteInventoryStore {
           .get(input.scope.tenantId,input.scope.companyId,input.scope.branchId,presentationId,lotId) as
             SellableLot|undefined;
         if(record===undefined)abort({kind:"LOT_NOT_FOUND"});
-        else if(record.status!=="AVAILABLE"||(record.expiry_date!==null&&record.expiry_date<today))
+        else if(record.status!=="AVAILABLE"||!isLotEligibleOnCommercialDate(record.expiry_date,today))
           abort({kind:"LOT_NOT_SELLABLE"});
         else return record;
         throw new Error("TRANSFORM_LOT_GUARD");
