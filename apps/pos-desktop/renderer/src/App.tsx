@@ -276,8 +276,8 @@ function LocalApp(): React.JSX.Element {
               : localSession.role === "ADMINISTRADOR"
                 ? "Administración"
                 : localSession.role === "SUPERADMINISTRADOR"
-                  ? "Auditoría local (no GLOBAL)"
-                  : "Acceso según permisos efectivos"}
+                  ? "Auditoría"
+                  : "Acceso según permisos"}
         </p>
         <nav className="pos-nav">
           {screens.map((screen) => (
@@ -307,12 +307,12 @@ function LocalApp(): React.JSX.Element {
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
             <p>
               {localSession.role === "SUPERVISOR"
-                ? "Supervisión sin carrito ni venta. Solo operaciones autorizadas."
+                ? "Supervisión de operaciones autorizadas."
                 : localSession.role === "ADMINISTRADOR"
-                  ? "Administración BUSINESS local del alcance autorizado."
+                  ? "Administración del negocio."
                   : localSession.role === "SUPERADMINISTRADOR"
-                    ? "Auditoría local · no confundir con autoridad GLOBAL."
-                    : "Acceso disponible según la autorización efectiva de la sesión."}
+                    ? "Auditoría en este dispositivo."
+                    : "Acceso según los permisos de tu sesión."}
             </p>
           </div>
         </header>

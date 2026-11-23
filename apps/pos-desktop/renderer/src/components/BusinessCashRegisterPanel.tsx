@@ -31,12 +31,12 @@ export function BusinessCashRegisterPanel(): React.JSX.Element {
     const result = await client.list({ companyId, branchId, licenseId }, after);
     setRegisters(result.registers); setNextCursor(result.nextCursor); setEditing(null);
   }
-  if (!authenticated) return <section className="pos-admin-panel" aria-label="Acceso BUSINESS">
+  if (!authenticated) return <section className="pos-admin-panel" aria-label="Acceso administrativo">
     <header className="pos-admin-header">
       <div>
-        <span className="pos-admin-eyebrow">ADMINISTRACIÓN BUSINESS</span>
+        <span className="pos-admin-eyebrow">ADMINISTRACIÓN</span>
         <h2>Administración de cajas</h2>
-        <p>Inicia sesión con tu cuenta empresarial y autenticador. Usa los identificadores de organización y membresía entregados con tu alta. Esta superficie no es Caja ni autoridad GLOBAL.</p>
+        <p>Inicia sesión con tu cuenta empresarial y el autenticador. Usa los datos de organización y membresía entregados con tu alta.</p>
       </div>
     </header>
     <form className="pos-form-grid" onSubmit={e => { e.preventDefault(); const f = e.currentTarget, data = new FormData(f);
@@ -48,7 +48,7 @@ export function BusinessCashRegisterPanel(): React.JSX.Element {
         if (pending) {
           const index = result.contexts.findIndex(c => c.companyId === pending.companyId && c.branchId === pending.branchId && c.licenseId === pending.licenseId);
           if (index >= 0) { setSelected(String(index)); await load(result.contexts[index]!); }
-          else setNotice("Hay una creación pendiente en otro ámbito. Inicia sesión con la cuenta autorizada para reconciliarla.");
+          else setNotice("Hay una creación pendiente en otra empresa o sucursal. Inicia sesión con la cuenta autorizada para continuarla.");
         }
         if (result.truncated) setNotice("Se muestran los primeros 100 ámbitos autorizados.");
       }); }}>
@@ -62,14 +62,14 @@ export function BusinessCashRegisterPanel(): React.JSX.Element {
       </div>
     </form>{error && <p role="alert">{error}</p>}
   </section>;
-  return <section className="pos-admin-panel" aria-label="Administración de cajas BUSINESS" aria-busy={busy}>
+  return <section className="pos-admin-panel" aria-label="Administración de cajas" aria-busy={busy}>
     <header className="pos-admin-header">
       <div>
-        <span className="pos-admin-eyebrow">ADMINISTRACIÓN BUSINESS</span>
+        <span className="pos-admin-eyebrow">ADMINISTRACIÓN</span>
         <h2>Administración de cajas</h2>
-        <p>El retiro conserva la historia. Las asignaciones de licencia anteriores requieren un protocolo de liberación para recuperar capacidad.</p>
+        <p>Al retirar una caja se conserva su historial. Liberar una licencia asignada requiere el procedimiento correspondiente.</p>
       </div>
-      <button disabled={busy} onClick={() => void run(async () => { await client.logout(); setAuthenticated(false); setContexts([]); setRegisters([]); setSelected(""); setNotice("Central confirmó el cierre."); })}>Cerrar sesión BUSINESS</button>
+      <button disabled={busy} onClick={() => void run(async () => { await client.logout(); setAuthenticated(false); setContexts([]); setRegisters([]); setSelected(""); setNotice("Sesión cerrada correctamente."); })}>Cerrar sesión</button>
     </header>
     <label className="pos-admin-scope-select">Empresa, sucursal y licencia<select value={selected} disabled={busy || pendingCreate.current !== null} onChange={e => {
       setSelected(e.target.value); setRegisters([]); setEditing(null); setNextCursor(null);
@@ -106,7 +106,7 @@ export function BusinessCashRegisterPanel(): React.JSX.Element {
             }
             pendingCreate.current = null;
           }
-          setCreateId(uuidV7()); await load(current); form.reset(); setNotice("Central confirmó la operación."); });
+          setCreateId(uuidV7()); await load(current); form.reset(); setNotice("Operación confirmada."); });
       }}>
         <h3>{editing ? "Editar caja" : "Crear caja"}</h3>
         <input type="hidden" name="id" value={editing?.id ?? createId}/>
@@ -122,8 +122,8 @@ export function BusinessCashRegisterPanel(): React.JSX.Element {
           <tbody>{registers.map(r => <tr key={r.id}><td>{r.code}</td><td>{r.name}</td><td>{r.status === "ACTIVE" ? "Activa" : "Retirada"}</td><td>
             <button disabled={busy || pendingCreate.current !== null || r.status !== "ACTIVE"} onClick={() => setEditing(r)}>Editar {r.code}</button>
             <button className="pos-danger-action" disabled={busy || pendingCreate.current !== null || r.status !== "ACTIVE"} onClick={() => void run(async () => {
-              await client.retire({ companyId: current.companyId, branchId: current.branchId, licenseId: current.licenseId }, r); await load(current); setNotice("Caja retirada; historia conservada.");
-            })}>Retirar {r.code}</button></td></tr>)}</tbody></table>
+            await client.retire({ companyId: current.companyId, branchId: current.branchId, licenseId: current.licenseId }, r); await load(current); setNotice("Caja retirada. El historial se conserva.");
+          })}>Retirar {r.code}</button></td></tr>)}</tbody></table>
       </div>
       <button disabled={busy || !nextCursor} onClick={() => void run(() => load(current, nextCursor))}>Siguiente página</button>
     </>}

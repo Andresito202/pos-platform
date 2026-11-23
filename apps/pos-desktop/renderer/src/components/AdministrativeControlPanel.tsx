@@ -15,17 +15,14 @@ export function AdministrativeControlPanel({ browserBusiness = false }: { browse
 function MetricCard({
   title,
   presentation,
-  footnote,
 }: {
   title: string;
   presentation: AdminMetricPresentation;
-  footnote: string;
 }): React.JSX.Element {
   return (
     <article className="pos-admin-card" data-metric-state={presentation.availability}>
       <span>{title}</span>
       <strong>{presentation.label}</strong>
-      <small>{footnote}</small>
       <small className="pos-metric-state">{presentation.detail}</small>
     </article>
   );
@@ -48,28 +45,25 @@ function LocalAdministrativeControlPanel(): React.JSX.Element {
 
   const salesCount = presentAdminMetricCount(metrics.sales_completed_count, {
     whenNull: "unavailable",
-    emptyLabel: "No hay ventas completadas en el alcance; esto no es un importe inventado.",
+    emptyLabel: "Sin movimientos registrados.",
   });
   const salesAmount = presentAdminMetricAmount(metrics.sales_completed_amount, formatScale6Display);
   const inventory = presentAdminMetricCount(metrics.inventory_tracked_count, {
     whenNull: "forbidden",
-    emptyLabel: "No hay presentaciones con existencia en la sucursal.",
+    emptyLabel: "Sin movimientos registrados.",
   });
   const openShifts = presentAdminMetricCount(metrics.cash_open_shift_count, {
     whenNull: "unavailable",
-    emptyLabel: "No hay turnos OPEN/CLOSING en el alcance.",
+    emptyLabel: "Sin turnos abiertos.",
   });
 
   return (
     <section className="pos-admin-panel" data-testid="admin-panel-admin">
       <header className="pos-admin-header">
         <div>
-          <span className="pos-admin-eyebrow">ADMINISTRACIÓN BUSINESS LOCAL</span>
-          <h2>Centro de administración</h2>
-          <p>
-            Indicadores del alcance autorizado de esta instalación. No concede autoridad GLOBAL
-            ni acceso a Caja. Los valores nulos no se muestran como cero.
-          </p>
+          <span className="pos-admin-eyebrow">ADMINISTRACIÓN</span>
+          <h2>Resumen del negocio</h2>
+          <p>Consulta los indicadores disponibles para tu comercio.</p>
         </div>
         <button type="button" disabled={adminMetrics.busy} onClick={() => { void adminMetrics.refresh(); }}>
           Actualizar
@@ -89,35 +83,16 @@ function LocalAdministrativeControlPanel(): React.JSX.Element {
         </div>
       )}
 
-      <div className="pos-admin-grid" aria-label="Métricas autorizadas">
-        <MetricCard
-          title="Ventas completadas"
-          presentation={salesCount}
-          footnote="Conteo COMPLETED vía admin.metrics.get."
-        />
-        <MetricCard
-          title="Ventas acumuladas"
-          presentation={salesAmount}
-          footnote="Importe fiscal acumulado; null ≠ $0."
-        />
-        <MetricCard
-          title="Existencias controladas"
-          presentation={inventory}
-          footnote="Presentaciones con fila de existencia en la sucursal."
-        />
-        <MetricCard
-          title="Turnos abiertos"
-          presentation={openShifts}
-          footnote="Turnos OPEN/CLOSING del scope efectivo."
-        />
+      <div className="pos-admin-grid" aria-label="Indicadores del negocio">
+        <MetricCard title="Ventas completadas" presentation={salesCount} />
+        <MetricCard title="Ventas acumuladas" presentation={salesAmount} />
+        <MetricCard title="Productos en inventario" presentation={inventory} />
+        <MetricCard title="Turnos abiertos" presentation={openShifts} />
       </div>
 
-      <section className="pos-admin-surface pos-reporting-slots" aria-label="Indicadores de Reporting pendientes">
-        <h3>Preparación para Reporting</h3>
-        <p>
-          Estructura visual compatible con futuros contratos de lectura. Sin arrays estáticos,
-          sin consultas directas a tablas y sin cifras inventadas.
-        </p>
+      <section className="pos-admin-surface pos-reporting-slots" aria-label="Indicadores próximos">
+        <h3>Próximos indicadores</h3>
+        <p>Estas consultas se habilitarán cuando estén disponibles para tu comercio.</p>
         <ul className="pos-reporting-slot-list">
           {[
             "Ventas del día",
@@ -125,12 +100,12 @@ function LocalAdministrativeControlPanel(): React.JSX.Element {
             "Efectivo esperado",
             "Inventario crítico",
             "Alertas de sucursal",
-            "Utilidad estimada (permiso financiero)",
+            "Utilidad estimada",
           ].map((slot) => (
             <li key={slot} data-metric-state="unavailable">
               <span>{slot}</span>
-              <strong>No disponible</strong>
-              <small>Reporting no materializado (REP-001).</small>
+              <strong>Información no disponible</strong>
+              <small>Aún no se puede consultar.</small>
             </li>
           ))}
         </ul>

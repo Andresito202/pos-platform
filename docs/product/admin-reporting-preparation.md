@@ -9,6 +9,7 @@ Referencia de backlog: `REP-001` / `REP-002` / `REP-003` en `docs/product/backlo
 - La UI no consulta tablas directamente desde React.
 - `null` ≠ `0`: ausencia de autorización o de publicación del agregado no se muestra como venta cero.
 - SUPERADMINISTRADOR local ≠ autoridad GLOBAL ≠ ADMINISTRADOR BUSINESS.
+- La interfaz comercial usa mensajes para comerciantes; este documento conserva la jerga técnica (contratos, IPC, permisos agregados, REP-001).
 
 ## Estado actual de superficies
 

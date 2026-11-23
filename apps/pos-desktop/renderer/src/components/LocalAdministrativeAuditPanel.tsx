@@ -8,45 +8,32 @@ export function LocalAdministrativeAuditPanel(): React.JSX.Element {
     <section className="pos-admin-panel" data-testid="admin-panel-audit">
       <header className="pos-admin-header">
         <div>
-          <span className="pos-admin-eyebrow">AUDITORÍA LOCAL</span>
+          <span className="pos-admin-eyebrow">AUDITORÍA</span>
           <h2>Auditoría administrativa</h2>
-          <p>
-            Superficie de lectura para el perfil local de auditoría. No es el portal GLOBAL
-            de la plataforma y no concede ventas, pagos ni datos privados de comercios.
-          </p>
+          <p>Consulta de acciones administrativas en este dispositivo.</p>
         </div>
         <span className="pos-scope-chip">
-          Autoridad local de desarrollo · distinta de GLOBAL y de ADMINISTRADOR BUSINESS
+          Superadministrador local · sin acceso a la administración de la plataforma
         </span>
       </header>
 
-      <div className="pos-admin-security-list" aria-label="Límites de autoridad">
-        <span>Superadministrador local: auditoría autorizada en este dispositivo.</span>
-        <span>GLOBAL: licencias, empresas y operación Central — módulos propios, no este panel.</span>
-        <span>Administrador BUSINESS: métricas y cajas del comercio — Dashboard local / portal BUSINESS.</span>
-        <span>Esta pantalla no mezcla autoridades ni inventa eventos de auditoría.</span>
+      <div className="pos-admin-security-list" aria-label="Ámbitos de acceso">
+        <span>Administrador del negocio: resumen e indicadores del comercio.</span>
+        <span>Superadministrador local: auditoría en este dispositivo.</span>
+        <span>Administración de la plataforma: empresas, licencias y operación central en sus módulos propios.</span>
       </div>
 
       <section className="pos-admin-surface" aria-label="Registro de auditoría">
-        <h3>Registro append-only</h3>
-        <p>
-          El contrato <code>audit.event.list</code> existe en packages/contracts, pero no está
-          cableado aún en el IPC del desktop ni en el servicio local de esta línea. Sin cableado
-          no se listan filas.
-        </p>
+        <h3>Registro de auditoría</h3>
         <div className="pos-admin-empty" role="status" data-metric-state="unavailable">
-          <strong>No disponible</strong>
-          <span>Sin eventos cargados: la consulta al registro real no está materializada en este runtime.</span>
-          <span>No se muestran datos simulados ni resúmenes inventados.</span>
+          <strong>Información no disponible</strong>
+          <span>Aún no se pueden consultar eventos de auditoría en esta pantalla.</span>
         </div>
       </section>
 
-      <section className="pos-admin-surface pos-reporting-slots" aria-label="Indicadores GLOBAL pendientes">
-        <h3>Preparación para Reporting GLOBAL</h3>
-        <p>
-          Estructura visual para indicadores de plataforma. No otorga acceso automático a
-          ventas, pagos o información privada de negocios.
-        </p>
+      <section className="pos-admin-surface pos-reporting-slots" aria-label="Indicadores de plataforma">
+        <h3>Indicadores de plataforma</h3>
+        <p>Estos indicadores pertenecen a la administración de la plataforma y no se muestran aquí.</p>
         <ul className="pos-reporting-slot-list">
           {[
             "Empresas y licencias",
@@ -57,8 +44,8 @@ export function LocalAdministrativeAuditPanel(): React.JSX.Element {
           ].map((slot) => (
             <li key={slot} data-metric-state="unavailable">
               <span>{slot}</span>
-              <strong>No disponible</strong>
-              <small>Reporting GLOBAL no materializado · fuera de este panel local.</small>
+              <strong>Información no disponible</strong>
+              <small>Fuera del alcance de esta pantalla.</small>
             </li>
           ))}
         </ul>

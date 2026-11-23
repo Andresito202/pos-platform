@@ -1,8 +1,9 @@
 /**
  * Presentation helper for admin.metrics.get values.
  *
- * null never means zero. A numeric 0 is a real reading. null means the field
- * was not authorized for aggregate read or is not yet published by the service.
+ * Technical note for maintainers: null never means zero. A numeric 0 is a real
+ * reading. null means the field was not authorized for aggregate read or is not
+ * yet published by the service. UI copy stays merchant-facing.
  */
 export type AdminMetricAvailability = "value" | "unavailable" | "forbidden" | "empty" | "error" | "loading";
 
@@ -21,12 +22,12 @@ export function presentAdminMetricCount(
       ? {
           availability: "forbidden",
           label: "Sin permiso",
-          detail: "Esta sesión no autoriza la lectura agregada de este indicador.",
+          detail: "No tienes permiso para consultar este indicador.",
         }
       : {
           availability: "unavailable",
-          label: "No disponible",
-          detail: "El servicio aún no publica este agregado para el alcance autorizado.",
+          label: "Información no disponible",
+          detail: "Este indicador aún no se puede consultar en tu instalación.",
         };
   }
   if (value === 0 && options.emptyLabel) {
@@ -35,7 +36,7 @@ export function presentAdminMetricCount(
   return {
     availability: "value",
     label: String(value),
-    detail: "Lectura persistida en el alcance de la sesión.",
+    detail: "Dato actual de tu negocio.",
   };
 }
 
@@ -46,14 +47,14 @@ export function presentAdminMetricAmount(
   if (value === null) {
     return {
       availability: "unavailable",
-      label: "No disponible",
-      detail: "El agregado monetario requiere permiso financiero de Reporting aún no materializado.",
+      label: "Información no disponible",
+      detail: "Este indicador aún no se puede consultar en tu instalación.",
     };
   }
   return {
     availability: "value",
     label: format(value),
-    detail: "Importe total persistido en el alcance de la sesión.",
+    detail: "Total registrado en tu negocio.",
   };
 }
 
@@ -65,15 +66,15 @@ export function presentAdminMetricQueryState(options: {
   if (options.error !== null) {
     return {
       availability: "error",
-      label: "Error de consulta",
+      label: "No fue posible cargar la información",
       detail: options.error,
     };
   }
   if (options.busy && !options.hasLoadedValue) {
     return {
       availability: "loading",
-      label: "Consultando…",
-      detail: "Solicitando admin.metrics.get al servicio local.",
+      label: "Cargando…",
+      detail: "Obteniendo la información de tu negocio.",
     };
   }
   return null;

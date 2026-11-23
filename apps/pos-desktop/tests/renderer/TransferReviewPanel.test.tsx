@@ -44,7 +44,7 @@ describe("transfer supervision without cashier workspace", () => {
     render(<TransferReviewPanel permissions={permissions} />);
     await lookup();
     fireEvent.click(screen.getByRole("button", { name: "Cancelar pago pendiente" }));
-    await screen.findByText("Cancelada");
+    await screen.findByText("Pago cancelado");
     expect(service["payment.cancel"]).toHaveBeenCalledWith(expect.objectContaining({ payload: { payment_id: id, expected_version: 7 } }));
   });
   it("does not offer confirmation or cancellation of an already confirmed payment", async () => {
