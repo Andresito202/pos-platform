@@ -78,9 +78,9 @@ export function PlatformSubscriptionQuote({
           ?<p role="status">Cobro FACTUS abierto (referencia {quote.providerReference}). Verifica cuando el proveedor reporte paid.</p>
           :<p role="status">El cobro permanece pendiente: proveedor {quote.providerOpenStatus==="NOT_CONFIGURED"?"no configurado":"no disponible"}. No se presenta como QR cobrable ni se puede emitir licencia.</p>}
       {quote.providerOpenStatus==="OPENED"&&quote.qr&&<img alt="QR de cobro FACTUS Pay" src={quote.qr} width={220} height={220}/>}
-      <button type="button" disabled={busy||verified!==null} onClick={()=>void verifyPayment()}>Verificar cobro en Central</button>
+      <button type="button" disabled={busy||verified!==null} onClick={()=>void verifyPayment()}>Verificar cobro y emitir licencia</button>
     </section>}
-    {verified&&<p role="status">Pago {verified.paymentId} verificado para la cotización {verified.quoteId}.{verified.idempotent?" Verificación idempotente.":" Listo para emitir la licencia con este pago."}</p>}
+    {verified&&<p role="status">Pago {verified.paymentId} verificado ({verified.source??"autoritativo"}) para la cotización {verified.quoteId}. Licencia {verified.licenseId} · contrato {verified.contractStatus}. Activación del dispositivo: {verified.activationStatus}.{verified.idempotent?" Verificación idempotente.":""}{verified.licenseIdempotent?" Licencia recuperada.":""}{verified.reconciliation?` Conciliación: ${verified.reconciliation}.`:""}</p>}
     {busy&&<p role="status">Procesando en Central…</p>}
     {error&&<p role="alert">{error}</p>}
   </section>;

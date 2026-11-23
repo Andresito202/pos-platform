@@ -60,13 +60,13 @@ export function PlatformLicenseFulfillment({ client }: { client: PlatformClient 
     finally { lock.current = false; setBusy(false); }
   }
   return <section className="pos-admin-surface" aria-label="Emisión y asignación de licencias">
-    <h3>Emitir licencia y asignar cajas</h3>
-    <p>Central valida el pago de suscripción ya confirmado en Cotización, las políticas comerciales, la credencial del dispositivo y los cupos pagados. La apertura del cobro y la evidencia se registran en el panel de cotización.</p>
+    <h3>Asignar licencia emitida a dispositivo</h3>
+    <p>La verificación Factus Pay y la confirmación bancaria excepcional ya emiten la licencia contractual automáticamente. Aquí recuperas una emisión previa si hace falta y asignas cajas al dispositivo. Una licencia emitida no implica dispositivo activado.</p>
     <form onSubmit={event => { event.preventDefault(); void issue(); }}>
-      <label className="pos-field">Pago confirmado<input aria-label="Pago confirmado" value={payment} maxLength={36} disabled={busy} onChange={event => { setPayment(event.target.value); setIssued(null); }} required /></label>
-      <button type="submit" disabled={busy || !payment.trim()}>Emitir o recuperar licencia del pago</button>
+      <label className="pos-field">Pago confirmado (recuperación)<input aria-label="Pago confirmado" value={payment} maxLength={36} disabled={busy} onChange={event => { setPayment(event.target.value); setIssued(null); }} required /></label>
+      <button type="submit" disabled={busy || !payment.trim()}>Recuperar licencia del pago</button>
     </form>
-    {issued && <p role="status">Licencia: {issued.licenseId}. Estado contractual: {issued.contractStatus}. {issued.idempotent ? "Contrato existente recuperado." : "Contrato emitido."} La activación del dispositivo se consulta por separado.</p>}
+    {issued && <p role="status">Licencia: {issued.licenseId}. Estado contractual: {issued.contractStatus}. {issued.idempotent ? "Contrato existente recuperado." : "Contrato emitido."} Activación del dispositivo: pendiente de asignación y acreditación.</p>}
     <h4>Asignación al dispositivo</h4>
     <p>Usa los identificadores registrados en Central. La credencial corresponde al dispositivo aprovisionado; no es una contraseña ni una clave privada.</p>
     <fieldset disabled={busy || draft !== null} className="pos-form-grid"><legend>Licencia, dispositivo y cajas</legend>

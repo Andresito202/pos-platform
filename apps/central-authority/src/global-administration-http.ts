@@ -167,7 +167,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         sendCommercialJson(res,200,result);
         return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/subscription-quotes/create","/v1/platform/subscription-quotes/verify-payment","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/subscription-quotes/create","/v1/platform/subscription-quotes/pending","/v1/platform/subscription-quotes/verify-payment","/v1/platform/subscription-quotes/confirm-bank-manual","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
       const session=await sessions.authorize(request,(path==="/v1/platform/licenses/revoke-activation"||path==="/v1/platform/licenses/activations")?CentralAdministrationOperation.LICENSE_REVOKE:
         path?.startsWith("/v1/platform/licenses/")||path?.startsWith("/v1/platform/subscription-quotes/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
@@ -184,8 +184,34 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(path==="/v1/platform/subscription-quotes/create"){
         sendCommercialJson(res,200,await quotes.create(session,b));return;
       }
+      if(path==="/v1/platform/subscription-quotes/pending"&&exact(b,[])){
+        sendCommercialJson(res,200,await quotes.listPending(session));return;
+      }
       if(path==="/v1/platform/subscription-quotes/verify-payment"){
-        sendCommercialJson(res,200,await quotes.verifyPayment(session,b));return;
+        const verified=await quotes.verifyPayment(session,b);
+        const correlationId=typeof b.correlation_id==="string"?b.correlation_id:uuidV7();
+        const issued=await licenses.issue(session,verified.paymentId,correlationId);
+        sendCommercialJson(res,200,{
+          ...verified,
+          licenseId:issued.licenseId,
+          contractStatus:issued.contractStatus,
+          activationStatus:issued.activationStatus,
+          licenseIdempotent:issued.idempotent,
+        });
+        return;
+      }
+      if(path==="/v1/platform/subscription-quotes/confirm-bank-manual"){
+        const confirmed=await quotes.confirmBankManual(session,b);
+        const correlationId=typeof b.correlation_id==="string"?b.correlation_id:uuidV7();
+        const issued=await licenses.issue(session,confirmed.paymentId,correlationId);
+        sendCommercialJson(res,200,{
+          ...confirmed,
+          licenseId:issued.licenseId,
+          contractStatus:issued.contractStatus,
+          activationStatus:issued.activationStatus,
+          licenseIdempotent:issued.idempotent,
+        });
+        return;
       }
       if(path==="/v1/platform/licenses/assignment-context"){
         if(!input.licenseAuthority){sendCommercialJson(res,409,{code:"LICENSE_ACTIVATION_NOT_PROVISIONED"});return;}
@@ -213,7 +239,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(e instanceof Error&&/SUBSCRIPTION_QUOTE_IDEMPOTENCY_CONFLICT|SUBSCRIPTION_PAYMENT_EVIDENCE_CONFLICT|SUBSCRIPTION_PAYMENT_EVIDENCE_REUSED/.test(e.message)){
         sendCommercialJson(res,409,{code:"SUBSCRIPTION_QUOTE_CONFLICT"});return;
       }
-      if(e instanceof Error&&/SUBSCRIPTION_PAYMENT_NOT_VERIFIED|SUBSCRIPTION_PAYMENT_NOT_PAID|SUBSCRIPTION_PAYMENT_AMOUNT_MISMATCH|SUBSCRIPTION_QUOTE_EXPIRED/.test(e.message)){
+      if(e instanceof Error&&/SUBSCRIPTION_PAYMENT_NOT_VERIFIED|SUBSCRIPTION_PAYMENT_NOT_PAID|SUBSCRIPTION_PAYMENT_AMOUNT_MISMATCH|SUBSCRIPTION_QUOTE_EXPIRED|SUBSCRIPTION_BANK_DEPOSIT_DATE_INVALID|SUBSCRIPTION_BANK_MANUAL_ATTESTATION_REQUIRED/.test(e.message)){
         sendCommercialJson(res,409,{code:e.message});return;
       }
       const status=e instanceof Error&&"status" in e&&[400,413,415].includes(Number(e.status))?Number(e.status):

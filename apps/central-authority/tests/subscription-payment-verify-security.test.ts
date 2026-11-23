@@ -1,6 +1,5 @@
 import {describe,expect,it,vi} from "vitest";
-import {uuidV7} from "@pos-platform/contracts";
-import {SubscriptionPaymentVerifyRequestSchema} from "@pos-platform/contracts";
+import {uuidV7,SubscriptionBankManualConfirmRequestSchema,SubscriptionPaymentVerifyRequestSchema} from "@pos-platform/contracts";
 import {subscriptionAmountToScale6} from "../src/subscription-quote-contracts.js";
 import {createHttpSubscriptionFactusPayGateway} from "../src/subscription-factus-pay-http-gateway.js";
 import {SubscriptionFactusPayGatewayError} from "../src/subscription-factus-pay-gateway.js";
@@ -10,6 +9,21 @@ describe("subscription payment verify security",()=>{
     expect(()=>SubscriptionPaymentVerifyRequestSchema.parse({
       payment_id:uuidV7(),
       observation_reference:"MANUAL-TRANSFER-001",
+      correlation_id:uuidV7(),
+    })).toThrow();
+  });
+
+  it("rejects bank-manual confirmation without receiving-account attestation",()=>{
+    expect(()=>SubscriptionBankManualConfirmRequestSchema.parse({
+      payment_id:uuidV7(),
+      bank_reference:"TRF-1",
+      receiving_bank:"Bancolombia",
+      amount_minor:1000,
+      deposit_at:"2026-11-23T15:00:00.000Z",
+      exception_reason:"Provider down",
+      operator_account_observation:"Seen in receiving account",
+      bank_account_verified:false,
+      customer_receipt_insufficient_acknowledged:true,
       correlation_id:uuidV7(),
     })).toThrow();
   });

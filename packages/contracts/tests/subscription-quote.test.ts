@@ -1,6 +1,7 @@
 import {expect,it} from "vitest";
 import {
   GlobalAdministrationProvisionSchema,
+  SubscriptionBankManualConfirmRequestSchema,
   SubscriptionPaymentConfirmRequestSchema,
   SubscriptionPaymentVerifyRequestSchema,
   SubscriptionQuoteRequestSchema,
@@ -41,6 +42,31 @@ it("rejects free-text observation references on payment verify",()=>{
   })).toThrow();
   expect(()=>SubscriptionPaymentVerifyRequestSchema.parse({
     payment_id:paymentId,correlation_id:correlationId,amount:"100.00",
+  })).toThrow();
+});
+
+it("requires explicit bank-account attestation for exceptional manual confirmation",()=>{
+  const base={
+    payment_id:uuidV7(),
+    bank_reference:"TRF-123",
+    receiving_bank:"Bancolombia",
+    amount_minor:4_990_000,
+    deposit_at:"2026-11-23T15:00:00.000Z",
+    exception_reason:"Factus Pay unavailable after retries",
+    operator_account_observation:"Deposit matched in receiving account statement",
+    bank_account_verified:true as const,
+    customer_receipt_insufficient_acknowledged:true as const,
+    correlation_id:uuidV7(),
+  };
+  expect(SubscriptionBankManualConfirmRequestSchema.parse(base).bank_account_verified).toBe(true);
+  expect(()=>SubscriptionBankManualConfirmRequestSchema.parse({
+    ...base,bank_account_verified:false,
+  })).toThrow();
+  expect(()=>SubscriptionBankManualConfirmRequestSchema.parse({
+    ...base,customer_receipt_insufficient_acknowledged:false,
+  })).toThrow();
+  expect(()=>SubscriptionBankManualConfirmRequestSchema.parse({
+    ...base,operator_account_observation:"short",
   })).toThrow();
 });
 

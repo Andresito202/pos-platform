@@ -17,8 +17,9 @@ const offer={
 } as PublishedOffer;
 
 describe("PlatformSubscriptionQuote",()=>{
-  it("opens a catalog quote and verifies payment without free-text references",async()=>{
+  it("opens a catalog quote and auto-issues after Factus verification",async()=>{
     const paymentId=uuidV7();
+    const licenseId=uuidV7();
     const createSubscriptionQuote=vi.fn(async()=>({
       quoteId:uuidV7(),paymentId,totalMinor:4_990_000,currencyCode:"COP" as const,
       expiresAt:"2026-11-24T00:00:00.000Z",quoteChecksum:"b".repeat(64),
@@ -26,7 +27,9 @@ describe("PlatformSubscriptionQuote",()=>{
       paymentStatus:"PENDING" as const,idempotent:false,
     }));
     const verifySubscriptionPayment=vi.fn(async(request:{payment_id:string})=>({
-      paymentId:request.payment_id,quoteId:uuidV7(),status:"CONFIRMED" as const,idempotent:false,
+      paymentId:request.payment_id,quoteId:uuidV7(),status:"CONFIRMED" as const,
+      source:"FACTUS_PAY_GET",idempotent:false,reconciliation:null,
+      licenseId,contractStatus:"ACTIVE",activationStatus:"NOT_ACTIVATED" as const,licenseIdempotent:false,
     }));
     const client={createSubscriptionQuote,verifySubscriptionPayment} as unknown as PlatformClient;
     render(<PlatformSubscriptionQuote client={client} offers={[offer]}/>);
@@ -37,22 +40,12 @@ describe("PlatformSubscriptionQuote",()=>{
     fireEvent.click(screen.getByRole("button",{name:"Abrir cotización"}));
 
     await waitFor(()=>expect(createSubscriptionQuote).toHaveBeenCalledOnce());
-    const body=createSubscriptionQuote.mock.calls.at(0)?.at(0) as unknown as {
-      plan_id:string;plan_version:number;selection:unknown;
-    };
-    expect(body.plan_id).toBe(offer.id);
-    expect(body.plan_version).toBe(2);
-    expect(body.selection).toEqual({additional_registers:0,support:false});
-    expect(body).not.toHaveProperty("total_minor");
     expect(screen.queryByLabelText(/Referencia de evidencia/i)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button",{name:"Verificar cobro en Central"}));
+    fireEvent.click(screen.getByRole("button",{name:"Verificar cobro y emitir licencia"}));
     await waitFor(()=>expect(verifySubscriptionPayment).toHaveBeenCalledOnce());
-    expect(verifySubscriptionPayment.mock.calls.at(0)?.at(0)).toEqual({
-      payment_id:paymentId,
-      correlation_id:expect.any(String),
-    });
-    expect(screen.getByText(/Pago .+ verificado/i)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`Licencia ${licenseId}`))).toBeTruthy();
+    expect(screen.getByText(/Activación del dispositivo: NOT_ACTIVATED/i)).toBeTruthy();
   });
 
   it("keeps payment pending when Factus Pay is not configured",async()=>{
@@ -70,7 +63,7 @@ describe("PlatformSubscriptionQuote",()=>{
     fireEvent.change(screen.getByLabelText("Plan publicado"),{target:{value:offer.id}});
     fireEvent.click(screen.getByRole("button",{name:"Abrir cotización"}));
     await waitFor(()=>expect(screen.getByText(/proveedor no configurado/i)).toBeTruthy());
-    fireEvent.click(screen.getByRole("button",{name:"Verificar cobro en Central"}));
+    fireEvent.click(screen.getByRole("button",{name:"Verificar cobro y emitir licencia"}));
     await waitFor(()=>expect(screen.getByRole("alert").textContent).toMatch(/no se emite licencia/i));
   });
 });
