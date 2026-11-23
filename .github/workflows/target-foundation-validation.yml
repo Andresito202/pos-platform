@@ -774,6 +774,17 @@ jobs:
           }finally{clearTimeout(timeout);}
           JS
 
+      - name: Observe real FACTUS Pay sandbox collection via Central adapter
+        env:
+          FACTUS_PAY_SANDBOX_EMAIL: ${{ secrets.FACTUS_PAY_SANDBOX_EMAIL }}
+          FACTUS_PAY_SANDBOX_PASSWORD: ${{ secrets.FACTUS_PAY_SANDBOX_PASSWORD }}
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/central-authority exec tsx ../../tools/operators/pr130-factus-pay-collection-observation.ts
+          test -s "${CAMACHO_CERT_EVIDENCE_DIR}/factus-collection-observation.json"
+          echo "FACTUS_PAY_COLLECTION_OBSERVED=true"
+          echo "RUNTIME_VERIFIED=false"
+
       - name: Upload redacted certification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
