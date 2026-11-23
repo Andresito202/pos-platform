@@ -20,21 +20,34 @@ export type CatalogMediaSessionScope = {
 type CacheEntry = {
   readonly scopeKey: string;
   readonly url: string;
+  readonly bytes: number;
 };
 
 let activeScopeKey = "anonymous:0";
+// Keep renderer memory finite. Entries are LRU; images larger than this limit
+// are rejected rather than creating untracked blob: URLs.
+const MAX_MEDIA_ENTRIES = 256;
+const MAX_MEDIA_BYTES = 32 * 1024 * 1024;
+let cachedBytes = 0;
+let cacheGeneration = 0;
 const memory = new Map<string, CacheEntry>();
-const inflight = new Map<string, Promise<string | null>>();
+const inflight = new Map<string, { token: symbol; promise: Promise<string | null> }>();
+
+function removeEntry(mediaId: string): void {
+  const entry = memory.get(mediaId);
+  if (entry === undefined) return;
+  URL.revokeObjectURL(entry.url);
+  cachedBytes -= entry.bytes;
+  memory.delete(mediaId);
+}
 
 function scopeKeyOf(scope: CatalogMediaSessionScope): string {
   return `${scope.username ?? ""}:${scope.role ?? ""}:${scope.epoch}`;
 }
 
 function revokeAll(): void {
-  for (const entry of memory.values()) {
-    URL.revokeObjectURL(entry.url);
-  }
-  memory.clear();
+  cacheGeneration += 1;
+  for (const id of memory.keys()) removeEntry(id);
   inflight.clear();
 }
 
@@ -56,19 +69,17 @@ export function peekCatalogMediaUrl(mediaId: string): string | null {
   const entry = memory.get(mediaId);
   if (entry === undefined) return null;
   if (entry.scopeKey !== activeScopeKey) {
-    URL.revokeObjectURL(entry.url);
-    memory.delete(mediaId);
+    removeEntry(mediaId);
     return null;
   }
+  // Refresh LRU order without allocating a second blob URL.
+  memory.delete(mediaId);
+  memory.set(mediaId, entry);
   return entry.url;
 }
 
 export function forgetCatalogMedia(mediaId: string): void {
-  const entry = memory.get(mediaId);
-  if (entry !== undefined) {
-    URL.revokeObjectURL(entry.url);
-    memory.delete(mediaId);
-  }
+  removeEntry(mediaId);
   inflight.delete(mediaId);
 }
 
@@ -77,16 +88,18 @@ export async function resolveCatalogMediaUrl(mediaId: string): Promise<string | 
   if (cached !== null) return cached;
 
   const pending = inflight.get(mediaId);
-  if (pending !== undefined) return pending;
+  if (pending !== undefined) return pending.promise;
 
   const loadScope = activeScopeKey;
+  const loadGeneration = cacheGeneration;
+  const loadToken = Symbol("catalog-media-load");
   const load = (async (): Promise<string | null> => {
     try {
       const response = await callCommercial<CatalogMediaGetResult>(
         "catalog.media.get",
         { media_id: mediaId },
       );
-      if (loadScope !== activeScopeKey) return null;
+      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || inflight.get(mediaId)?.token !== loadToken) return null;
       if (
         response.status !== "SUCCEEDED"
         || response.result === null
@@ -97,23 +110,28 @@ export async function resolveCatalogMediaUrl(mediaId: string): Promise<string | 
         return null;
       }
       const binary = Uint8Array.from(atob(response.result.content_base64), (c) => c.charCodeAt(0));
+      if (binary.byteLength > MAX_MEDIA_BYTES) return null;
       const blob = new Blob([binary], { type: response.result.mime_type });
-      const url = URL.createObjectURL(blob);
-      if (loadScope !== activeScopeKey) {
-        URL.revokeObjectURL(url);
-        return null;
-      }
+      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || inflight.get(mediaId)?.token !== loadToken) return null;
       const previous = memory.get(mediaId);
-      if (previous !== undefined) URL.revokeObjectURL(previous.url);
-      memory.set(mediaId, { scopeKey: loadScope, url });
+      if (previous !== undefined) removeEntry(mediaId);
+      while (memory.size >= MAX_MEDIA_ENTRIES || cachedBytes + binary.byteLength > MAX_MEDIA_BYTES) {
+        const oldest = memory.keys().next().value;
+        if (oldest === undefined) break;
+        removeEntry(oldest);
+      }
+      const url = URL.createObjectURL(blob);
+      memory.set(mediaId, { scopeKey: loadScope, url, bytes: binary.byteLength });
+      cachedBytes += binary.byteLength;
       return url;
     } catch {
       return null;
     } finally {
-      inflight.delete(mediaId);
+      // An invalidated request must not erase a newer request for this media.
+      if (inflight.get(mediaId)?.token === loadToken) inflight.delete(mediaId);
     }
   })();
 
-  inflight.set(mediaId, load);
+  inflight.set(mediaId, { token: loadToken, promise: load });
   return load;
 }

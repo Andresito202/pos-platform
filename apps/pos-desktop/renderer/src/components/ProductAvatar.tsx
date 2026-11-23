@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CatalogItemListItem, CatalogItemResult } from "@pos-platform/contracts";
 import { peekCatalogMediaUrl, resolveCatalogMediaUrl } from "../catalog-media-cache.js";
+import { onCatalogInventoryChanged } from "../catalog-invalidate.js";
 
 export type PosBusinessType =
   | "tienda_barrio"
@@ -62,19 +63,31 @@ export function ProductAvatar({
 
   useEffect(() => {
     let cancelled = false;
-    if (mediaId === null) {
+    let requestVersion = 0;
+    const update = (): void => {
+      const version = ++requestVersion;
+      if (mediaId === null) {
+        setSrc(null);
+        return;
+      }
+      const cached = peekCatalogMediaUrl(mediaId);
+      if (cached !== null) {
+        setSrc(cached);
+        return;
+      }
       setSrc(null);
-      return;
-    }
-    const cached = peekCatalogMediaUrl(mediaId);
-    if (cached !== null) {
-      setSrc(cached);
-      return;
-    }
-    void resolveCatalogMediaUrl(mediaId).then((url) => {
-      if (!cancelled) setSrc(url);
-    });
-    return () => { cancelled = true; };
+      void resolveCatalogMediaUrl(mediaId).then((url) => {
+        if (!cancelled && version === requestVersion) setSrc(url);
+      });
+    };
+    update();
+    // The existing local catalog event also refreshes an image replaced with
+    // the same media_id; changing the React prop is not required.
+    const unsubscribe = onCatalogInventoryChanged(update);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [mediaId]);
 
   if (src !== null) {
