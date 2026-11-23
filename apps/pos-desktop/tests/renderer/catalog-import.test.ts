@@ -13,7 +13,7 @@ import { readSheetMatrixFromXlsx, writeSheetMatrixToXlsx } from "../../renderer/
 const batch = "12345678-1234-4234-8234-123456789012";
 const header = CATALOG_IMPORT_COLUMNS.join(";") + "\n";
 const row = (id: number, code = `P-${id}`, price = "1500") =>
-  `${batch};${id};${code};Producto ${id};Desc;Marca;Cat;;Unidad;UND;0;;${price};COP;SI;ACTIVO\n`;
+  `${batch};${id};${code};Producto ${id};Desc;Marca;Cat;;Unidad;UND;0;;;${price};COP;SI;ACTIVO\n`;
 
 describe("catalog import planillas", () => {
   it("previews CSV without writing and rejects duplicates or bad prices", () => {
@@ -162,6 +162,99 @@ describe("catalog import planillas", () => {
     );
     expect(updates).toBe(0);
     expect(outcomes.at(-1)).toBe("IDEMPOTENT");
+  });
+
+  it("requires presentacion_base with valid cantidad_por_presentacion for conversion rules", () => {
+    const badQty = previewCatalogCsv(
+      header + `${batch};1;P-1;Prod;Desc;Marca;Cat;;Caja;UND;0;abc;Unidad;1500;COP;SI;ACTIVO\n`,
+      ";",
+    );
+    expect(badQty.rows[0]?.errors).toContain("CANTIDAD_PRESENTACION_INVALIDA");
+    const missingBase = previewCatalogCsv(
+      header + `${batch};1;P-1;Prod;Desc;Marca;Cat;;Caja;UND;0;12;;1500;COP;SI;ACTIVO\n`,
+      ";",
+    );
+    expect(missingBase.rows[0]?.errors).toContain("PRESENTACION_BASE_REQUERIDA");
+    const ok = previewCatalogCsv(
+      header + `${batch};1;P-1;Prod;Desc;Marca;Cat;;Caja;UND;0;12;Unidad;1500;COP;SI;ACTIVO\n`,
+      ";",
+    );
+    expect(ok.rows[0]?.errors).toEqual([]);
+    expect(ok.rows[0]?.notes).toContain("CONVERSION_RULE_PENDING");
+    expect(ok.rows[0]?.draft?.quantityPerPresentation).toBe("12");
+    expect(ok.rows[0]?.draft?.basePresentationName).toBe("Unidad");
+  });
+
+  it("registers a secondary presentation and approves a persisted conversion rule", async () => {
+    const base = {
+      product_id: "018f0000-0000-7000-8000-0000000000aa",
+      presentation_id: "018f0000-0000-7000-8000-0000000000bb",
+      code: "P-1",
+      name: "Producto 1",
+      description: "Desc",
+      brand: "Marca",
+      category: "Cat",
+      presentation_name: "Unidad",
+      unit_code: "UND",
+      unit_precision: 0,
+      barcode: null,
+      stock_controlled: true,
+      price_amount: "1500.000000",
+      currency_code: "COP",
+      quantity_available: "10.000000",
+      quantity_on_hand: "10.000000",
+      quantity_reserved: "0.000000",
+      quantity_unsellable: "0.000000",
+      low_stock_threshold: null,
+      availability_state: "AVAILABLE" as const,
+      product_version: 1,
+      presentation_version: 1,
+      media_id: null,
+    };
+    const outcomes: string[] = [];
+    const conversions: Array<Record<string, unknown>> = [];
+    await confirmCatalogImport(
+      previewCatalogCsv(
+        header + `${batch};1;P-1;Producto 1;Desc;Marca;Cat;;Caja;UND;0;12;Unidad;15000;COP;SI;ACTIVO\n`,
+        ";",
+      ),
+      (result) => { outcomes.push(result.outcome); },
+      {
+        list: async () => ({
+          status: "SUCCEEDED",
+          result_code: "FOUND",
+          result: { outcome: "FOUND", items: [base], has_more: false },
+        }),
+        register: async () => { throw new Error("no register"); },
+        update: async () => { throw new Error("no update"); },
+        publish: async () => { throw new Error("no publish"); },
+        addPresentation: async () => ({
+          status: "SUCCEEDED",
+          result_code: "REGISTERED",
+          result: {
+            outcome: "REGISTERED",
+            product_id: base.product_id,
+            presentation_id: "018f0000-0000-7000-8000-0000000000cc",
+          },
+        }),
+        approveConversion: async (payload) => {
+          conversions.push(payload);
+          return {
+            status: "SUCCEEDED",
+            result_code: "APPROVED",
+            result: { outcome: "APPROVED", rule_id: "018f0000-0000-7000-8000-0000000000dd" },
+          };
+        },
+      },
+    );
+    expect(outcomes).toEqual(["REGISTERED"]);
+    expect(conversions).toEqual([{
+      source_presentation_id: "018f0000-0000-7000-8000-0000000000cc",
+      target_presentation_id: base.presentation_id,
+      numerator: "12",
+      denominator: "1",
+      version: 1,
+    }]);
   });
 
   it("rejects unit changes on existing products and stops without inventing stock", async () => {

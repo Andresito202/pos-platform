@@ -5,9 +5,11 @@
  */
 import {
   CatalogItemListResultSchema,
+  CatalogPresentationRegisterResultSchema,
   CatalogPricePublishResultSchema,
   CatalogProductRegisterResultSchema,
   CatalogProductUpdateResultSchema,
+  InventoryConversionRuleApproveResultSchema,
   type CatalogItemListItem,
   type CatalogPricePublishResult,
   type CatalogProductRegisterResult,
@@ -32,6 +34,7 @@ export const CATALOG_IMPORT_COLUMNS = [
   "unidad",
   "precision",
   "cantidad_por_presentacion",
+  "presentacion_base",
   "precio_venta",
   "moneda",
   "control_existencias",
@@ -50,7 +53,9 @@ export type CatalogImportDraft = {
   readonly presentationName: string;
   readonly unitCode: string;
   readonly unitPrecision: number;
+  /** Positive integer: 1 of this presentation converts to N of presentacion_base. */
   readonly quantityPerPresentation: string | null;
+  readonly basePresentationName: string | null;
   readonly priceAmount: string;
   readonly currencyCode: string;
   readonly stockControlled: boolean;
@@ -118,6 +123,7 @@ export function catalogImportTemplateRows(importId: string): string[][] {
       "Unidad",
       "UND",
       "0",
+      "",
       "",
       "1500",
       "COP",
@@ -198,9 +204,22 @@ function previewFromRecords(records: string[][]): CatalogImportPlan {
     const brand = emptyToNull(cells.marca);
     const category = emptyToNull(cells.categoria);
     const barcode = emptyToNull(cells.codigo_barras);
-    const quantityPerPresentation = emptyToNull(cells.cantidad_por_presentacion);
-    if (quantityPerPresentation !== null) {
-      notes.push("CONVERSION_NO_APLICADA");
+    const quantityRaw = emptyToNull(cells.cantidad_por_presentacion);
+    const basePresentationName = emptyToNull(cells.presentacion_base);
+    let quantityPerPresentation: string | null = null;
+    if (quantityRaw !== null) {
+      if (!/^[1-9][0-9]{0,11}$/.test(quantityRaw)) {
+        errors.push("CANTIDAD_PRESENTACION_INVALIDA");
+      } else if (basePresentationName === null) {
+        errors.push("PRESENTACION_BASE_REQUERIDA");
+      } else if (basePresentationName === presentationName) {
+        errors.push("PRESENTACION_BASE_IGUAL");
+      } else {
+        quantityPerPresentation = quantityRaw;
+        notes.push("CONVERSION_RULE_PENDING");
+      }
+    } else if (basePresentationName !== null) {
+      errors.push("CANTIDAD_PRESENTACION_REQUERIDA");
     }
     if (description !== null && description.length > 2000) errors.push("DESCRIPCION_LARGA");
     if (brand !== null && brand.length > 120) errors.push("MARCA_LARGA");
@@ -225,6 +244,7 @@ function previewFromRecords(records: string[][]): CatalogImportPlan {
         unitCode,
         unitPrecision,
         quantityPerPresentation,
+        basePresentationName,
         priceAmount,
         currencyCode,
         stockControlled,
@@ -274,6 +294,14 @@ type PublishFn = (
   payload: Record<string, unknown>,
   key: string,
 ) => Promise<CommercialResponse<unknown>>;
+type AddPresentationFn = (
+  payload: Record<string, unknown>,
+  key: string,
+) => Promise<CommercialResponse<unknown>>;
+type ApproveConversionFn = (
+  payload: Record<string, unknown>,
+  key: string,
+) => Promise<CommercialResponse<unknown>>;
 
 function sameText(a: string | null | undefined, b: string | null | undefined): boolean {
   return (a ?? null) === (b ?? null);
@@ -298,6 +326,8 @@ export async function confirmCatalogImport(
     register?: RegisterFn;
     update?: UpdateFn;
     publish?: PublishFn;
+    addPresentation?: AddPresentationFn;
+    approveConversion?: ApproveConversionFn;
   } = {},
 ): Promise<void> {
   const list = deps.list ?? ((query) => callCommercial("catalog.item.list", { query, limit: 24, offset: 0 }));
@@ -307,6 +337,12 @@ export async function confirmCatalogImport(
     ?? ((payload, key) => callCommercial("catalog.product.update", payload, key));
   const publish = deps.publish
     ?? ((payload, key) => callCommercial("catalog.price.publish", payload, key));
+  const addPresentation = deps.addPresentation
+    ?? ((payload, key) => callCommercial("catalog.presentation.register", payload, key));
+  const approveConversion = deps.approveConversion
+    ?? ((payload, key) => callCommercial("inventory.conversion.rule.approve", payload, key));
+  /** Presentations confirmed in this run: productCode|presentationName → id. */
+  const knownPresentations = new Map<string, { productId: string; presentationId: string }>();
 
   if (
     !plan.rows.length
@@ -343,8 +379,68 @@ export async function confirmCatalogImport(
       throw new Error("CATALOG_TRANSPORT_UNCERTAIN");
     }
 
-    const exact = listed.data.items.find((item) => item.code === draft.code);
-    if (exact === undefined) {
+    const presentationKey = `${draft.code.toUpperCase()}|${draft.presentationName}`;
+    const exact = listed.data.items.find(
+      (item) => item.code === draft.code && item.presentation_name === draft.presentationName,
+    );
+    const sameProduct = listed.data.items.find((item) => item.code === draft.code);
+
+    const rememberPresentation = (productId: string, presentationId: string): void => {
+      knownPresentations.set(presentationKey, { productId, presentationId });
+    };
+
+    const approvePendingConversion = async (
+      productId: string,
+      presentationId: string,
+    ): Promise<void> => {
+      if (draft.quantityPerPresentation === null || draft.basePresentationName === null) return;
+      const baseKey = `${draft.code.toUpperCase()}|${draft.basePresentationName}`;
+      const fromRun = knownPresentations.get(baseKey);
+      const fromList = listed.data.items.find(
+        (item) => item.code === draft.code && item.presentation_name === draft.basePresentationName,
+      );
+      const basePresentationId = fromRun?.presentationId ?? fromList?.presentation_id ?? null;
+      if (basePresentationId === null) {
+        onOutcome({
+          row: row.row,
+          outcome: "CONVERSION_BASE_NOT_FOUND",
+          productId,
+          presentationId,
+        });
+        throw new Error("CATALOG_STOPPED:CONVERSION_BASE_NOT_FOUND");
+      }
+      let response: CommercialResponse<unknown>;
+      try {
+        response = await approveConversion({
+          source_presentation_id: presentationId,
+          target_presentation_id: basePresentationId,
+          numerator: draft.quantityPerPresentation,
+          denominator: "1",
+          version: 1,
+        }, `${row.key}:conversion`);
+      } catch {
+        onOutcome({
+          row: row.row,
+          outcome: "TRANSPORT_UNCERTAIN",
+          productId,
+          presentationId,
+        });
+        throw new Error("CATALOG_TRANSPORT_UNCERTAIN");
+      }
+      const parsed = InventoryConversionRuleApproveResultSchema.safeParse(response.result);
+      if (!parsed.success || response.status !== "SUCCEEDED"
+        || !["APPROVED", "IDEMPOTENT"].includes(parsed.data.outcome)) {
+        onOutcome({
+          row: row.row,
+          outcome: parsed.success ? parsed.data.outcome : response.result_code,
+          productId,
+          presentationId,
+        });
+        throw new Error(`CATALOG_STOPPED:${parsed.success ? parsed.data.outcome : response.result_code}`);
+      }
+    };
+
+    if (exact === undefined && sameProduct === undefined) {
       let response: CommercialResponse<unknown>;
       try {
         response = await register({
@@ -380,17 +476,76 @@ export async function confirmCatalogImport(
         throw new Error("CATALOG_TRANSPORT_UNCERTAIN");
       }
       const value = parsed.data;
+      if (response.status !== "SUCCEEDED" || !["REGISTERED", "IDEMPOTENT"].includes(value.outcome)
+        || value.product_id === null || value.presentation_id === null) {
+        onOutcome({
+          row: row.row,
+          outcome: value.outcome,
+          productId: value.product_id,
+          presentationId: value.presentation_id,
+        });
+        throw new Error(`CATALOG_STOPPED:${value.outcome}`);
+      }
+      rememberPresentation(value.product_id, value.presentation_id);
+      await approvePendingConversion(value.product_id, value.presentation_id);
       onOutcome({
         row: row.row,
         outcome: value.outcome,
         productId: value.product_id,
         presentationId: value.presentation_id,
       });
-      if (response.status !== "SUCCEEDED" || !["REGISTERED", "IDEMPOTENT"].includes(value.outcome)) {
-        throw new Error(`CATALOG_STOPPED:${value.outcome}`);
-      }
       wrote = true;
       continue;
+    }
+
+    if (exact === undefined && sameProduct !== undefined) {
+      let response: CommercialResponse<unknown>;
+      try {
+        response = await addPresentation({
+          product_id: sameProduct.product_id,
+          presentation_name: draft.presentationName,
+          unit_code: draft.unitCode,
+          unit_precision: draft.unitPrecision,
+          barcode: draft.barcode,
+          price_amount: draft.priceAmount,
+          currency_code: draft.currencyCode,
+        }, row.key);
+      } catch {
+        onOutcome({
+          row: row.row,
+          outcome: "TRANSPORT_UNCERTAIN",
+          productId: sameProduct.product_id,
+          presentationId: null,
+        });
+        throw new Error("CATALOG_TRANSPORT_UNCERTAIN");
+      }
+      const parsed = CatalogPresentationRegisterResultSchema.safeParse(response.result);
+      if (!parsed.success || response.status !== "SUCCEEDED"
+        || !["REGISTERED", "IDEMPOTENT"].includes(parsed.data.outcome)
+        || parsed.data.product_id === null || parsed.data.presentation_id === null) {
+        onOutcome({
+          row: row.row,
+          outcome: parsed.success ? parsed.data.outcome : response.result_code,
+          productId: sameProduct.product_id,
+          presentationId: parsed.success ? parsed.data.presentation_id : null,
+        });
+        throw new Error(`CATALOG_STOPPED:${parsed.success ? parsed.data.outcome : response.result_code}`);
+      }
+      rememberPresentation(parsed.data.product_id, parsed.data.presentation_id);
+      await approvePendingConversion(parsed.data.product_id, parsed.data.presentation_id);
+      onOutcome({
+        row: row.row,
+        outcome: parsed.data.outcome,
+        productId: parsed.data.product_id,
+        presentationId: parsed.data.presentation_id,
+      });
+      wrote = true;
+      continue;
+    }
+
+    if (exact === undefined) {
+      onOutcome({ row: row.row, outcome: "TRANSPORT_UNCERTAIN", productId: null, presentationId: null });
+      throw new Error("CATALOG_TRANSPORT_UNCERTAIN");
     }
 
     if (exact.unit_code !== draft.unitCode || exact.unit_precision !== draft.unitPrecision) {
@@ -448,6 +603,8 @@ export async function confirmCatalogImport(
         : exact.presentation_id;
       // Alta already committed under this import identity. Do not rewrite
       // commercial fields or price over later authorized edits.
+      rememberPresentation(productId, presentationId);
+      await approvePendingConversion(productId, presentationId);
       onOutcome({ row: row.row, outcome: "IDEMPOTENT", productId, presentationId });
       continue;
     }
@@ -580,6 +737,8 @@ export async function confirmCatalogImport(
       wrote = true;
     }
 
+    rememberPresentation(productId, presentationId);
+    await approvePendingConversion(productId, presentationId);
     onOutcome({
       row: row.row,
       outcome: rowOutcome,

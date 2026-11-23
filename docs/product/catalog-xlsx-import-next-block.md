@@ -33,10 +33,17 @@ Estados: `AVAILABLE`, `LOW`, `OUT_OF_STOCK`, `RESTRICTED`,
 - Farmacia: perfil con receta/controlado → `VERIFICATION_REQUIRED`; registro
   inválido/vencido → `RESTRICTED`. La venta definitiva sigue en backend.
 
+## Presentaciones y conversión (3C-2)
+
+- Misma `codigo_producto` + distinta `presentacion` → `catalog.presentation.register`.
+- `cantidad_por_presentacion` + `presentacion_base` aprueban una regla
+  `inventory.conversion.rule.approve` (1 de esta → N de la base). No mueve stock.
+- Ejecutar fraccionamiento/caja→unidad sigue siendo
+  `inventory.conversion.execute` con lote autorizado.
+
 ## Pendiente 3C / multicaja
 
 - Canal de invalidación entre ventanas/dispositivos.
 - Atomicidad de archivo completo.
-- Conversión `cantidad_por_presentacion`.
-- Presentaciones adicionales en la misma planilla.
 - Cambio de `stock_controlled` en actualización.
+- Zona horaria por sucursal en evaluación de vencimiento (hoy America/Bogota fija).
