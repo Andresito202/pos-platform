@@ -74,9 +74,10 @@ describe("SCM transport fail-closed lifecycle", () => {
     const onFatal = vi.fn();
     const mock = adapter({ stop, accept: vi.fn(async () => { throw Error("NO_CONNECTION"); }) });
     const centralAuthority = {
-      start: vi.fn(async () => undefined),
+      authorityState: "ACTIVE" as "ABSENT" | "ACTIVE" | "FAULTED" | "STOPPED",
+      start: vi.fn(async () => { centralAuthority.authorityState = "ACTIVE"; }),
       assertCurrent: vi.fn(),
-      stop: vi.fn(async () => undefined),
+      stop: vi.fn(async () => { centralAuthority.authorityState = "STOPPED"; }),
     };
     const transport = new WindowsScmChannelTransport(
       provision, dummyDatabase, Buffer.alloc(32, 1),
@@ -87,7 +88,10 @@ describe("SCM transport fail-closed lifecycle", () => {
     const socket = new Socket();
     const destroyed = vi.spyOn(socket, "destroy");
     (transport as unknown as { sockets: Set<InstanceType<typeof Socket>> }).sockets.add(socket);
-    centralAuthority.assertCurrent.mockImplementation(() => { throw Error("SCM_CENTRAL_AUTHORITY_REQUIRED"); });
+    centralAuthority.assertCurrent.mockImplementation(() => {
+      centralAuthority.authorityState = "FAULTED";
+      throw Error("SCM_CENTRAL_AUTHORITY_REQUIRED");
+    });
     await vi.advanceTimersByTimeAsync(110);
     const closing = transport.stop();
     await vi.runOnlyPendingTimersAsync();
@@ -95,6 +99,7 @@ describe("SCM transport fail-closed lifecycle", () => {
     expect(destroyed).toHaveBeenCalled();
     expect(stop).toHaveBeenCalledTimes(1);
     expect(centralAuthority.stop).toHaveBeenCalledOnce();
+    expect(centralAuthority.authorityState).toBe("STOPPED");
     expect(onFatal).toHaveBeenCalledWith("SCM_TRANSPORT_DURABILITY_FAILED");
     await expect(transport.start(() => undefined)).rejects.toThrow("SCM_TRANSPORT_STOPPED");
   });

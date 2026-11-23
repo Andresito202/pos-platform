@@ -3,7 +3,7 @@ import { Socket } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { windowsScmCheckpointSigningBytes, type WindowsScmHandoffProvision } from "@pos-platform/contracts";
 import { windowsScmPolicySigningBytes } from "@pos-platform/local-channel";
-import { ScmCentralCheckpointGuard } from "../src/channel/scm-central-checkpoint.js";
+import { ScmCentralCheckpointGuard, type ScmCheckpointGuard } from "../src/channel/scm-central-checkpoint.js";
 import { MemoryScmCheckpointFloorMarker } from "../src/channel/scm-checkpoint-floor.js";
 import { WindowsScmChannelTransport } from "../src/channel/windows-scm-transport.js";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
@@ -81,13 +81,21 @@ describe("SCM live Central checkpoint consumer", () => {
   it("Central revocation destroys Electron sockets and stops native admission", async () => {
     const s = scenario(); let revoke!: () => void, rejectAccept!: (error: Error) => void;
     const nativeStop = vi.fn(() => rejectAccept(Error("STOPPED")));
-    const guard = { start: async (fault: () => void) => { revoke = fault; }, assertCurrent: vi.fn(), stop: vi.fn(async () => undefined) };
+    let authorityState: ScmCheckpointGuard["authorityState"] = "ACTIVE";
+    const stop = vi.fn(async () => { authorityState = "STOPPED"; });
+    const guard = {
+      get authorityState() { return authorityState; },
+      start: async (fault: () => void) => { revoke = () => { authorityState = "FAULTED"; fault(); }; },
+      assertCurrent: () => undefined,
+      stop,
+    } satisfies ScmCheckpointGuard;
     const transport = new WindowsScmChannelTransport(s.service, {} as LocalDatabase, Buffer.alloc(32, 1), { adapter: { listen: () => ({}), accept: () => new Promise((_resolve, reject) => { rejectAccept = reject; }), stop: nativeStop, connect: async () => { throw Error("UNUSED"); } }, seal: () => { throw Error("UNUSED"); } }, guard);
     await transport.start(() => undefined);
     const socket = new Socket(); const destroyed = vi.spyOn(socket, "destroy");
     (transport as unknown as { sockets: Set<Socket> }).sockets.add(socket);
     revoke(); await transport.stop();
-    expect(destroyed).toHaveBeenCalled(); expect(nativeStop).toHaveBeenCalledOnce(); expect(guard.stop).toHaveBeenCalledOnce();
+    expect(destroyed).toHaveBeenCalled(); expect(nativeStop).toHaveBeenCalledOnce(); expect(stop).toHaveBeenCalledOnce();
+    expect(authorityState).toBe("STOPPED");
     await expect(transport.start(() => undefined)).rejects.toThrow("SCM_TRANSPORT_STOPPED");
   });
 });
