@@ -11,7 +11,11 @@ function LocalAdministrativeControlPanel(): React.JSX.Element {
   return (
     <section className="pos-admin-panel" data-testid="admin-panel-admin">
       <header className="pos-admin-header">
-        <h2>Centro de administración</h2>
+        <div>
+          <span className="pos-admin-eyebrow">ADMINISTRACIÓN LOCAL</span>
+          <h2>Centro de administración</h2>
+          <p>Métricas del alcance autorizado de esta instalación. No concede autoridad GLOBAL ni acceso a Caja.</p>
+        </div>
         <button type="button" disabled={adminMetrics.busy} onClick={() => { void adminMetrics.refresh(); }}>
           Actualizar
         </button>

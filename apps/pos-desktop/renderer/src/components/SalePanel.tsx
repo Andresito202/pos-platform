@@ -91,21 +91,29 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
     <section data-testid="sale-panel">
       <h2>Caja</h2>
       {sale.shift === null ? (
-        <div data-testid="shift-closed">
-          <input
-            data-testid="cash-register-input"
-            value={registerId}
-            onChange={(e) => { setRegisterId(e.target.value); }}
-            placeholder="ID de la caja"
-            disabled={sale.busy}
-          />
-          <input
-            data-testid="opening-amount-input"
-            value={opening}
-            onChange={(e) => { setOpening(e.target.value); }}
-            placeholder="Base inicial"
-            disabled={sale.busy}
-          />
+        <div className="pos-shift-card" data-testid="shift-closed">
+          <div className="pos-shift-intro">
+            <h3>Abrir turno de caja</h3>
+            <p>Identifica la caja e indica la base inicial antes de vender.</p>
+          </div>
+          <label>ID de la caja
+            <input
+              data-testid="cash-register-input"
+              value={registerId}
+              onChange={(e) => { setRegisterId(e.target.value); }}
+              placeholder="ID de la caja"
+              disabled={sale.busy}
+            />
+          </label>
+          <label>Base inicial
+            <input
+              data-testid="opening-amount-input"
+              value={opening}
+              onChange={(e) => { setOpening(e.target.value); }}
+              placeholder="Base inicial"
+              disabled={sale.busy}
+            />
+          </label>
           <button
             data-testid="open-shift-button"
             onClick={() => { void sale.openShift(registerId.trim(), opening.trim()); }}
@@ -115,18 +123,23 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
           </button>
         </div>
       ) : (
-        <div data-testid="shift-open">
-          Turno abierto · caja <span data-testid="shift-register">{sale.shift.cashRegisterId}</span>
+        <div className="pos-shift-card" data-testid="shift-open">
+          <div className="pos-shift-intro">
+            <h3>Turno abierto</h3>
+            <p>Caja <span data-testid="shift-register">{sale.shift.cashRegisterId}</span></p>
+          </div>
           {/* Cerrar el turno es lo que permite abrir el siguiente: `DEC-012`
               §25.2 admite un único turno OPEN o CLOSING por caja, así que sin
               cierre la caja queda inservible al día siguiente. */}
-          <input
-            data-testid="counted-amount-input"
-            value={counted}
-            onChange={(e) => { setCounted(e.target.value); }}
-            placeholder="Efectivo contado"
-            disabled={sale.busy}
-          />
+          <label>Efectivo contado
+            <input
+              data-testid="counted-amount-input"
+              value={counted}
+              onChange={(e) => { setCounted(e.target.value); }}
+              placeholder="Efectivo contado"
+              disabled={sale.busy}
+            />
+          </label>
           <button
             data-testid="close-shift-button"
             onClick={() => { void sale.closeShift(counted.trim()); }}
@@ -349,6 +362,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             </li>)}</ul>}
           </div>}
       <button
+        className="pos-checkout-action pos-primary-action"
         data-testid="create-sale-button"
         onClick={() => { void sale.createSale(); }}
         disabled={!canCreateSale || sale.busy || sale.unresolved || sale.lines.length === 0 || sale.sale !== null}
@@ -356,11 +370,8 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
         Crear venta
       </button>
 
-      </section>
-      </div>
-
       {sale.sale !== null && (
-        <div data-testid="sale-created">
+        <div className="pos-payment-card" data-testid="sale-created">
           Total a pagar: <span data-testid="payable-amount" data-amount={sale.sale.payableAmount}>{sale.sale.payableAmount}</span>
           {/* El identificador se muestra porque el cajero lo necesita para pedir
               el recibo: el cliente vuelve con una duda y hay que recuperarla. */}
@@ -423,7 +434,11 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
                   <div><span>Dinero recibido</span><strong>{formatCopPesos(receivedTotal)}</strong></div>
                   <div><span>A cobrar en este pago</span><strong>{previewPayable !== null ? formatCopMicros(previewPayable) : "No disponible"}</strong></div>
                   {previewDelta !== null && !completed && (
-                    <div data-testid="cash-change-estimate" role="status">
+                    <div
+                      data-testid="cash-change-estimate"
+                      role="status"
+                      data-coverage={previewDelta >= 0n ? "change" : "shortage"}
+                    >
                       <span>{previewDelta >= 0n ? "Cambio estimado" : "Falta para cubrir"}</span>
                       <strong>{formatCopMicros(previewDelta >= 0n ? previewDelta : -previewDelta)}</strong>
                     </div>
@@ -465,6 +480,9 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
           </button>
         </div>
       )}
+
+      </section>
+      </div>
 
       {sale.payment !== null && (
         sale.payment.sale_completed ? (

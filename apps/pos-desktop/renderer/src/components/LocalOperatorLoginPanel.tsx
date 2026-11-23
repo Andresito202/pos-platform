@@ -112,7 +112,11 @@ export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=
         </form>
       )}
       {message && <p role="alert" className="pos-local-login-message">{message}</p>}
-      <small>La autenticación se verifica en el servicio local de este dispositivo.</small>
+      <small>
+        La autenticación de operador se verifica en el servicio local de este dispositivo.
+        La sesión BUSINESS firmada (SSA/SAS) y sus permisos comerciales los emite Central;
+        este formulario no inventa autoridad comercial.
+      </small>
     </section>
   );
 }

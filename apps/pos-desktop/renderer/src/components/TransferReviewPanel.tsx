@@ -16,8 +16,9 @@ export function TransferReviewPanel({ permissions }: { permissions: ReadonlySet<
 
   return <section className="pos-admin-panel" data-testid="transfer-review-panel">
     <header className="pos-admin-header"><div>
+      <span className="pos-admin-eyebrow">SUPERVISIÓN</span>
       <h2>Revisión de transferencias</h2>
-      <p>Consulta el pago reportado por caja y comprueba el ingreso antes de confirmarlo.</p>
+      <p>Consulta el pago reportado por caja y comprueba el ingreso antes de confirmarlo. Esta pantalla no abre el carrito ni permite vender.</p>
     </div></header>
     <form className="pos-admin-audit-toolbar" onSubmit={event => {
       event.preventDefault();
