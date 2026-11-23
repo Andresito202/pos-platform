@@ -3,7 +3,13 @@
 .pos-shell[data-navigation-open="false"] { grid-template-columns: minmax(0, 1fr); }
 .pos-sidebar[hidden], #pos-denominations[hidden] { display: none; }
 .pos-sidebar { display: flex; flex-direction: column; background: #152530; padding: 18px 12px; }
-.pos-sidebar .pos-brand--sidebar { height: 116px; }
+.pos-sidebar .pos-brand--sidebar {
+  height: auto;
+  max-width: 184px;
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
 .pos-sidebar .pos-brand-name { display: none; }
 .pos-sidebar .pos-subtitle { padding: 12px; margin: 8px 0 18px; background: #283844; border-radius: 9px; color: #fff; font-weight: 700; }
 .pos-nav { gap: 18px; }
@@ -396,7 +402,8 @@
 /* Commercial workspace corrections */
 .pos-sidebar .pos-brand--sidebar {
     flex-shrink: 0;
-    min-height: 116px;
+    min-height: 0;
+    background: transparent;
 }
 
 .pos-sidebar .pos-subtitle,
