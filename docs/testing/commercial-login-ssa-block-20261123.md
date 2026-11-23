@@ -1,70 +1,74 @@
 # Bloqueo — login comercial SSA/SAS (2026-11-23)
 
 Rama: `cursor/commercial-login-form-c53a`  
-HEAD de referencia visual: `76774944`  
-Alcance: auditoría del enlace del formulario aprobado al flujo comercial autorizado.
+Auditoría reconfirmada sobre HEAD `a6de6ce8` y continuación del bloque A.
 
-## Conclusión
+## Conclusión operativa
 
-El formulario de login aprobado **no puede completar** una sesión BUSINESS firmada
-en este árbol sin inventar credenciales. El bloqueo es de **emisión y
-aprovisionamiento Central**, no del diseño visual del login.
+**No se puede completar** el flujo  
+`credenciales humanas → SSA → session.activate → SAS → authorization.capabilities.get`  
+sin inventar un emisor Central de SSA/SAS para el POS, ni sin desactivar validaciones.
 
-No se habilitó `POS_LOCAL_OPERATOR_AUTH_STORE` en producción.  
-No se promovió `local-operator-development-bridge` a autoridad comercial.  
-No se fabricaron SSA/SAS, identidades ni permisos firmados.
+Esta rama **no** fabrica identidades, claves ni snapshots.  
+**No** habilita `POS_LOCAL_OPERATOR_AUTH_STORE` en producción.  
+**No** usa `local-operator-development-bridge` como autoridad BUSINESS.  
+**No** toca la PR #127 / rama SCM.
 
-## Flujo comercial canónico (ya materializado en servicio)
+## Matriz de dependencias (A1)
 
-1. Confianza de dispositivo / custodia OS (`CommercialDeviceCredentialProvider`).
-2. Central emite SSA en `POST /v1/business-session/assertions` (posesión firmada).
-3. Desktop/servicio llama `session.activate` con `session_assertion` firmada.
-4. Central entrega SAS en `/v1/business-session/authorization`.
-5. `authorization.capabilities.get` proyecta permisos efectivos del snapshot firmado.
-6. `session.recover` rehidrata el vínculo tras reinicio desde SSA durable.
-
-Contratos IPC: `packages/contracts` (`session.activate`, `session.recover`,
-`authorization.capabilities.get`). Handlers: `CommercialRequestHandler`.  
-Canal: `LocalChannelComponent` (win32) / SCM (PR #127 — no modificada).
-
-## Qué falta para conectar el login existente
-
-| Pieza | Estado | Evidencia |
+| Pieza | Estado real | Montaje |
 |---|---|---|
-| UI de login visual | Implementada | `LocalOperatorLoginPanel` + marca amarilla |
-| IPC `session.activate` / `recover` en allowlist | Implementado | `preload-api`, `ipc-allowlist` |
-| Llamada del renderer a `session.activate` | Ausente | Cero referencias en `apps/pos-desktop/renderer` |
-| Emisión SSA por Central con operador humano | Fuera de este POS | Requiere Central + MFA/token comercial |
-| Cliente local que obtenga SSA tras login | Ausente | No hay IPC de adquisición SSA→activate |
-| `SnapshotAcquisitionService` (SAS-003) en `main.ts` | Desconectado | `materialization-state.md` — cero instancias en runtime |
-| Trust keys de sesión en runtime | Condicional | Vacío → `session.activate` falla cerrado |
-| Device Trust / enrollment comercial | Aprovisionamiento | Exige OS_BOUND + credencial enrollada |
-| SCM comercial interoperable | No acreditado | Conservar bloqueo; no debilitar PR #127 |
+| Contratos IPC `session.activate` / `recover` / `capabilities.get` | Implementados | Allowlist + preload + handler |
+| `CommercialRequestHandler.activate/recover/getAuthorizationCapabilities` | Implementados | Sí |
+| `SessionActivationService` + verifier Ed25519 | Implementados | Sí (mapa de trust vacío → fail-closed) |
+| Trust keys `SESSION_ASSERTION` (G1.2) | Implementados | Condicional a `POS_SESSION_TRUST_*` |
+| `LocalChannelComponent` | Implementado | Solo `win32` |
+| Device Trust + `CommercialDeviceCredentialProvider` | Implementado | Firma posesión hacia rutas comerciales |
+| Constantes de path `/v1/business-session/assertions` y `/authorization` | Documentadas / possession | **Sin handler HTTP emisor en Central** |
+| `BusinessBrowserSessionIssuer` | Implementado | Emite **cookie BUSINESS web** + MFA; **no** emite SSA del POS Electron |
+| `SnapshotAcquisitionService` (SAS-003) | TESTED | **No** instanciado en `main.ts` (`DEC-020`) |
+| `SnapshotProvider` HTTP productivo | Ausente | Solo fixtures de prueba |
+| Emisor Central de SSA POS (humano + dispositivo) | **Inexistente** | `DEC-012` / `SEC-G02` NOT_EVALUATED; `DEC-020` D6 |
+| UI renderer que llame `session.activate` | Ausente | E2E `real-channel` inyecta SSA de arnés de prueba |
 
-## Diferenciación obligatoria
+## Por qué no se “completa Central” en esta rama
 
-| Concepto | Qué es | Qué no es |
+1. **`BusinessBrowserSessionIssuer` no es el emisor SSA del POS.** Produce `setCookie`/`csrfToken` para administración BUSINESS en navegador tras MFA. Confundirlo con SSA Electron inventaría un contrato.
+2. **No hay ruta HTTP montada** en `central-authority` que responda `POST /v1/business-session/assertions` ni que entregue SAS firmado al dispositivo. Solo existen verificadores de posesión de dispositivo para esas paths.
+3. **`SnapshotProvider` productivo no existe.** Cablear `SnapshotAcquisitionService` a un proveedor en memoria fabricaría confianza (`DEC-020` §3 lo prohíbe explícitamente).
+4. **Login humano POS → SSA** pertenece a `SEC-G02` / alcance Central aún `NOT_EVALUATED`. Implementarlo aquí sin decisión de seguridad ratificada viola la gobernanza del repositorio.
+5. El arnés `real-service-host` / `real-channel.spec.ts` firma SSA de prueba: válido para canal, **no** es evidencia de emisión comercial Central.
+
+## Flujo objetivo (cuando exista el emisor)
+
+1. Autenticación BUSINESS humana + MFA en Central (SEC-G02).
+2. Posesión de Device Trust sobre el dispositivo enrolado.
+3. Central emite SSA firmada (`SESSION_ASSERTION` operational key).
+4. Desktop transporta SSA → `session.activate` (sin firmar en renderer).
+5. Central entrega SAS; servicio adquiere vía `SnapshotAcquisitionService` + provider HTTP.
+6. `authorization.capabilities.get` proyecta permisos del snapshot firmado.
+7. Revocación/caducidad/recover siguen los handlers ya materializados.
+
+## Separación vigente en el POS actual
+
+| Concepto | Mecanismo actual | Comercial firmado |
 |---|---|---|
-| Autenticación de operador local | Password store de desarrollo (`CAMACHO_DEV_ACCOUNTS_V1`) | SSA/SAS BUSINESS |
-| Vinculación de sesión | `session.activate` / `recover` + binding por `connectionId` | Login UI por sí solo |
-| Autorización BUSINESS | Snapshot firmado + `capabilities.get` | `LOCAL_DEVELOPMENT_INTERNAL` |
-| Bridge de desarrollo | Proyección RBAC local con `NODE_ENV=development` | Autoridad comercial certificada |
+| Operador local (solo `NODE_ENV=development`) | Password store + bridge | No |
+| Vinculación de sesión | `session.activate` / `recover` | Sí, si hay SSA real |
+| Permisos BUSINESS | SAS firmado en store | Sí, si hay SAS real |
+| Permisos UI | Solo `capabilities.get` AVAILABLE | React no concede |
 
-`config.ts` rechaza el store local fuera de development
-(`LOCAL_OPERATOR_AUTH_DEVELOPMENT_ONLY`).
+## Procedimiento pendiente Windows / Central
 
-## Requisitos manuales restantes (Windows)
+1. Ratificar e implementar emisor Central SSA/SAS para POS (SEC-G02 + contratos HTTP).
+2. Publicar trust operacional y enrolar Device Trust en el terminal.
+3. Conectar `SnapshotProvider` HTTP y montar `SnapshotAcquisitionService` en `main.ts`.
+4. Conectar el formulario aprobado: tras emisión legítima → `session.activate` → capabilities.
+5. Ejecutar negativos: SSA inválida, SAS caducado/revocado, empresa ajena, sin Device Trust.
+6. Conservar bloqueo SCM; no modificar PR #127.
+7. Capturas de Caja/roles solo con sesión firmada real.
 
-1. Servicio Local en win32 con canal SCM o named-pipe provisionado.
-2. Device Trust enrollado y custodia OS.
-3. Trust bundle `SESSION_ASSERTION` y, cuando corresponda, publicación Central.
-4. Emisión real de SSA/SAS desde Central para el operador.
-5. Cablear adquisición SSA → `session.activate` → capabilities (sin bypass local).
-6. Ejecutar `e2e/local-operator-live` / prueba comercial con artefactos reales.
-7. No declarar certificación comercial hasta evidencia física de ese camino.
+## Commits de esta continuación
 
-## Decisión de implementación en esta rama
-
-Se documenta el bloqueo y se corrigen defectos visuales demostrables de Caja
-(y revisión de navegación por permisos). **No** se publica un login que aparenta
-sesión comercial firmada apoyándose en permisos locales de desarrollo.
+- Bloque A: este documento (bloqueo exacto; sin cableado inventado).
+- Bloque B: correcciones visuales del login/Caja/supervisor/admin sin alterar autoridad.
