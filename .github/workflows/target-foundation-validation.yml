@@ -674,6 +674,33 @@ jobs:
             tests/subscription-payment-verify-security.test.ts \
             tests/factus-pay-webhook-handler.test.ts
 
+      - name: Configure real TLS on disposable PostgreSQL
+        shell: bash
+        env:
+          TEST_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          # Reuse the repository's existing PostgreSQL TLS pattern; do not weaken
+          # physical role/TLS checks in migrations 006 and 007.
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/pr130-cert.key -out /tmp/pr130-cert.crt -days 1 -subj /CN=localhost -addext 'subjectAltName=IP:127.0.0.1,DNS:localhost'
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" psql -qc "ALTER SYSTEM SET ssl_cert_file='/tmp/pr130-cert.crt'"
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" psql -qc "ALTER SYSTEM SET ssl_key_file='/tmp/pr130-cert.key'"
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" psql -qc "ALTER SYSTEM SET ssl='on'"
+          docker exec --user postgres "$TEST_POSTGRES_CONTAINER" psql -qc 'SELECT pg_reload_conf()'
+          docker cp "$TEST_POSTGRES_CONTAINER:/tmp/pr130-cert.crt" "$RUNNER_TEMP/pr130-cert-ca.crt"
+          for role in postgres pos_migrator pos_platform_app; do
+            # The exact database role connections are checked again by the
+            # official migration runners, not impersonated with SET ROLE.
+            if [ "$role" = postgres ]; then
+              PGSSLMODE=verify-full PGSSLROOTCERT="$RUNNER_TEMP/pr130-cert-ca.crt" psql -h 127.0.0.1 -p 55438 -U postgres -d postgres -Atqc "SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()" | grep -qx t
+            fi
+          done
+          {
+            echo "POSTGRES_ADMIN_URL=postgres://postgres@127.0.0.1:55438/postgres?sslmode=verify-full&sslrootcert=$RUNNER_TEMP/pr130-cert-ca.crt"
+            echo "POSTGRES_MIGRATOR_URL=postgres://pos_migrator@127.0.0.1:55438/postgres?sslmode=verify-full&sslrootcert=$RUNNER_TEMP/pr130-cert-ca.crt"
+            echo "CENTRAL_DATABASE_URL=postgres://pos_platform_app@127.0.0.1:55438/postgres?sslmode=verify-full&sslrootcert=$RUNNER_TEMP/pr130-cert-ca.crt"
+          } >> "$GITHUB_ENV"
+
       - name: Bootstrap isolated PostgreSQL through migration 035
         env:
           REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
