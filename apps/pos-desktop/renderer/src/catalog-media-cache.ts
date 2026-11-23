@@ -31,7 +31,7 @@ const MAX_MEDIA_BYTES = 32 * 1024 * 1024;
 let cachedBytes = 0;
 let cacheGeneration = 0;
 const memory = new Map<string, CacheEntry>();
-const inflight = new Map<string, Promise<string | null>>();
+const inflight = new Map<string, { token: symbol; promise: Promise<string | null> }>();
 
 function removeEntry(mediaId: string): void {
   const entry = memory.get(mediaId);
@@ -88,17 +88,18 @@ export async function resolveCatalogMediaUrl(mediaId: string): Promise<string | 
   if (cached !== null) return cached;
 
   const pending = inflight.get(mediaId);
-  if (pending !== undefined) return pending;
+  if (pending !== undefined) return pending.promise;
 
   const loadScope = activeScopeKey;
   const loadGeneration = cacheGeneration;
+  const loadToken = Symbol("catalog-media-load");
   const load = (async (): Promise<string | null> => {
     try {
       const response = await callCommercial<CatalogMediaGetResult>(
         "catalog.media.get",
         { media_id: mediaId },
       );
-      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || inflight.get(mediaId) !== load) return null;
+      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || inflight.get(mediaId)?.token !== loadToken) return null;
       if (
         response.status !== "SUCCEEDED"
         || response.result === null
@@ -111,7 +112,7 @@ export async function resolveCatalogMediaUrl(mediaId: string): Promise<string | 
       const binary = Uint8Array.from(atob(response.result.content_base64), (c) => c.charCodeAt(0));
       if (binary.byteLength > MAX_MEDIA_BYTES) return null;
       const blob = new Blob([binary], { type: response.result.mime_type });
-      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || inflight.get(mediaId) !== load) return null;
+      if (loadScope !== activeScopeKey || loadGeneration !== cacheGeneration || inflight.get(mediaId)?.token !== loadToken) return null;
       const previous = memory.get(mediaId);
       if (previous !== undefined) removeEntry(mediaId);
       while (memory.size >= MAX_MEDIA_ENTRIES || cachedBytes + binary.byteLength > MAX_MEDIA_BYTES) {
@@ -127,10 +128,10 @@ export async function resolveCatalogMediaUrl(mediaId: string): Promise<string | 
       return null;
     } finally {
       // An invalidated request must not erase a newer request for this media.
-      if (inflight.get(mediaId) === load) inflight.delete(mediaId);
+      if (inflight.get(mediaId)?.token === loadToken) inflight.delete(mediaId);
     }
   })();
 
-  inflight.set(mediaId, load);
+  inflight.set(mediaId, { token: loadToken, promise: load });
   return load;
 }
