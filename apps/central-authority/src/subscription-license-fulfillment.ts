@@ -173,6 +173,61 @@ export class SubscriptionLicenseFulfillment{
     }
   }
 
+  /**
+   * Recover paid subscription webhooks already acknowledged by the durable inbox
+   * but not enqueued due to a crash or a transient database error. The provider
+   * does not need to retransmit a webhook after receiving HTTP 204.
+   *
+   * This scanner never turns a webhook into a confirmed payment: the existing
+   * payment verifier performs the authoritative evidence checks under locks.
+   */
+  async recoverUnqueuedSubscriptionWebhooks(limit=32):Promise<{recovered:number;errors:string[]}>{
+    if(!Number.isSafeInteger(limit)||limit<1||limit>200)throw Error("FULFILLMENT_RECOVERY_LIMIT_INVALID");
+    const rows=(await this.pool.query(`
+      SELECT i.tenant_id::text AS tenant_id,i.company_id::text AS company_id,
+             i.integration_id::text AS integration_id,
+             i.external_transaction_id,i.amount::text AS amount_scale6,i.currency_code
+      FROM integrations.factus_pay_webhook_inbox i
+      JOIN payments.payment_attempts a
+        ON a.tenant_id=i.tenant_id AND a.company_id=i.company_id
+       AND a.integration_id=i.integration_id
+       AND a.provider_code='FACTUS_PAY'
+       AND a.provider_reference=i.external_transaction_id
+      JOIN payments.payments p ON p.id=a.payment_id AND p.tenant_id=a.tenant_id
+      JOIN payments.payment_groups g ON g.id=p.payment_group_id AND g.tenant_id=p.tenant_id
+      JOIN subscriptions.license_quotes q ON q.id=g.collection_subject_id
+      LEFT JOIN subscriptions.license_fulfillment_jobs j ON j.payment_id=p.id
+      WHERE g.collection_subject_type='SUBSCRIPTION_QUOTE'
+        AND j.payment_id IS NULL
+        AND i.provider_status='paid' AND i.currency_code='COP'
+        AND i.processing_status IN ('PENDING','RETRY_SCHEDULED','PROCESSING')
+        AND p.status IN ('PENDING','CONFIRMED')
+        AND a.status IN ('PENDING','CONFIRMED')
+        AND q.merchant_tenant_id=i.tenant_id AND q.merchant_company_id=i.company_id
+        AND q.integration_id=i.integration_id
+        AND i.amount=q.total_minor::numeric/power(10::numeric,q.currency_exponent)
+      ORDER BY i.received_at,i.id LIMIT $1
+    `,[limit])).rows as Array<{
+      tenant_id:string;company_id:string;integration_id:string;
+      external_transaction_id:string;amount_scale6:string;currency_code:string;
+    }>;
+    let recovered=0;
+    const errors:string[]=[];
+    for(const row of rows){
+      try{
+        const result=await this.enqueueFromWebhookObservation({
+          tenantId:row.tenant_id,companyId:row.company_id,integrationId:row.integration_id,
+          externalTransactionId:row.external_transaction_id,
+          amountScale6:row.amount_scale6,currencyCode:row.currency_code,
+        });
+        if(result==="ENQUEUED"||result==="DUPLICATE")recovered+=1;
+      }catch(error){
+        errors.push(errorCodeOf(error));
+      }
+    }
+    return {recovered,errors};
+  }
+
   /** One claim/process cycle — safe under multi-instance SKIP LOCKED claims. */
   async processDue(limit=1):Promise<{processed:number;issued:number;retried:number;errors:string[]}>{
     const claimed=await this.queue.claimDue(limit);
@@ -225,6 +280,7 @@ export class SubscriptionLicenseFulfillment{
     let stopped=false;
     const tick=async()=>{
       if(stopped||signal?.aborted)return;
+      try{await this.recoverUnqueuedSubscriptionWebhooks();}catch{/* next poll retries */}
       try{await this.processDue(4);}catch{/* next poll retries */}
     };
     const handle=setInterval(()=>{void tick();},this.provision.poll_interval_ms);
