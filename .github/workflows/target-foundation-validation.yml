@@ -716,6 +716,37 @@ jobs:
             echo "BLOCK=FACTUS_PAY_SANDBOX_credentials_unavailable_to_this_job"
           fi
 
+      - name: Authenticate with FACTUS Pay sandbox (no payment request)
+        env:
+          FACTUS_PAY_SANDBOX_EMAIL: ${{ secrets.FACTUS_PAY_SANDBOX_EMAIL }}
+          FACTUS_PAY_SANDBOX_PASSWORD: ${{ secrets.FACTUS_PAY_SANDBOX_PASSWORD }}
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import {writeFileSync} from "node:fs";
+          import {join} from "node:path";
+          const email=process.env.FACTUS_PAY_SANDBOX_EMAIL;
+          const password=process.env.FACTUS_PAY_SANDBOX_PASSWORD;
+          if(!email||!password)throw Error("FACTUS_PAY_SANDBOX_SECRETS_MISSING");
+          const controller=new AbortController();
+          const timeout=setTimeout(()=>controller.abort(),12000);
+          try{
+            const response=await fetch("https://pay-api-sandbox.factus.com.co/auth",{
+              method:"POST",headers:{"content-type":"application/json",accept:"application/json"},
+              body:JSON.stringify({email,password}),redirect:"error",cache:"no-store",signal:controller.signal,
+            });
+            if(response.status!==200||response.redirected)throw Error("FACTUS_PAY_SANDBOX_AUTH_FAILED");
+            const result=await response.json();
+            if(typeof result?.token!=="string"||result.token.length<1)throw Error("FACTUS_PAY_SANDBOX_TOKEN_NOT_RECEIVED");
+            writeFileSync(join(process.env.CAMACHO_CERT_EVIDENCE_DIR,"factus-auth-evidence.json"),
+              JSON.stringify({commit:process.env.REVIEWED_SHA,environment:"FACTUS_PAY_SANDBOX",
+                sandbox_auth_verified:true,sandbox_paid_verified:false,runtime_verified:false},null,2)+"\n",
+              {mode:0o600});
+            console.log("FACTUS_PAY_SANDBOX_AUTH_VERIFIED=true");
+            console.log("FACTUS_PAY_PAID_VERIFIED=false");
+          }finally{clearTimeout(timeout);}
+          JS
+
       - name: Upload redacted certification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
