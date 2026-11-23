@@ -58,6 +58,11 @@ test("captura login limpio a 1366x768 sin superficie comercial", async () => {
   await expect(window.getByRole("textbox", { name: "Usuario" })).toBeVisible();
   await expect(window.getByRole("button", { name: "Ingresar" })).toBeVisible();
   await expect(window.getByRole("img", { name: "Camacho POS Colombia" })).toBeVisible();
+  const site = window.getByTestId("institutional-website");
+  await expect(site).toBeVisible();
+  await expect(window.getByText("Sitio web de Camacho POS Colombia")).toBeVisible();
+  const siteInsideCard = await window.locator(".pos-entry-card").locator(site).count();
+  expect(siteInsideCard).toBe(0);
   await expect(window.getByTestId("sale-panel")).toHaveCount(0);
   await window.screenshot({
     path: join(artifactDir, "01-login-clean-1366x768.png"),

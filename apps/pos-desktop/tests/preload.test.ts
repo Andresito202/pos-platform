@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RENDERER_API_KEY, RENDERER_API_METHODS } from "../src/preload-api.js";
 import { IPC_ALLOWED_CHANNELS } from "../src/ipc-allowlist.js";
+import { DESKTOP_OPEN_EXTERNAL_URL_CHANNEL } from "../src/desktop-shell.js";
 
 const exposeInMainWorld = vi.fn();
 const invoke = vi.fn();
@@ -20,8 +21,8 @@ async function loadPreload(): Promise<Record<string, (payload: unknown) => Promi
   exposeInMainWorld.mockClear();
   invoke.mockClear();
   await import("../src/preload.js");
-  const call = exposeInMainWorld.mock.calls.at(-1);
-  if (!call) throw new Error("preload no llamó a exposeInMainWorld");
+  const call = exposeInMainWorld.mock.calls.find((entry) => entry[0] === RENDERER_API_KEY);
+  if (!call) throw new Error("preload no expuso posService");
   return call[1] as Record<string, (payload: unknown) => Promise<unknown>>;
 }
 
@@ -32,13 +33,28 @@ beforeEach(() => {
 describe("preload contextBridge wiring", () => {
   it("exposes the api under the agreed renderer key", async () => {
     await loadPreload();
-    expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
-    expect(exposeInMainWorld.mock.calls[0]?.[0]).toBe(RENDERER_API_KEY);
+    expect(exposeInMainWorld.mock.calls.map((call) => call[0])).toEqual([
+      RENDERER_API_KEY,
+      "posDesktopShell",
+    ]);
   });
 
   it("exposes exactly the declared methods and nothing else", async () => {
     const api = await loadPreload();
     expect(Object.keys(api).sort()).toEqual([...RENDERER_API_METHODS].sort());
+  });
+
+  it("exposes a narrow desktop shell bridge for allowlisted external URLs", async () => {
+    await loadPreload();
+    const shellCall = exposeInMainWorld.mock.calls.find((call) => call[0] === "posDesktopShell");
+    const shell = shellCall?.[1] as { openExternalUrl: (url: string) => Promise<unknown> };
+    expect(Object.keys(shell).sort()).toEqual(["openExternalUrl"]);
+    invoke.mockClear();
+    await shell.openExternalUrl("https://camachoposcolombia.com");
+    expect(invoke).toHaveBeenCalledWith(
+      DESKTOP_OPEN_EXTERNAL_URL_CHANNEL,
+      "https://camachoposcolombia.com",
+    );
   });
 
   it("never exposes node, process or require to the renderer", async () => {

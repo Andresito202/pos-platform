@@ -17,12 +17,18 @@ const handlers = new Map<string, (event: unknown, payload: unknown) => unknown>(
 const appEvents = new Map<string, () => void>();
 const quit = vi.fn();
 
+const openExternal = vi.fn().mockResolvedValue(undefined);
+
 vi.mock("electron", () => {
   class BrowserWindow {
     static instances: CapturedWindow[] = created;
     loadFile = vi.fn().mockResolvedValue(undefined);
     on = vi.fn();
     show = vi.fn();
+    webContents = {
+      setWindowOpenHandler: vi.fn(),
+      on: vi.fn(),
+    };
     constructor(options: Record<string, unknown>) {
       created.push(this as unknown as CapturedWindow);
       (this as unknown as CapturedWindow).options = options;
@@ -44,6 +50,9 @@ vi.mock("electron", () => {
       handle: (channel: string, listener: (event: unknown, payload: unknown) => unknown) => {
         handlers.set(channel, listener);
       },
+    },
+    shell: {
+      openExternal: (url: string) => openExternal(url),
     },
   };
 });
@@ -68,19 +77,33 @@ beforeEach(() => {
   handlers.clear();
   appEvents.clear();
   quit.mockClear();
+  openExternal.mockClear();
   vi.resetModules();
 });
 
 describe("main bootstrap IPC registration", () => {
   it("registers a handler for every allowlisted channel", async () => {
     await bootstrapWith(makeServiceChannel());
-    expect([...handlers.keys()].sort()).toEqual([...IPC_ALLOWED_CHANNELS].sort());
+    for (const channel of IPC_ALLOWED_CHANNELS) {
+      expect(handlers.has(channel)).toBe(true);
+    }
   });
 
-  it("registers no channel outside the allowlist", async () => {
+  it("registers the desktop shell channel outside the commercial allowlist", async () => {
+    const { DESKTOP_OPEN_EXTERNAL_URL_CHANNEL } = await import("../src/desktop-shell.js");
+    await bootstrapWith(makeServiceChannel());
+    expect(handlers.has(DESKTOP_OPEN_EXTERNAL_URL_CHANNEL)).toBe(true);
+    expect(IPC_ALLOWED_CHANNELS as readonly string[]).not.toContain(DESKTOP_OPEN_EXTERNAL_URL_CHANNEL);
+  });
+
+  it("registers no commercial channel outside the allowlist", async () => {
+    const { DESKTOP_SHELL_CHANNELS } = await import("../src/desktop-shell.js");
     await bootstrapWith(makeServiceChannel());
     for (const channel of handlers.keys()) {
-      expect(IPC_ALLOWED_CHANNELS as readonly string[]).toContain(channel);
+      const allowed =
+        (IPC_ALLOWED_CHANNELS as readonly string[]).includes(channel)
+        || (DESKTOP_SHELL_CHANNELS as readonly string[]).includes(channel);
+      expect(allowed).toBe(true);
     }
   });
 

@@ -205,6 +205,10 @@ describe("App", () => {
       expect(screen.getByRole("img", { name: "Camacho POS Colombia" })).toBeTruthy();
     });
 
+    const card = screen.getByLabelText("Estado de acceso");
+    const site = screen.getByTestId("institutional-website");
+    expect(card.contains(site)).toBe(false);
+    expect(screen.getByText("Sitio web de Camacho POS Colombia")).toBeTruthy();
     expect(screen.queryByTestId("sale-panel")).toBeNull();
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
   });

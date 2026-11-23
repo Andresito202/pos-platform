@@ -8,6 +8,7 @@ import { StatusPanel } from "./components/StatusPanel.js";
 import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
 import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
 import { LocalAdministrativeAuditPanel } from "./components/LocalAdministrativeAuditPanel.js";
+import { InstitutionalWebsiteLink } from "./components/InstitutionalWebsiteLink.js";
 
 import { AdministrativeControlPanel } from "./components/AdministrativeControlPanel.js";
 import { TransferReviewPanel } from "./components/TransferReviewPanel.js";
@@ -194,54 +195,57 @@ function LocalApp(): React.JSX.Element {
             <p>Inicia sesión para continuar con tu operación.</p>
           </div>
         </section>
-        <section className="pos-entry-card" aria-label="Estado de acceso">
-          <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
-          <h1>Iniciar sesión</h1>
-          <p className="pos-entry-lead">
-            {loading
-              ? "Validando sesión"
-              : unauthenticated
-                ? "Accede con tu cuenta local para continuar"
-                : authorization.phase === "denied"
-                  ? "Acceso denegado"
-                  : authorization.phase === "expired"
-                    ? "Sesión expirada"
-                    : "Acceso no disponible"}
-          </p>
-          <p className="pos-entry-copy">
-            {loading
-              ? "Comprobando la sesión y los permisos efectivos."
-              : unauthenticated
-                ? "Identifícate para acceder a las funciones locales autorizadas de tu perfil."
-                : "El POS no ha podido verificar una sesión autorizada."}
-          </p>
-          {loading ? (
-            <div data-testid="authorization-loading" role="status" className="pos-entry-banner pos-entry-banner--info">
-              Cargando permisos…
-            </div>
-          ) : unauthenticated ? (
-            <div data-testid="authorization-unauthenticated" role="status" className="pos-entry-banner pos-entry-banner--info">
-              No hay una sesión iniciada en este dispositivo.
-            </div>
-          ) : authorization.phase === "denied" ? (
-            <div data-testid="authorization-denied" role="alert" className="pos-entry-banner pos-entry-banner--warning">
-              La sesión no dispone de permisos efectivos para operar en este POS.
-            </div>
-          ) : authorization.phase === "expired" ? (
-            <div data-testid="authorization-expired" role="alert" className="pos-entry-banner pos-entry-banner--warning">
-              La verificación del backend indica que la sesión expiró. Es necesario autenticarse de nuevo.
-            </div>
-          ) : authorization.phase === "error" ? (
-            <div data-testid="authorization-error" role="alert" className="pos-entry-banner pos-entry-banner--error">
-              {authorization.message}
-            </div>
-          ) : null}
-          {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={refreshAccess} />}
-          <button type="button" className="pos-entry-secondary" onClick={refreshAccess} disabled={loading}>
-            Actualizar acceso
-          </button>
-          <StatusPanel />
-        </section>
+        <div className="pos-entry-form-column">
+          <section className="pos-entry-card" aria-label="Estado de acceso">
+            <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
+            <h1>Iniciar sesión</h1>
+            <p className="pos-entry-lead">
+              {loading
+                ? "Validando sesión"
+                : unauthenticated
+                  ? "Accede con tu cuenta local para continuar"
+                  : authorization.phase === "denied"
+                    ? "Acceso denegado"
+                    : authorization.phase === "expired"
+                      ? "Sesión expirada"
+                      : "Acceso no disponible"}
+            </p>
+            <p className="pos-entry-copy">
+              {loading
+                ? "Comprobando la sesión y los permisos efectivos."
+                : unauthenticated
+                  ? "Identifícate para acceder a las funciones locales autorizadas de tu perfil."
+                  : "El POS no ha podido verificar una sesión autorizada."}
+            </p>
+            {loading ? (
+              <div data-testid="authorization-loading" role="status" className="pos-entry-banner pos-entry-banner--info">
+                Cargando permisos…
+              </div>
+            ) : unauthenticated ? (
+              <div data-testid="authorization-unauthenticated" role="status" className="pos-entry-banner pos-entry-banner--info">
+                No hay una sesión iniciada en este dispositivo.
+              </div>
+            ) : authorization.phase === "denied" ? (
+              <div data-testid="authorization-denied" role="alert" className="pos-entry-banner pos-entry-banner--warning">
+                La sesión no dispone de permisos efectivos para operar en este POS.
+              </div>
+            ) : authorization.phase === "expired" ? (
+              <div data-testid="authorization-expired" role="alert" className="pos-entry-banner pos-entry-banner--warning">
+                La verificación del backend indica que la sesión expiró. Es necesario autenticarse de nuevo.
+              </div>
+            ) : authorization.phase === "error" ? (
+              <div data-testid="authorization-error" role="alert" className="pos-entry-banner pos-entry-banner--error">
+                {authorization.message}
+              </div>
+            ) : null}
+            {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={refreshAccess} />}
+            <button type="button" className="pos-entry-secondary" onClick={refreshAccess} disabled={loading}>
+              Actualizar acceso
+            </button>
+            <StatusPanel />
+          </section>
+          <InstitutionalWebsiteLink />
+        </div>
       </main>
     );
   }
