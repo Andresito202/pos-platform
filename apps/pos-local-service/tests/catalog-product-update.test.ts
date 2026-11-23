@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { deflateSync } from "node:zlib";
-import { rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -376,7 +376,100 @@ describe("catalog media validation and attach", () => {
     );
     expect(foreign.kind).toBe("NOT_FOUND");
   });
+
+  it("refuses truncated PNG and leaves no ACTIVE media on version conflict", async () => {
+    const truncated = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", (() => {
+        const ihdr = Buffer.alloc(13);
+        ihdr.writeUInt32BE(32, 0);
+        ihdr.writeUInt32BE(32, 4);
+        ihdr[8] = 8;
+        ihdr[9] = 2;
+        return ihdr;
+      })()),
+      // Missing IEND — not decodable/safe.
+    ]);
+    expect(validateCatalogMediaBytes(truncated).ok).toBe(false);
+
+    const { media, productId, mediaStore, database, dir } = await buildEnv();
+    const png = solidPng32([10, 20, 30]);
+    const conflict = media.put(
+      SCOPE, auth(["CATALOG_MEDIA_MANAGE"]), {
+        productId,
+        expectedVersion: 99,
+        contentBase64: png.toString("base64"),
+      },
+      NOW,
+    );
+    expect(conflict).toMatchObject({ kind: "VERSION_CONFLICT", currentVersion: 1 });
+
+    const activeCount = (database.native.prepare(
+      `SELECT count(*) AS n FROM catalog_media WHERE status='ACTIVE'`,
+    ).get() as { n: number }).n;
+    expect(activeCount).toBe(0);
+    expect(countFilesUnder(join(dir, "catalog-media"))).toBe(0);
+    expect(countFilesUnder(join(dir, "catalog-media-staging"))).toBe(0);
+
+    const reclaim = mediaStore.reclaimOrphans({
+      tenantId: TENANT, companyId: COMPANY,
+    });
+    expect(reclaim.retired).toBe(0);
+  });
+
+  it("abandons staged bytes when confirm/attach cannot complete", async () => {
+    const { mediaStore, catalogStore, productId, dir } = await buildEnv();
+    const png = solidPng32([1, 2, 3]);
+    const staged = mediaStore.stage({
+      tenantId: TENANT, companyId: COMPANY, actorId: USER, bytes: png,
+    });
+    expect(staged.kind).toBe("STAGED");
+    if (staged.kind !== "STAGED") return;
+    expect(countFilesUnder(join(dir, "catalog-media-staging"))).toBe(1);
+
+    // Simulate crash/reject between stage and confirm.
+    mediaStore.abandonStaged(staged.staged);
+    expect(countFilesUnder(join(dir, "catalog-media-staging"))).toBe(0);
+
+    const confirmed = mediaStore.confirmStaged(staged.staged);
+    expect(confirmed.kind).toBe("INVALID");
+
+    // Confirm then failed attach → retire unattached ACTIVE row.
+    const staged2 = mediaStore.stage({
+      tenantId: TENANT, companyId: COMPANY, actorId: USER, bytes: png,
+    });
+    expect(staged2.kind).toBe("STAGED");
+    if (staged2.kind !== "STAGED") return;
+    const stored = mediaStore.confirmStaged(staged2.staged);
+    expect(stored.kind).toBe("STORED");
+    if (stored.kind !== "STORED") return;
+    const attached = catalogStore.attachPrimaryMedia({
+      scope: SCOPE,
+      productId,
+      expectedVersion: 99,
+      mediaId: stored.media.id,
+      operatorUserId: USER,
+    });
+    expect(attached.kind).toBe("VERSION_CONFLICT");
+    mediaStore.retire(TENANT, COMPANY, stored.media.id);
+    mediaStore.reclaimOrphans({ tenantId: TENANT, companyId: COMPANY, mediaId: stored.media.id });
+    expect(catalogStore.findActiveProduct(SCOPE, productId)?.primaryMediaId).toBeNull();
+  });
 });
+
+function countFilesUnder(root: string): number {
+  if (!existsSync(root)) return 0;
+  let count = 0;
+  const walk = (path: string): void => {
+    for (const name of readdirSync(path, { withFileTypes: true })) {
+      const next = join(path, name.name);
+      if (name.isDirectory()) walk(next);
+      else count += 1;
+    }
+  };
+  walk(root);
+  return count;
+}
 
 describe("transactional availability after reserve and sale deduction", () => {
   it("keeps physical/reserved/sellable consistent through reserve → consume → receive", async () => {

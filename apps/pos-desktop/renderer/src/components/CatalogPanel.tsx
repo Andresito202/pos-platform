@@ -1,6 +1,12 @@
 import { useState } from "react";
-import { CanonicalPermission, LicenseSectorEntitlement } from "@pos-platform/contracts";
+import {
+  CanonicalPermission,
+  LicenseSectorEntitlement,
+  type CatalogItemListItem,
+} from "@pos-platform/contracts";
+import { formatScale6Display } from "../money-display.js";
 import { useCatalogAdmin } from "../hooks/useCatalogAdmin.js";
+import { ProductAvatar } from "./ProductAvatar.js";
 import { PharmacyPanel } from "./PharmacyPanel.js";
 import { BakeryPanel } from "./BakeryPanel.js";
 
@@ -34,23 +40,53 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
   const [requiresExpiry, setRequiresExpiry] = useState(true);
   const [foodNotes, setFoodNotes] = useState("");
 
-  const [editProductId, setEditProductId] = useState("");
-  const [editExpectedVersion, setEditExpectedVersion] = useState("1");
+  const [editSearch, setEditSearch] = useState("");
+  const [editProductId, setEditProductId] = useState<string | null>(null);
+  const [editExpectedVersion, setEditExpectedVersion] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [editCode, setEditCode] = useState("");
   const [editStatus, setEditStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
-  const [editPresentationId, setEditPresentationId] = useState("");
-  const [editPresentationVersion, setEditPresentationVersion] = useState("1");
+  const [editPresentationId, setEditPresentationId] = useState<string | null>(null);
+  const [editPresentationVersion, setEditPresentationVersion] = useState<number | null>(null);
   const [editPresentationName, setEditPresentationName] = useState("");
   const [editBarcode, setEditBarcode] = useState("");
   const [editPrice, setEditPrice] = useState("");
   const [editCurrency, setEditCurrency] = useState("COP");
-  const [editMediaVersion, setEditMediaVersion] = useState("1");
-  const [editPreviousMediaId, setEditPreviousMediaId] = useState("");
+  const [editMediaId, setEditMediaId] = useState<string | null>(null);
+  const [editSelectedLabel, setEditSelectedLabel] = useState<string | null>(null);
 
   const canUpdate = permissions.has(CanonicalPermission.CATALOG_PRODUCT_UPDATE);
   const canPublishPrice = permissions.has(CanonicalPermission.CATALOG_PRICE_PUBLISH);
   const canManageMedia = permissions.has(CanonicalPermission.CATALOG_MEDIA_MANAGE);
+  const canSearchEdit = canUpdate || canPublishPrice || canManageMedia
+    || permissions.has(CanonicalPermission.CATALOG_PRODUCT_READ);
+
+  function applySelectedItem(item: CatalogItemListItem): void {
+    setEditProductId(item.product_id);
+    setEditExpectedVersion(item.product_version);
+    setEditName(item.name);
+    setEditCode(item.code);
+    setEditStatus("ACTIVE");
+    setEditPresentationId(item.presentation_id);
+    setEditPresentationVersion(item.presentation_version);
+    setEditPresentationName(item.presentation_name);
+    setEditBarcode(item.barcode ?? "");
+    setEditPrice(formatScale6Display(item.price_amount));
+    setEditCurrency(item.currency_code);
+    setEditMediaId(item.media_id);
+    setEditSelectedLabel(`${item.name} · ${item.code} · ${item.presentation_name}`);
+  }
+
+  async function reloadSelectedProduct(): Promise<void> {
+    if (editCode.trim() === "" && editSearch.trim() === "") return;
+    const query = editCode.trim() !== "" ? editCode.trim() : editSearch.trim();
+    const items = await catalog.searchEditCandidates(query);
+    const match = items.find((item) =>
+      (editProductId !== null && item.product_id === editProductId)
+      || (editPresentationId !== null && item.presentation_id === editPresentationId),
+    ) ?? items[0];
+    if (match !== undefined) applySelectedItem(match);
+  }
 
   const incomplete = code.trim() === ""
     || name.trim() === ""
@@ -226,222 +262,264 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
         <section data-testid="catalog-edit-section">
           <h3>Editar producto existente</h3>
           <p>
-            Requiere versión actual del producto. No modifica existencias ni unidad base.
-            Descripción, marca y categoría no tienen persistencia local autorizada aún.
+            Busca y selecciona un producto del catálogo. Las versiones se conservan
+            internamente. No modifica existencias ni unidad base.
           </p>
-          <input
-            data-testid="edit-product-id-input"
-            value={editProductId}
-            onChange={(e) => { setEditProductId(e.target.value); }}
-            placeholder="ID de producto"
-            disabled={catalog.busy}
-          />
-          <input
-            data-testid="edit-expected-version-input"
-            value={editExpectedVersion}
-            onChange={(e) => { setEditExpectedVersion(e.target.value); }}
-            placeholder="Versión esperada"
-            disabled={catalog.busy}
-          />
-          {canUpdate && (
-            <>
-              <input
-                data-testid="edit-product-name-input"
-                value={editName}
-                onChange={(e) => { setEditName(e.target.value); }}
-                placeholder="Nombre comercial"
-                disabled={catalog.busy}
-              />
-              <input
-                data-testid="edit-product-code-input"
-                value={editCode}
-                onChange={(e) => { setEditCode(e.target.value); }}
-                placeholder="Código interno"
-                disabled={catalog.busy}
-              />
-              <select
-                data-testid="edit-product-status-input"
-                aria-label="Estado del producto"
-                value={editStatus}
-                disabled={catalog.busy}
-                onChange={(e) => { setEditStatus(e.target.value as "ACTIVE" | "INACTIVE"); }}
-              >
-                <option value="ACTIVE">Activo</option>
-                <option value="INACTIVE">Inactivo</option>
-              </select>
-              <input
-                data-testid="edit-presentation-id-input"
-                value={editPresentationId}
-                onChange={(e) => { setEditPresentationId(e.target.value); }}
-                placeholder="ID de presentación (opcional)"
-                disabled={catalog.busy}
-              />
-              <input
-                data-testid="edit-presentation-version-input"
-                value={editPresentationVersion}
-                onChange={(e) => { setEditPresentationVersion(e.target.value); }}
-                placeholder="Versión de presentación"
-                disabled={catalog.busy}
-              />
-              <input
-                data-testid="edit-presentation-name-input"
-                value={editPresentationName}
-                onChange={(e) => { setEditPresentationName(e.target.value); }}
-                placeholder="Nombre de presentación"
-                disabled={catalog.busy}
-              />
-              <input
-                data-testid="edit-barcode-input"
-                value={editBarcode}
-                onChange={(e) => { setEditBarcode(e.target.value); }}
-                placeholder="Código de barras (vacío = sin cambio)"
-                disabled={catalog.busy}
-              />
-              <button
-                data-testid="update-product-button"
-                disabled={catalog.busy || editProductId.trim() === "" || editExpectedVersion.trim() === ""}
-                onClick={() => {
-                  const expectedVersion = Number.parseInt(editExpectedVersion.trim(), 10);
-                  if (!Number.isFinite(expectedVersion) || expectedVersion < 1) return;
-                  const presentationId = editPresentationId.trim();
-                  const presentationVersion = Number.parseInt(editPresentationVersion.trim(), 10);
-                  void catalog.updateProduct({
-                    productId: editProductId.trim(),
-                    expectedVersion,
-                    ...(editName.trim() !== "" ? { name: editName.trim() } : {}),
-                    ...(editCode.trim() !== "" ? { code: editCode.trim() } : {}),
-                    status: editStatus,
-                    ...(presentationId !== ""
-                      ? {
-                        presentationId,
-                        presentationExpectedVersion: presentationVersion,
-                        ...(editPresentationName.trim() !== ""
-                          ? { presentationName: editPresentationName.trim() }
-                          : {}),
-                        ...(editBarcode.trim() !== ""
-                          ? { barcode: editBarcode.trim() }
-                          : {}),
-                      }
-                      : {}),
-                  });
-                }}
-              >
-                Guardar cambios
+          {canSearchEdit && (
+            <form
+              className="pos-product-tools"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void catalog.searchEditCandidates(editSearch.trim());
+              }}
+            >
+              <label>Buscar para editar
+                <input
+                  data-testid="edit-product-search-input"
+                  value={editSearch}
+                  onChange={(e) => { setEditSearch(e.target.value); }}
+                  placeholder="Nombre, código o barras"
+                  disabled={catalog.busy}
+                />
+              </label>
+              <button data-testid="edit-product-search-button" disabled={catalog.busy}>
+                Buscar
               </button>
-              {catalog.updateOutcome !== null && (
-                <div data-testid="update-product-outcome">
-                  {catalog.updateOutcome}
-                  {catalog.updateVersion !== null ? ` v${catalog.updateVersion}` : ""}
-                  {catalog.updatePresentationVersion !== null
-                    ? ` p${catalog.updatePresentationVersion}`
-                    : ""}
-                </div>
-              )}
-            </>
+            </form>
+          )}
+          {catalog.editCandidates.length > 0 && (
+            <ul data-testid="edit-product-candidates">
+              {catalog.editCandidates.map((item) => (
+                <li key={item.presentation_id}>
+                  <button
+                    type="button"
+                    data-testid={`edit-select-${item.presentation_id}`}
+                    disabled={catalog.busy}
+                    onClick={() => { applySelectedItem(item); }}
+                  >
+                    {item.name} · {item.code} · {item.presentation_name} · {formatScale6Display(item.price_amount)}
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
 
-          {canPublishPrice && (
-            <>
-              <h4>Publicar precio</h4>
-              <input
-                data-testid="edit-price-presentation-id-input"
-                value={editPresentationId}
-                onChange={(e) => { setEditPresentationId(e.target.value); }}
-                placeholder="ID de presentación"
-                disabled={catalog.busy}
-              />
-              <input
-                data-testid="edit-price-amount-input"
-                value={editPrice}
-                onChange={(e) => { setEditPrice(e.target.value); }}
-                placeholder="Nuevo precio"
-                disabled={catalog.busy}
-              />
-              <input
-                data-testid="edit-price-currency-input"
-                value={editCurrency}
-                onChange={(e) => { setEditCurrency(e.target.value); }}
-                placeholder="Moneda"
-                disabled={catalog.busy}
-              />
-              <button
-                data-testid="publish-price-button"
-                disabled={catalog.busy || editPresentationId.trim() === "" || editPrice.trim() === ""}
-                onClick={() => {
-                  void catalog.publishPrice({
-                    presentationId: editPresentationId.trim(),
-                    amount: editPrice,
-                    currencyCode: editCurrency.trim(),
-                  });
+          {editProductId !== null && editExpectedVersion !== null && editPresentationId !== null
+            && editPresentationVersion !== null && (
+            <div data-testid="edit-product-selected">
+              <p data-testid="edit-selected-label">{editSelectedLabel}</p>
+              <ProductAvatar
+                item={{
+                  product_id: editProductId,
+                  presentation_id: editPresentationId,
+                  code: editCode,
+                  name: editName,
+                  presentation_name: editPresentationName,
+                  unit_code: "UND",
+                  unit_precision: 0,
+                  barcode: editBarcode === "" ? null : editBarcode,
+                  stock_controlled: true,
+                  price_amount: "1.000000",
+                  currency_code: editCurrency,
+                  quantity_available: null,
+                  quantity_on_hand: null,
+                  quantity_reserved: null,
+                  availability_state: "NOT_TRACKED",
+                  product_version: editExpectedVersion,
+                  presentation_version: editPresentationVersion,
+                  media_id: editMediaId,
                 }}
-              >
-                Publicar precio
-              </button>
-              {catalog.priceOutcome !== null && (
-                <div data-testid="publish-price-outcome">{catalog.priceOutcome}</div>
-              )}
-            </>
-          )}
+              />
 
-          {canManageMedia && (
-            <>
-              <h4>Fotografía</h4>
-              <input
-                data-testid="edit-media-version-input"
-                value={editMediaVersion}
-                onChange={(e) => { setEditMediaVersion(e.target.value); }}
-                placeholder="Versión del producto"
-                disabled={catalog.busy}
-              />
-              <input
-                data-testid="edit-media-previous-id-input"
-                value={editPreviousMediaId}
-                onChange={(e) => { setEditPreviousMediaId(e.target.value); }}
-                placeholder="media_id previa (para retirar caché)"
-                disabled={catalog.busy}
-              />
-              <input
-                data-testid="edit-media-file-input"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                disabled={catalog.busy || editProductId.trim() === ""}
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file === undefined) return;
-                  const expectedVersion = Number.parseInt(editMediaVersion.trim(), 10);
-                  if (!Number.isFinite(expectedVersion) || expectedVersion < 1) return;
-                  void catalog.putMedia({
-                    productId: editProductId.trim(),
-                    expectedVersion,
-                    file,
-                  });
-                }}
-              />
-              <button
-                data-testid="clear-media-button"
-                disabled={catalog.busy || editProductId.trim() === ""}
-                onClick={() => {
-                  const expectedVersion = Number.parseInt(editMediaVersion.trim(), 10);
-                  if (!Number.isFinite(expectedVersion) || expectedVersion < 1) return;
-                  void catalog.clearMedia({
-                    productId: editProductId.trim(),
-                    expectedVersion,
-                    previousMediaId: editPreviousMediaId.trim() === ""
-                      ? null
-                      : editPreviousMediaId.trim(),
-                  });
-                }}
-              >
-                Retirar fotografía
-              </button>
-              {catalog.mediaOutcome !== null && (
-                <div data-testid="media-outcome">
-                  {catalog.mediaOutcome}
-                  {catalog.mediaId !== null ? ` ${catalog.mediaId}` : ""}
-                  {catalog.mediaVersion !== null ? ` v${catalog.mediaVersion}` : ""}
-                </div>
+              {canUpdate && (
+                <>
+                  <input
+                    data-testid="edit-product-name-input"
+                    value={editName}
+                    onChange={(e) => { setEditName(e.target.value); }}
+                    placeholder="Nombre comercial"
+                    disabled={catalog.busy}
+                  />
+                  <input
+                    data-testid="edit-product-code-input"
+                    value={editCode}
+                    onChange={(e) => { setEditCode(e.target.value); }}
+                    placeholder="Código interno"
+                    disabled={catalog.busy}
+                  />
+                  <select
+                    data-testid="edit-product-status-input"
+                    aria-label="Estado del producto"
+                    value={editStatus}
+                    disabled={catalog.busy}
+                    onChange={(e) => { setEditStatus(e.target.value as "ACTIVE" | "INACTIVE"); }}
+                  >
+                    <option value="ACTIVE">Activo</option>
+                    <option value="INACTIVE">Inactivo</option>
+                  </select>
+                  <input
+                    data-testid="edit-presentation-name-input"
+                    value={editPresentationName}
+                    onChange={(e) => { setEditPresentationName(e.target.value); }}
+                    placeholder="Nombre de presentación"
+                    disabled={catalog.busy}
+                  />
+                  <input
+                    data-testid="edit-barcode-input"
+                    value={editBarcode}
+                    onChange={(e) => { setEditBarcode(e.target.value); }}
+                    placeholder="Código de barras"
+                    disabled={catalog.busy}
+                  />
+                  <button
+                    data-testid="update-product-button"
+                    disabled={catalog.busy}
+                    onClick={() => {
+                      void catalog.updateProduct({
+                        productId: editProductId,
+                        expectedVersion: editExpectedVersion,
+                        name: editName.trim(),
+                        code: editCode.trim(),
+                        status: editStatus,
+                        presentationId: editPresentationId,
+                        presentationExpectedVersion: editPresentationVersion,
+                        presentationName: editPresentationName.trim(),
+                        barcode: editBarcode.trim() === "" ? null : editBarcode.trim(),
+                      }).then((result) => {
+                        if (result?.outcome === "UPDATED" || result?.outcome === "IDEMPOTENT") {
+                          if (result.version !== null) setEditExpectedVersion(result.version);
+                          if (result.presentation_version !== null) {
+                            setEditPresentationVersion(result.presentation_version);
+                          }
+                        }
+                      });
+                    }}
+                  >
+                    Guardar cambios
+                  </button>
+                  {catalog.updateOutcome !== null && (
+                    <div data-testid="update-product-outcome">
+                      {catalog.updateOutcome}
+                      {catalog.updateVersion !== null ? ` v${catalog.updateVersion}` : ""}
+                    </div>
+                  )}
+                  {(catalog.updateOutcome === "VERSION_CONFLICT"
+                    || catalog.updateOutcome === "PRESENTATION_VERSION_CONFLICT") && (
+                    <div data-testid="edit-version-conflict">
+                      <p>El producto fue modificado por otra operación. Recarga antes de guardar.</p>
+                      <button
+                        type="button"
+                        data-testid="edit-reload-button"
+                        disabled={catalog.busy}
+                        onClick={() => { void reloadSelectedProduct(); }}
+                      >
+                        Recargar información
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
-            </>
+
+              {canPublishPrice && (
+                <>
+                  <h4>Publicar precio</h4>
+                  <input
+                    data-testid="edit-price-amount-input"
+                    value={editPrice}
+                    onChange={(e) => { setEditPrice(e.target.value); }}
+                    placeholder="Nuevo precio"
+                    disabled={catalog.busy}
+                  />
+                  <input
+                    data-testid="edit-price-currency-input"
+                    value={editCurrency}
+                    onChange={(e) => { setEditCurrency(e.target.value); }}
+                    placeholder="Moneda"
+                    disabled={catalog.busy}
+                  />
+                  <button
+                    data-testid="publish-price-button"
+                    disabled={catalog.busy || editPrice.trim() === ""}
+                    onClick={() => {
+                      void catalog.publishPrice({
+                        presentationId: editPresentationId,
+                        amount: editPrice,
+                        currencyCode: editCurrency.trim(),
+                      });
+                    }}
+                  >
+                    Publicar precio
+                  </button>
+                  {catalog.priceOutcome !== null && (
+                    <div data-testid="publish-price-outcome">{catalog.priceOutcome}</div>
+                  )}
+                </>
+              )}
+
+              {canManageMedia && (
+                <>
+                  <h4>Fotografía</h4>
+                  <input
+                    data-testid="edit-media-file-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    disabled={catalog.busy}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file === undefined) return;
+                      void catalog.putMedia({
+                        productId: editProductId,
+                        expectedVersion: editExpectedVersion,
+                        file,
+                        previousMediaId: editMediaId,
+                      }).then((result) => {
+                        if (result?.outcome === "ATTACHED") {
+                          if (result.version !== null) setEditExpectedVersion(result.version);
+                          setEditMediaId(result.media_id);
+                        }
+                      });
+                    }}
+                  />
+                  <button
+                    data-testid="clear-media-button"
+                    disabled={catalog.busy}
+                    onClick={() => {
+                      void catalog.clearMedia({
+                        productId: editProductId,
+                        expectedVersion: editExpectedVersion,
+                        previousMediaId: editMediaId,
+                      }).then((result) => {
+                        if (result?.outcome === "ATTACHED") {
+                          if (result.version !== null) setEditExpectedVersion(result.version);
+                          setEditMediaId(null);
+                        }
+                      });
+                    }}
+                  >
+                    Retirar fotografía
+                  </button>
+                  {catalog.mediaOutcome !== null && (
+                    <div data-testid="media-outcome">
+                      {catalog.mediaOutcome}
+                      {catalog.mediaVersion !== null ? ` v${catalog.mediaVersion}` : ""}
+                    </div>
+                  )}
+                  {catalog.mediaOutcome === "VERSION_CONFLICT" && (
+                    <div data-testid="edit-media-version-conflict">
+                      <p>La fotografía no se aplicó: el producto cambió. Recarga e inténtalo de nuevo.</p>
+                      <button
+                        type="button"
+                        data-testid="edit-media-reload-button"
+                        disabled={catalog.busy}
+                        onClick={() => { void reloadSelectedProduct(); }}
+                      >
+                        Recargar información
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           )}
         </section>
       )}

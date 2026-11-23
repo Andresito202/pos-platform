@@ -308,8 +308,20 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     );
   }, [run]);
 
+  const catalogRefreshPending = useRef(false);
+
   const listCatalogItems = useCallback(async (query = "", offset = 0): Promise<void> => {
-    if (!canReadCatalog || catalogInFlight.current) return;
+    if (!canReadCatalog) return;
+    // Confirmed mutations during an in-flight list must not be dropped. Queue a
+    // full refresh (offset 0) for after the current request. This is local-window
+    // invalidation only — not multi-cashier sync.
+    if (catalogInFlight.current) {
+      if (offset === 0) {
+        catalogRefreshPending.current = true;
+        catalogQuery.current = query;
+      }
+      return;
+    }
     catalogInFlight.current = true;
     setCatalogBusy(true);
     try {
@@ -328,6 +340,10 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     } finally {
       catalogInFlight.current = false;
       setCatalogBusy(false);
+      if (catalogRefreshPending.current) {
+        catalogRefreshPending.current = false;
+        void listCatalogItems(catalogQuery.current, 0);
+      }
     }
   }, [canReadCatalog]);
 
@@ -335,7 +351,8 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   useEffect(() => {
     if (!canReadCatalog) return;
     return onCatalogInventoryChanged(() => {
-      void listCatalogItems(catalogQuery.current);
+      // Local workstation only. Other devices / windows need their own channel.
+      void listCatalogItems(catalogQuery.current, 0);
     });
   }, [canReadCatalog, listCatalogItems]);
   const loadMoreCatalogItems = () => listCatalogItems(catalogQuery.current, catalogItems.length);

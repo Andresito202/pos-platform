@@ -35,7 +35,14 @@ rama `cursor/catalog-inventory-caja-c53a`.
 
 **No editables aquí (contrato/persistencia ausente o prohibido):** descripción, marca, categoría, stock, `unit_code`, `unit_precision`, factores de conversión.
 
-## Pendiente explícito — siguiente bloque
+## Corrección P1–P2 (post 41a14390)
+
+- Media: stage → confirm → attach; abandon/reclaim evita ACTIVE huérfanos y archivos abandonados.
+- Caché: ligada a sesión local; wipe en logout/cambio de usuario/revocación; revoke ObjectURL.
+- Caja: invalidación local con cola si hay list in-flight (no multicaja).
+- Admin: búsqueda/selección desde catálogo; versiones internas; recarga ante VERSION_CONFLICT.
+
+## Pendiente explícito — Bloque 3
 
 1. Columnas/migración autorizada para descripción, marca y categoría.
 2. Importación XLSX y alta masiva de catálogo (CSV actual solo existencias; no presentar CSV como XLSX).
@@ -43,6 +50,7 @@ rama `cursor/catalog-inventory-caja-c53a`.
 4. Umbral comercial «existencia baja» (`LOW`) por política de sucursal.
 5. Certificación física de balanza / hardware (no simulada).
 6. Optimización server-side de variantes de imagen (hoy el renderer redimensiona a tarjeta; el servicio valida).
+7. Canal de invalidación entre ventanas/dispositivos (hoy solo ventana local).
 
 ## Sectores
 

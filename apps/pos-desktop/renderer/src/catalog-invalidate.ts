@@ -1,6 +1,7 @@
 /**
  * Local event used to refresh Caja catalog tiles after inventory or catalog
- * mutations on this workstation. Not a network poll and not a Central push.
+ * mutations on this workstation window. Not a network poll, not a Central push,
+ * and not multi-cashier / multi-window sync — those need a dedicated channel.
  */
 export const CATALOG_INVENTORY_CHANGED = "pos:catalog-inventory-changed";
 

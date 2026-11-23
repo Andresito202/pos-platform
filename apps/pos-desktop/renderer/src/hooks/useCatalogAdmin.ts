@@ -1,10 +1,12 @@
 import { useCallback, useState } from "react";
-import type {
-  CatalogFoodPolicyUpsertResult,
-  CatalogMediaMutateResult,
-  CatalogPricePublishResult,
-  CatalogProductRegisterResult,
-  CatalogProductUpdateResult,
+import {
+  CatalogItemListResultSchema,
+  type CatalogFoodPolicyUpsertResult,
+  type CatalogItemListItem,
+  type CatalogMediaMutateResult,
+  type CatalogPricePublishResult,
+  type CatalogProductRegisterResult,
+  type CatalogProductUpdateResult,
 } from "@pos-platform/contracts";
 import { forgetCatalogMedia } from "../catalog-media-cache.js";
 import { notifyCatalogInventoryChanged } from "../catalog-invalidate.js";
@@ -78,6 +80,7 @@ export interface PutMediaInput {
   readonly productId: string;
   readonly expectedVersion: number;
   readonly file: File;
+  readonly previousMediaId?: string | null;
 }
 
 export interface ClearMediaInput {
@@ -94,10 +97,13 @@ export interface CatalogAdminState {
   readonly updateOutcome: CatalogProductUpdateResult["outcome"] | null;
   readonly updateVersion: number | null;
   readonly updatePresentationVersion: number | null;
+  readonly updateCurrentVersion: number | null;
   readonly priceOutcome: CatalogPricePublishResult["outcome"] | null;
   readonly mediaOutcome: CatalogMediaMutateResult["outcome"] | null;
   readonly mediaId: string | null;
   readonly mediaVersion: number | null;
+  readonly mediaCurrentVersion: number | null;
+  readonly editCandidates: readonly CatalogItemListItem[];
   readonly foodPolicyOutcome: CatalogFoodPolicyUpsertResult["outcome"] | null;
   readonly foodPolicyVersion: number | null;
   readonly error: string | null;
@@ -105,10 +111,11 @@ export interface CatalogAdminState {
 
 export function useCatalogAdmin(): CatalogAdminState & {
   registerProduct(input: CatalogAdminInput): Promise<void>;
-  updateProduct(input: UpdateProductInput): Promise<void>;
-  publishPrice(input: PublishPriceInput): Promise<void>;
-  putMedia(input: PutMediaInput): Promise<void>;
-  clearMedia(input: ClearMediaInput): Promise<void>;
+  searchEditCandidates(query: string): Promise<readonly CatalogItemListItem[]>;
+  updateProduct(input: UpdateProductInput): Promise<CatalogProductUpdateResult | null>;
+  publishPrice(input: PublishPriceInput): Promise<CatalogPricePublishResult | null>;
+  putMedia(input: PutMediaInput): Promise<CatalogMediaMutateResult | null>;
+  clearMedia(input: ClearMediaInput): Promise<CatalogMediaMutateResult | null>;
   upsertFoodPolicy(input: FoodPolicyInput): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
@@ -117,10 +124,13 @@ export function useCatalogAdmin(): CatalogAdminState & {
   const [updateOutcome, setUpdateOutcome] = useState<CatalogProductUpdateResult["outcome"] | null>(null);
   const [updateVersion, setUpdateVersion] = useState<number | null>(null);
   const [updatePresentationVersion, setUpdatePresentationVersion] = useState<number | null>(null);
+  const [updateCurrentVersion, setUpdateCurrentVersion] = useState<number | null>(null);
   const [priceOutcome, setPriceOutcome] = useState<CatalogPricePublishResult["outcome"] | null>(null);
   const [mediaOutcome, setMediaOutcome] = useState<CatalogMediaMutateResult["outcome"] | null>(null);
   const [mediaId, setMediaId] = useState<string | null>(null);
   const [mediaVersion, setMediaVersion] = useState<number | null>(null);
+  const [mediaCurrentVersion, setMediaCurrentVersion] = useState<number | null>(null);
+  const [editCandidates, setEditCandidates] = useState<readonly CatalogItemListItem[]>([]);
   const [foodPolicyOutcome, setFoodPolicyOutcome] = useState<CatalogFoodPolicyUpsertResult["outcome"] | null>(null);
   const [foodPolicyVersion, setFoodPolicyVersion] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -193,12 +203,39 @@ export function useCatalogAdmin(): CatalogAdminState & {
     }
   }, []);
 
-  const updateProduct = useCallback(async (input: UpdateProductInput): Promise<void> => {
+  const searchEditCandidates = useCallback(async (query: string): Promise<readonly CatalogItemListItem[]> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await callCommercial("catalog.item.list", {
+        query, limit: 24, offset: 0,
+      });
+      const parsed = CatalogItemListResultSchema.safeParse(response.result);
+      if (response.status !== "SUCCEEDED" || !parsed.success || parsed.data.outcome !== "FOUND") {
+        setError(response.result_code);
+        setEditCandidates([]);
+        return [];
+      }
+      setEditCandidates(parsed.data.items);
+      return parsed.data.items;
+    } catch (thrown) {
+      setError(thrown instanceof Error ? thrown.message : String(thrown));
+      setEditCandidates([]);
+      return [];
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const updateProduct = useCallback(async (
+    input: UpdateProductInput,
+  ): Promise<CatalogProductUpdateResult | null> => {
     setBusy(true);
     setError(null);
     setUpdateOutcome(null);
     setUpdateVersion(null);
     setUpdatePresentationVersion(null);
+    setUpdateCurrentVersion(null);
     try {
       const response = await callCommercial<CatalogProductUpdateResult>(
         "catalog.product.update",
@@ -222,22 +259,27 @@ export function useCatalogAdmin(): CatalogAdminState & {
       );
       if (response.result === null) {
         setError(response.result_code);
-        return;
+        return null;
       }
       setUpdateOutcome(response.result.outcome);
       setUpdateVersion(response.result.version);
       setUpdatePresentationVersion(response.result.presentation_version);
+      setUpdateCurrentVersion(response.result.current_version);
       if (response.result.outcome === "UPDATED" || response.result.outcome === "IDEMPOTENT") {
         notifyCatalogInventoryChanged();
       }
+      return response.result;
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
+      return null;
     } finally {
       setBusy(false);
     }
   }, []);
 
-  const publishPrice = useCallback(async (input: PublishPriceInput): Promise<void> => {
+  const publishPrice = useCallback(async (
+    input: PublishPriceInput,
+  ): Promise<CatalogPricePublishResult | null> => {
     setBusy(true);
     setError(null);
     setPriceOutcome(null);
@@ -245,7 +287,7 @@ export function useCatalogAdmin(): CatalogAdminState & {
       const amount = toScale6(input.amount);
       if (amount === null) {
         setError("PRICE_NOT_SCALE6");
-        return;
+        return null;
       }
       const response = await callCommercial<CatalogPricePublishResult>(
         "catalog.price.publish",
@@ -258,30 +300,35 @@ export function useCatalogAdmin(): CatalogAdminState & {
       );
       if (response.result === null) {
         setError(response.result_code);
-        return;
+        return null;
       }
       setPriceOutcome(response.result.outcome);
       if (response.result.outcome === "PUBLISHED" || response.result.outcome === "IDEMPOTENT") {
         notifyCatalogInventoryChanged();
       }
+      return response.result;
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
+      return null;
     } finally {
       setBusy(false);
     }
   }, []);
 
-  const putMedia = useCallback(async (input: PutMediaInput): Promise<void> => {
+  const putMedia = useCallback(async (
+    input: PutMediaInput,
+  ): Promise<CatalogMediaMutateResult | null> => {
     setBusy(true);
     setError(null);
     setMediaOutcome(null);
     setMediaId(null);
     setMediaVersion(null);
+    setMediaCurrentVersion(null);
     try {
       const prepared = await prepareCatalogCardImage(input.file);
       if (!prepared.ok) {
         setError(prepared.reason);
-        return;
+        return null;
       }
       const response = await callCommercial<CatalogMediaMutateResult>(
         "catalog.media.put",
@@ -293,27 +340,34 @@ export function useCatalogAdmin(): CatalogAdminState & {
       );
       if (response.result === null) {
         setError(response.result_code);
-        return;
+        return null;
       }
       setMediaOutcome(response.result.outcome);
       setMediaId(response.result.media_id);
       setMediaVersion(response.result.version);
+      setMediaCurrentVersion(response.result.current_version);
       if (response.result.outcome === "ATTACHED") {
+        if (input.previousMediaId) forgetCatalogMedia(input.previousMediaId);
         notifyCatalogInventoryChanged();
       }
+      return response.result;
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
+      return null;
     } finally {
       setBusy(false);
     }
   }, []);
 
-  const clearMedia = useCallback(async (input: ClearMediaInput): Promise<void> => {
+  const clearMedia = useCallback(async (
+    input: ClearMediaInput,
+  ): Promise<CatalogMediaMutateResult | null> => {
     setBusy(true);
     setError(null);
     setMediaOutcome(null);
     setMediaId(null);
     setMediaVersion(null);
+    setMediaCurrentVersion(null);
     try {
       const response = await callCommercial<CatalogMediaMutateResult>(
         "catalog.media.clear",
@@ -324,17 +378,20 @@ export function useCatalogAdmin(): CatalogAdminState & {
       );
       if (response.result === null) {
         setError(response.result_code);
-        return;
+        return null;
       }
       setMediaOutcome(response.result.outcome);
       setMediaId(response.result.media_id);
       setMediaVersion(response.result.version);
+      setMediaCurrentVersion(response.result.current_version);
       if (input.previousMediaId) forgetCatalogMedia(input.previousMediaId);
       if (response.result.outcome === "ATTACHED") {
         notifyCatalogInventoryChanged();
       }
+      return response.result;
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
+      return null;
     } finally {
       setBusy(false);
     }
@@ -377,14 +434,18 @@ export function useCatalogAdmin(): CatalogAdminState & {
     updateOutcome,
     updateVersion,
     updatePresentationVersion,
+    updateCurrentVersion,
     priceOutcome,
     mediaOutcome,
     mediaId,
     mediaVersion,
+    mediaCurrentVersion,
+    editCandidates,
     foodPolicyOutcome,
     foodPolicyVersion,
     error,
     registerProduct,
+    searchEditCandidates,
     updateProduct,
     publishPrice,
     putMedia,
