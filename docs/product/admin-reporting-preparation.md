@@ -11,12 +11,22 @@ Referencia de backlog: `REP-001` / `REP-002` / `REP-003` en `docs/product/backlo
 - SUPERADMINISTRADOR local ≠ autoridad GLOBAL ≠ ADMINISTRADOR BUSINESS.
 - La interfaz comercial usa mensajes para comerciantes; este documento conserva la jerga técnica (contratos, IPC, permisos agregados, REP-001).
 
+## Estado REP-001 fase 1 (backend)
+
+| Capacidad | Estado | Nota |
+|---|---|---|
+| Permisos `REPORTING_SALES_AGGREGATE_READ`, `REPORTING_CASH_AGGREGATE_READ`, `REPORTING_PAYMENTS_AGGREGATE_READ` | MATERIALIZED en `permission-codes.ts` + enforced en `GetAdminMetricsUseCase` | Central debe concederlos; el bridge local de desarrollo **no** los otorga |
+| `readSales` / `readCash` | Habilitados cuando el permiso agregado está en el snapshot | Scope `tenant/company/branch` |
+| `readPayments` | Habilitado: solo `CONFIRMED`; pendientes de transferencia no son recaudo | scale-6 vía bigint |
+| Emisión Central de esos grants | BLOQUEADO / pendiente | Sin fabricar concesiones comerciales en el bridge |
+| UI Dashboard mostrando nuevos campos de pagos | Pendiente fase 2 | Contrato ya compatible (`null` por defecto) |
+
 ## Estado actual de superficies
 
 | Rol / superficie | Componente | Backend hoy | Estado UI |
 |---|---|---|---|
 | Supervisor — transferencias | `TransferReviewPanel` | `payment.get`, `payment.transfer.confirm`, `payment.cancel` | Conectado |
-| Administrador — dashboard | `AdministrativeControlPanel` | `admin.metrics.get` | Conectado; ventas/caja agregadas aún `null` fail-closed |
+| Administrador — dashboard | `AdministrativeControlPanel` | `admin.metrics.get` | Conectado; ventas/caja/pagos agregados requieren grants REPORTING_* |
 | Administrador BUSINESS (browser) | `BusinessCashRegisterPanel` | HTTP Central BUSINESS | Conectado |
 | Superadministrador local — auditoría | `LocalAdministrativeAuditPanel` | Sin IPC cableado para `audit.event.list` | Estructura visual; sin filas inventadas |
 
@@ -47,11 +57,13 @@ Referencia de backlog: `REP-001` / `REP-002` / `REP-003` en `docs/product/backlo
 
 ## Permisos
 
-| Indicador | Permiso operativo actual | Permiso agregado / Reporting faltante |
+| Indicador | Permiso operativo actual | Permiso agregado / Reporting |
 |---|---|---|
 | Dashboard visible | `AUDIT_EVENT_READ` (+ rol `ADMINISTRADOR` para montar Dashboard) | — |
 | Inventario en métricas | `INVENTORY_STOCK_READ` | — |
-| Ventas / importe / turnos agregados | No reutilizar `SALES_RECEIPT_READ` ni `CASH_SHIFT_OPEN` | Permisos canónicos de lectura agregada aún no publicados por Central |
+| Ventas / importe agregados | No reutilizar `SALES_RECEIPT_READ` | `REPORTING_SALES_AGGREGATE_READ` (código materializado; grant Central pendiente) |
+| Turnos abiertos agregados | No reutilizar `CASH_SHIFT_OPEN` | `REPORTING_CASH_AGGREGATE_READ` |
+| Pagos confirmados / pendientes transferencia | No reutilizar `PAYMENTS_PAYMENT_READ` | `REPORTING_PAYMENTS_AGGREGATE_READ` |
 | Confirmar transferencia | `PAYMENTS_TRANSFER_CONFIRM` | — |
 | Cancelar pago pendiente | `PAYMENTS_PAYMENT_CANCEL` | — |
 | Utilidad estimada | — | Permiso financiero explícito (no inventar) |

@@ -35,6 +35,23 @@ export const PermissionCode = {
   CASH_SHIFT_CLOSE: "CASH_SHIFT_CLOSE",
   FISCAL_DOCUMENT_ISSUE: "FISCAL_DOCUMENT_ISSUE",
   AUDIT_EVENT_READ: "AUDIT_EVENT_READ",
+  /**
+   * Branch-scoped aggregate read of completed sales (count + fiscal total).
+   * Distinct from SALES_RECEIPT_READ / SALES_SALE_CREATE. Central must grant
+   * explicitly; operational sale permissions never imply this.
+   */
+  REPORTING_SALES_AGGREGATE_READ: "REPORTING_SALES_AGGREGATE_READ",
+  /**
+   * Branch-scoped aggregate read of open/closing cash shifts.
+   * Distinct from CASH_SHIFT_OPEN / CASH_SHIFT_CLOSE.
+   */
+  REPORTING_CASH_AGGREGATE_READ: "REPORTING_CASH_AGGREGATE_READ",
+  /**
+   * Branch-scoped aggregate read of confirmed payments (and pending-transfer
+   * counts that are never treated as collected money). Distinct from
+   * PAYMENTS_PAYMENT_READ / PAYMENTS_TRANSFER_CONFIRM.
+   */
+  REPORTING_PAYMENTS_AGGREGATE_READ: "REPORTING_PAYMENTS_AGGREGATE_READ",
   /** Pastelería: create/approve/retire versioned recipes and sector policies. */
   BAKERY_RECIPE_MANAGE: "BAKERY_RECIPE_MANAGE",
   /** Pastelería: plan/confirm production (posts via shared inventory transform). */

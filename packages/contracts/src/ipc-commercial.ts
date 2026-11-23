@@ -1507,6 +1507,18 @@ export const AdminMetricsGetResultSchema = z.strictObject({
   sales_completed_amount: NonNegativeScale6Schema.nullable(),
   inventory_tracked_count: z.number().int().nonnegative().nullable(),
   cash_open_shift_count: z.number().int().nonnegative().nullable(),
+  /**
+   * Confirmed payments only (`payments_payments.status = 'CONFIRMED'`).
+   * Pending/reported transfers never appear here as collected money.
+   * null = aggregate permission absent or unavailable — never coerced to 0.
+   */
+  payments_confirmed_count: z.number().int().nonnegative().nullable(),
+  payments_confirmed_amount: NonNegativeScale6Schema.nullable(),
+  payments_confirmed_cash_amount: NonNegativeScale6Schema.nullable(),
+  payments_confirmed_transfer_amount: NonNegativeScale6Schema.nullable(),
+  payments_confirmed_qr_amount: NonNegativeScale6Schema.nullable(),
+  /** Transfer rows still awaiting confirmation — informational, not collected. */
+  payments_pending_transfer_count: z.number().int().nonnegative().nullable(),
 });
 
 export const AdminMetricsGetResponseSchema =

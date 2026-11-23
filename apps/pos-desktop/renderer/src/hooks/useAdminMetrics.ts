@@ -8,6 +8,12 @@ const EMPTY: AdminMetricsGetResult = {
   sales_completed_amount: null,
   inventory_tracked_count: null,
   cash_open_shift_count: null,
+  payments_confirmed_count: null,
+  payments_confirmed_amount: null,
+  payments_confirmed_cash_amount: null,
+  payments_confirmed_transfer_amount: null,
+  payments_confirmed_qr_amount: null,
+  payments_pending_transfer_count: null,
 };
 
 export function useAdminMetrics(enabled: boolean): {
