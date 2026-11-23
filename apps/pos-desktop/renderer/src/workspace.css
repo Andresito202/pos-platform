@@ -127,19 +127,21 @@
 }
 .pos-entry-brand h2 {
   font-size: clamp(26px, 2.6vw, 38px);
-  margin: 22px 0 12px;
+  margin: 22px 0 14px;
   line-height: 1.18;
   letter-spacing: -.02em;
   font-weight: 700;
   color: #fff;
   text-wrap: balance;
+  max-width: 16ch;
 }
 .pos-entry-brand p {
   margin: 0;
   font-size: 17px;
   line-height: 1.5;
   color: #c9d8e6;
-  max-width: 30ch;
+  max-width: 34ch;
+  text-wrap: pretty;
 }
 .pos-entry-form-column {
   min-width: 0;
@@ -227,8 +229,9 @@
   line-height: 1.35;
 }
 .pos-entry-card h1 { font-size: clamp(28px, 2.4vw, 34px); margin: 0 0 6px; color: #10283d; }
-.pos-entry-lead { margin: 0 0 6px; font-size: 17px; font-weight: 600; color: #34495a; }
+.pos-entry-lead { margin: 0 0 12px; font-size: 17px; font-weight: 600; color: #34495a; }
 .pos-entry-copy { margin: 0 0 10px; font-size: 14px; color: #536475; }
+.pos-entry-card .pos-entry-lead + .pos-entry-banner { margin-top: 0; }
 .pos-entry-eyebrow {
   display: block;
   margin: 0 0 8px;

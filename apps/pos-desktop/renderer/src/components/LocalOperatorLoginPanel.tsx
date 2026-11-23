@@ -112,7 +112,6 @@ export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=
         </form>
       )}
       {message && <p role="alert" className="pos-local-login-message">{message}</p>}
-      <small>Accede con las credenciales autorizadas de tu empresa.</small>
     </section>
   );
 }

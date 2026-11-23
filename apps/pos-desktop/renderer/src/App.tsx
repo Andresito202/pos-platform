@@ -191,32 +191,34 @@ function LocalApp(): React.JSX.Element {
         <section className="pos-entry-brand" aria-label="Identidad Camacho POS Colombia">
           <div className="pos-entry-brand-content">
             <BrandMark variant="entry" />
-            <h2>Acceso seguro al<br />punto de venta</h2>
-            <p>Inicia sesión para continuar con tu operación.</p>
+            <h2>Tecnología que impulsa tu negocio</h2>
+            <p>Gestiona tus operaciones con precisión, seguridad y confianza.</p>
           </div>
         </section>
         <div className="pos-entry-form-column">
           <section className="pos-entry-card" aria-label="Estado de acceso">
             <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
             <h1>Iniciar sesión</h1>
-            <p className="pos-entry-lead">
-              {loading
-                ? "Validando sesión"
-                : unauthenticated
-                  ? "Accede con las credenciales autorizadas de tu empresa."
-                  : authorization.phase === "denied"
-                    ? "Acceso denegado"
-                    : authorization.phase === "expired"
-                      ? "Sesión expirada"
-                      : "Acceso no disponible"}
-            </p>
-            <p className="pos-entry-copy">
-              {loading
-                ? "Comprobando la sesión y los permisos efectivos."
-                : unauthenticated
-                  ? "Usa tu usuario y contraseña para continuar en este punto de venta."
-                  : "El POS no ha podido verificar una sesión autorizada."}
-            </p>
+            {unauthenticated ? (
+              <p className="pos-entry-lead">Ingresa a tu espacio de trabajo.</p>
+            ) : (
+              <>
+                <p className="pos-entry-lead">
+                  {loading
+                    ? "Validando sesión"
+                    : authorization.phase === "denied"
+                      ? "Acceso denegado"
+                      : authorization.phase === "expired"
+                        ? "Sesión expirada"
+                        : "Acceso no disponible"}
+                </p>
+                {loading ? (
+                  <p className="pos-entry-copy">Comprobando la sesión y los permisos efectivos.</p>
+                ) : authorization.phase === "error" ? null : (
+                  <p className="pos-entry-copy">El POS no ha podido verificar una sesión autorizada.</p>
+                )}
+              </>
+            )}
             {loading ? (
               <div data-testid="authorization-loading" role="status" className="pos-entry-banner pos-entry-banner--info">
                 Cargando permisos…
@@ -231,7 +233,7 @@ function LocalApp(): React.JSX.Element {
               </div>
             ) : authorization.phase === "expired" ? (
               <div data-testid="authorization-expired" role="alert" className="pos-entry-banner pos-entry-banner--warning">
-                La verificación del backend indica que la sesión expiró. Es necesario autenticarse de nuevo.
+                La sesión expiró. Es necesario autenticarse de nuevo.
               </div>
             ) : authorization.phase === "error" ? (
               <div data-testid="authorization-error" role="alert" className="pos-entry-banner pos-entry-banner--error">
