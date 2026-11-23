@@ -16,6 +16,7 @@ import {readCommercialJsonBody,inspectCommercialHeaders,validateCommercialAssert
 import type {LicenseCapacityAuthority} from "./license-capacity-authority.js";
 import type {SubscriptionCollectionBinding} from "@pos-platform/contracts";
 import type {SubscriptionFactusPayGateway} from "./subscription-factus-pay-gateway.js";
+import type {SubscriptionLicenseFulfillment} from "./subscription-license-fulfillment.js";
 
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 const exact=(o:Record<string,unknown>,keys:string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -30,7 +31,8 @@ export interface GlobalAdministrationHttpLimits{
  * GLOBAL cookies cannot authorize BUSINESS, and request IDs never authenticate. */
 export function createGlobalAdministrationHandler(input:{pool:Pool;policy:GlobalAdministrationPolicy;limits:GlobalAdministrationHttpLimits;
   fulfillmentPolicies?:readonly FulfillmentPolicyReferences[];subscriptionCollection?:SubscriptionCollectionBinding;
-  factusPay?:SubscriptionFactusPayGateway|null;licenseAuthority?:LicenseCapacityAuthority}){
+  factusPay?:SubscriptionFactusPayGateway|null;licenseAuthority?:LicenseCapacityAuthority;
+  subscriptionFulfillment?:SubscriptionLicenseFulfillment|null}){
   const {policy,limits}=input;
   if(!Object.values(limits).every(n=>Number.isSafeInteger(n)&&n>0))throw Error("GLOBAL_HTTP_EXPLICIT_LIMITS_REQUIRED");
   const sessions=new GlobalAdministrationSessions(input.pool,policy),offers=new LicenseOfferDrafts(input.pool,policy.maximumReauthenticationAgeMs,
@@ -38,8 +40,10 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
   const limiter=new FixedWindowRateLimiter(limits.requestsPerWindow,limits.maximumBuckets,limits.requestWindowMs);
   const licenseLimits={reauthenticationMs:policy.maximumReauthenticationAgeMs,
     lockTimeoutMs:policy.lockTimeoutMs,statementTimeoutMs:policy.statementTimeoutMs};
-  const licenses=new SubscriptionLicenseContracts(input.pool,input.fulfillmentPolicies??null,licenseLimits);
+  // HTTP GLOBAL path stays session-bound; autonomous SERVICE issue is the fulfillment worker.
+  const licenses=new SubscriptionLicenseContracts(input.pool,input.fulfillmentPolicies??null,licenseLimits,null);
   const quotes=new SubscriptionQuoteContracts(input.pool,input.fulfillmentPolicies??null,input.subscriptionCollection??null,licenseLimits,input.factusPay??null);
+  const fulfillment=input.subscriptionFulfillment??null;
   const pending=new Map<string,{email:string;challenge:string;csrf:string;expiresAt:number}>();
   let starting=0;
   const flowCookie=(value:string,age:number)=>`${FLOW}=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${age}`;
@@ -167,7 +171,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         sendCommercialJson(res,200,result);
         return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/subscription-quotes/create","/v1/platform/subscription-quotes/pending","/v1/platform/subscription-quotes/verify-payment","/v1/platform/subscription-quotes/confirm-bank-manual","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/subscription-quotes/create","/v1/platform/subscription-quotes/pending","/v1/platform/subscription-quotes/verify-payment","/v1/platform/subscription-quotes/confirm-bank-manual","/v1/platform/subscription-quotes/fulfillment-status","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
       const session=await sessions.authorize(request,(path==="/v1/platform/licenses/revoke-activation"||path==="/v1/platform/licenses/activations")?CentralAdministrationOperation.LICENSE_REVOKE:
         path?.startsWith("/v1/platform/licenses/")||path?.startsWith("/v1/platform/subscription-quotes/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
@@ -187,30 +191,89 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       if(path==="/v1/platform/subscription-quotes/pending"&&exact(b,[])){
         sendCommercialJson(res,200,await quotes.listPending(session));return;
       }
+      if(path==="/v1/platform/subscription-quotes/fulfillment-status"&&exact(b,[])){
+        if(!fulfillment){sendCommercialJson(res,409,{code:"SUBSCRIPTION_FULFILLMENT_NOT_PROVISIONED"});return;}
+        sendCommercialJson(res,200,{jobs:await fulfillment.queue.listRecent(100)});return;
+      }
       if(path==="/v1/platform/subscription-quotes/verify-payment"){
         const verified=await quotes.verifyPayment(session,b);
         const correlationId=typeof b.correlation_id==="string"?b.correlation_id:uuidV7();
-        const issued=await licenses.issue(session,verified.paymentId,correlationId);
-        sendCommercialJson(res,200,{
-          ...verified,
-          licenseId:issued.licenseId,
-          contractStatus:issued.contractStatus,
-          activationStatus:issued.activationStatus,
-          licenseIdempotent:issued.idempotent,
-        });
+        if(fulfillment&&verified.source){
+          await fulfillment.enqueueConfirmedPayment({
+            paymentId:verified.paymentId,
+            source:verified.source,
+            correlationId,
+          });
+        }
+        try{
+          const issued=await licenses.issue(session,verified.paymentId,correlationId);
+          if(fulfillment)await fulfillment.recordIssued(verified.paymentId,issued.licenseId);
+          sendCommercialJson(res,200,{
+            ...verified,
+            licenseId:issued.licenseId,
+            contractStatus:issued.contractStatus,
+            activationStatus:issued.activationStatus,
+            licenseIdempotent:issued.idempotent,
+            issueActor:issued.actorKind,
+          });
+        }catch(error){
+          // Payment is CONFIRMED and queued; try SERVICE recovery before failing the HTTP call.
+          if(fulfillment){
+            const recovery=await fulfillment.tryIssueAsService(verified.paymentId,correlationId);
+            if(recovery.issued){
+              sendCommercialJson(res,200,{
+                ...verified,
+                licenseId:recovery.issued.licenseId,
+                contractStatus:recovery.issued.contractStatus,
+                activationStatus:recovery.issued.activationStatus,
+                licenseIdempotent:recovery.issued.idempotent,
+                issueActor:recovery.issued.actorKind,
+              });
+              return;
+            }
+          }
+          throw error;
+        }
         return;
       }
       if(path==="/v1/platform/subscription-quotes/confirm-bank-manual"){
         const confirmed=await quotes.confirmBankManual(session,b);
         const correlationId=typeof b.correlation_id==="string"?b.correlation_id:uuidV7();
-        const issued=await licenses.issue(session,confirmed.paymentId,correlationId);
-        sendCommercialJson(res,200,{
-          ...confirmed,
-          licenseId:issued.licenseId,
-          contractStatus:issued.contractStatus,
-          activationStatus:issued.activationStatus,
-          licenseIdempotent:issued.idempotent,
-        });
+        if(fulfillment){
+          await fulfillment.enqueueConfirmedPayment({
+            paymentId:confirmed.paymentId,
+            source:confirmed.source,
+            correlationId,
+          });
+        }
+        try{
+          const issued=await licenses.issue(session,confirmed.paymentId,correlationId);
+          if(fulfillment)await fulfillment.recordIssued(confirmed.paymentId,issued.licenseId);
+          sendCommercialJson(res,200,{
+            ...confirmed,
+            licenseId:issued.licenseId,
+            contractStatus:issued.contractStatus,
+            activationStatus:issued.activationStatus,
+            licenseIdempotent:issued.idempotent,
+            issueActor:issued.actorKind,
+          });
+        }catch(error){
+          if(fulfillment){
+            const recovery=await fulfillment.tryIssueAsService(confirmed.paymentId,correlationId);
+            if(recovery.issued){
+              sendCommercialJson(res,200,{
+                ...confirmed,
+                licenseId:recovery.issued.licenseId,
+                contractStatus:recovery.issued.contractStatus,
+                activationStatus:recovery.issued.activationStatus,
+                licenseIdempotent:recovery.issued.idempotent,
+                issueActor:recovery.issued.actorKind,
+              });
+              return;
+            }
+          }
+          throw error;
+        }
         return;
       }
       if(path==="/v1/platform/licenses/assignment-context"){
