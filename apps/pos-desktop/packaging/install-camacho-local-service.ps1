@@ -329,6 +329,39 @@ function Assert-CommercialProvisionReady {
   throw 'SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN'
 }
 
+function Assert-ScmProvisionBinding {
+  # Public JSON only: never open signer_private_file / receiver contents.
+  $raw = [IO.File]::ReadAllText($ScmHandoffFile)
+  $provision = $raw | ConvertFrom-Json
+  if ([string]$provision.role -ne 'SERVICE') { throw 'SCM_PROVISION_ROLE_MISMATCH' }
+  if ($null -eq $provision.handoff) { throw 'SCM_HANDOFF_SHAPE_REJECTED' }
+  $h = $provision.handoff
+  if (-not [string]::Equals([string]$h.installation_id, $InstallationId, [System.StringComparison]::OrdinalIgnoreCase) -or
+      -not [string]::Equals([string]$h.device_id, $DeviceId, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw 'SCM_HANDOFF_IDENTITY_MISMATCH'
+  }
+  if ([string]$h.service_id -ne $serviceId) { throw 'SCM_HANDOFF_SERVICE_MISMATCH' }
+  $script:scmNestedAclTargets = New-Object System.Collections.Generic.List[string]
+  foreach ($prop in @('adapter_file', 'signer_private_file')) {
+    $pathValue = [string]$provision.$prop
+    if (-not [string]::IsNullOrWhiteSpace($pathValue)) {
+      Assert-ManagedScmPath -Path $pathValue
+      [void]$script:scmNestedAclTargets.Add($pathValue)
+    }
+  }
+  if ($null -ne $h.capsule_file -and -not [string]::IsNullOrWhiteSpace([string]$h.capsule_file)) {
+    Assert-ManagedScmPath -Path ([string]$h.capsule_file)
+    [void]$script:scmNestedAclTargets.Add([string]$h.capsule_file)
+  }
+  $centralRaw = [IO.File]::ReadAllText($ScmCentralProvisionFile)
+  $central = $centralRaw | ConvertFrom-Json
+  if ($null -ne $central.candidate_file -and -not [string]::IsNullOrWhiteSpace([string]$central.candidate_file)) {
+    Assert-ManagedScmPath -Path ([string]$central.candidate_file)
+    [void]$script:scmNestedAclTargets.Add([string]$central.candidate_file)
+  }
+  Write-HelperLog ("SCM_PROVISION_BINDING_OK nestedAclTargets={0}" -f $script:scmNestedAclTargets.Count)
+}
+
 function Assert-PhysicalCertificationAttestation {
   if ([string]::IsNullOrWhiteSpace($PhysicalCertificationAttestation)) {
     throw 'PHYSICAL_ATTESTATION_REQUIRED'
@@ -403,6 +436,7 @@ function Resolve-DataDirectory {
     if (-not ($hasHandoff -and $hasCentral)) { throw 'SCM_CENTRAL_PROVISION_REQUIRED' }
     if (-not (Test-Path -LiteralPath $ScmHandoffFile -PathType Leaf)) { throw 'SCM_HANDOFF_FILE_MISSING' }
     if (-not (Test-Path -LiteralPath $ScmCentralProvisionFile -PathType Leaf)) { throw 'SCM_CENTRAL_PROVISION_FILE_MISSING' }
+    Assert-ScmProvisionBinding
   } else {
     Assert-CommercialProvisionReady
   }
@@ -623,19 +657,26 @@ function Grant-ServiceRuntimeAcls {
   if (Test-Path -LiteralPath $camachoRoot) {
     $targets += @{ Path = $camachoRoot; Right = 'RX'; Directory = $true }
   }
-  # Authenticated SCM provisions must be readable by the virtual account after
-  # certification. Never broaden to Users/Everyone; file-level RX only.
+  # Authenticated SCM provisions and nested managed paths must be readable by
+  # the virtual account after certification. Never broaden to Users/Everyone.
+  $scmPaths = New-Object System.Collections.Generic.List[string]
   foreach ($scmPath in @($ScmHandoffFile, $ScmCentralProvisionFile)) {
-    if ([string]::IsNullOrWhiteSpace($scmPath)) { continue }
+    if (-not [string]::IsNullOrWhiteSpace($scmPath)) { [void]$scmPaths.Add($scmPath) }
+  }
+  if ($null -ne $script:scmNestedAclTargets) {
+    foreach ($nested in $script:scmNestedAclTargets) { [void]$scmPaths.Add([string]$nested) }
+  }
+  foreach ($scmPath in $scmPaths) {
     Assert-ManagedScmPath -Path $scmPath
-    if (-not (Test-Path -LiteralPath $scmPath -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath $scmPath)) {
       throw ("SCM_PROVISION_ACL_TARGET_MISSING:{0}" -f $scmPath)
     }
+    $isDirectory = (Test-Path -LiteralPath $scmPath -PathType Container)
     $parent = Split-Path -Parent $scmPath
     if (-not [string]::IsNullOrWhiteSpace($parent) -and (Test-Path -LiteralPath $parent -PathType Container)) {
       $targets += @{ Path = $parent; Right = 'RX'; Directory = $true }
     }
-    $targets += @{ Path = $scmPath; Right = 'RX'; Directory = $false }
+    $targets += @{ Path = $scmPath; Right = 'RX'; Directory = $isDirectory }
   }
   foreach ($t in $targets) {
     Grant-PathAclViaIcacls -Path $t.Path -RightToken $t.Right -SidValue $sid -Directory:$t.Directory

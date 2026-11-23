@@ -121,11 +121,19 @@ const OPTIONAL_SCM_ENVIRONMENT = Object.freeze([
   "POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE",
 ] as const);
 
+const NONCOMMERCIAL_SEGMENTS = Object.freeze([
+  "lab-data", ".lab-state", "camachoposcmlab", "design-review-runtime", "preprod",
+]);
+
 function managedScmPath(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   if (!/^[a-z]:\\/i.test(value) || !win32.isAbsolute(value) ||
       win32.normalize(value) !== value || value.slice(2).includes(":") || /[\x00-\x1f]/.test(value)) {
     throw new Error("SCM_MANAGED_PATH_REJECTED");
+  }
+  const segments = value.toLowerCase().split(/[\\/]/);
+  if (segments.some((segment) => (NONCOMMERCIAL_SEGMENTS as readonly string[]).includes(segment))) {
+    throw new Error("SCM_NONCOMMERCIAL_PATH_REJECTED");
   }
   return value;
 }

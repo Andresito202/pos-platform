@@ -69,6 +69,8 @@ test("installer rejects before SCM or data mutations and has no sample defaults"
 test("physical certification prep is explicit, attested, and commercially gated", () => {
   assert.match(ps, /PreparePhysicalCertification/);
   assert.match(ps, /Assert-PhysicalCertificationAttestation/);
+  assert.match(ps, /Assert-ScmProvisionBinding/);
+  assert.match(ps, /SCM_HANDOFF_IDENTITY_MISMATCH/);
   assert.match(ps, /PHYSICAL_ATTESTATION_REQUIRED/);
   assert.match(ps, /PHYSICAL_PREP_UNEXPECTED_COMMERCIAL_START/);
   assert.match(ps, /physical-certification-prep\.ok/);

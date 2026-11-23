@@ -240,6 +240,10 @@ try {
           config.local_operator_auth_store!,
         )),
       () => ({ credentials: new EnrolledDeviceCredentialProvider(security.identity, new DeviceTrustCredentialStore(security.secretStore)), store: security.secretStore }),
+      (reason) => {
+        logger.log("error", "scm.authority_lost", { reason });
+        void terminate(reason, 1);
+      },
     );
     components.push(localChannel);
   }

@@ -89,6 +89,21 @@ const ServiceConfigSchema = z.strictObject({
       message: "Windows SCM handoff and Central provision must be distinct managed paths",
     });
   }
+  for (const [pathKey, pathValue] of [
+    ["windows_scm_handoff_file", value.windows_scm_handoff_file],
+    ["windows_scm_central_provision_file", value.windows_scm_central_provision_file],
+  ] as const) {
+    if (pathValue === undefined) continue;
+    const segments = pathValue.toLowerCase().split(/[\\/]/);
+    if (segments.some((segment) =>
+      [".lab-state", "lab-data", "camachoposcmlab", "design-review-runtime", "preprod"].includes(segment))) {
+      context.addIssue({
+        code: "custom",
+        path: [pathKey],
+        message: "Windows SCM managed paths cannot use lab or preprod locations",
+      });
+    }
+  }
   if (value.session_trust_artifact_path !== undefined && !isAbsolute(value.session_trust_artifact_path)) {
     context.addIssue({ code: "custom", path: ["session_trust_artifact_path"], message: "session trust artifact path must be absolute" });
   }

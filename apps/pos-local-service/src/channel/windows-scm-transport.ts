@@ -21,10 +21,17 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
  private readonly bound=new Map<string,{pipe:AttestedWindowsPipe;close:()=>void;retire:()=>void}>();
  private cache:{leaseId:string;capsule:unknown;secret:Buffer}|undefined;
  constructor(private readonly p:WindowsScmHandoffProvision,private readonly database:LocalDatabase,master:Buffer,
-   private readonly dependencies?:{adapter:WindowsPipeAdapter;seal:Seal;clock?:()=>Date},
+   private readonly dependencies?:{adapter?:WindowsPipeAdapter;seal?:Seal;clock?:()=>Date;onFatal?:(reason:string)=>void},
    private readonly centralAuthority?:ScmCheckpointGuard){
   if(p.role!=="SERVICE"||!p.signer_private_file||master.length!==32)throw Error("SCM_SERVICE_PROVISION_REQUIRED");
   this.master=Buffer.from(master);this.ledger=new SqliteWindowsHandoffLeaseAuthority(database,p.handoff,dependencies?.clock);
+ }
+ private escalate(reason:string):void{
+  this.faulted=true;
+  for(const socket of this.sockets)socket.destroy();
+  void this.stop().catch(()=>undefined).finally(()=>{
+   try{this.dependencies?.onFatal?.(reason);}catch{/* never throw from fatal hook */}
+  });
  }
  private now(){return this.dependencies?.clock?.()??new Date();}
  private offered(){
@@ -32,7 +39,9 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
   if(this.faulted)throw Error("SCM_TRANSPORT_DURABILITY_FAILED");
   if(this.cache)return this.cache;
   const p=this.p,h=p.handoff;
-  const sealed=this.dependencies?this.dependencies.seal():withWindowsServiceSigner(p.signer_private_file!,h.installation_id,h.device_id,p.signer_public_key_pem,p.signer_spki_sha256,
+  const sealed=this.dependencies?.seal
+    ? this.dependencies.seal()
+    : withWindowsServiceSigner(p.signer_private_file!,h.installation_id,h.device_id,p.signer_public_key_pem,p.signer_spki_sha256,
     key=>sealSignedWindowsHandoffForCurrentService(h,this.master,key,p.signer_public_key_pem,p.signer_spki_sha256));
   try{
    const capsule=JSON.parse(sealed.capsule),verified=verifySignedWindowsHandoffCandidate(h,capsule,h.installation_id,h.device_id,this.now(),p.signer_public_key_pem,p.signer_spki_sha256);
@@ -44,9 +53,7 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
   if(this.started)throw Error("SCM_TRANSPORT_ALREADY_STARTED");this.started=true;
   try{
    await this.centralAuthority?.start(()=>{
-    this.faulted=true;
-    for(const socket of this.sockets)socket.destroy();
-    void this.stop().catch(()=>undefined);
+    this.escalate("SCM_CENTRAL_AUTHORITY_LOST");
    });
    this.centralAuthority?.assertCurrent();
    this.adapter=this.dependencies?.adapter??loadWindowsNativePipeAdapter(this.p);
@@ -67,9 +74,7 @@ export class WindowsScmChannelTransport implements ChannelServerTransport{
    }catch{
     // A durability/lease failure is fatal: never continue serving requests
     // with an uncertain revocation state or emit unhandled timer exceptions.
-    this.faulted=true;
-    for(const socket of this.sockets)socket.destroy();
-    void this.stop().catch(()=>undefined);
+    this.escalate("SCM_TRANSPORT_DURABILITY_FAILED");
    }
   },this.p.handoff.poll_ms);this.poll.unref();
   this.loop=(async()=>{while(this.running){

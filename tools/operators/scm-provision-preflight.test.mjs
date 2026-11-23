@@ -157,16 +157,18 @@ describe("SCM operator preflight (no native invocation, no commercial enablement
     central.root_public_key_pem = pem(authority);
     central.root_spki_sha256 = pin(authority);
     central.policy.policy.authority_spki_sha256 = pin(authority);
-    assert.deepEqual(validateScmCentralProvision(central, s, now), {
+    const sha = () => "a".repeat(64);
+    assert.deepEqual(validateScmCentralProvision(central, s, now, sha), {
       result: "SCM_CENTRAL_PROVISION_METADATA_VALID",
       commercial_ready: false,
       physical_certification: "REQUIRED",
       commercial_gate: "SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN",
     });
+    assert.throws(() => validateScmCentralProvision(central, s, now, () => "b".repeat(64)), /SCM_CANDIDATE_REJECTED/);
     // Reject non-public authority material without embedding private PEM headers
     // in the repository (secret-policy scanner).
     central.root_public_key_pem = "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----";
-    assert.throws(() => validateScmCentralProvision(central, s, now), /SCM_PUBLIC_ROOT_REQUIRED/);
+    assert.throws(() => validateScmCentralProvision(central, s, now, sha), /SCM_PUBLIC_ROOT_REQUIRED/);
   });
 
   it("rejects Central provision that reuses the SERVICE capsule signer pin", () => {
@@ -196,7 +198,7 @@ describe("SCM operator preflight (no native invocation, no commercial enablement
         signature: "B".repeat(86),
       },
     };
-    assert.throws(() => validateScmCentralProvision(central, s, now), /SCM_CENTRAL_SERVICE_BINDING_REJECTED/);
+    assert.throws(() => validateScmCentralProvision(central, s, now, () => "a".repeat(64)), /SCM_CENTRAL_SERVICE_BINDING_REJECTED/);
   });
 
 });

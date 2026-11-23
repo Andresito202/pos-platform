@@ -108,11 +108,14 @@ Evidencia esperada del helper:
 
 - `ok=true`, `purpose=PHYSICAL_CERTIFICATION_PREP`
 - `startName=NT SERVICE\CamachoPOSLocalService`, `identityOk=true`
+- binding handoff `installation_id`/`device_id` = parámetros del helper
+- ACL RX sobre handoff, Central, adaptador, cápsula, signer path y candidato
 - `expectedCommercialGateDenial=true`
 - `commercialGate=SCM_COMMERCIAL_CHANNEL_IDENTITY_INTEROP_NOT_PROVEN`
 - `commercialReady=false`
 - Marcadores: `physical-certification-prep.ok` (payload + ProgramData logs)
 - Un arranque comercial estable (`RUNNING` con handoff SCM) es **rechazo** (`PHYSICAL_PREP_UNEXPECTED_COMMERCIAL_START`)
+- Tras pérdida de autoridad Central en runtime, el proceso SERVICE debe terminar (WinSW `onfailure` puede reiniciar; la admisión exige checkpoint live de nuevo)
 
 NSIS comercial sigue abortando. `-Action Install` sigue fallando cerrado.
 

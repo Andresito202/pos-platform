@@ -4,6 +4,8 @@ import { canonicalSessionTrustJson, WindowsScmCentralProvisionSchema, type Signe
 import { readWindowsManagedBytes, verifyWindowsScmCheckpoint, verifyWindowsScmPolicy } from "@pos-platform/local-channel";
 import type { DeviceCredentialProvider } from "../sync/device-credential.js";
 import type { EncryptedFileSecretStore } from "../security/encrypted-secret-store.js";
+import type { ScmCheckpointFloor } from "./scm-checkpoint-floor.js";
+import { MemoryScmCheckpointFloorMarker } from "./scm-checkpoint-floor.js";
 
 const PATH = "/v1/scm/checkpoint";
 const SECRET = "scm-central-checkpoint";
@@ -11,6 +13,7 @@ export interface ScmCheckpointGuard {
   start(fault: () => void): Promise<void>;
   assertCurrent(): void;
   stop(): Promise<void>;
+  readonly authorityState: "ABSENT" | "ACTIVE" | "FAULTED" | "STOPPED";
 }
 export function readScmCentralProvision(file: string): WindowsScmCentralProvision {
   const bytes = readWindowsManagedBytes(file);
@@ -37,10 +40,22 @@ export class ScmCentralCheckpointGuard implements ScmCheckpointGuard {
     private readonly store: Pick<EncryptedFileSecretStore, "has" | "read" | "write">,
     private readonly candidateBytes: () => Buffer = () => readWindowsManagedBytes(provision.candidate_file),
     private readonly fetcher: typeof fetch = fetch,
+    private readonly floor: ScmCheckpointFloor = new MemoryScmCheckpointFloorMarker(),
   ) {}
+  get authorityState(): "ABSENT" | "ACTIVE" | "FAULTED" | "STOPPED" {
+    if (this.stopped) return "STOPPED";
+    if (this.faulted) return "FAULTED";
+    if (this.current) return "ACTIVE";
+    return "ABSENT";
+  }
   private verify(input: unknown) {
     const h = this.service.handoff, p = this.provision;
     return verifyWindowsScmCheckpoint(input, { publicKeyPem: p.root_public_key_pem, spkiSha256: p.root_spki_sha256, installationId: h.installation_id, deviceId: h.device_id });
+  }
+  private assertFloorPair(): void {
+    const secretPresent = this.store.has(SECRET);
+    const markerPresent = this.floor.has();
+    if (secretPresent !== markerPresent) throw Error("SCM_CHECKPOINT_FLOOR_CORRUPT");
   }
   private async refresh(): Promise<void> {
     const requestId = randomUUID(), correlationId = randomUUID(), body = "{}";
@@ -57,10 +72,16 @@ export class ScmCentralCheckpointGuard implements ScmCheckpointGuard {
       const envelope = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))) as SignedWindowsScmCheckpoint;
       const trust = this.verify(envelope);
       if (this.stopped) throw Error("SCM_CHECKPOINT_STOPPED");
+      this.assertFloorPair();
       if (this.store.has(SECRET)) {
         const saved = this.store.read(SECRET);
         try {
           const old = this.verify(JSON.parse(saved.toString("utf8")));
+          const marker = this.floor.read();
+          if (marker.trust_revision !== old.trust_revision ||
+              marker.authority_spki_sha256 !== old.authority_spki_sha256) {
+            throw Error("SCM_CHECKPOINT_FLOOR_CORRUPT");
+          }
           if (trust.trust_revision < old.trust_revision ||
               trust.trust_revision === old.trust_revision && canonicalSessionTrustJson(trust) !== canonicalSessionTrustJson(old) ||
               trust.authority_spki_sha256 !== old.authority_spki_sha256 ||
@@ -72,7 +93,13 @@ export class ScmCentralCheckpointGuard implements ScmCheckpointGuard {
       // Persist revocations BEFORE policy checks, including when this policy is
       // now revoked. A failed write cannot advance the live authority state.
       const saved = Buffer.from(JSON.stringify(envelope));
-      try { this.store.write(SECRET, saved); } finally { saved.fill(0); }
+      try {
+        this.store.write(SECRET, saved);
+        this.floor.write({
+          trust_revision: trust.trust_revision,
+          authority_spki_sha256: trust.authority_spki_sha256,
+        });
+      } finally { saved.fill(0); }
       const policy = verifyWindowsScmPolicy(this.provision.policy, trust);
       const bytes = this.candidateBytes();
       try {

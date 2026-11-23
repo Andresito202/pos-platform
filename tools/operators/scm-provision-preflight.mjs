@@ -40,8 +40,8 @@ function pinnedKey(pem, expected, algorithm) {
 function managedPath(value) {
   requireCondition(typeof value === "string" && /^[a-z]:\\/i.test(value) &&
     win32.isAbsolute(value) && win32.normalize(value) === value &&
-    !value.slice(2).includes(":"), "SCM_MANAGED_PATH_REJECTED");
-  const pathSegments = value.toLowerCase().split("\\");
+    !value.slice(2).includes(":") && !/[\x00-\x1f]/.test(value), "SCM_MANAGED_PATH_REJECTED");
+  const pathSegments = value.toLowerCase().split(/[\\/]/);
   requireCondition(!pathSegments.some(s => [".lab-state", "lab-data", "camachoposcmlab", "design-review-runtime", "preprod"].includes(s)),
     "SCM_NONCOMMERCIAL_PATH_REJECTED");
 }
@@ -123,7 +123,7 @@ const policyKeys = [
 ];
 
 /** Metadata checks for the SERVICE Central provision. Does not enable commercial SCM. */
-export function validateScmCentralProvision(central, service, now = new Date()) {
+export function validateScmCentralProvision(central, service, now = new Date(), shaOfCandidate = hashCandidate) {
   exactKeys(central, centralKeys, "SCM_CENTRAL_PROVISION_SHAPE_REJECTED");
   requireCondition(typeof central.origin === "string", "SCM_CENTRAL_ORIGIN_REJECTED");
   let origin;
@@ -152,6 +152,9 @@ export function validateScmCentralProvision(central, service, now = new Date()) 
   const from = Date.parse(policy.not_before), until = Date.parse(policy.expires_at), current = now.getTime();
   requireCondition(Number.isFinite(from) && Number.isFinite(until) && until > from &&
     Number.isFinite(current) && from <= current && current < until, "SCM_CENTRAL_POLICY_WINDOW_INVALID");
+  // Candidate digest must match the managed file. Full Ed25519 policy crypto
+  // remains enforced by SERVICE at runtime; this tool never enables commercial SCM.
+  requireCondition(shaOfCandidate(central.candidate_file) === policy.candidate_sha256, "SCM_CANDIDATE_REJECTED");
   if (service !== undefined) {
     requireCondition(service?.role === "SERVICE" && service.handoff,
       "SCM_CENTRAL_SERVICE_BINDING_REQUIRED");
@@ -182,6 +185,11 @@ function hashAdapter(file) {
   requireCondition(info.isFile(), "SCM_ADAPTER_NOT_A_FILE");
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
+function hashCandidate(file) {
+  const info = statSync(file);
+  requireCondition(info.isFile() && info.size > 0 && info.size <= 65536, "SCM_CANDIDATE_REJECTED");
+  return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
@@ -192,7 +200,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       ...validateScmProvisionPair(service, readJson(process.argv[3]), hashAdapter),
     };
     if (process.argv.length === 5) {
-      Object.assign(report, validateScmCentralProvision(readJson(process.argv[4]), service));
+      Object.assign(report, validateScmCentralProvision(readJson(process.argv[4]), service, new Date(), hashCandidate));
       report.result = "SCM_PROVISION_AND_CENTRAL_METADATA_VALID";
     }
     process.stdout.write(JSON.stringify(report) + "\n");

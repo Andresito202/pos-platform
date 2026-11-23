@@ -119,6 +119,11 @@ describe("descriptor de servicio WinSW", () => {
       POS_WINDOWS_SCM_HANDOFF_FILE: path,
       POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: path,
     })).toThrow("SCM_MANAGED_PATH_REJECTED");
+    expect(() => descriptor({
+      ...VALUES,
+      POS_WINDOWS_SCM_HANDOFF_FILE: "C:\\ProgramData\\CamachoPOS\\lab-data\\handoff.json",
+      POS_WINDOWS_SCM_CENTRAL_PROVISION_FILE: central,
+    })).toThrow("SCM_NONCOMMERCIAL_PATH_REJECTED");
     expect(() => buildServiceDescriptor({...INSTALLATION, commercialLogin:true,
       environment:{
         ...VALUES,

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { windowsScmCheckpointSigningBytes, type WindowsScmHandoffProvision } from "@pos-platform/contracts";
 import { windowsScmPolicySigningBytes } from "@pos-platform/local-channel";
 import { ScmCentralCheckpointGuard } from "../src/channel/scm-central-checkpoint.js";
+import { MemoryScmCheckpointFloorMarker } from "../src/channel/scm-checkpoint-floor.js";
 import { WindowsScmChannelTransport } from "../src/channel/windows-scm-transport.js";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 
@@ -20,10 +21,11 @@ function scenario() {
   const envelope = (value = checkpoint) => ({ checkpoint: value, signature: sign(null, windowsScmCheckpointSigningBytes(value), pair.privateKey).toString("base64url") });
   let stored: Buffer | undefined;
   const store = { has: () => stored !== undefined, read: () => Buffer.from(stored!), write: vi.fn((_key: string, bytes: Buffer) => { stored = Buffer.from(bytes); }) };
+  const floor = new MemoryScmCheckpointFloorMarker();
   const credentials = { authorization: vi.fn(async () => "DeviceProof test-only") };
   const fetcher = vi.fn<typeof fetch>(async () => new Response(JSON.stringify(envelope()), { status: 200 }));
-  const guard = new ScmCentralCheckpointGuard(provision, service, credentials, store, () => Buffer.from(candidate), fetcher);
-  return { guard, service, provision, checkpoint, envelope, store, credentials, fetcher, candidate };
+  const guard = new ScmCentralCheckpointGuard(provision, service, credentials, store, () => Buffer.from(candidate), fetcher, floor);
+  return { guard, service, provision, checkpoint, envelope, store, floor, credentials, fetcher, candidate };
 }
 afterEach(() => vi.useRealTimers());
 
@@ -54,9 +56,18 @@ describe("SCM live Central checkpoint consumer", () => {
     expect(fault).toHaveBeenCalledOnce(); expect(() => s.guard.assertCurrent()).toThrow();
     expect(JSON.parse(s.store.read().toString()).checkpoint.trust_revision).toBe(2);
     await s.guard.stop();
-    const restarted = new ScmCentralCheckpointGuard(s.provision, s.service, s.credentials, s.store, () => Buffer.from(s.candidate), async () => new Response(JSON.stringify(s.envelope())));
+    const restarted = new ScmCentralCheckpointGuard(s.provision, s.service, s.credentials, s.store, () => Buffer.from(s.candidate), async () => new Response(JSON.stringify(s.envelope())), s.floor);
     await expect(restarted.start(() => undefined)).rejects.toThrow("SCM_CHECKPOINT_ROLLBACK");
     await restarted.stop();
+  });
+  it("refuses start when the encrypted floor is erased but the marker remains", async () => {
+    const s = scenario();
+    await s.guard.start(() => undefined);
+    await s.guard.stop();
+    const erased = { has: () => false, read: () => { throw Error("missing"); }, write: vi.fn() };
+    const orphaned = new ScmCentralCheckpointGuard(s.provision, s.service, s.credentials, erased, () => Buffer.from(s.candidate), s.fetcher, s.floor);
+    await expect(orphaned.start(() => undefined)).rejects.toThrow("SCM_CHECKPOINT_FLOOR_CORRUPT");
+    await orphaned.stop();
   });
   it("network failure invalidates previously accepted authority", async () => {
     vi.useFakeTimers(); const s = scenario(), fault = vi.fn(); await s.guard.start(fault);

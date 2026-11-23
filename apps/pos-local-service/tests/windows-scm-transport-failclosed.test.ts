@@ -71,6 +71,7 @@ describe("SCM transport fail-closed lifecycle", () => {
     vi.useFakeTimers();
     const { Socket } = await import("node:net");
     const stop = vi.fn();
+    const onFatal = vi.fn();
     const mock = adapter({ stop, accept: vi.fn(async () => { throw Error("NO_CONNECTION"); }) });
     const centralAuthority = {
       start: vi.fn(async () => undefined),
@@ -79,7 +80,7 @@ describe("SCM transport fail-closed lifecycle", () => {
     };
     const transport = new WindowsScmChannelTransport(
       provision, dummyDatabase, Buffer.alloc(32, 1),
-      { adapter: mock, seal: () => { throw Error("must not publish"); } },
+      { adapter: mock, seal: () => { throw Error("must not publish"); }, onFatal },
       centralAuthority,
     );
     await transport.start(() => undefined);
@@ -94,6 +95,7 @@ describe("SCM transport fail-closed lifecycle", () => {
     expect(destroyed).toHaveBeenCalled();
     expect(stop).toHaveBeenCalledTimes(1);
     expect(centralAuthority.stop).toHaveBeenCalledOnce();
+    expect(onFatal).toHaveBeenCalledWith("SCM_TRANSPORT_DURABILITY_FAILED");
     await expect(transport.start(() => undefined)).rejects.toThrow("SCM_TRANSPORT_STOPPED");
   });
 });
