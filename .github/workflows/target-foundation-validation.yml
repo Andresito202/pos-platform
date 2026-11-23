@@ -674,28 +674,16 @@ jobs:
             tests/subscription-payment-verify-security.test.ts \
             tests/factus-pay-webhook-handler.test.ts
 
-      - name: Record 035 checksum and PostgreSQL verification boundary
+      - name: Bootstrap isolated PostgreSQL through migration 035
+        env:
+          REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
         run: |
           set -euo pipefail
           mkdir -p "${CAMACHO_CERT_EVIDENCE_DIR}"
-          python3 - <<'PY'
-          import hashlib, pathlib, os
-          up = pathlib.Path("tools/target-migrations/sql/postgres/035_subscription_license_fulfillment.up.sql").read_bytes()
-          checksum = hashlib.sha256(up).hexdigest()
-          out = pathlib.Path(os.environ["CAMACHO_CERT_EVIDENCE_DIR"]) / "035-checksum.txt"
-          out.write_text(checksum + "\n", encoding="utf-8")
-          print("035_checksum_recorded=true")
-          PY
-          # Ephemeral Actions Postgres is present for health checks only. Applying
-          # commercial migrations still requires the authorized lab foundation
-          # (001→023) with pos_migrator. Do not invent APPLIED / POSTGRES_VERIFIED.
-          {
-            echo "POSTGRES_VERIFIED=false"
-            echo "BLOCK=authorized_commercial_lab_postgres_with_foundation_chain_required"
-            echo "REQUIRED=pos_migrator_url_and_applied_023_predecessor"
-            echo "035_checksum=$(tr -d '\n' < "${CAMACHO_CERT_EVIDENCE_DIR}/035-checksum.txt")"
-            echo "ephemeral_postgres_service=available_for_future_lab_bootstrap_only"
-          } | tee "${CAMACHO_CERT_EVIDENCE_DIR}/migration-status.txt"
+          pnpm --filter @pos-platform/target-migrations exec tsx src/pr130-ephemeral-commercial-cert.ts
+          test -s "${CAMACHO_CERT_EVIDENCE_DIR}/postgres-035-evidence.json"
+          echo "POSTGRES_EPHEMERAL_MIGRATION_035_VERIFIED=true"
+          echo "RUNTIME_VERIFIED=false"
 
       - name: Probe FACTUS Pay sandbox secret availability (no paid forgery)
         env:
