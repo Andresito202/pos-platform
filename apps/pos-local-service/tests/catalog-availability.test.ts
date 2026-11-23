@@ -111,6 +111,8 @@ describe("catalog availability for cashier tiles", () => {
       quantity_available: "20.000000",
       quantity_on_hand: "20.000000",
       quantity_reserved: "0.000000",
+      quantity_unsellable: "0.000000",
+      low_stock_threshold: null,
       availability_state: "AVAILABLE",
     });
 
@@ -201,7 +203,93 @@ describe("catalog availability for cashier tiles", () => {
       quantity_available: null,
       quantity_on_hand: null,
       quantity_reserved: null,
+      quantity_unsellable: null,
+      low_stock_threshold: null,
       availability_state: "NOT_TRACKED",
     });
+  });
+
+  it("marks LOW when dispensable units are at or below presentation threshold", async () => {
+    const { inventoryStore, presentationId, receive } = await buildEnv(true);
+    const admin = auth(["INVENTORY_STOCK_RECEIVE"]);
+    expect(receive.execute(SCOPE, SESSION, admin, {
+      presentationId,
+      movementType: "PURCHASE_RECEIPT",
+      quantity: "4.000000",
+      reasonCode: "SUPPLIER_DELIVERY",
+      businessDate: "2026-09-07",
+      idempotencyKey: "recv:low",
+      correlationId: CORRELATION,
+      causationId: null,
+    }).kind).toBe("POSTED");
+    expect(readCatalogAvailability(inventoryStore, SCOPE, presentationId, true, {
+      lowStockThreshold: "5.000000",
+    })).toMatchObject({
+      quantity_available: "4.000000",
+      availability_state: "LOW",
+      low_stock_threshold: "5.000000",
+    });
+  });
+
+  it("surfaces pharmacy verification without inventing sellable when physical exceeds dispensable", async () => {
+    const { inventoryStore, presentationId, receive } = await buildEnv(true);
+    const admin = auth(["INVENTORY_STOCK_RECEIVE"]);
+    expect(receive.execute(SCOPE, SESSION, admin, {
+      presentationId,
+      movementType: "PURCHASE_RECEIPT",
+      quantity: "20.000000",
+      reasonCode: "SUPPLIER_DELIVERY",
+      businessDate: "2026-09-07",
+      idempotencyKey: "recv:rx",
+      correlationId: CORRELATION,
+      causationId: null,
+    }).kind).toBe("POSTED");
+    expect(readCatalogAvailability(inventoryStore, SCOPE, presentationId, true, {
+      pharmacyProfile: {
+        productKind: "MEDICINE",
+        commercialName: "Amoxicilina",
+        genericName: null,
+        activeIngredientsJson: "[]",
+        concentrationText: null,
+        pharmaceuticalForm: null,
+        manufacturer: null,
+        sanitaryHolder: null,
+        sanitaryRegistration: "INVIMA-1",
+        registrationVerificationStatus: "VERIFIED_MANUAL",
+        dispensationCategory: "PRESCRIPTION",
+        requiresPrescription: true,
+        controlledSpecial: false,
+        storageCondition: "AMBIENT",
+        requiresLotTracking: true,
+        requiresExpiry: true,
+        regulatoryReviewAt: null,
+        version: 1,
+      },
+    })).toMatchObject({
+      quantity_available: "20.000000",
+      availability_state: "VERIFICATION_REQUIRED",
+    });
+    expect(readCatalogAvailability(inventoryStore, SCOPE, presentationId, true, {
+      pharmacyProfile: {
+        productKind: "MEDICINE",
+        commercialName: "Bloqueado",
+        genericName: null,
+        activeIngredientsJson: "[]",
+        concentrationText: null,
+        pharmaceuticalForm: null,
+        manufacturer: null,
+        sanitaryHolder: null,
+        sanitaryRegistration: "INVIMA-X",
+        registrationVerificationStatus: "EXPIRED",
+        dispensationCategory: "OTC",
+        requiresPrescription: false,
+        controlledSpecial: false,
+        storageCondition: "AMBIENT",
+        requiresLotTracking: false,
+        requiresExpiry: false,
+        regulatoryReviewAt: null,
+        version: 1,
+      },
+    }).availability_state).toBe("RESTRICTED");
   });
 });

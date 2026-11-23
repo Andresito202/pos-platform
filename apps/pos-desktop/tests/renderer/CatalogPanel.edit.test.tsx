@@ -52,6 +52,8 @@ const ITEM = {
   quantity_available: "10.000000",
   quantity_on_hand: "10.000000",
   quantity_reserved: "0.000000",
+  quantity_unsellable: "0.000000",
+  low_stock_threshold: null,
   availability_state: "AVAILABLE" as const,
   product_version: 1,
   presentation_version: 1,

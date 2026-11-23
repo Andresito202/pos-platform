@@ -1051,6 +1051,9 @@ export class CommercialRequestHandler {
           ? { presentationName: payload.presentation_name }
           : {}),
         ...(payload.barcode !== undefined ? { barcode: payload.barcode } : {}),
+        ...(payload.low_stock_threshold !== undefined
+          ? { lowStockThreshold: payload.low_stock_threshold }
+          : {}),
         reason: payload.reason ?? null,
         idempotencyKey: request.idempotency_key ?? "",
         correlationId: request.correlation_id,
@@ -1229,6 +1232,7 @@ export class CommercialRequestHandler {
       presentation_name: null, unit_code: null, unit_precision: null, barcode: null,
       stock_controlled: null, price_amount: null, currency_code: null,
       quantity_available: null, quantity_on_hand: null, quantity_reserved: null,
+      quantity_unsellable: null, low_stock_threshold: null,
       availability_state: null,
       product_version: null, presentation_version: null, media_id: null,
     };
@@ -1268,6 +1272,8 @@ export class CommercialRequestHandler {
         quantity_available: result.availability.quantity_available,
         quantity_on_hand: result.availability.quantity_on_hand,
         quantity_reserved: result.availability.quantity_reserved,
+        quantity_unsellable: result.availability.quantity_unsellable,
+        low_stock_threshold: result.availability.low_stock_threshold,
         availability_state: result.availability.availability_state,
         product_version: product.version,
         presentation_version: presentation.version,
@@ -1358,6 +1364,8 @@ export class CommercialRequestHandler {
         quantity_available: availability.quantity_available,
         quantity_on_hand: availability.quantity_on_hand,
         quantity_reserved: availability.quantity_reserved,
+        quantity_unsellable: availability.quantity_unsellable,
+        low_stock_threshold: availability.low_stock_threshold,
         availability_state: availability.availability_state,
         product_version: product.version,
         presentation_version: presentation.version,

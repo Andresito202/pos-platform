@@ -1139,6 +1139,8 @@ export const CatalogProductUpdateRequestSchema = createRequestEnvelopeSchema(
     presentation_expected_version: z.number().int().positive().optional(),
     presentation_name: z.string().min(1).max(200).optional(),
     barcode: BarcodeSchema.nullable().optional(),
+    /** Scale-6 threshold for LOW; null clears. Precision must fit presentation unit. */
+    low_stock_threshold: PositiveScale6Schema.nullable().optional(),
     reason: z.string().min(1).max(300).nullable().optional(),
   }),
 ).safeExtend({ message_type: z.literal("catalog.product.update") })
@@ -1266,12 +1268,17 @@ export const CatalogItemGetRequestSchema = createRequestEnvelopeSchema(
 /**
  * Sellable availability projected from inventory for cashier surfaces.
  * `NOT_TRACKED` = product is not stock-controlled (no invented zero).
- * LOW / RESTRICTED labels require commercial threshold / pharmacy projection
- * that is not part of this catalog list contract yet.
+ * `LOW` = dispensable units at/below presentation threshold.
+ * `RESTRICTED` = pharmacy registration invalid/expired (verifiable).
+ * `VERIFICATION_REQUIRED` = dispensable stock exists but sale needs
+ * prescription/controlled checks that the tile cannot authorize.
  */
 export const CatalogAvailabilityStateSchema = z.enum([
   "AVAILABLE",
+  "LOW",
   "OUT_OF_STOCK",
+  "RESTRICTED",
+  "VERIFICATION_REQUIRED",
   "NOT_TRACKED",
 ]);
 
@@ -1301,6 +1308,10 @@ export const CatalogItemResultSchema = z.strictObject({
   quantity_on_hand: NonNegativeScale6Schema.nullable(),
   /** Units held by ACTIVE reservations. null when NOT_TRACKED. */
   quantity_reserved: NonNegativeScale6Schema.nullable(),
+  /** Physical units not dispensable (expired/blocked). null when NOT_TRACKED. */
+  quantity_unsellable: NonNegativeScale6Schema.nullable(),
+  /** Presentation low-stock threshold (scale-6). null when unset / NOT_TRACKED. */
+  low_stock_threshold: PositiveScale6Schema.nullable(),
   availability_state: CatalogAvailabilityStateSchema.nullable(),
   product_version: z.number().int().positive().nullable(),
   presentation_version: z.number().int().positive().nullable(),
@@ -1337,6 +1348,8 @@ export const CatalogItemListItemSchema = z.strictObject({
   quantity_available: NonNegativeScale6Schema.nullable(),
   quantity_on_hand: NonNegativeScale6Schema.nullable(),
   quantity_reserved: NonNegativeScale6Schema.nullable(),
+  quantity_unsellable: NonNegativeScale6Schema.nullable(),
+  low_stock_threshold: PositiveScale6Schema.nullable(),
   availability_state: CatalogAvailabilityStateSchema,
   product_version: z.number().int().positive(),
   presentation_version: z.number().int().positive(),

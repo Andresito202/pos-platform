@@ -57,6 +57,7 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
   const [editPresentationVersion, setEditPresentationVersion] = useState<number | null>(null);
   const [editPresentationName, setEditPresentationName] = useState("");
   const [editBarcode, setEditBarcode] = useState("");
+  const [editLowStock, setEditLowStock] = useState("");
   const [editPrice, setEditPrice] = useState("");
   const [editCurrency, setEditCurrency] = useState("COP");
   const [editMediaId, setEditMediaId] = useState<string | null>(null);
@@ -81,6 +82,9 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
     setEditPresentationVersion(item.presentation_version);
     setEditPresentationName(item.presentation_name);
     setEditBarcode(item.barcode ?? "");
+    setEditLowStock(item.low_stock_threshold === null
+      ? ""
+      : formatScale6Display(item.low_stock_threshold));
     setEditPrice(formatScale6Display(item.price_amount));
     setEditCurrency(item.currency_code);
     setEditMediaId(item.media_id);
@@ -367,6 +371,8 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
                   quantity_available: null,
                   quantity_on_hand: null,
                   quantity_reserved: null,
+                  quantity_unsellable: null,
+                  low_stock_threshold: editLowStock.trim() === "" ? null : null,
                   availability_state: "NOT_TRACKED",
                   product_version: editExpectedVersion,
                   presentation_version: editPresentationVersion,
@@ -435,6 +441,13 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
                     placeholder="Código de barras"
                     disabled={catalog.busy}
                   />
+                  <input
+                    data-testid="edit-low-stock-input"
+                    value={editLowStock}
+                    onChange={(e) => { setEditLowStock(e.target.value); }}
+                    placeholder="Umbral existencias bajas (opcional)"
+                    disabled={catalog.busy}
+                  />
                   <button
                     data-testid="update-product-button"
                     disabled={catalog.busy}
@@ -452,6 +465,9 @@ export function CatalogPanel({ permissions = new Set(), entitlements = new Set()
                         presentationExpectedVersion: editPresentationVersion,
                         presentationName: editPresentationName.trim(),
                         barcode: editBarcode.trim() === "" ? null : editBarcode.trim(),
+                        lowStockThreshold: editLowStock.trim() === ""
+                          ? null
+                          : editLowStock.trim(),
                       }).then((result) => {
                         if (result?.outcome === "UPDATED" || result?.outcome === "IDEMPOTENT") {
                           if (result.version !== null) setEditExpectedVersion(result.version);

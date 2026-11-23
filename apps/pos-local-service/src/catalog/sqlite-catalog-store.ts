@@ -46,6 +46,7 @@ export interface CatalogPresentation {
   readonly unitPrecision: number;
   readonly barcode: string | null;
   readonly version: number;
+  readonly lowStockThreshold: string | null;
 }
 
 export interface CatalogPrice {
@@ -119,13 +120,15 @@ interface ProductRow {
 interface PresentationRow {
   id: string; product_id: string; name: string;
   unit_code: string; unit_precision: number; barcode: string | null; version: number;
+  low_stock_threshold: string | null;
 }
 interface PriceRow { amount: string; currency_code: string }
 interface NextSequenceRow { next_sequence: number }
 
 const PRODUCT_COLUMNS =
   "id, code, name, description, brand, category, stock_controlled, version, primary_media_id";
-const PRESENTATION_COLUMNS = "id, product_id, name, unit_code, unit_precision, barcode, version";
+const PRESENTATION_COLUMNS =
+  "id, product_id, name, unit_code, unit_precision, barcode, version, low_stock_threshold";
 
 function toProduct(row: ProductRow): CatalogProduct {
   return {
@@ -144,6 +147,7 @@ function toPresentation(row: PresentationRow): CatalogPresentation {
     id: row.id, productId: row.product_id, name: row.name,
     unitCode: row.unit_code, unitPrecision: row.unit_precision, barcode: row.barcode,
     version: row.version,
+    lowStockThreshold: row.low_stock_threshold,
   };
 }
 
@@ -269,6 +273,7 @@ export class SqliteCatalogStore {
          p.stock_controlled, p.version AS product_version, p.primary_media_id,
          cp.id AS presentation_id, cp.name AS presentation_name,
          cp.unit_code, cp.unit_precision, cp.barcode, cp.version AS presentation_version,
+         cp.low_stock_threshold AS low_stock_threshold,
          pr.amount AS price_amount, pr.currency_code
        FROM catalog_product p
        INNER JOIN catalog_presentation cp
@@ -288,7 +293,7 @@ export class SqliteCatalogStore {
       stock_controlled: number;
       product_version: number; primary_media_id: string | null;
       presentation_id: string; presentation_name: string; unit_code: string; unit_precision: number;
-      barcode: string | null; presentation_version: number;
+      barcode: string | null; presentation_version: number; low_stock_threshold: string | null;
       price_amount: string; currency_code: string;
     }>;
 
@@ -315,6 +320,7 @@ export class SqliteCatalogStore {
           unitPrecision: row.unit_precision,
           barcode: row.barcode,
           version: row.presentation_version,
+          lowStockThreshold: row.low_stock_threshold,
         },
         price: { amount: row.price_amount, currencyCode: row.currency_code },
       })),
@@ -822,6 +828,7 @@ export class SqliteCatalogStore {
     readonly presentationExpectedVersion?: number;
     readonly presentationName?: string;
     readonly barcode?: string | null;
+    readonly lowStockThreshold?: string | null;
     readonly reason: string | null;
     readonly idempotencyKey: string;
     readonly requestChecksum: string;
@@ -938,6 +945,7 @@ export class SqliteCatalogStore {
           `UPDATE catalog_presentation
            SET name=COALESCE(?, name),
                barcode=CASE WHEN ? THEN ? ELSE barcode END,
+               low_stock_threshold=CASE WHEN ? THEN ? ELSE low_stock_threshold END,
                version=?,
                updated_at=?
            WHERE tenant_id=? AND id=? AND version=?`,
@@ -945,6 +953,8 @@ export class SqliteCatalogStore {
           input.presentationName ?? null,
           input.barcode !== undefined ? 1 : 0,
           input.barcode === undefined ? null : input.barcode,
+          input.lowStockThreshold !== undefined ? 1 : 0,
+          input.lowStockThreshold === undefined ? null : input.lowStockThreshold,
           presentationVersion,
           nowIso,
           input.scope.tenantId, input.presentationId, presentation.version,

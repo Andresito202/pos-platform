@@ -73,6 +73,7 @@ export interface UpdateProductInput {
   readonly presentationExpectedVersion?: number;
   readonly presentationName?: string;
   readonly barcode?: string | null;
+  readonly lowStockThreshold?: string | null;
   readonly reason?: string | null;
 }
 
@@ -250,6 +251,19 @@ export function useCatalogAdmin(): CatalogAdminState & {
     setUpdatePresentationVersion(null);
     setUpdateCurrentVersion(null);
     try {
+      let low_stock_threshold: string | null | undefined;
+      if (input.lowStockThreshold !== undefined) {
+        if (input.lowStockThreshold === null || input.lowStockThreshold.trim() === "") {
+          low_stock_threshold = null;
+        } else {
+          const scaled = toScale6(input.lowStockThreshold);
+          if (scaled === null || scaled === "0.000000") {
+            setError("LOW_STOCK_THRESHOLD_INVALID");
+            return null;
+          }
+          low_stock_threshold = scaled;
+        }
+      }
       const response = await callCommercial<CatalogProductUpdateResult>(
         "catalog.product.update",
         {
@@ -269,6 +283,9 @@ export function useCatalogAdmin(): CatalogAdminState & {
             ? { presentation_name: input.presentationName }
             : {}),
           ...(input.barcode !== undefined ? { barcode: input.barcode } : {}),
+          ...(low_stock_threshold !== undefined
+            ? { low_stock_threshold }
+            : {}),
           ...(input.reason !== undefined ? { reason: input.reason } : {}),
         },
         newIdempotencyKey(),

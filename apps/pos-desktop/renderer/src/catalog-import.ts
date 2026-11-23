@@ -407,6 +407,69 @@ export async function confirmCatalogImport(
     let presentationId = exact.presentation_id;
     let rowOutcome = "IDEMPOTENT";
 
+    // Probe whether this import row already created the product. An IDEMPOTENT
+    // register means the alta already committed under this identity — never
+    // re-apply spreadsheet fields as a silent update over later admin edits.
+    let registerProbe: CommercialResponse<unknown>;
+    try {
+      registerProbe = await register({
+        code: draft.code,
+        name: draft.name,
+        description: draft.description,
+        brand: draft.brand,
+        category: draft.category,
+        stock_controlled: draft.stockControlled,
+        presentation_name: draft.presentationName,
+        unit_code: draft.unitCode,
+        unit_precision: draft.unitPrecision,
+        barcode: draft.barcode,
+        price_amount: draft.priceAmount,
+        currency_code: draft.currencyCode,
+      }, row.key);
+    } catch {
+      onOutcome({
+        row: row.row,
+        outcome: "TRANSPORT_UNCERTAIN",
+        productId: exact.product_id,
+        presentationId: exact.presentation_id,
+      });
+      throw new Error("CATALOG_TRANSPORT_UNCERTAIN");
+    }
+    const probed = CatalogProductRegisterResultSchema.safeParse(registerProbe.result);
+    const probeOutcome = probed.success
+      ? probed.data.outcome
+      : registerProbe.result_code;
+    if (probeOutcome === "IDEMPOTENT") {
+      productId = probed.success && probed.data.product_id !== null
+        ? probed.data.product_id
+        : exact.product_id;
+      presentationId = probed.success && probed.data.presentation_id !== null
+        ? probed.data.presentation_id
+        : exact.presentation_id;
+      // Alta already committed under this import identity. Do not rewrite
+      // commercial fields or price over later authorized edits.
+      onOutcome({ row: row.row, outcome: "IDEMPOTENT", productId, presentationId });
+      continue;
+    }
+    if (probeOutcome === "IDEMPOTENCY_CONFLICT") {
+      onOutcome({
+        row: row.row,
+        outcome: "IDEMPOTENCY_CONFLICT",
+        productId: exact.product_id,
+        presentationId: exact.presentation_id,
+      });
+      throw new Error("CATALOG_STOPPED:IDEMPOTENCY_CONFLICT");
+    }
+    if (probeOutcome !== "CODE_ALREADY_REGISTERED" && probeOutcome !== "BARCODE_ALREADY_REGISTERED") {
+      onOutcome({
+        row: row.row,
+        outcome: typeof probeOutcome === "string" ? probeOutcome : "TRANSPORT_UNCERTAIN",
+        productId: exact.product_id,
+        presentationId: exact.presentation_id,
+      });
+      throw new Error(`CATALOG_STOPPED:${String(probeOutcome)}`);
+    }
+
     if (needsProductUpdate(exact, draft)) {
       let response: CommercialResponse<unknown>;
       try {
@@ -456,6 +519,8 @@ export async function confirmCatalogImport(
       const value = parsed.data;
       rowOutcome = value.outcome;
       productId = value.product_id ?? exact.product_id;
+      // VERSION_CONFLICT / IDEMPOTENCY_CONFLICT: another writer changed the product
+      // or this import identity already applied a different payload — do not overwrite.
       if (response.status !== "SUCCEEDED" || !["UPDATED", "IDEMPOTENT"].includes(value.outcome)) {
         onOutcome({
           row: row.row,

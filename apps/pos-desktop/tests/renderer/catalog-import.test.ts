@@ -86,6 +86,8 @@ describe("catalog import planillas", () => {
       quantity_available: null,
       quantity_on_hand: null,
       quantity_reserved: null,
+      quantity_unsellable: null,
+      low_stock_threshold: null,
       availability_state: "NOT_TRACKED" as const,
       product_version: 2,
       presentation_version: 1,
@@ -101,7 +103,15 @@ describe("catalog import planillas", () => {
           result_code: "FOUND",
           result: { outcome: "FOUND", items: [existing], has_more: false },
         }),
-        register: async () => { throw new Error("no register"); },
+        register: async () => ({
+          status: "REJECTED",
+          result_code: "CODE_ALREADY_REGISTERED",
+          result: {
+            outcome: "CODE_ALREADY_REGISTERED",
+            product_id: existing.product_id,
+            presentation_id: null,
+          },
+        }),
         update: async (_payload, key) => {
           updateKeys.push(key);
           return {
@@ -122,8 +132,8 @@ describe("catalog import planillas", () => {
     expect(outcomes.at(-1)).toBe("UPDATED");
     expect(updateKeys[0]?.endsWith(":update")).toBe(true);
 
-    // Retry with already-matching fields → IDEMPOTENT without writes
-    let writes = 0;
+    // Already-applied alta under the same import identity must not rewrite later edits.
+    let updates = 0;
     await confirmCatalogImport(
       previewCatalogCsv(header + row(1), ";"),
       (result) => { outcomes.push(result.outcome); },
@@ -131,14 +141,26 @@ describe("catalog import planillas", () => {
         list: async () => ({
           status: "SUCCEEDED",
           result_code: "FOUND",
-          result: { outcome: "FOUND", items: [{ ...existing, name: "Producto 1" }], has_more: false },
+          result: {
+            outcome: "FOUND",
+            items: [{ ...existing, name: "Nombre cambiado por administrador" }],
+            has_more: false,
+          },
         }),
-        register: async () => { writes += 1; throw new Error("no"); },
-        update: async () => { writes += 1; throw new Error("no"); },
-        publish: async () => { writes += 1; throw new Error("no"); },
+        register: async () => ({
+          status: "SUCCEEDED",
+          result_code: "IDEMPOTENT",
+          result: {
+            outcome: "IDEMPOTENT",
+            product_id: existing.product_id,
+            presentation_id: existing.presentation_id,
+          },
+        }),
+        update: async () => { updates += 1; throw new Error("no update"); },
+        publish: async () => { updates += 1; throw new Error("no publish"); },
       },
     );
-    expect(writes).toBe(0);
+    expect(updates).toBe(0);
     expect(outcomes.at(-1)).toBe("IDEMPOTENT");
   });
 
@@ -161,6 +183,8 @@ describe("catalog import planillas", () => {
       quantity_available: "1.000000",
       quantity_on_hand: "1.000000",
       quantity_reserved: "0.000000",
+      quantity_unsellable: "0.000000",
+      low_stock_threshold: null,
       availability_state: "AVAILABLE" as const,
       product_version: 1,
       presentation_version: 1,

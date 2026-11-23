@@ -24,6 +24,7 @@ export interface UpdateProductRequest {
   readonly presentationExpectedVersion?: number;
   readonly presentationName?: string;
   readonly barcode?: string | null;
+  readonly lowStockThreshold?: string | null;
   readonly reason?: string | null;
   readonly idempotencyKey: string;
   readonly correlationId: string;
@@ -73,13 +74,24 @@ export class UpdateProductUseCase {
       || request.category !== undefined
       || request.status !== undefined;
     const hasPresentationChange = request.presentationName !== undefined
-      || request.barcode !== undefined;
+      || request.barcode !== undefined
+      || request.lowStockThreshold !== undefined;
     if (!hasProductChange && !hasPresentationChange) return { kind: "INVALID_INPUT" };
     if (hasPresentationChange && (request.presentationId === undefined || request.presentationExpectedVersion === undefined)) {
       return { kind: "INVALID_INPUT" };
     }
     if (request.name !== undefined && request.name.trim().length === 0) return { kind: "INVALID_INPUT" };
     if (request.code !== undefined && request.code.trim().length === 0) return { kind: "INVALID_INPUT" };
+    if (request.lowStockThreshold !== undefined && request.lowStockThreshold !== null) {
+      const presentation = this.catalogStore.findActivePresentation(
+        { tenantId: scope.tenantId, companyId: scope.companyId },
+        request.presentationId!,
+      );
+      if (presentation === null) return { kind: "NOT_FOUND" };
+      const fraction = request.lowStockThreshold.split(".")[1] ?? "";
+      const significant = fraction.replace(/0+$/, "").length;
+      if (significant > presentation.unitPrecision) return { kind: "INVALID_INPUT" };
+    }
 
     const checksum = createHash("sha256").update(canonicalJson({
       barcode: request.barcode ?? null,
@@ -89,6 +101,7 @@ export class UpdateProductUseCase {
       description: request.description === undefined ? null : request.description,
       expected_version: request.expectedVersion,
       idempotency_key: request.idempotencyKey,
+      low_stock_threshold: request.lowStockThreshold === undefined ? null : request.lowStockThreshold,
       name: request.name ?? null,
       presentation_expected_version: request.presentationExpectedVersion ?? null,
       presentation_id: request.presentationId ?? null,
@@ -121,6 +134,9 @@ export class UpdateProductUseCase {
         ? { presentationName: request.presentationName.trim() }
         : {}),
       ...(request.barcode !== undefined ? { barcode: request.barcode } : {}),
+      ...(request.lowStockThreshold !== undefined
+        ? { lowStockThreshold: request.lowStockThreshold }
+        : {}),
       reason: request.reason ?? null,
       idempotencyKey: request.idempotencyKey,
       requestChecksum: checksum,

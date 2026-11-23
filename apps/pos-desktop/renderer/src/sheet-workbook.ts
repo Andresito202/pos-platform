@@ -1,15 +1,26 @@
 /**
  * Minimal XLSX (OOXML) reader/writer for commercial planillas.
- * Uses fflate for ZIP. Does not evaluate formulas or run macros.
+ * Uses fflate for ZIP with explicit compressed/expanded bounds.
+ * Does not evaluate formulas or run macros.
  */
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 
-const MAX_BYTES = 1_048_576;
+/** Published limits for commercial planillas (compressed archive). */
+export const XLSX_MAX_COMPRESSED_BYTES = 1_048_576;
+/** Total expanded payload across extracted entries. */
+export const XLSX_MAX_EXPANDED_BYTES = 2_097_152;
+/** Single ZIP entry expanded size. */
+export const XLSX_MAX_ENTRY_BYTES = 1_048_576;
+export const XLSX_MAX_ZIP_ENTRIES = 64;
+const MAX_BYTES = XLSX_MAX_COMPRESSED_BYTES;
 const MAX_ROWS = 1001;
 const MAX_COLS = 64;
 const MAX_CELL = 4096;
+const MAX_SHARED_STRINGS = 20_000;
 
 const FORBIDDEN_ZIP_PATH = /(?:^|\/)(xl\/vbaProject\.bin|xl\/macrosheets\/|_vba|vbaProject|xl\/activeX\/|customXml\/)/i;
+/** Harmless OOXML package prefixes; macros/OLE paths stay forbidden. */
+const ALLOWED_ZIP_PREFIX = /^(?:\[Content_Types\]\.xml|_rels\/|xl\/|docProps\/)/;
 
 export type SheetMatrix = {
   readonly sheetName: string;
@@ -55,13 +66,73 @@ function indexToColLetters(index: number): string {
 }
 
 function parseSharedStrings(xml: string): string[] {
+  if (xml.length > XLSX_MAX_ENTRY_BYTES) throw new Error("XLSX_FIELD_TOO_LONG");
   const values: string[] = [];
   const siBlocks = xml.match(/<si\b[^>]*>[\s\S]*?<\/si>/g) ?? [];
+  if (siBlocks.length > MAX_SHARED_STRINGS) throw new Error("XLSX_SHARED_STRING_LIMIT");
   for (const block of siBlocks) {
     const parts = [...block.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map((match) => decodeXmlEntities(match[1] ?? ""));
-    values.push(parts.join(""));
+    const value = parts.join("");
+    if (value.length > MAX_CELL) throw new Error("XLSX_FIELD_TOO_LONG");
+    values.push(value);
   }
   return values;
+}
+
+/**
+ * Bounded OOXML unzip: rejects zip bombs via declared original sizes before
+ * inflate, then rechecks actual expanded lengths.
+ */
+export function unzipXlsxBounded(bytes: Uint8Array): Record<string, Uint8Array> {
+  if (bytes.byteLength === 0 || bytes.byteLength > XLSX_MAX_COMPRESSED_BYTES) {
+    throw new Error("XLSX_SIZE_REJECTED");
+  }
+  if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error("XLSX_SIGNATURE_REJECTED");
+
+  let entryCount = 0;
+  let declaredExpanded = 0;
+  let files: Record<string, Uint8Array>;
+  try {
+    files = unzipSync(bytes, {
+      filter(file) {
+        entryCount += 1;
+        if (entryCount > XLSX_MAX_ZIP_ENTRIES) throw new Error("XLSX_ZIP_ENTRY_LIMIT");
+        if (file.name.includes("..") || file.name.startsWith("/") || file.name.includes("\\")) {
+          throw new Error("XLSX_UNSAFE_CONTENT_REJECTED");
+        }
+        if (FORBIDDEN_ZIP_PATH.test(file.name)) throw new Error("XLSX_MACROS_REJECTED");
+        if (!ALLOWED_ZIP_PREFIX.test(file.name)) throw new Error("XLSX_UNSAFE_CONTENT_REJECTED");
+        if (file.compression !== 0 && file.compression !== 8) {
+          throw new Error("XLSX_COMPRESSION_REJECTED");
+        }
+        if (file.originalSize < 0 || file.originalSize > XLSX_MAX_ENTRY_BYTES) {
+          throw new Error("XLSX_ENTRY_SIZE_REJECTED");
+        }
+        if (file.size < 0 || file.size > XLSX_MAX_COMPRESSED_BYTES) {
+          throw new Error("XLSX_ENTRY_SIZE_REJECTED");
+        }
+        declaredExpanded += file.originalSize;
+        if (declaredExpanded > XLSX_MAX_EXPANDED_BYTES) {
+          throw new Error("XLSX_EXPANDED_SIZE_REJECTED");
+        }
+        return true;
+      },
+    });
+  } catch (failure) {
+    if (failure instanceof Error && failure.message.startsWith("XLSX_")) throw failure;
+    throw new Error("XLSX_ZIP_INVALID");
+  }
+
+  let actualExpanded = 0;
+  for (const [path, data] of Object.entries(files)) {
+    if (FORBIDDEN_ZIP_PATH.test(path) || path.includes("..") || !ALLOWED_ZIP_PREFIX.test(path)) {
+      throw new Error("XLSX_UNSAFE_CONTENT_REJECTED");
+    }
+    if (data.byteLength > XLSX_MAX_ENTRY_BYTES) throw new Error("XLSX_ENTRY_SIZE_REJECTED");
+    actualExpanded += data.byteLength;
+    if (actualExpanded > XLSX_MAX_EXPANDED_BYTES) throw new Error("XLSX_EXPANDED_SIZE_REJECTED");
+  }
+  return files;
 }
 
 function parseSheetRows(xml: string, shared: readonly string[]): string[][] {
@@ -138,21 +209,7 @@ function firstWorksheetPath(files: Record<string, Uint8Array>): string {
 }
 
 export function readSheetMatrixFromXlsx(bytes: Uint8Array): SheetMatrix {
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_BYTES) {
-    throw new Error("XLSX_SIZE_REJECTED");
-  }
-  if (bytes[0] !== 0x50 || bytes[1] !== 0x4b) throw new Error("XLSX_SIGNATURE_REJECTED");
-  let files: Record<string, Uint8Array>;
-  try {
-    files = unzipSync(bytes);
-  } catch {
-    throw new Error("XLSX_ZIP_INVALID");
-  }
-  for (const path of Object.keys(files)) {
-    if (FORBIDDEN_ZIP_PATH.test(path) || path.includes("..")) {
-      throw new Error("XLSX_UNSAFE_CONTENT_REJECTED");
-    }
-  }
+  const files = unzipXlsxBounded(bytes);
   const contentTypes = files["[Content_Types].xml"];
   if (!contentTypes) throw new Error("XLSX_CONTENT_TYPES_MISSING");
   const contentXml = strFromU8(contentTypes);
@@ -164,7 +221,7 @@ export function readSheetMatrixFromXlsx(bytes: Uint8Array): SheetMatrix {
     : [];
   const sheetPath = firstWorksheetPath(files);
   const sheetXml = strFromU8(files[sheetPath]!);
-  if (/<f[\s>]|t="e"|oleObject|vmlDrawing/i.test(sheetXml)) {
+  if (/<f[\s>/]|t="e"|oleObject|vmlDrawing/i.test(sheetXml)) {
     throw new Error("XLSX_UNSAFE_SHEET_REJECTED");
   }
   const nameMatch = /name="([^"]+)"/.exec(

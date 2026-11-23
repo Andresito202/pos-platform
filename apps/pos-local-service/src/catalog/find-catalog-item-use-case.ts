@@ -6,6 +6,7 @@ import {
 } from "@pos-platform/application";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
+import type { SqlitePharmacyStore } from "../pharmacy/sqlite-pharmacy-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import {
   readCatalogAvailability,
@@ -32,6 +33,7 @@ export class FindCatalogItemUseCase {
   constructor(
     private readonly catalogStore: SqliteCatalogStore,
     private readonly inventoryStore: SqliteInventoryStore,
+    private readonly pharmacyStore: SqlitePharmacyStore | null = null,
   ) {}
 
   execute(
@@ -63,6 +65,14 @@ export class FindCatalogItemUseCase {
         scope,
         item.presentation.id,
         item.product.stockControlled,
+        {
+          lowStockThreshold: item.presentation.lowStockThreshold,
+          pharmacyProfile: this.pharmacyStore?.getProfile(
+            catalogScope,
+            item.product.id,
+          ) ?? null,
+          at,
+        },
       ),
     };
   }

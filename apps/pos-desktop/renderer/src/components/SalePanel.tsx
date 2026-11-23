@@ -173,7 +173,8 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
         <div className="pos-touch-grid" data-testid="touch-product-grid">
           {sale.catalogItems.map(item => {
             const availability = presentCatalogAvailability(item);
-            const outOfStock = item.availability_state === "OUT_OF_STOCK";
+            const blocked = item.availability_state === "OUT_OF_STOCK"
+              || item.availability_state === "RESTRICTED";
             return (
               <button
                 type="button"
@@ -181,7 +182,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
                 data-testid={`catalog-product-${item.presentation_id}`}
                 data-availability={availability.state}
                 key={item.presentation_id}
-                disabled={sale.busy || sale.unresolved || sale.sale !== null || outOfStock}
+                disabled={sale.busy || sale.unresolved || sale.sale !== null || blocked}
                 onClick={() => sale.addCatalogItem(item, tileQuantity.trim())}
               >
                 <ProductAvatar item={item} />

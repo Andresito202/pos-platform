@@ -2463,6 +2463,23 @@ ALTER TABLE catalog_product ADD COLUMN category TEXT
   CHECK(category IS NULL OR length(category) BETWEEN 1 AND 120);
 `.trim();
 
+/**
+ * MIGRATION_032: per-presentation low-stock threshold (scale-6) for Caja LOW.
+ * Does not rewrite stock ledgers. Null = no commercial low threshold.
+ */
+const MIGRATION_032 = `
+ALTER TABLE catalog_presentation ADD COLUMN low_stock_threshold TEXT
+  CHECK(
+    low_stock_threshold IS NULL OR (
+      low_stock_threshold GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+      AND low_stock_threshold NOT GLOB '*[^0-9.]*'
+      AND length(low_stock_threshold) - length(replace(low_stock_threshold, '.', '')) = 1
+      AND low_stock_threshold NOT GLOB '0[0-9]*'
+      AND low_stock_threshold <> '0.000000'
+    )
+  );
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2495,6 +2512,7 @@ const MIGRATIONS = [
   { version: 29, sql: MIGRATION_029, checksum: createHash("sha256").update(MIGRATION_029).digest("hex") },
   { version: 30, sql: MIGRATION_030, checksum: createHash("sha256").update(MIGRATION_030).digest("hex") },
   { version: 31, sql: MIGRATION_031, checksum: createHash("sha256").update(MIGRATION_031).digest("hex") },
+  { version: 32, sql: MIGRATION_032, checksum: createHash("sha256").update(MIGRATION_032).digest("hex") },
 ] as const;
 
 /**

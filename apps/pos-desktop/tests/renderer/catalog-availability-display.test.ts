@@ -11,7 +11,22 @@ describe("presentCatalogAvailability", () => {
     }).label).toContain("Disponible");
   });
 
-  it("labels out of stock and not tracked without inventing quantities", () => {
+  it("labels low stock, restricted, verification and not tracked", () => {
+    expect(presentCatalogAvailability({
+      availability_state: "LOW",
+      quantity_available: "4.000000",
+      unit_code: "UND",
+    })).toEqual({ label: "Existencias bajas · 4 UND", state: "LOW" });
+    expect(presentCatalogAvailability({
+      availability_state: "RESTRICTED",
+      quantity_available: "10.000000",
+      unit_code: "UND",
+    })).toEqual({ label: "Venta restringida", state: "RESTRICTED" });
+    expect(presentCatalogAvailability({
+      availability_state: "VERIFICATION_REQUIRED",
+      quantity_available: "12.000000",
+      unit_code: "UND",
+    }).label).toContain("Requiere verificación");
     expect(presentCatalogAvailability({
       availability_state: "OUT_OF_STOCK",
       quantity_available: "0.000000",

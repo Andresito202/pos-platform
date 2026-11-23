@@ -68,6 +68,8 @@ const FOUND_ITEM = succeeded({
   quantity_available: "20.000000",
   quantity_on_hand: "20.000000",
   quantity_reserved: "0.000000",
+  quantity_unsellable: "0.000000",
+  low_stock_threshold: null,
   availability_state: "AVAILABLE",
   product_version: 1,
   presentation_version: 1,

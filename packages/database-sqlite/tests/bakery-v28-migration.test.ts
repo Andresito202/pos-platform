@@ -60,7 +60,8 @@ describe("additive local v28 bakery integrity migration", () => {
       ALTER TABLE catalog_product DROP COLUMN category;
       ALTER TABLE catalog_product DROP COLUMN primary_media_id;
       ALTER TABLE catalog_presentation DROP COLUMN version;
-      DELETE FROM local_schema_migrations WHERE version IN (27, 28, 29, 30, 31);
+      ALTER TABLE catalog_presentation DROP COLUMN low_stock_threshold;
+      DELETE FROM local_schema_migrations WHERE version IN (27, 28, 29, 30, 31, 32);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;

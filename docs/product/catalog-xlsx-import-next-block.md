@@ -1,4 +1,4 @@
-# Bloque 3A — importación XLSX/CSV de catálogo y existencias
+# Bloques 3A/3B — importación y disponibilidad Caja
 
 ## Separación vigente (no mezclar writers)
 
@@ -11,35 +11,32 @@
    - Identidad idempotente `inventory-csv:{import_id}:{row_id}`
 
 La selección de archivo **no escribe**. La confirmación puede fallar a mitad;
-las filas ya confirmadas permanecen y el reintento con la misma identidad no
-duplica.
+las filas ya confirmadas permanecen. Si el alta ya se aplicó bajo `import_id`+
+`row_id`, el reintento es `IDEMPOTENT` y **no** reescribe cambios posteriores
+de otro administrador.
 
-## Columnas de catálogo
+## Seguridad XLSX
 
-`import_id`, `row_id`, `codigo_producto`, `nombre`, `descripcion`, `marca`,
-`categoria`, `codigo_barras`, `presentacion`, `unidad`, `precision`,
-`cantidad_por_presentacion` (informativa en 3A), `precio_venta`, `moneda`,
-`control_existencias`, `estado`.
+Límites publicados: comprimido ≤1 MiB, expandido ≤2 MiB, entrada ≤1 MiB,
+≤64 entradas ZIP. Filtro fflate por tamaño declarado antes de inflar; recuento
+real tras expandir. Sin macros, fórmulas ni rutas fuera de OOXML permitido.
 
-Unidad/precisión de productos con historia: si difieren del registrado, se
-rechaza `UNIT_CHANGE_FORBIDDEN` (no se muta la unidad base).
+## Disponibilidad Caja (3B)
 
-## Columnas de existencias
+Estados: `AVAILABLE`, `LOW`, `OUT_OF_STOCK`, `RESTRICTED`,
+`VERIFICATION_REQUIRED`, `NOT_TRACKED`.
 
-Compatibles con el CSV legado de 7 columnas, o con lote opcional:
+- Dispensable = lotes `AVAILABLE` no vencidos − reservas (sin doble descuento).
+- `quantity_unsellable` = físico − sellable (vencido/bloqueado).
+- Umbral `low_stock_threshold` por presentación (MIGRATION_032), permiso
+  `CATALOG_PRODUCT_UPDATE`, precisión acotada a la unidad.
+- Farmacia: perfil con receta/controlado → `VERIFICATION_REQUIRED`; registro
+  inválido/vencido → `RESTRICTED`. La venta definitiva sigue en backend.
 
-`lote`, `fecha_fabricacion`, `fecha_vencimiento`, `referencia_proveedor`,
-`documento_recibo` — solo con `PURCHASE_RECEIPT` y campos de lote completos.
+## Pendiente 3C / multicaja
 
-## Campos administrativos persistidos (SQLite MIGRATION_031)
-
-`catalog_product.description`, `brand`, `category` — lectura/escritura real vía
-register/update/list/find. No viven solo en React.
-
-## Pendiente 3B / 3C
-
-- Aplicar `cantidad_por_presentacion` como regla de conversión autorizada.
-- Canal multicaja de invalidación de catálogo/inventario.
-- Importación atómica de archivo completo (hoy es por fila).
-- Alta de presentaciones adicionales en la misma planilla.
-- Cambio de `stock_controlled` en actualización (solo en alta hoy).
+- Canal de invalidación entre ventanas/dispositivos.
+- Atomicidad de archivo completo.
+- Conversión `cantidad_por_presentacion`.
+- Presentaciones adicionales en la misma planilla.
+- Cambio de `stock_controlled` en actualización.
