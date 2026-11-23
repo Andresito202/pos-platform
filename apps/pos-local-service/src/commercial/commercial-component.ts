@@ -60,6 +60,7 @@ import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js"
 import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 import { SqliteWaitingCartStore } from "../sales/sqlite-waiting-cart-store.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
+import { CancelSaleUseCase } from "../sales/cancel-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
 import { AdjustStockUseCase,ChangeBatchStatusUseCase } from "../inventory/adjust-stock-use-case.js";
@@ -127,6 +128,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly openCashShift: OpenCashShiftUseCase;
         readonly closeCashShift: CloseCashShiftUseCase;
         readonly createSale: CreateSaleUseCase;
+        readonly cancelSale: CancelSaleUseCase;
         readonly registerCashPayment: RegisterCashPaymentUseCase;
         readonly registerTransferPayment: RegisterTransferPaymentUseCase;
         readonly confirmTransferPayment: ConfirmTransferPaymentUseCase;
@@ -257,6 +259,7 @@ export class CommercialComponent implements RuntimeComponent {
   get openCashShift(): OpenCashShiftUseCase { return this.ready.openCashShift; }
   get closeCashShift(): CloseCashShiftUseCase { return this.ready.closeCashShift; }
   get createSale(): CreateSaleUseCase { return this.ready.createSale; }
+  get cancelSale(): CancelSaleUseCase { return this.ready.cancelSale; }
   get registerCashPayment(): RegisterCashPaymentUseCase { return this.ready.registerCashPayment; }
   get registerTransferPayment(): RegisterTransferPaymentUseCase { return this.ready.registerTransferPayment; }
   get confirmTransferPayment(): ConfirmTransferPaymentUseCase { return this.ready.confirmTransferPayment; }
@@ -397,6 +400,7 @@ export class CommercialComponent implements RuntimeComponent {
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
       createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now, pharmacyStore),
+      cancelSale: new CancelSaleUseCase(saleStore, inventoryStore, this.now),
       upsertPharmacyEstablishment: new UpsertPharmacyEstablishmentUseCase(pharmacyStore),
       upsertPharmacyProfile: new UpsertPharmacyProfileUseCase(pharmacyStore),
       registerPharmacyPrescription: new RegisterPharmacyPrescriptionUseCase(pharmacyStore),

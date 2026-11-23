@@ -15,6 +15,7 @@ export const IPC_ALLOWED_CHANNELS = [
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",
+  "pos:sale.cancel",
   // Payment V1 — `DEC-016`.
   "pos:payment.register.cash",
   "pos:payment.register.transfer",

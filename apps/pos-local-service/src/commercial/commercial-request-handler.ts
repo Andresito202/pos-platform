@@ -23,7 +23,7 @@ type CommercialRequest = Extract<
     message_type:
       | "authorization.capabilities.get"
       | "session.activate" | "session.recover"
-      | "cash.shift.open" | "cash.shift.close" | "sale.create"
+      | "cash.shift.open" | "cash.shift.close" | "sale.create" | "sale.cancel"
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.factus_pay.collect" | "payment.factus_pay.verify" | "payment.factus_pay.resume" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
@@ -79,6 +79,9 @@ const ERROR_CATEGORIES: Readonly<Record<string, ErrorCategory>> = {
   PRESENTATION_NOT_FOUND: "NOT_FOUND",
   SALE_NOT_PAYABLE: "CONFLICT",
   SALE_ALREADY_COMPLETED: "CONFLICT",
+  CONFIRMED_COVERAGE_REQUIRES_RECONCILIATION: "CONFLICT",
+  PENDING_PAYMENTS_MUST_CANCEL: "CONFLICT",
+  CONFLICT: "CONFLICT",
   OVERPAYMENT_NOT_ALLOWED: "CONFLICT",
   CASH_SHIFT_MISSING: "CONFLICT",
   CASH_SHIFT_NOT_OPEN: "CONFLICT",
@@ -234,6 +237,7 @@ export class CommercialRequestHandler {
       case "cash.shift.open": return this.openShift(request, connectionId);
       case "cash.shift.close": return this.closeShift(request, connectionId);
       case "sale.create": return this.createSale(request, connectionId);
+      case "sale.cancel": return this.cancelSale(request, connectionId);
       case "cart.waiting.save":
       case "cart.waiting.discard":
       case "cart.waiting.get":
@@ -2043,6 +2047,49 @@ export class CommercialRequestHandler {
     return rejected(request, result.kind, {
       outcome: result.kind,
       sale_id: null, sale_number: null, payable_amount: null, calculation_checksum: null,
+    });
+  }
+
+  private cancelSale(
+    request: Extract<CommercialRequest, { message_type: "sale.cancel" }>,
+    connectionId: string,
+  ): unknown {
+    const denied = { outcome: "UNAUTHORIZED", sale_id: null, released_reservations: null };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, denied);
+    }
+    const result = this.commercial.cancelSale.execute(
+      this.scope(),
+      authenticated.identity.ssaSessionId,
+      authenticated.snapshot,
+      {
+        saleId: request.payload.sale_id,
+        reasonCode: request.payload.reason_code,
+        idempotencyKey: request.idempotency_key as string,
+        correlationId: request.correlation_id,
+        causationId: request.causation_id ?? null,
+      },
+    );
+    if (result.kind === "CANCELLED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
+        sale_id: result.saleId,
+        released_reservations: result.released,
+      });
+    }
+    if (result.kind === "UNAUTHORIZED") {
+      return rejected(request, "UNAUTHORIZED", denied);
+    }
+    if (result.kind === "CONFLICT") {
+      return rejected(request, "CONFLICT", {
+        outcome: "CONFLICT", sale_id: request.payload.sale_id, released_reservations: null,
+      });
+    }
+    return rejected(request, result.kind, {
+      outcome: result.kind,
+      sale_id: request.payload.sale_id,
+      released_reservations: null,
     });
   }
 

@@ -14,6 +14,7 @@ export const RENDERER_API_METHODS = [
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
+  "sale.cancel",
   "cart.waiting.save",
   "cart.waiting.list",
   "cart.waiting.get",

@@ -668,7 +668,23 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
       {sale.unresolved && <div role="alert">Hay una operación pendiente de respuesta.
         <button type="button" data-testid="retry-pending-operation" disabled={sale.busy} onClick={() => { void sale.retryPending(); }}>Reintentar operación pendiente</button>
       </div>}
-      {sale.error !== null && <div data-testid="sale-error">{sale.error}</div>}
+      {sale.error !== null && (
+        <div data-testid="sale-error">
+          {sale.error === "INSUFFICIENT_STOCK"
+            ? "No se pudo completar el cobro: el inventario ya no es elegible (p. ej. lote vencido). El pago no se registró."
+            : sale.error}
+          {sale.error === "INSUFFICIENT_STOCK" && sale.sale !== null && (
+            <button
+              type="button"
+              data-testid="cancel-blocked-sale-button"
+              disabled={sale.busy || sale.unresolved}
+              onClick={() => { void sale.cancelSale(); }}
+            >
+              Cancelar venta y liberar reserva
+            </button>
+          )}
+        </div>
+      )}
       <button data-testid="reset-button" onClick={() => { if (!sale.reset()) return; setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); setShowDenominations(false); }} disabled={sale.busy}>
         Nueva venta
       </button>

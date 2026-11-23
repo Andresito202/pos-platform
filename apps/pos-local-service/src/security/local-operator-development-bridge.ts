@@ -18,6 +18,7 @@ const CASHIER = [
   CanonicalPermission.CASH_SHIFT_OPEN,
   CanonicalPermission.CASH_SHIFT_CLOSE,
   CanonicalPermission.SALES_SALE_CREATE,
+  CanonicalPermission.SALES_SALE_CANCEL,
   CanonicalPermission.SALES_RECEIPT_READ,
   CanonicalPermission.PAYMENTS_PAYMENT_REGISTER,
   CanonicalPermission.PAYMENTS_PAYMENT_READ,
@@ -29,6 +30,7 @@ const CASHIER = [
 const SUPERVISOR = [
   // Supervision grants consultation and payment review, not business data entry.
   CanonicalPermission.SALES_RECEIPT_READ,
+  CanonicalPermission.SALES_SALE_CANCEL,
   CanonicalPermission.PAYMENTS_PAYMENT_READ,
   CanonicalPermission.CATALOG_PRODUCT_READ,
   CanonicalPermission.CUSTOMERS_CUSTOMER_READ,

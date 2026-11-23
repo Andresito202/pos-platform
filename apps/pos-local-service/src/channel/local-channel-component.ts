@@ -196,6 +196,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "cash.shift.open":
       case "cash.shift.close":
       case "sale.create":
+      case "sale.cancel":
       case "cart.waiting.save":
       case "cart.waiting.list":
       case "cart.waiting.get":

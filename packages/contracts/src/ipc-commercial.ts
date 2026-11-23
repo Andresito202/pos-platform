@@ -465,6 +465,43 @@ export const SaleCreateResultSchema = z.strictObject({
 
 export const SaleCreateResponseSchema = createResponseEnvelopeSchema(SaleCreateResultSchema);
 
+// ── sale.cancel ──────────────────────────────────────────────────────────────
+
+/**
+ * Cancels a local unpaid sale and releases its SALE inventory holds.
+ * Does not refund confirmed payments — those require reconciliation/refund.
+ * Does not free SALE holds via inventory.reservation.release.
+ */
+export const SaleCancelRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    reason_code: z.string().min(1).max(64),
+  }),
+).safeExtend({ message_type: z.literal("sale.cancel") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const SaleCancelOutcomeSchema = z.enum([
+  "CANCELLED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "NOT_FOUND",
+  "CONFLICT",
+  "CONFIRMED_COVERAGE_REQUIRES_RECONCILIATION",
+  "PENDING_PAYMENTS_MUST_CANCEL",
+]);
+
+export const SaleCancelResultSchema = z.strictObject({
+  outcome: SaleCancelOutcomeSchema,
+  sale_id: UuidSchema.nullable(),
+  released_reservations: z.number().int().nonnegative().nullable(),
+});
+
+export const SaleCancelResponseSchema = createResponseEnvelopeSchema(SaleCancelResultSchema);
+
 // ── payment.register.cash ────────────────────────────────────────────────────
 
 /**
@@ -2276,6 +2313,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
+  "sale.cancel",
   "cart.waiting.save",
   "cart.waiting.list",
   "cart.waiting.get",
@@ -2347,6 +2385,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",
+  "pos:sale.cancel",
   "pos:cart.waiting.save",
   "pos:cart.waiting.list",
   "pos:cart.waiting.get",
@@ -2412,6 +2451,7 @@ export type SessionRecoverResult = z.infer<typeof SessionRecoverResultSchema>;
 export type CashShiftOpenResult = z.infer<typeof CashShiftOpenResultSchema>;
 export type CashShiftCloseResult = z.infer<typeof CashShiftCloseResultSchema>;
 export type SaleCreateResult = z.infer<typeof SaleCreateResultSchema>;
+export type SaleCancelResult = z.infer<typeof SaleCancelResultSchema>;
 export type PaymentRegisterCashResult = z.infer<typeof PaymentRegisterCashResultSchema>;
 export type PaymentRegisterTransferResult = z.infer<typeof PaymentRegisterTransferResultSchema>;
 export type PaymentTransferConfirmResult = z.infer<typeof PaymentTransferConfirmResultSchema>;

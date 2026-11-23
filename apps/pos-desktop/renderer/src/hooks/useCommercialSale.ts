@@ -14,6 +14,7 @@ import type {
   PaymentCancelResult,
   PaymentRegisterCashResult,
   SaleCreateResult,
+  SaleCancelResult,
   SalesReceiptGetResult,
 } from "@pos-platform/contracts";
 import { buildEnvelope, callCommercial, callCommercialEnvelope, newIdempotencyKey, type CommercialEnvelope } from "../pos-service.js";
@@ -178,6 +179,8 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   addFoundItem(quantity: string): void;
   captureWeight(): Promise<void>;
   createSale(): Promise<void>;
+  /** Liberar venta no cobrada (p. ej. lote vencido tras reserva) y sus holds. */
+  cancelSale(reasonCode?: string): Promise<void>;
   chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
   refreshTransfer(): Promise<void>;
   registerTransfer(): Promise<void>;
@@ -484,6 +487,30 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
       },
     );
   }, [lines, shift, sale, customerId, activeWaiting, runChange, listCatalogItems]);
+
+  const cancelSale = useCallback(async (reasonCode = "OPERATOR_CANCEL_AFTER_STOCK_BLOCK"): Promise<void> => {
+    const current = sale;
+    if (current === null || busy) return;
+    await runChange<SaleCancelResult>(
+      "sale.cancel",
+      { sale_id: current.saleId, reason_code: reasonCode },
+      (result) => {
+        if (result.outcome !== "CANCELLED" && result.outcome !== "IDEMPOTENT") {
+          setError(result.outcome);
+          return false;
+        }
+        setSale(null);
+        setPayment(null);
+        setTransfer(null);
+        setTransferConfirmation(null);
+        setTransferReceiptAmount(null);
+        setFactusPay(null);
+        setFactusPayConfirmation(null);
+        setError(null);
+        void listCatalogItems(catalogQuery.current);
+      },
+    );
+  }, [sale, busy, runChange, listCatalogItems]);
 
   const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;
@@ -883,7 +910,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   return {
     busy, error, shift, foundItem, lines, sale, payment, closedShift,
     transfer, transferConfirmation, transferReceiptAmount, factusPay, factusPayConfirmation,
-    openShift, findItem, addFoundItem, captureWeight, createSale, chargeCash,
+    openShift, findItem, addFoundItem, captureWeight, createSale, cancelSale, chargeCash,
     registerTransfer, refreshTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
     closeShift, reset, unresolved, retryPending, loadTransfer, cancelTransfer,
     catalogItems, catalogBusy, catalogHasMore, listCatalogItems, loadMoreCatalogItems, addCatalogItem, removeLine, updateLineQuantity,
