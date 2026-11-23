@@ -48,8 +48,22 @@ describe.runIf(process.platform==="win32")("existing LocalChannelComponent SCM w
   expect(c.endpoint).toBe(`\\\\.\\pipe\\camacho-pos-${config.installation_id}-scm`);
   expect(boundary.read).toHaveBeenCalledWith(handoff,"SERVICE",config.installation_id,config.device_id);
   expect(boundary.readCentral).toHaveBeenCalledWith(central);
-  expect(boundary.guard).toHaveBeenCalledWith(centralProvision,{role:"SERVICE"},credentials,store);
-  expect(boundary.construct).toHaveBeenCalledWith({role:"SERVICE"},database.database,secret,undefined,expect.any(Object));
+  expect(boundary.guard).toHaveBeenCalledWith(
+    centralProvision,
+    {role:"SERVICE"},
+    credentials,
+    store,
+    undefined,
+    fetch,
+    expect.objectContaining({directory:"C:\\existing-data\\security"}),
+  );
+  expect(boundary.construct).toHaveBeenCalledWith(
+    {role:"SERVICE"},
+    database.database,
+    secret,
+    expect.objectContaining({onFatal:expect.any(Function)}),
+    expect.any(Object),
+  );
   expect(boundary.start).toHaveBeenCalledWith(expect.any(Function));expect(secret.equals(Buffer.alloc(32))).toBe(true);
   await c.stop();expect(boundary.stop).toHaveBeenCalledOnce();component=undefined;
  });
