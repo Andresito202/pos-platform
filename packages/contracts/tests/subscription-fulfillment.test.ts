@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SubscriptionFulfillmentProvisionSchema,
+  SubscriptionFactusPayGatewayProvisionSchema,
   isSubscriptionFulfillmentRetryableError,
   subscriptionFulfillmentBackoffMs,
   uuidV7,
@@ -53,5 +54,25 @@ describe("subscription fulfillment contracts", () => {
     expect(subscriptionFulfillmentBackoffMs(2, 1000, 60000, 0.5)).toBeLessThanOrEqual(4000);
     expect(() => subscriptionFulfillmentBackoffMs(-1, 1000, 60000)).toThrow();
     void uuidV7;
+  });
+
+  it("requires managed Factus Pay gateway provision without inventing paid status", () => {
+    expect(() => SubscriptionFactusPayGatewayProvisionSchema.parse({
+      profile: "CAMACHO_SUBSCRIPTION_FACTUS_PAY_GATEWAY_V1",
+      policy_reference: "TEST_POLICY",
+      environment: "SANDBOX",
+      credential_file: "/run/camacho/factus-pay-login.json",
+      request_timeout_ms: 20_000,
+      maximum_response_bytes: 1_048_576,
+    })).not.toThrow();
+    expect(() => SubscriptionFactusPayGatewayProvisionSchema.parse({
+      profile: "CAMACHO_SUBSCRIPTION_FACTUS_PAY_GATEWAY_V1",
+      policy_reference: "TEST_POLICY",
+      environment: "SANDBOX",
+      credential_file: "/run/camacho/factus-pay-login.json",
+      request_timeout_ms: 20_000,
+      maximum_response_bytes: 1_048_576,
+      simulate_paid: true,
+    })).toThrow();
   });
 });

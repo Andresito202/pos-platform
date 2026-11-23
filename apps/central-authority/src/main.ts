@@ -13,6 +13,7 @@ import { prepareFactusPayRuntime } from "./factus-pay-runtime.js";
 import { FACTUS_PAY_COLLECTION_WEBHOOK_PATH } from "./factus-pay-webhook-handler.js";
 import { prepareBusinessAdministrationRuntime } from "./business-administration-runtime.js";
 import { prepareSubscriptionFulfillmentRuntime } from "./subscription-fulfillment-runtime.js";
+import { prepareSubscriptionFactusPayGateway } from "./subscription-factus-pay-gateway-runtime.js";
 import { createCentralRouter } from "./central-router.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
@@ -113,6 +114,11 @@ try {
   await pool.end();
   throw error;
 }
+const subscriptionFactusPayGatewayFile = process.env.CENTRAL_SUBSCRIPTION_FACTUS_PAY_GATEWAY_FILE;
+const subscriptionFactusPayGateway = subscriptionFactusPayGatewayFile === undefined
+  ? null
+  : prepareSubscriptionFactusPayGateway(subscriptionFactusPayGatewayFile);
+
 const subscriptionFulfillmentProvision = process.env.CENTRAL_SUBSCRIPTION_FULFILLMENT_PROVISION_FILE;
 const subscriptionFulfillmentRuntime = await (async () => {
   if (!subscriptionFulfillmentProvision || !globalProvision) return null;
@@ -127,6 +133,7 @@ const subscriptionFulfillmentRuntime = await (async () => {
       pool,
       provisionFile: subscriptionFulfillmentProvision,
       approvedPolicies: globalPolicy.fulfillment_policies,
+      factusPay: subscriptionFactusPayGateway,
     });
   } catch (error) {
     await pool.end();
@@ -150,6 +157,7 @@ const globalHandler = await (async () => {
         pool, provisionFile: globalProvision, origin: deployment.origin,
         licenseAuthority: licenseRuntime.authority,
         subscriptionFulfillment: subscriptionFulfillmentRuntime?.fulfillment ?? null,
+        factusPay: subscriptionFactusPayGateway,
       }),
       activation: licenseRuntime.handler,
     };

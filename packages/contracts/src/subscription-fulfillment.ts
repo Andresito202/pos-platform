@@ -3,6 +3,22 @@ import { UuidSchema, UuidV7Schema } from "./primitives.js";
 
 const positiveLimit = z.number().int().positive().max(2_147_483_647);
 
+/**
+ * Managed Central provision for the official subscription Factus Pay HTTP
+ * gateway (GET/open). Credentials stay in a separate managed file.
+ */
+export const SubscriptionFactusPayGatewayProvisionSchema = z.strictObject({
+  profile: z.literal("CAMACHO_SUBSCRIPTION_FACTUS_PAY_GATEWAY_V1"),
+  policy_reference: z.string().min(1).max(256),
+  environment: z.enum(["SANDBOX", "PRODUCTION"]),
+  credential_file: z.string().min(1).max(4096),
+  request_timeout_ms: positiveLimit,
+  maximum_response_bytes: positiveLimit,
+});
+
+export type SubscriptionFactusPayGatewayProvision =
+  z.infer<typeof SubscriptionFactusPayGatewayProvisionSchema>;
+
 /** Public durable states for autonomous paid-subscription license fulfillment. */
 export const SubscriptionFulfillmentStatusSchema = z.enum([
   "PENDING",

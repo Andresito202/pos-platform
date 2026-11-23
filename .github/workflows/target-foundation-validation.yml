@@ -13,13 +13,17 @@ on:
         description: "true = ejecutar SÓLO el gate sandbox FACTUS/Pay (no CI ordinario)"
         type: boolean
         default: false
+      run_commercial_license_runtime_cert:
+        description: "true = certificación comercial PR #130 (rama cursor/commercial-license-global-c53a); no altera el gate wave7"
+        type: boolean
+        default: false
       owner_authorization:
-        description: "Escriba exactamente OWNER_AUTHORIZED_SANDBOX_ONLY"
+        description: "OWNER_AUTHORIZED_SANDBOX_ONLY (wave7) o OWNER_AUTHORIZED_COMMERCIAL_RUNTIME_CERT (PR #130)"
         type: string
         default: ""
         required: false
       reviewed_sha:
-        description: "SHA tip actual de cursor/wave7-factus-1766 (40 hex). Vacío = tip del dispatch. No reutilizar SHA viejos (p.ej. 98513aae)."
+        description: "SHA tip de la rama autorizada del dispatch (40 hex). Vacío = tip del dispatch."
         type: string
         default: ""
         required: false
@@ -87,7 +91,7 @@ jobs:
 
   supply-chain-baseline:
     name: Repository policy, dependency inventory and vulnerability audit
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || inputs.run_commercial_license_runtime_cert)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -179,7 +183,7 @@ jobs:
 
   validate:
     name: TypeScript, SQLite and PostgreSQL 16.14
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || inputs.run_commercial_license_runtime_cert)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
@@ -336,7 +340,7 @@ jobs:
 
   runtime-windows:
     name: Windows local runtime platform checks
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || inputs.run_commercial_license_runtime_cert)) }}
     runs-on: windows-2022
     timeout-minutes: 15
 
@@ -378,7 +382,7 @@ jobs:
 
   provenance:
     name: Provenance evidence
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.run_factus_sandbox_exceptional) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.run_factus_sandbox_exceptional || inputs.run_commercial_license_runtime_cert)) }}
     needs:
       - supply-chain-baseline
       - validate
@@ -556,4 +560,187 @@ jobs:
         run: |
           echo "claim_level=OBSERVED_ONLY"
           echo "sandbox_verified_declared=false"
+          echo "production_calls=forbidden"
+
+  # Certificación comercial PR #130 — rama exclusiva
+  # cursor/commercial-license-global-c53a. No modifica el gate wave7.
+  # Activación: Actions → TARGET foundation validation → Run workflow →
+  # rama cursor/commercial-license-global-c53a +
+  # run_commercial_license_runtime_cert=true +
+  # owner_authorization=OWNER_AUTHORIZED_COMMERCIAL_RUNTIME_CERT.
+  commercial-license-runtime-cert:
+    name: Commercial license runtime cert (PR #130)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_commercial_license_runtime_cert }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CAMACHO_COMMERCIAL_RUNTIME_CERT: ${{ inputs.owner_authorization }}
+      REVIEWED_SHA: ${{ inputs.reviewed_sha || github.sha }}
+      CAMACHO_CERT_EVIDENCE_DIR: ${{ github.workspace }}/artifacts/commercial-license-runtime-cert
+      POSTGRES_ADMIN_URL: postgres://postgres@127.0.0.1:55438/postgres
+      POSTGRES_MIGRATOR_URL: postgres://pos_migrator@127.0.0.1:55438/postgres
+      CENTRAL_DATABASE_URL: postgres://pos_platform_app@127.0.0.1:55438/postgres
+      POSTGRES_EXPECTED_DATABASE: postgres
+      POSTGRES_MIGRATION_LOCK_TIMEOUT_MS: "5000"
+      POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS: "20000"
+    services:
+      postgres:
+        image: postgres:16.14
+        ports:
+          - 55438:5432
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_USER: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Refuse unauthorized commercial certification dispatch
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/cursor/commercial-license-global-c53a" || {
+            echo "REFUSED: unauthorized branch for PR #130 commercial cert"
+            exit 2
+          }
+          test "${CAMACHO_COMMERCIAL_RUNTIME_CERT}" = "OWNER_AUTHORIZED_COMMERCIAL_RUNTIME_CERT" || {
+            echo "REFUSED: owner authorization required"
+            exit 2
+          }
+          test "${REVIEWED_SHA}" = "${GITHUB_SHA}" || {
+            echo "REFUSED: reviewed SHA differs from dispatch SHA"
+            exit 2
+          }
+          if ! printf '%s' "${REVIEWED_SHA}" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "REFUSED: reviewed_sha must be 40 lowercase hex"
+            exit 2
+          fi
+
+      - name: Checkout exact reviewed SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.REVIEWED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify SHA is commercial-license branch tip
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tip="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/cursor/commercial-license-global-c53a" --jq '.object.sha')"
+          echo "reviewed_sha=${REVIEWED_SHA}"
+          echo "branch_tip=${tip}"
+          if [ "${REVIEWED_SHA}" != "${tip}" ]; then
+            echo "REFUSED: reviewed_sha must equal the authorized branch tip"
+            exit 2
+          fi
+          test "$(git rev-parse HEAD)" = "${REVIEWED_SHA}"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck commercial surfaces
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/contracts typecheck
+          pnpm --filter @pos-platform/database-postgres typecheck
+          pnpm --filter @pos-platform/central-authority typecheck
+          pnpm --filter @pos-platform/target-migrations typecheck
+
+      - name: Focused autonomous fulfillment suites
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/contracts test -- tests/subscription-fulfillment.test.ts
+          pnpm --filter @pos-platform/target-migrations test -- tests/postgres-035-subscription-fulfillment-artifact.test.ts
+          pnpm --filter @pos-platform/central-authority test -- \
+            tests/subscription-fulfillment-autonomous.test.ts \
+            tests/subscription-payment-verify-security.test.ts \
+            tests/factus-pay-webhook-handler.test.ts
+
+      - name: Record 035 checksum and PostgreSQL verification boundary
+        run: |
+          set -euo pipefail
+          mkdir -p "${CAMACHO_CERT_EVIDENCE_DIR}"
+          python3 - <<'PY'
+          import hashlib, pathlib, os
+          up = pathlib.Path("tools/target-migrations/sql/postgres/035_subscription_license_fulfillment.up.sql").read_bytes()
+          checksum = hashlib.sha256(up).hexdigest()
+          out = pathlib.Path(os.environ["CAMACHO_CERT_EVIDENCE_DIR"]) / "035-checksum.txt"
+          out.write_text(checksum + "\n", encoding="utf-8")
+          print("035_checksum_recorded=true")
+          PY
+          # Ephemeral Actions Postgres is present for health checks only. Applying
+          # commercial migrations still requires the authorized lab foundation
+          # (001→023) with pos_migrator. Do not invent APPLIED / POSTGRES_VERIFIED.
+          {
+            echo "POSTGRES_VERIFIED=false"
+            echo "BLOCK=authorized_commercial_lab_postgres_with_foundation_chain_required"
+            echo "REQUIRED=pos_migrator_url_and_applied_023_predecessor"
+            echo "035_checksum=$(tr -d '\n' < "${CAMACHO_CERT_EVIDENCE_DIR}/035-checksum.txt")"
+            echo "ephemeral_postgres_service=available_for_future_lab_bootstrap_only"
+          } | tee "${CAMACHO_CERT_EVIDENCE_DIR}/migration-status.txt"
+
+      - name: Probe FACTUS Pay sandbox secret availability (no paid forgery)
+        env:
+          FACTUS_PAY_SANDBOX_EMAIL: ${{ secrets.FACTUS_PAY_SANDBOX_EMAIL }}
+          FACTUS_PAY_SANDBOX_PASSWORD: ${{ secrets.FACTUS_PAY_SANDBOX_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in FACTUS_PAY_SANDBOX_EMAIL FACTUS_PAY_SANDBOX_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "MISSING_SECRET_NAME=${name}"
+              missing=1
+            else
+              echo "SECRET_PRESENT_NAME=${name}"
+            fi
+          done
+          {
+            echo "{"
+            echo "  \"commit\": \"${REVIEWED_SHA}\","
+            echo "  \"environment\": \"github-actions-ephemeral-postgres\","
+            echo "  \"factus_pay_sandbox_secrets_present\": $([ "$missing" -eq 0 ] && echo true || echo false),"
+            echo "  \"paid_status_forged\": false,"
+            echo "  \"runtime_verified_declared\": false,"
+            echo "  \"postgres_verified_declared\": false,"
+            echo "  \"device_activated_declared\": false"
+            echo "}"
+          } > "${CAMACHO_CERT_EVIDENCE_DIR}/evidence-boundary.json"
+          if [ "$missing" -ne 0 ]; then
+            echo "FACTUS_SANDBOX_VERIFIED=false"
+            echo "BLOCK=FACTUS_PAY_SANDBOX_credentials_unavailable_to_this_job"
+          fi
+
+      - name: Upload redacted certification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: commercial-license-runtime-cert-${{ env.REVIEWED_SHA }}
+          path: artifacts/commercial-license-runtime-cert/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Boundary reminder
+        if: always()
+        run: |
+          echo "claim_level=NOT_VERIFIED_UNTIL_FULL_CHAIN"
+          echo "runtime_verified_declared=false"
+          echo "wave7_factus_lock_untouched=true"
           echo "production_calls=forbidden"

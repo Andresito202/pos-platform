@@ -6,6 +6,7 @@ import {
   uuidV7,
 } from "@pos-platform/contracts";
 import { SubscriptionLicenseContracts } from "../src/subscription-license-contracts.js";
+import { prepareSubscriptionFactusPayGateway } from "../src/subscription-factus-pay-gateway-runtime.js";
 import { SubscriptionLicenseFulfillment } from "../src/subscription-license-fulfillment.js";
 
 describe("subscription autonomous fulfillment authorization boundary", () => {
@@ -44,6 +45,11 @@ describe("subscription autonomous fulfillment authorization boundary", () => {
     expect(typeof licenses.issue).toBe("function");
     expect(typeof licenses.issueAsService).toBe("function");
     expect("skipAuth" in licenses).toBe(false);
+  });
+
+  it("rejects relative Factus Pay gateway provision paths (managed absolute only)", () => {
+    expect(() => prepareSubscriptionFactusPayGateway("relative/provision.json"))
+      .toThrow("SUBSCRIPTION_FACTUS_PAY_MANAGED_ABSOLUTE_FILE_REQUIRED");
   });
 });
 
