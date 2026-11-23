@@ -10,6 +10,7 @@ import {join,resolve} from "node:path";
 import {uuidV7} from "../../packages/contracts/src/primitives.js";
 import {prepareSubscriptionFactusPayGateway} from "../../apps/central-authority/src/subscription-factus-pay-gateway-runtime.js";
 
+async function main():Promise<void>{
 const OUT="factus-collection-observation.json";
 const directory=process.env.CAMACHO_CERT_EVIDENCE_DIR??"";
 const sha=process.env.REVIEWED_SHA??"";
@@ -76,3 +77,10 @@ try{
   mkdirSync(resolve(directory),{recursive:true});
   writeFileSync(join(directory,OUT),JSON.stringify(evidence,null,2)+"\n",{mode:0o600});
 }
+
+}
+
+main().catch((error:unknown)=>{
+  console.error("PR130_FACTUS_PAY_COLLECTION_GATE_FAILED="+(error instanceof Error&&"code" in error?String((error as {code:unknown}).code):"UNEXPECTED_ERROR"));
+  process.exitCode=1;
+});
