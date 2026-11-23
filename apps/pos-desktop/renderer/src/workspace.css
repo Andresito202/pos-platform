@@ -237,7 +237,8 @@
   font-weight: 700;
   letter-spacing: .08em;
 }
-.pos-entry-card .pos-entry-banner {
+.pos-entry-card .pos-entry-banner,
+.pos-status [data-testid="status-unavailable"] {
   margin: 0 0 12px;
   padding: 10px 12px;
   border-radius: 6px;
@@ -253,7 +254,9 @@
   border-color: #c5d6e0;
   border-left-color: #2577b0;
 }
-.pos-entry-card .pos-entry-banner--warning {
+.pos-entry-card .pos-entry-banner--warning,
+.pos-status [data-testid="status-unavailable"],
+.pos-entry-card [data-testid="status-unavailable"] {
   background: var(--camacho-warning-soft);
   color: var(--camacho-warning);
   border-color: #dcc68b;
@@ -264,6 +267,14 @@
   color: var(--camacho-danger);
   border-color: #efcaca;
   border-left-color: var(--camacho-danger);
+}
+.pos-status [data-testid="status-unavailable"] p,
+.pos-entry-card [data-testid="status-unavailable"] p {
+  margin: 0 0 8px;
+}
+.pos-status [data-testid="status-unavailable"] p:last-child,
+.pos-entry-card [data-testid="status-unavailable"] p:last-child {
+  margin-bottom: 0;
 }
 .pos-entry-card [role="status"],
 .pos-entry-card [role="alert"] { margin: 0 0 12px; }

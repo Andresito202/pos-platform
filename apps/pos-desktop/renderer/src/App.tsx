@@ -239,9 +239,17 @@ function LocalApp(): React.JSX.Element {
               </div>
             ) : null}
             {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={refreshAccess} />}
-            <button type="button" className="pos-entry-secondary" onClick={refreshAccess} disabled={loading}>
-              Actualizar acceso
-            </button>
+            {authorization.phase === "error" && (
+              <button
+                type="button"
+                className="pos-entry-secondary"
+                data-testid="retry-connection"
+                onClick={refreshAccess}
+                disabled={loading}
+              >
+                Reintentar conexión
+              </button>
+            )}
             <StatusPanel />
           </section>
           <InstitutionalWebsiteLink />
@@ -300,7 +308,7 @@ function LocalApp(): React.JSX.Element {
         </header>
 
         <section className="pos-status">
-          <StatusPanel />
+          <StatusPanel onRetry={refreshAccess} />
         </section>
 
         <section className="pos-screen" aria-label="Pantalla activa">

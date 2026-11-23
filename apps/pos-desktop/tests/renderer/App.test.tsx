@@ -248,6 +248,9 @@ describe("App", () => {
     const site = screen.getByTestId("institutional-website");
     expect(card.contains(site)).toBe(false);
     expect(screen.getByText("Sitio web de Camacho POS Colombia")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Actualizar acceso" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reintentar conexión" })).toBeNull();
+    expect(screen.queryByText(/Servicio local: conectado/i)).toBeNull();
     expect(screen.queryByTestId("sale-panel")).toBeNull();
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
   });
@@ -267,6 +270,8 @@ describe("App", () => {
     expect(screen.getByTestId("authorization-error").textContent).toContain(
       "El canal con el servicio local se interrumpió.",
     );
+    expect(screen.getByRole("button", { name: "Reintentar conexión" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Actualizar acceso" })).toBeNull();
     expect(screen.queryByLabelText("Usuario")).toBeNull();
     expect(screen.queryByTestId("sale-panel")).toBeNull();
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
@@ -315,9 +320,11 @@ describe("App", () => {
     });
   });
 
-  it("renders the status panel in loading state initially", () => {
+  it("keeps runtime diagnostics off the normal login surface while status is pending", () => {
     render(<App />);
-    expect(screen.getByTestId("status-loading")).toBeTruthy();
+    expect(screen.queryByTestId("status-loading")).toBeNull();
+    expect(screen.queryByTestId("status-connected")).toBeNull();
+    expect(screen.queryByText(/Servicio local: conectado/i)).toBeNull();
   });
 
   it("renders the operation panel after authorization loads", async () => {
