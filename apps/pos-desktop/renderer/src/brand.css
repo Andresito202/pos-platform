@@ -1,4 +1,4 @@
-/* One identity, original aspect ratios. No cropping or stretching. */
+/* One identity, original aspect ratios. No cropping or stretching in CSS. */
 .pos-brand { display: block; overflow: hidden; background: transparent; border-radius: 0; }
 .pos-brand img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .pos-brand--sidebar {
@@ -9,9 +9,10 @@
   background: rgb(255 255 255 / 6%);
   border-radius: 8px;
 }
+/* Official login lockup (yellow / cash register), entry crop ~1418×508 */
 .pos-brand--entry {
-  width: min(100%, 400px);
-  aspect-ratio: 1521 / 545;
+  width: min(100%, 420px);
+  aspect-ratio: 1418 / 508;
   padding: 0;
   background: transparent;
 }

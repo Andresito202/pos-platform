@@ -7,7 +7,13 @@ import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const entry = join(here, "smoke-entry.mjs");
-const artifactDir = "/opt/cursor/artifacts/camacho-pos-login-refine-20261123";
+/**
+ * Portable artifact directory:
+ * - override with POS_DESKTOP_VISUAL_ARTIFACT_DIR
+ * - default: apps/pos-desktop/e2e/artifacts/login-visual (repo-relative)
+ */
+const artifactDir = process.env.POS_DESKTOP_VISUAL_ARTIFACT_DIR?.trim()
+  || join(here, "artifacts", "login-visual");
 const require = createRequire(import.meta.url);
 const executablePath = require("electron") as string;
 
@@ -51,6 +57,7 @@ test("captura login limpio a 1366x768 sin superficie comercial", async () => {
   await setWindowBounds({ x: 0, y: 40, width: 1366, height: 768 });
   await expect(window.getByRole("textbox", { name: "Usuario" })).toBeVisible();
   await expect(window.getByRole("button", { name: "Ingresar" })).toBeVisible();
+  await expect(window.getByRole("img", { name: "Camacho POS Colombia" })).toBeVisible();
   await expect(window.getByTestId("sale-panel")).toHaveCount(0);
   await window.screenshot({
     path: join(artifactDir, "01-login-clean-1366x768.png"),
@@ -77,10 +84,6 @@ test("captura login a ~1920x1080", async () => {
   await expect(window.getByTestId("sale-panel")).toHaveCount(0);
   await window.screenshot({
     path: join(artifactDir, "03-login-1920x1080.png"),
-    animations: "disabled",
-  });
-  await window.locator(".pos-entry-card").screenshot({
-    path: join(artifactDir, "04-login-card-closeup.png"),
     animations: "disabled",
   });
 });
