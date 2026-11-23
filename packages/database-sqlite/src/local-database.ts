@@ -2416,6 +2416,70 @@ ALTER TABLE bakery_production_recipe_deviation ADD COLUMN approval_id TEXT
   CHECK(approval_id IS NULL OR length(approval_id)=36);
 `.trim();
 
+/**
+ * MIGRATION_030: catalog media refs (filesystem payloads) + product.primary_media_id
+ * + presentation.version for UC-CAT-002 concurrency. Does not rewrite 001–029.
+ * Brand/category/description arrive in MIGRATION_031.
+ */
+const MIGRATION_030 = `
+CREATE TABLE catalog_media (
+  id TEXT NOT NULL CHECK(length(id) = 36),
+  tenant_id TEXT NOT NULL CHECK(length(tenant_id) = 36),
+  company_id TEXT NOT NULL CHECK(length(company_id) = 36),
+  content_sha256 TEXT NOT NULL CHECK(length(content_sha256) = 64),
+  mime_type TEXT NOT NULL CHECK(mime_type IN ('image/jpeg','image/png','image/webp')),
+  byte_size INTEGER NOT NULL CHECK(byte_size > 0 AND byte_size <= 262144),
+  width_px INTEGER NOT NULL CHECK(width_px BETWEEN 32 AND 512),
+  height_px INTEGER NOT NULL CHECK(height_px BETWEEN 32 AND 512),
+  storage_relpath TEXT NOT NULL CHECK(length(storage_relpath) BETWEEN 8 AND 240),
+  status TEXT NOT NULL CHECK(status IN ('ACTIVE','RETIRED')),
+  created_by_actor_id TEXT NOT NULL CHECK(length(created_by_actor_id) = 36),
+  created_at TEXT NOT NULL,
+  retired_at TEXT,
+  CHECK ((status = 'RETIRED') = (retired_at IS NOT NULL)),
+  PRIMARY KEY (tenant_id, id)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX catalog_media_company_idx
+  ON catalog_media(tenant_id, company_id, status);
+
+ALTER TABLE catalog_product ADD COLUMN primary_media_id TEXT
+  CHECK(primary_media_id IS NULL OR length(primary_media_id) = 36);
+
+ALTER TABLE catalog_presentation ADD COLUMN version INTEGER NOT NULL DEFAULT 1
+  CHECK(version >= 1);
+`.trim();
+
+/**
+ * MIGRATION_031: commercial description / brand / category on catalog_product.
+ * Nullable text attributes for UC-CAT-002 admin edit and spreadsheet import.
+ * Does not rewrite 001–030. Does not invent category_id FK tables.
+ */
+const MIGRATION_031 = `
+ALTER TABLE catalog_product ADD COLUMN description TEXT
+  CHECK(description IS NULL OR length(description) BETWEEN 1 AND 2000);
+ALTER TABLE catalog_product ADD COLUMN brand TEXT
+  CHECK(brand IS NULL OR length(brand) BETWEEN 1 AND 120);
+ALTER TABLE catalog_product ADD COLUMN category TEXT
+  CHECK(category IS NULL OR length(category) BETWEEN 1 AND 120);
+`.trim();
+
+/**
+ * MIGRATION_032: per-presentation low-stock threshold (scale-6) for Caja LOW.
+ * Does not rewrite stock ledgers. Null = no commercial low threshold.
+ */
+const MIGRATION_032 = `
+ALTER TABLE catalog_presentation ADD COLUMN low_stock_threshold TEXT
+  CHECK(
+    low_stock_threshold IS NULL OR (
+      low_stock_threshold GLOB '[0-9]*.[0-9][0-9][0-9][0-9][0-9][0-9]'
+      AND low_stock_threshold NOT GLOB '*[^0-9.]*'
+      AND length(low_stock_threshold) - length(replace(low_stock_threshold, '.', '')) = 1
+      AND low_stock_threshold NOT GLOB '0[0-9]*'
+      AND low_stock_threshold <> '0.000000'
+    )
+  );
+`.trim();
+
 const MIGRATIONS = [
   { version: 1, sql: MIGRATION_001, checksum: createHash("sha256").update(MIGRATION_001).digest("hex") },
   { version: 2, sql: MIGRATION_002, checksum: createHash("sha256").update(MIGRATION_002).digest("hex") },
@@ -2446,6 +2510,9 @@ const MIGRATIONS = [
   { version: 27, sql: MIGRATION_027, checksum: createHash("sha256").update(MIGRATION_027).digest("hex") },
   { version: 28, sql: MIGRATION_028, checksum: createHash("sha256").update(MIGRATION_028).digest("hex") },
   { version: 29, sql: MIGRATION_029, checksum: createHash("sha256").update(MIGRATION_029).digest("hex") },
+  { version: 30, sql: MIGRATION_030, checksum: createHash("sha256").update(MIGRATION_030).digest("hex") },
+  { version: 31, sql: MIGRATION_031, checksum: createHash("sha256").update(MIGRATION_031).digest("hex") },
+  { version: 32, sql: MIGRATION_032, checksum: createHash("sha256").update(MIGRATION_032).digest("hex") },
 ] as const;
 
 /**

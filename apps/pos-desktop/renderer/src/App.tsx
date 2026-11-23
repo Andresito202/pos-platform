@@ -19,6 +19,7 @@ import { CatalogPanel } from "./components/CatalogPanel.js";
 import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { FiscalPanel } from "./components/FiscalPanel.js";
+import { bindCatalogMediaSession, clearCatalogMediaCache } from "./catalog-media-cache.js";
 import { useAuthorizationCapabilities } from "./hooks/useAuthorizationCapabilities.js";
 import { useLocalOperatorSession } from "./hooks/useLocalOperatorSession.js";
 import { homeScreenId, orderScreensByRole } from "./roleNavigation.js";
@@ -68,6 +69,7 @@ function LocalApp(): React.JSX.Element {
       || authorization.phase === "expired"
       || authorization.phase === "error"
     ) {
+      clearCatalogMediaCache();
       setActiveScreen(null);
       setVisitedScreens(new Set());
       setNavigationOpen(true);
@@ -81,10 +83,18 @@ function LocalApp(): React.JSX.Element {
     ? `${localSession.username ?? ""}:${localSession.role ?? ""}`
     : null;
   useEffect(() => {
-    if (settledIdentity === null) return;
+    if (settledIdentity === null) {
+      clearCatalogMediaCache();
+      return;
+    }
+    bindCatalogMediaSession({
+      username: localSession.username,
+      role: localSession.role,
+      epoch: sessionEpoch,
+    });
     setActiveScreen(null);
     setVisitedScreens(new Set());
-  }, [settledIdentity]);
+  }, [settledIdentity, localSession.username, localSession.role, sessionEpoch]);
 
   const screens = useMemo<Screen[]>(() => {
     if (authorization.phase !== "ready" || !localSession.ready) return [];

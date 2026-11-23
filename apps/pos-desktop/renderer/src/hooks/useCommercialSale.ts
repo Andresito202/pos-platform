@@ -14,9 +14,11 @@ import type {
   PaymentCancelResult,
   PaymentRegisterCashResult,
   SaleCreateResult,
+  SaleCancelResult,
   SalesReceiptGetResult,
 } from "@pos-platform/contracts";
 import { buildEnvelope, callCommercial, callCommercialEnvelope, newIdempotencyKey, type CommercialEnvelope } from "../pos-service.js";
+import { onCatalogInventoryChanged } from "../catalog-invalidate.js";
 import { playConfirmationChime, shouldPlayChime } from "../confirmation-sound.js";
 import { toScale6 } from "../scale6.js";
 import { parseCopMicros } from "../money-display.js";
@@ -177,6 +179,8 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   addFoundItem(quantity: string): void;
   captureWeight(): Promise<void>;
   createSale(): Promise<void>;
+  /** Liberar venta no cobrada (p. ej. lote vencido tras reserva) y sus holds. */
+  cancelSale(reasonCode?: string): Promise<void>;
   chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
   refreshTransfer(): Promise<void>;
   registerTransfer(): Promise<void>;
@@ -307,8 +311,20 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     );
   }, [run]);
 
+  const catalogRefreshPending = useRef(false);
+
   const listCatalogItems = useCallback(async (query = "", offset = 0): Promise<void> => {
-    if (!canReadCatalog || catalogInFlight.current) return;
+    if (!canReadCatalog) return;
+    // Confirmed mutations during an in-flight list must not be dropped. Queue a
+    // full refresh (offset 0) for after the current request. This is local-window
+    // invalidation only — not multi-cashier sync.
+    if (catalogInFlight.current) {
+      if (offset === 0) {
+        catalogRefreshPending.current = true;
+        catalogQuery.current = query;
+      }
+      return;
+    }
     catalogInFlight.current = true;
     setCatalogBusy(true);
     try {
@@ -327,10 +343,21 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     } finally {
       catalogInFlight.current = false;
       setCatalogBusy(false);
+      if (catalogRefreshPending.current) {
+        catalogRefreshPending.current = false;
+        void listCatalogItems(catalogQuery.current, 0);
+      }
     }
   }, [canReadCatalog]);
 
   useEffect(() => { if (canReadCatalog) void listCatalogItems(); }, [canReadCatalog, listCatalogItems]);
+  useEffect(() => {
+    if (!canReadCatalog) return;
+    return onCatalogInventoryChanged(() => {
+      // Local workstation only. Other devices / windows need their own channel.
+      void listCatalogItems(catalogQuery.current, 0);
+    });
+  }, [canReadCatalog, listCatalogItems]);
   const loadMoreCatalogItems = () => listCatalogItems(catalogQuery.current, catalogItems.length);
 
   const addCatalogItem = useCallback((item: CatalogItemListItem, quantity: string): void => {
@@ -455,9 +482,35 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
           setWaitingCarts(current => current.filter(cart => cart.id !== activeWaiting.id));
           setActiveWaiting(null);
         }
+        // Reservation reduces availableUnits; tiles must re-read inventory.
+        void listCatalogItems(catalogQuery.current);
       },
     );
-  }, [lines, shift, sale, customerId, activeWaiting, runChange]);
+  }, [lines, shift, sale, customerId, activeWaiting, runChange, listCatalogItems]);
+
+  const cancelSale = useCallback(async (reasonCode = "OPERATOR_CANCEL_AFTER_STOCK_BLOCK"): Promise<void> => {
+    const current = sale;
+    if (current === null || busy) return;
+    await runChange<SaleCancelResult>(
+      "sale.cancel",
+      { sale_id: current.saleId, reason_code: reasonCode },
+      (result) => {
+        if (result.outcome !== "CANCELLED" && result.outcome !== "IDEMPOTENT") {
+          setError(result.outcome);
+          return false;
+        }
+        setSale(null);
+        setPayment(null);
+        setTransfer(null);
+        setTransferConfirmation(null);
+        setTransferReceiptAmount(null);
+        setFactusPay(null);
+        setFactusPayConfirmation(null);
+        setError(null);
+        void listCatalogItems(catalogQuery.current);
+      },
+    );
+  }, [sale, busy, runChange, listCatalogItems]);
 
   const chargeCash = useCallback(async (tenderedAmount?: string, paymentAmount?: string): Promise<void> => {
     const current = sale;
@@ -482,9 +535,10 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
       (result) => {
         setPayment(result);
         if (shouldPlayChime(result)) playConfirmationChime();
+        if (result.sale_completed === true) void listCatalogItems(catalogQuery.current);
       },
     );
-  }, [sale, busy, payment, transferConfirmation, transferReceiptAmount, factusPayConfirmation, run]);
+  }, [sale, busy, payment, transferConfirmation, transferReceiptAmount, factusPayConfirmation, run, listCatalogItems]);
 
   /**
    * Cerrar el turno con el efectivo contado.
@@ -668,9 +722,10 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         setTransferConfirmation(result);
         if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") setTransfer({ ...current, status: "CONFIRMED" });
         if (shouldPlayChime(result)) playConfirmationChime();
+        if (result.sale_completed === true) void listCatalogItems(catalogQuery.current);
       },
     );
-  }, [transfer, runChange]);
+  }, [transfer, runChange, listCatalogItems]);
 
   /**
    * FACTUS Pay — Generar QR. No cobra la venta; sólo crea cobro pendiente
@@ -739,9 +794,10 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
       (result) => {
         setFactusPayConfirmation(result);
         if (shouldPlayChime(result)) playConfirmationChime();
+        if (result.sale_completed === true) void listCatalogItems(catalogQuery.current);
       },
     );
-  }, [factusPay, run]);
+  }, [factusPay, run, listCatalogItems]);
 
   /** After POS restart: recover durable pending FACTUS Pay for the open sale. */
   const resumeFactusPay = useCallback(async (): Promise<void> => {
@@ -854,7 +910,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   return {
     busy, error, shift, foundItem, lines, sale, payment, closedShift,
     transfer, transferConfirmation, transferReceiptAmount, factusPay, factusPayConfirmation,
-    openShift, findItem, addFoundItem, captureWeight, createSale, chargeCash,
+    openShift, findItem, addFoundItem, captureWeight, createSale, cancelSale, chargeCash,
     registerTransfer, refreshTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
     closeShift, reset, unresolved, retryPending, loadTransfer, cancelTransfer,
     catalogItems, catalogBusy, catalogHasMore, listCatalogItems, loadMoreCatalogItems, addCatalogItem, removeLine, updateLineQuantity,

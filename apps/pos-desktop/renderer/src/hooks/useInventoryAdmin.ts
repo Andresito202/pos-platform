@@ -4,6 +4,7 @@ import type {
   InventoryMovementResult,
   InventoryStockGetResult,
 } from "@pos-platform/contracts";
+import { notifyCatalogInventoryChanged } from "../catalog-invalidate.js";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 import { toScale6 } from "../scale6.js";
 
@@ -68,6 +69,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
         response.result_code === parsed.data.outcome && ["PRESENTATION_NOT_FOUND", "INSUFFICIENT_STOCK", "INVALID_QUANTITY", "QUANTITY_PRECISION_EXCEEDED", "STOCK_QUANTITY_OVERFLOW","LOT_TRACKING_REQUIRED","LEGACY_STOCK_RECONCILIATION_REQUIRED","LOT_NOT_FOUND","LOT_NOT_SELLABLE"].includes(parsed.data.outcome);
       if (success || definitiveRejection) {
         setMovement(parsed.data!);
+        if (success) notifyCatalogInventoryChanged();
       } else {
         uncertain.current = true;
         setError("Resultado no concluyente. Conserva esta pantalla y reintenta el mismo movimiento; no registres otra entrada.");

@@ -53,7 +53,15 @@ describe("additive local v27 bakery migration", () => {
       DROP TABLE IF EXISTS catalog_bakery_finished_policy;
       DROP TABLE IF EXISTS catalog_bakery_ingredient_profile;
       DROP TRIGGER local_schema_migrations_no_delete;
-      DELETE FROM local_schema_migrations WHERE version IN (27, 28, 29);
+      DROP INDEX IF EXISTS catalog_media_company_idx;
+      DROP TABLE IF EXISTS catalog_media;
+      ALTER TABLE catalog_product DROP COLUMN description;
+      ALTER TABLE catalog_product DROP COLUMN brand;
+      ALTER TABLE catalog_product DROP COLUMN category;
+      ALTER TABLE catalog_product DROP COLUMN primary_media_id;
+      ALTER TABLE catalog_presentation DROP COLUMN version;
+      ALTER TABLE catalog_presentation DROP COLUMN low_stock_threshold;
+      DELETE FROM local_schema_migrations WHERE version IN (27, 28, 29, 30, 31, 32);
       CREATE TRIGGER local_schema_migrations_no_delete
       BEFORE DELETE ON local_schema_migrations
       BEGIN SELECT RAISE(ABORT,'local migration ledger is immutable'); END;

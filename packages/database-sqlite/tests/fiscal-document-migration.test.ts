@@ -593,6 +593,14 @@ it("upgrades v19 sales without assigning or changing historical customer identit
     DROP TABLE inventory_lot;
     DROP TABLE inventory_lot_tracking;
     DROP TABLE local_merchant_payment_destination_snapshot;
+    DROP INDEX IF EXISTS catalog_media_company_idx;
+    DROP TABLE IF EXISTS catalog_media;
+    ALTER TABLE catalog_product DROP COLUMN description;
+    ALTER TABLE catalog_product DROP COLUMN brand;
+    ALTER TABLE catalog_product DROP COLUMN category;
+    ALTER TABLE catalog_product DROP COLUMN primary_media_id;
+    ALTER TABLE catalog_presentation DROP COLUMN version;
+    ALTER TABLE catalog_presentation DROP COLUMN low_stock_threshold;
     DELETE FROM local_schema_migrations WHERE version>=20;`);
   const before=database.native.prepare("SELECT * FROM sales_sales WHERE id=?").get(saleId) as Record<string,unknown>;
   database.close();
