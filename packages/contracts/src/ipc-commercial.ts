@@ -1503,8 +1503,15 @@ export const AdminMetricsGetRequestSchema = createRequestEnvelopeSchema(
 
 export const AdminMetricsGetResultSchema = z.strictObject({
   outcome: z.literal("AVAILABLE"),
+  /** Historical cumulative COMPLETED sales in the installation branch scope. */
   sales_completed_count: z.number().int().nonnegative().nullable(),
   sales_completed_amount: NonNegativeScale6Schema.nullable(),
+  /**
+   * COMPLETED sales whose `business_date` equals the commercial date
+   * (`America/Bogota`). Never a relabel of the cumulative totals.
+   */
+  sales_completed_today_count: z.number().int().nonnegative().nullable(),
+  sales_completed_today_amount: NonNegativeScale6Schema.nullable(),
   inventory_tracked_count: z.number().int().nonnegative().nullable(),
   cash_open_shift_count: z.number().int().nonnegative().nullable(),
   /**
@@ -1519,6 +1526,12 @@ export const AdminMetricsGetResultSchema = z.strictObject({
   payments_confirmed_qr_amount: NonNegativeScale6Schema.nullable(),
   /** Transfer rows still awaiting confirmation — informational, not collected. */
   payments_pending_transfer_count: z.number().int().nonnegative().nullable(),
+  /** Honest scope label for UI — never implies multicaja/company consolidation. */
+  metrics_scope: z.enum([
+    "INSTALLATION_BRANCH",
+  ]),
+  metrics_period_timezone: z.literal("America/Bogota"),
+  metrics_business_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 
 export const AdminMetricsGetResponseSchema =

@@ -7,6 +7,7 @@ import {
 import { CanonicalPermission } from "@pos-platform/contracts";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
+import { COMMERCIAL_TIMEZONE, commercialBusinessDate } from "./commercial-calendar.js";
 import { SqliteAdminMetricsStore } from "./sqlite-admin-metrics-store.js";
 
 /**
@@ -26,6 +27,8 @@ export const PERMISSION_REPORTING_PAYMENTS_AGGREGATE_READ =
 export interface AdminMetricsResult {
   readonly sales_completed_count: number | null;
   readonly sales_completed_amount: string | null;
+  readonly sales_completed_today_count: number | null;
+  readonly sales_completed_today_amount: string | null;
   readonly inventory_tracked_count: number | null;
   readonly cash_open_shift_count: number | null;
   readonly payments_confirmed_count: number | null;
@@ -34,6 +37,9 @@ export interface AdminMetricsResult {
   readonly payments_confirmed_transfer_amount: string | null;
   readonly payments_confirmed_qr_amount: string | null;
   readonly payments_pending_transfer_count: number | null;
+  readonly metrics_scope: "INSTALLATION_BRANCH";
+  readonly metrics_period_timezone: typeof COMMERCIAL_TIMEZONE;
+  readonly metrics_business_date: string;
 }
 
 export class GetAdminMetricsUseCase {
@@ -47,6 +53,7 @@ export class GetAdminMetricsUseCase {
     const actor = createActor("USER", authSnapshot.claims.user_id);
     const operationScope = createOperationScope(scope.tenantId, scope.companyId, scope.branchId);
     const assignments = toRoleAssignments(authSnapshot.claims);
+    const businessDate = commercialBusinessDate(at, COMMERCIAL_TIMEZONE);
 
     const allowed = (permission: string): boolean => evaluatePermission({
       actor, permission, scope: operationScope, at, assignments,
@@ -58,13 +65,12 @@ export class GetAdminMetricsUseCase {
     const canReadCash = allowed(PERMISSION_REPORTING_CASH_AGGREGATE_READ);
     const canReadPayments = allowed(PERMISSION_REPORTING_PAYMENTS_AGGREGATE_READ);
 
-    // Surface gate: at least one administrative or reporting read must be present.
-    // Cashiers with only operational grants stay unauthorized.
     if (!canAudit && !canReadInventory && !canReadSales && !canReadCash && !canReadPayments) {
       return { kind: "UNAUTHORIZED" };
     }
 
     const sales = canReadSales ? this.store.readSales(scope) : null;
+    const salesToday = canReadSales ? this.store.readSales(scope, { businessDate }) : null;
     const inventory = canReadInventory ? this.store.readInventory(scope) : null;
     const cash = canReadCash ? this.store.readCash(scope) : null;
     const payments = canReadPayments ? this.store.readPayments(scope) : null;
@@ -74,6 +80,8 @@ export class GetAdminMetricsUseCase {
       metrics: {
         sales_completed_count: sales?.count ?? null,
         sales_completed_amount: sales?.amount ?? null,
+        sales_completed_today_count: salesToday?.count ?? null,
+        sales_completed_today_amount: salesToday?.amount ?? null,
         inventory_tracked_count: inventory,
         cash_open_shift_count: cash,
         payments_confirmed_count: payments?.confirmed_count ?? null,
@@ -82,6 +90,9 @@ export class GetAdminMetricsUseCase {
         payments_confirmed_transfer_amount: payments?.confirmed_transfer_amount ?? null,
         payments_confirmed_qr_amount: payments?.confirmed_qr_amount ?? null,
         payments_pending_transfer_count: payments?.pending_transfer_count ?? null,
+        metrics_scope: "INSTALLATION_BRANCH",
+        metrics_period_timezone: COMMERCIAL_TIMEZONE,
+        metrics_business_date: businessDate,
       },
     };
   }

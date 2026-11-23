@@ -156,7 +156,7 @@ function seedPayment(
 }
 
 describe("SqliteAdminMetricsStore isolation and payment semantics", () => {
-  it("aísla ventas completadas por empresa y sucursal", async () => {
+  it("aísla ventas completadas por empresa y sucursal y filtra fecha comercial", async () => {
     const db = await openDatabase();
     seedSale(db, SCOPE_A, "1000.000000");
     seedSale(db, SCOPE_A, "500.000000");
@@ -166,6 +166,8 @@ describe("SqliteAdminMetricsStore isolation and payment semantics", () => {
 
     const store = new SqliteAdminMetricsStore(db);
     expect(store.readSales(SCOPE_A)).toEqual({ count: 2, amount: "1500.000000" });
+    expect(store.readSales(SCOPE_A, { businessDate: "2026-09-07" })).toEqual({ count: 2, amount: "1500.000000" });
+    expect(store.readSales(SCOPE_A, { businessDate: "2026-09-06" })).toEqual({ count: 0, amount: "0.000000" });
     expect(store.readSales(SCOPE_BRANCH_B)).toEqual({ count: 1, amount: "9999.000000" });
     expect(store.readSales(SCOPE_TENANT_B)).toEqual({ count: 1, amount: "7777.000000" });
   });

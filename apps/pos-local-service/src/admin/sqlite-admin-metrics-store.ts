@@ -14,12 +14,22 @@ export type PaymentsAggregate = {
 export class SqliteAdminMetricsStore {
   constructor(private readonly database: LocalDatabase) {}
 
-  readSales(scope: SyncScope): { readonly count: number; readonly amount: string } {
-    const rows = this.database.native.prepare(
-      `SELECT fiscal_total_amount
-       FROM sales_sales
-       WHERE tenant_id=? AND company_id=? AND branch_id=? AND status='COMPLETED'`,
-    ).all(scope.tenantId, scope.companyId, scope.branchId) as Array<{ fiscal_total_amount: string }>;
+  readSales(
+    scope: SyncScope,
+    options: { readonly businessDate?: string } = {},
+  ): { readonly count: number; readonly amount: string } {
+    const rows = options.businessDate === undefined
+      ? this.database.native.prepare(
+        `SELECT fiscal_total_amount
+         FROM sales_sales
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND status='COMPLETED'`,
+      ).all(scope.tenantId, scope.companyId, scope.branchId) as Array<{ fiscal_total_amount: string }>
+      : this.database.native.prepare(
+        `SELECT fiscal_total_amount
+         FROM sales_sales
+         WHERE tenant_id=? AND company_id=? AND branch_id=? AND status='COMPLETED'
+           AND business_date=?`,
+      ).all(scope.tenantId, scope.companyId, scope.branchId, options.businessDate) as Array<{ fiscal_total_amount: string }>;
 
     const amountUnits = rows.reduce(
       (sum, row) => sum + scale6ToBigInt(row.fiscal_total_amount),

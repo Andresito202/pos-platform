@@ -11,15 +11,16 @@ Referencia de backlog: `REP-001` / `REP-002` / `REP-003` en `docs/product/backlo
 - SUPERADMINISTRADOR local ≠ autoridad GLOBAL ≠ ADMINISTRADOR BUSINESS.
 - La interfaz comercial usa mensajes para comerciantes; este documento conserva la jerga técnica (contratos, IPC, permisos agregados, REP-001).
 
-## Estado REP-001 fase 1 (backend)
+## Estado REP-001 fase 1–2
 
 | Capacidad | Estado | Nota |
 |---|---|---|
-| Permisos `REPORTING_SALES_AGGREGATE_READ`, `REPORTING_CASH_AGGREGATE_READ`, `REPORTING_PAYMENTS_AGGREGATE_READ` | MATERIALIZED en `permission-codes.ts` + enforced en `GetAdminMetricsUseCase` | Central debe concederlos; el bridge local de desarrollo **no** los otorga |
-| `readSales` / `readCash` | Habilitados cuando el permiso agregado está en el snapshot | Scope `tenant/company/branch` |
-| `readPayments` | Habilitado: solo `CONFIRMED`; pendientes de transferencia no son recaudo | scale-6 vía bigint |
-| Emisión Central de esos grants | BLOQUEADO / pendiente | Sin fabricar concesiones comerciales en el bridge |
-| UI Dashboard mostrando nuevos campos de pagos | Pendiente fase 2 | Contrato ya compatible (`null` por defecto) |
+| Permisos `REPORTING_*` en contracts + use case | MATERIALIZED | Bridge local **no** los otorga |
+| Catálogo Central `034_reporting_aggregate_permissions` | MATERIALIZED (SQL) | Solo `permissions`; **cero** `role_permission_grants` automáticos |
+| Emisión SSA/SAS comercial con esos grants | BLOQUEADO | Falta emisor HTTP POS + SnapshotProvider (ver `docs/testing/ssa-sas-central-implementation-proposal-20261123.md`) |
+| `readSales` acumulado + hoy (`business_date`, `America/Bogota`) | MATERIALIZED | Scope instalación/sucursal |
+| `readCash` / `readPayments` | MATERIALIZED | Pagos solo `CONFIRMED` |
+| Dashboard admin conectado a todos los campos | MATERIALIZED | Etiquetas de alcance/periodo honestas; no multicaja |
 
 ## Estado actual de superficies
 
@@ -34,11 +35,16 @@ Referencia de backlog: `REP-001` / `REP-002` / `REP-003` en `docs/product/backlo
 
 ### SQLite local (`SqliteAdminMetricsStore`)
 
+Alcance real: **INSTALLATION_BRANCH** (tenant/company/branch de la instalación). No es consolidado multicaja ni empresa.
+
 | Lectura | Tabla / filtro | Expuesta hoy por `admin.metrics.get` |
 |---|---|---|
-| Ventas completadas (conteo + importe) | `sales_sales` `status='COMPLETED'` | **No** — el use case devuelve `null` hasta permisos agregados canónicos |
+| Ventas acumuladas (conteo + importe) | `sales_sales` `status='COMPLETED'` | **Sí** si `REPORTING_SALES_AGGREGATE_READ` |
+| Ventas de hoy (conteo + importe) | mismo + `business_date` = fecha comercial `America/Bogota` | **Sí** con el mismo grant; nunca relabel del acumulado |
 | Existencias controladas | `inventory_stock` count | **Sí** si `INVENTORY_STOCK_READ` |
-| Turnos abiertos | `cash_shift` `OPEN`/`CLOSING` | **No** — siempre `null` en el use case actual |
+| Turnos abiertos | `cash_shift` `OPEN`/`CLOSING` | **Sí** si `REPORTING_CASH_AGGREGATE_READ` |
+| Pagos confirmados / por método | `payments_payments` `status='CONFIRMED'` | **Sí** si `REPORTING_PAYMENTS_AGGREGATE_READ` |
+| Transferencias pendientes | TRANSFER en `CREATED`/`PENDING`/`REVIEW_REQUIRED` | **Sí** (conteo informativo; no es recaudo) |
 
 ### PostgreSQL Central
 
@@ -53,7 +59,7 @@ Referencia de backlog: `REP-001` / `REP-002` / `REP-003` en `docs/product/backlo
 | Mensaje | Uso previsto | Gap |
 |---|---|---|
 | `audit.event.list` | Lista append-only de auditoría local | No está en IPC/preload del desktop ni handler local en esta línea |
-| Agregados Reporting futuros | Ventas del día, métodos de pago, alertas | Sin contrato de producto publicado más allá de `admin.metrics.get` V1 |
+| Agregados Reporting futuros | Consolidado multicaja/empresa, utilidad, alertas | Fuera de `admin.metrics.get` V1 instalación/sucursal |
 
 ## Permisos
 
