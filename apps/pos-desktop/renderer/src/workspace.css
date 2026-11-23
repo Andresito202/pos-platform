@@ -45,33 +45,143 @@
 .pos-checkout-action .pos-primary-action, .pos-screen .pos-primary-action { width: 100%; background: #ffce32; color: #142b3a; border: 1px solid #d4a200; min-height: 48px; font-weight: 750; }
 .pos-screen .pos-primary-action:not(:disabled):hover { background: #f4bd14; color: #142b3a; border-color: #a67c00; }
 .pos-screen .pos-primary-action:disabled { background: #e2e7eb; color: #536475; border-color: #d6dfe6; }
-.pos-entry { grid-template-columns: minmax(0, 1.05fr) minmax(360px, 1fr); gap: 0; padding: 0; background: #edf2f7; }
-.pos-entry-brand { align-self: stretch; display: flex; flex-direction: column; align-items: start; justify-content: center; padding: clamp(30px, 6vw, 90px); min-height: 100vh; border: 0; border-radius: 0 0 140px 0; background: #082e50; color: #fff; }
+.pos-entry {
+  grid-template-columns: minmax(0, 1fr) minmax(440px, 46vw);
+  gap: 0;
+  padding: 0;
+  align-items: stretch;
+  background: #edf2f7;
+}
+.pos-entry-brand {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  justify-content: center;
+  padding: clamp(28px, 4.5vw, 64px);
+  min-height: 100vh;
+  border: 0;
+  border-radius: 0 0 120px 0;
+  background: #082e50;
+  color: #fff;
+}
 .pos-entry-brand::before { display: none; }
-.pos-entry-brand h2 { font-size: clamp(30px, 3.2vw, 48px); margin: 34px 0 14px; line-height: 1.15; }
-.pos-entry-brand p { font-size: 19px; color: #e2eaf1; }
-.pos-entry-card { width: calc(100% - 64px); max-width: 620px; padding: 40px; border: 1px solid #e1e7ef; border-radius: 24px; box-shadow: 0 10px 36px #10283d12; }
-.pos-entry-card h1 { font-size: 38px; margin: 0 0 12px; color: #10283d; }
-.pos-entry-card h2 { font-size: 18px; font-weight: 400; color: #536475; }
-.pos-entry-eyebrow { display: none; }
-.pos-local-login form { display: grid; gap: 10px; }
-.pos-local-login label { font-weight: 700; margin-top: 12px; }
-.pos-local-login input { width: 100%; min-height: 50px; border-radius: 8px; }
-.pos-local-login button[type="submit"] { min-height: 52px; margin: 20px 0; background: #083d63; color: white; font-size: 20px; border: 0; border-radius: 8px; }
-.pos-password-field { display: flex; align-items: center; gap: 6px; }
-.pos-password-field input { min-width: 0; }
-.pos-password-field button { flex: 0 0 46px; height: 50px; padding: 10px; }
+.pos-entry-brand .pos-brand--entry {
+  width: min(100%, 420px);
+  background: #fff;
+  border-radius: 12px;
+}
+.pos-entry-brand h2 { font-size: clamp(28px, 2.8vw, 42px); margin: 28px 0 12px; line-height: 1.15; }
+.pos-entry-brand p { font-size: 18px; color: #e2eaf1; max-width: 28ch; }
+.pos-entry-card {
+  width: calc(100% - 48px);
+  max-width: none;
+  justify-self: center;
+  align-self: center;
+  margin: 24px 24px 24px 8px;
+  padding: clamp(28px, 3vw, 40px);
+  border: 1px solid #e1e7ef;
+  border-top: 3px solid var(--camacho-brand-yellow);
+  border-radius: 18px;
+  box-shadow: 0 10px 36px #10283d12;
+  background: #fff;
+}
+.pos-entry-card h1 { font-size: clamp(28px, 2.4vw, 34px); margin: 0 0 8px; color: #10283d; }
+.pos-entry-lead { margin: 0 0 8px; font-size: 17px; font-weight: 600; color: #34495a; }
+.pos-entry-copy { margin: 0 0 12px; font-size: 14px; color: #536475; }
+.pos-entry-eyebrow {
+  display: block;
+  margin: 0 0 10px;
+  color: #805500;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .08em;
+}
+.pos-entry-card [role="status"],
+.pos-entry-card [role="alert"] { margin: 12px 0 16px; }
+.pos-entry-card .pos-local-login-message[role="alert"] {
+  background: var(--camacho-danger-soft);
+  color: var(--camacho-danger);
+  border: 1px solid #efcaca;
+  border-left: 3px solid var(--camacho-danger);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 8px 0 12px;
+}
+.pos-entry-card > button.pos-entry-secondary {
+  width: 100%;
+  margin-top: 8px;
+  min-height: 44px;
+  background: #fff;
+  color: #142b3a;
+  border: 1px solid #c5d0d8;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.pos-entry-card > button.pos-entry-secondary:not(:disabled):hover {
+  background: #f3f6f8;
+  border-color: #2577b0;
+  color: #142b3a;
+}
+.pos-local-login form { display: grid; gap: 8px; }
+.pos-local-login label { font-weight: 700; margin-top: 8px; }
+.pos-local-login input { width: 100%; min-height: 48px; border-radius: 8px; }
+.pos-local-login button[type="submit"] {
+  min-height: 52px;
+  margin: 16px 0 4px;
+  background: var(--camacho-brand-yellow);
+  color: #142b3a;
+  font-size: 18px;
+  border: 1px solid #d4a200;
+  border-radius: 8px;
+  font-weight: 750;
+}
+.pos-local-login button[type="submit"]:not(:disabled):hover {
+  background: #f4bd14;
+  color: #142b3a;
+  border-color: #a67c00;
+}
+.pos-password-field { display: flex; align-items: stretch; gap: 0; }
+.pos-password-field input {
+  min-width: 0;
+  flex: 1;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.pos-password-field .pos-password-toggle {
+  flex: 0 0 48px;
+  width: 48px;
+  height: auto;
+  min-height: 48px;
+  padding: 10px;
+  border-radius: 0 8px 8px 0;
+  border: 1px solid var(--camacho-border);
+  border-left: 0;
+  background: #f3f6f8;
+  color: #142b3a;
+}
 .pos-entry-card .pos-status { margin-top: 16px; }
+.pos-sidebar .pos-subtitle { display: block; }
+@media (min-width: 1600px) {
+  .pos-entry { grid-template-columns: minmax(0, 1.05fr) minmax(520px, 640px); }
+  .pos-entry-brand { padding: clamp(36px, 5vw, 72px); }
+  .pos-entry-card { max-width: 640px; width: calc(100% - 56px); }
+}
+@media (max-width: 1366px) {
+  .pos-entry { grid-template-columns: minmax(0, 1fr) minmax(400px, 42vw); }
+  .pos-entry-card { width: calc(100% - 36px); margin: 20px 18px 20px 4px; padding: 28px; }
+}
 @media (max-width: 1150px) { .pos-sale-layout { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 800px) {
  .pos-shell { grid-template-columns: minmax(0, 1fr); }
  .pos-sidebar { position: relative; height: auto; }
  .pos-sidebar .pos-local-session-control { margin-top: 12px; padding-top: 0; }
+ .pos-sidebar .pos-subtitle { display: block; }
  .pos-entry { grid-template-columns: minmax(0, 1fr); padding-bottom: 24px; }
  .pos-entry-brand { min-height: auto; width: 100%; padding: 24px; border-radius: 0; }
  .pos-entry-brand h2 { font-size: 27px; margin: 16px 0 4px; }
- .pos-entry-brand .pos-brand--entry { max-width: 240px; }
- .pos-entry-card { width: calc(100% - 32px); margin-top: 20px; padding: 24px; }
+ .pos-entry-brand .pos-brand--entry { max-width: 280px; }
+ .pos-entry-card { width: calc(100% - 32px); margin: 20px 16px; padding: 24px; }
  .pos-content { padding: 14px; }
  .pos-cart-list li { grid-template-columns: minmax(0, 1fr) auto; }
 }

@@ -221,9 +221,32 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByTestId("authorization-error")).toBeTruthy();
     });
-
+    expect(screen.getByTestId("authorization-error").textContent).toContain(
+      "El canal con el servicio local se interrumpió.",
+    );
+    expect(screen.queryByLabelText("Usuario")).toBeNull();
     expect(screen.queryByTestId("sale-panel")).toBeNull();
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
+  });
+
+  it("fails closed without granting access when capabilities return a non-AVAILABLE success code", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "OK",
+      result: null,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("authorization-error")).toBeTruthy();
+    });
+    expect(screen.getByTestId("authorization-error").textContent).toBe(
+      "La respuesta de autorización no es válida.",
+    );
+    expect(screen.getByTestId("authorization-error").textContent).not.toContain(": OK");
+    expect(screen.queryByLabelText("Usuario")).toBeNull();
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
   });
 
   it("uses the original brand and collapses navigation without changing permissions or the active screen", async () => {
@@ -231,9 +254,11 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Catálogo" })).toBeTruthy());
     const heading = screen.getByRole("heading", { name: "Catálogo", level: 1 });
     expect(screen.getByRole("img", { name: "Camacho POS Colombia" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Saltar al área de trabajo" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Ocultar menú" }));
     expect(screen.getByRole("button", { name: "Mostrar menú" }).getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("button", { name: "Catálogo" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Saltar al área de trabajo" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBe(heading);
     fireEvent.click(screen.getByRole("button", { name: "Mostrar menú" }));
     expect(screen.getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");

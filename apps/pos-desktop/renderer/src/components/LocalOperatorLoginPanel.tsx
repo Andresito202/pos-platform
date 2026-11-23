@@ -101,15 +101,16 @@ export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=
           <div className="pos-password-field"><input id="pos-local-password" type={passwordVisible ? "text" : "password"} autoComplete="current-password"
             value={password} onChange={event=>setPassword(event.target.value)}
             disabled={busy} required maxLength={512} placeholder="Ingresa tu contraseña"/>
-            <button type="button" aria-label={passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
+            <button type="button" className="pos-password-toggle"
+              aria-label={passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
               aria-pressed={passwordVisible} onClick={()=>setPasswordVisible(value=>!value)} disabled={busy}>
               <img src={passwordVisible ? new URL("../assets/payment-icons/eye-off.svg", import.meta.url).href : new URL("../assets/payment-icons/eye.svg", import.meta.url).href} alt="" />
             </button></div>
           <button type="submit" disabled={busy}>{busy?"Verificando…":"Ingresar"}</button>
         </form>
       )}
-      {message && <p role="status" className="pos-local-login-message">{message}</p>}
-      <small>Instalación local de desarrollo. No acredita certificación comercial, fiscal ni SCM.</small>
+      {message && <p role="alert" className="pos-local-login-message">{message}</p>}
+      <small>La autenticación se verifica en el servicio local de este dispositivo.</small>
     </section>
   );
 }

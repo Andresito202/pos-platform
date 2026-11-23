@@ -741,14 +741,22 @@ button {
 
 
 /* Local login form is displayed by the production renderer, not E2E fixtures. */
-.pos-local-login{margin:18px 0;padding:18px;border:1px solid var(--camacho-border);border-radius:12px;background:var(--camacho-card)}
-.pos-local-login form{display:grid;gap:10px}
+.pos-local-login{margin:12px 0 0;padding:0;border:0;border-radius:0;background:transparent}
+.pos-local-login form{display:grid;gap:8px}
 .pos-local-login label{font-size:13px;font-weight:700;color:var(--camacho-ink)}
 .pos-local-login input,.pos-local-login select{width:100%;min-height:44px;border:1px solid var(--camacho-border);background:var(--camacho-surface);color:var(--camacho-ink);border-radius:8px;padding:8px 12px}
-.pos-local-login button{min-height:46px;border:0;border-radius:8px;background:var(--camacho-navy);color:white;font-weight:700;padding:10px 16px}
+.pos-local-login button[type="submit"]{min-height:48px;border:0;border-radius:8px;background:var(--camacho-brand-yellow);color:var(--camacho-ink);font-weight:700;padding:10px 16px}
+.pos-local-login button[type="submit"]:not(:disabled):hover{background:#f4bd14;color:var(--camacho-ink)}
 .pos-local-login button:disabled{opacity:.65;cursor:not-allowed}
+.pos-local-login .pos-password-toggle{
+  flex:0 0 48px;width:48px;height:48px;min-height:48px;padding:10px;
+  border:1px solid var(--camacho-border);border-radius:8px;
+  background:#f3f6f8;color:var(--camacho-ink);
+}
+.pos-local-login .pos-password-toggle:not(:disabled):hover{background:#e9eef2;border-color:var(--camacho-blue)}
+.pos-local-login .pos-password-toggle img{width:22px;height:22px;display:block;margin:0 auto;filter:none}
 .pos-local-login small{display:block;margin-top:12px;font-size:12px;color:var(--camacho-muted)}
-.pos-local-login-message{color:var(--camacho-ink);font-size:13px}
+.pos-local-login-message{color:var(--camacho-danger);font-size:13px;font-weight:600}
 
 
 .pos-local-session-control{display:flex;align-items:center;gap:12px;flex-wrap:wrap}

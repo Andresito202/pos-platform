@@ -195,7 +195,7 @@ function LocalApp(): React.JSX.Element {
         <section className="pos-entry-card" aria-label="Estado de acceso">
           <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
           <h1>Iniciar sesión</h1>
-          <h2>
+          <p className="pos-entry-lead">
             {loading
               ? "Validando sesión"
               : unauthenticated
@@ -205,8 +205,8 @@ function LocalApp(): React.JSX.Element {
                   : authorization.phase === "expired"
                     ? "Sesión expirada"
                     : "Acceso no disponible"}
-          </h2>
-          <p>
+          </p>
+          <p className="pos-entry-copy">
             {loading
               ? "Comprobando la sesión y los permisos efectivos."
               : unauthenticated
@@ -229,11 +229,13 @@ function LocalApp(): React.JSX.Element {
             </div>
           ) : authorization.phase === "error" ? (
             <div data-testid="authorization-error" role="alert">
-              No se pudo cargar la autorización: {authorization.message}
+              {authorization.message}
             </div>
           ) : null}
           {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={refreshAccess} />}
-          <button type="button" onClick={refreshAccess} disabled={loading}>Actualizar acceso</button>
+          <button type="button" className="pos-entry-secondary" onClick={refreshAccess} disabled={loading}>
+            Actualizar acceso
+          </button>
           <StatusPanel />
         </section>
       </main>
@@ -244,8 +246,8 @@ function LocalApp(): React.JSX.Element {
 
   return (
     <main className="pos-shell" data-navigation-open={navigationOpen} data-operator-role={localSession.role ?? "none"}>
+      <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
       <aside id="pos-navigation" className="pos-sidebar" aria-label="Navegación principal" hidden={!navigationOpen}>
-        <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
         <BrandMark variant="sidebar" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">
