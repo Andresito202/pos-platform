@@ -55,10 +55,14 @@ test("el renderer compilado monta la aplicación", async () => {
   await expect(window.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
 });
 
-test("sin autorización válida no monta la superficie comercial", async () => {
+test("sin sesión vinculada muestra login local y no monta la superficie comercial", async () => {
   const window = await app.firstWindow();
-  await expect(window.getByTestId("authorization-error")).toBeVisible();
+  await expect(window.getByTestId("authorization-unauthenticated")).toBeVisible();
+  await expect(window.getByRole("textbox", { name: "Usuario" })).toBeVisible();
+  await expect(window.locator("#pos-local-password")).toBeVisible();
+  await expect(window.getByRole("button", { name: "Ingresar" })).toBeVisible();
   await expect(window.getByTestId("sale-panel")).toHaveCount(0);
+  await expect(window.getByTestId("authorization-error")).toHaveCount(0);
 });
 
 test("el preload expone window.posService con la superficie completa", async () => {

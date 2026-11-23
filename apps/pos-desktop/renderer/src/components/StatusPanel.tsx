@@ -1,17 +1,29 @@
-import { useRuntimeStatus } from "../hooks/useRuntimeStatus.js";
+import { describeRuntimeUnavailable, useRuntimeStatus } from "../hooks/useRuntimeStatus.js";
 
-export function StatusPanel(): React.JSX.Element {
+type StatusPanelProps = {
+  /** When set, offers a recoverable retry control for transport/lifecycle failures. */
+  readonly onRetry?: () => void;
+};
+
+/**
+ * Operator-facing runtime signal. Healthy READY stays silent; only recoverable
+ * unavailability is shown, without raw diagnostics or secrets.
+ */
+export function StatusPanel({ onRetry }: StatusPanelProps = {}): React.JSX.Element | null {
   const status = useRuntimeStatus();
 
-  if (status.phase === "loading") {
-    return <div data-testid="status-loading">Conectando al servicio local…</div>;
+  if (status.phase === "loading" || status.phase === "ready") {
+    return null;
   }
-  if (status.phase === "error") {
-    return <div data-testid="status-error">Sin conexión: {status.message}</div>;
-  }
+
   return (
-    <div data-testid="status-connected">
-      Servicio local: conectado
+    <div data-testid="status-unavailable" role="status" className="pos-entry-banner pos-entry-banner--warning">
+      <p>{describeRuntimeUnavailable(status)}</p>
+      {onRetry !== undefined && (
+        <button type="button" className="pos-entry-secondary" data-testid="status-retry" onClick={onRetry}>
+          Reintentar conexión
+        </button>
+      )}
     </div>
   );
 }

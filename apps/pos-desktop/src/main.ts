@@ -4,6 +4,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { WINDOW_SECURITY_CONFIG } from "./window-security.js";
 import { IPC_ALLOWED_CHANNELS, isAllowedChannel } from "./ipc-allowlist.js";
 import { ChannelBridge, type ServiceChannel } from "./channel-bridge.js";
+import { registerDesktopShellHandlers } from "./desktop-shell.js";
 import {
   PRELOAD_FILENAME,
   RENDERER_DIRECTORY,
@@ -50,6 +51,16 @@ function createWindow(preloadPath: string): BrowserWindow {
       preload: preloadPath,
     },
   });
+  // Deny in-app navigation/popups; institutional links use allowlisted openExternal only.
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (event, navigationUrl) => {
+    try {
+      if (new URL(navigationUrl).protocol === "file:") return;
+    } catch {
+      // Malformed targets are denied below.
+    }
+    event.preventDefault();
+  });
   win.on("ready-to-show", () => win.show());
   return win;
 }
@@ -90,6 +101,7 @@ export async function bootstrap(
 
   await app.whenReady();
   registerIpcHandlers(bridge);
+  registerDesktopShellHandlers();
   const win = createWindow(preloadPath);
   await win.loadFile(rendererPath);
 

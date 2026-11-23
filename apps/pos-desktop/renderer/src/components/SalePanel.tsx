@@ -2,6 +2,7 @@ import { CanonicalPermission } from "@pos-platform/contracts";
 import { ProductAvatar } from "./ProductAvatar.js";
 import { useCustomerDirectory } from "../hooks/useCustomerDirectory.js";
 import { useEffect, useState } from "react";
+import { presentCatalogAvailability } from "../catalog-availability-display.js";
 import { formatCopMicros, formatCopPesos, formatScale6Display, parseCopMicros, remainingPayableScale6 } from "../money-display.js";
 import { toScale6 } from "../scale6.js";
 import { useCommercialSale } from "../hooks/useCommercialSale.js";
@@ -91,21 +92,29 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
     <section data-testid="sale-panel">
       <h2>Caja</h2>
       {sale.shift === null ? (
-        <div data-testid="shift-closed">
-          <input
-            data-testid="cash-register-input"
-            value={registerId}
-            onChange={(e) => { setRegisterId(e.target.value); }}
-            placeholder="ID de la caja"
-            disabled={sale.busy}
-          />
-          <input
-            data-testid="opening-amount-input"
-            value={opening}
-            onChange={(e) => { setOpening(e.target.value); }}
-            placeholder="Base inicial"
-            disabled={sale.busy}
-          />
+        <div className="pos-shift-card" data-testid="shift-closed">
+          <div className="pos-shift-intro">
+            <h3>Abrir turno de caja</h3>
+            <p>Identifica la caja e indica la base inicial antes de vender.</p>
+          </div>
+          <label>ID de la caja
+            <input
+              data-testid="cash-register-input"
+              value={registerId}
+              onChange={(e) => { setRegisterId(e.target.value); }}
+              placeholder="ID de la caja"
+              disabled={sale.busy}
+            />
+          </label>
+          <label>Base inicial
+            <input
+              data-testid="opening-amount-input"
+              value={opening}
+              onChange={(e) => { setOpening(e.target.value); }}
+              placeholder="Base inicial"
+              disabled={sale.busy}
+            />
+          </label>
           <button
             data-testid="open-shift-button"
             onClick={() => { void sale.openShift(registerId.trim(), opening.trim()); }}
@@ -115,18 +124,23 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
           </button>
         </div>
       ) : (
-        <div data-testid="shift-open">
-          Turno abierto · caja <span data-testid="shift-register">{sale.shift.cashRegisterId}</span>
+        <div className="pos-shift-card" data-testid="shift-open">
+          <div className="pos-shift-intro">
+            <h3>Turno abierto</h3>
+            <p>Caja <span data-testid="shift-register">{sale.shift.cashRegisterId}</span></p>
+          </div>
           {/* Cerrar el turno es lo que permite abrir el siguiente: `DEC-012`
               §25.2 admite un único turno OPEN o CLOSING por caja, así que sin
               cierre la caja queda inservible al día siguiente. */}
-          <input
-            data-testid="counted-amount-input"
-            value={counted}
-            onChange={(e) => { setCounted(e.target.value); }}
-            placeholder="Efectivo contado"
-            disabled={sale.busy}
-          />
+          <label>Efectivo contado
+            <input
+              data-testid="counted-amount-input"
+              value={counted}
+              onChange={(e) => { setCounted(e.target.value); }}
+              placeholder="Efectivo contado"
+              disabled={sale.busy}
+            />
+          </label>
           <button
             data-testid="close-shift-button"
             onClick={() => { void sale.closeShift(counted.trim()); }}
@@ -140,84 +154,134 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
       <div className="pos-sale-layout">
       <section className="pos-sale-products" aria-label="Productos para venta">
       {canReadCatalog && <>
+        <div className="pos-section-heading">
+          <h2>Catálogo</h2>
+          <p>Busca y agrega productos al carrito.</p>
+        </div>
         <form className="pos-product-tools" onSubmit={event => {
           event.preventDefault();
           void sale.listCatalogItems(catalogQuery.trim());
         }}>
           <label>Buscar producto<input data-testid="catalog-search-input" maxLength={200} value={catalogQuery}
             onChange={event => setCatalogQuery(event.target.value)} placeholder="Nombre, código o barras" /></label>
-          <button data-testid="catalog-search-button" disabled={sale.catalogBusy}>Buscar catálogo</button>
+          <button data-testid="catalog-search-button" disabled={sale.catalogBusy}>Buscar</button>
         </form>
-        <label>Cantidad para agregar<input inputMode="decimal" value={tileQuantity}
-          onChange={event => setTileQuantity(event.target.value)} /></label>
+        <label className="pos-tile-quantity">Cantidad para agregar
+          <input inputMode="decimal" value={tileQuantity}
+            onChange={event => setTileQuantity(event.target.value)} />
+        </label>
         <div className="pos-touch-grid" data-testid="touch-product-grid">
-          {sale.catalogItems.map(item => (
-            <button type="button" className="pos-product-tile" data-testid={`catalog-product-${item.presentation_id}`}
-              key={item.presentation_id} disabled={sale.busy || sale.unresolved || sale.sale !== null}
-              onClick={() => sale.addCatalogItem(item, tileQuantity.trim())}>
-              <ProductAvatar item={item} />
-              <strong className="pos-product-name-value">{item.name}</strong>
-              <span className="pos-product-presentation">{item.presentation_name}</span>
-              <span className="pos-product-price">{formatScale6Display(item.price_amount)}</span>
-            </button>
-          ))}
-          {!sale.catalogBusy && sale.catalogItems.length === 0 && <p>Sin productos vendibles.</p>}
+          {sale.catalogItems.map(item => {
+            const availability = presentCatalogAvailability(item);
+            const blocked = item.availability_state === "OUT_OF_STOCK"
+              || item.availability_state === "RESTRICTED";
+            return (
+              <button
+                type="button"
+                className="pos-product-tile"
+                data-testid={`catalog-product-${item.presentation_id}`}
+                data-availability={availability.state}
+                key={item.presentation_id}
+                disabled={sale.busy || sale.unresolved || sale.sale !== null || blocked}
+                onClick={() => sale.addCatalogItem(item, tileQuantity.trim())}
+              >
+                <ProductAvatar item={item} />
+                <strong className="pos-product-name-value">{item.name}</strong>
+                <span className="pos-product-code">{item.code}</span>
+                <span className="pos-product-presentation">
+                  {item.presentation_name} · {item.unit_code}
+                </span>
+                <span className="pos-product-price">{formatScale6Display(item.price_amount)}</span>
+                <span className="pos-product-stock" data-testid={`catalog-stock-${item.presentation_id}`}>
+                  {availability.label}
+                </span>
+              </button>
+            );
+          })}
+          {!sale.catalogBusy && sale.catalogItems.length === 0 && (
+            <p className="pos-product-empty" role="status">Sin productos vendibles. Busca por nombre, código o barras.</p>
+          )}
         </div>
         {sale.catalogHasMore && <button type="button" data-testid="catalog-load-more"
           disabled={sale.catalogBusy} onClick={() => { void sale.loadMoreCatalogItems(); }}>Cargar más productos</button>}
       </>}
-      <h2>Producto</h2>
-      <input
-        data-testid="barcode-input"
-        value={barcode}
-        onChange={(e) => { setBarcode(e.target.value); }}
-        placeholder="Código de barras"
-        disabled={sale.busy}
-      />
-      <button
-        data-testid="find-item-button"
-        onClick={() => { void sale.findItem(barcode.trim()); }}
-        disabled={sale.busy || barcode.trim() === ""}
-      >
-        Buscar
-      </button>
-      {sale.foundItem !== null && (
-        <div data-testid="found-item">
-          <span data-testid="found-item-name">{sale.foundItem.name}</span>
-          {" · "}
-          <span data-testid="found-item-price">{sale.foundItem.price_amount ?? "sin precio"}</span>
-          <input
-            data-testid="quantity-input"
-            value={quantity}
-            onChange={(e) => { setQuantity(e.target.value); }}
-            disabled={sale.busy}
-          />
-          {sale.shift !== null && sale.sale === null && (sale.foundItem.unit_code === "KGM" || sale.foundItem.unit_code === "GRM") && (
-            <button type="button" data-testid="capture-weight-button" disabled={sale.busy || sale.foundItem.price_amount === null} onClick={() => { void sale.captureWeight(); }}>Pesar y agregar</button>
-          )}
+      <div className="pos-barcode-lookup">
+        <h3>Código de barras</h3>
+        <div className="pos-barcode-lookup-row">
+          <label>Escaneo o captura
+            <input
+              data-testid="barcode-input"
+              value={barcode}
+              onChange={(e) => { setBarcode(e.target.value); }}
+              placeholder="Código de barras"
+              disabled={sale.busy}
+            />
+          </label>
           <button
-            data-testid="add-item-button"
-            onClick={() => { sale.addFoundItem(quantity.trim()); }}
-            disabled={sale.busy || sale.foundItem.price_amount === null}
+            data-testid="find-item-button"
+            onClick={() => { void sale.findItem(barcode.trim()); }}
+            disabled={sale.busy || barcode.trim() === ""}
           >
-            Agregar
+            Buscar
           </button>
         </div>
-      )}
+        {sale.foundItem !== null && (
+          <div className="pos-found-item" data-testid="found-item">
+            <p>
+              <span data-testid="found-item-name">{sale.foundItem.name}</span>
+              {" · "}
+              <span data-testid="found-item-price">{sale.foundItem.price_amount ?? "sin precio"}</span>
+              {sale.foundItem.availability_state !== null && (
+                <>
+                  {" · "}
+                  <span data-testid="found-item-stock">
+                    {presentCatalogAvailability({
+                      availability_state: sale.foundItem.availability_state,
+                      quantity_available: sale.foundItem.quantity_available,
+                      unit_code: sale.foundItem.unit_code ?? "",
+                    }).label}
+                  </span>
+                </>
+              )}
+            </p>
+            <label>Cantidad
+              <input
+                data-testid="quantity-input"
+                value={quantity}
+                onChange={(e) => { setQuantity(e.target.value); }}
+                disabled={sale.busy}
+              />
+            </label>
+            <div className="pos-found-item-actions">
+              {sale.shift !== null && sale.sale === null && (sale.foundItem.unit_code === "KGM" || sale.foundItem.unit_code === "GRM") && (
+                <button type="button" data-testid="capture-weight-button" disabled={sale.busy || sale.foundItem.price_amount === null} onClick={() => { void sale.captureWeight(); }}>Pesar y agregar</button>
+              )}
+              <button
+                data-testid="add-item-button"
+                onClick={() => { sale.addFoundItem(quantity.trim()); }}
+                disabled={sale.busy || sale.foundItem.price_amount === null}
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       </section>
       <section className="pos-sale-cart" aria-label="Carrito">
       <h2>Carrito de compras</h2>
-      {sale.lines.length === 0 && (
+      {sale.lines.length === 0 ? (
         <p className="pos-cart-empty">
           Selecciona un producto para agregarlo al carrito.
         </p>
-      )}
+      ) : (
       <div className="pos-cart-table-container">
         <table className="pos-cart-table" data-testid="cart">
           <thead>
             <tr>
-              <th>Producto</th><th>Unidad</th>
+              <th>Producto</th>
+              <th>Unidad</th>
               <th>Cant.</th>
               <th>Precio</th>
               <th>Valor</th>
@@ -228,48 +292,47 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             {sale.lines.map((line, index) => (
               <tr key={`${line.presentationId}-${index}`} data-testid="cart-line">
                 <td>
-                  <strong>{line.name}</strong></td><td>{line.presentationName}
+                  <strong className="pos-cart-line-name">{line.name}</strong>
                 </td>
+                <td className="pos-cart-line-unit">{line.presentationName}</td>
                 <td className="pos-cart-quantity">
-  <div className="pos-quantity-controls">
-    <button type="button"
-      aria-label={`Disminuir ${line.name}`}
-      disabled={sale.busy || sale.unresolved || sale.sale !== null ||
-        (parseCopMicros(line.quantity) ?? 0n) <= 1000000n}
-      onClick={() => {
-        const value = (parseCopMicros(line.quantity) ?? 0n) - 1000000n;
-        sale.updateLineQuantity(index, `${value / 1000000n}.${(value % 1000000n).toString().padStart(6, "0")}`);
-      }}>−</button>
-
-    <input
-      key={line.quantity}
-      aria-label={`Cantidad de ${line.name}`}
-      inputMode="decimal"
-      defaultValue={line.quantity.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "")}
-      disabled={sale.busy || sale.unresolved || sale.sale !== null}
-      onKeyDown={event => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-      onBlur={event => {
-        const value = event.currentTarget.value;
-        const parsed = parseCopMicros(value);
-        if (parsed === null || parsed <= 0n) {
-          event.currentTarget.value = line.quantity;
-          return;
-        }
-        sale.updateLineQuantity(index, value);
-      }}
-    />
-
-    <button type="button"
-      aria-label={`Aumentar ${line.name}`}
-      disabled={sale.busy || sale.unresolved || sale.sale !== null}
-      onClick={() => {
-        const value = (parseCopMicros(line.quantity) ?? 0n) + 1000000n;
-        sale.updateLineQuantity(index, `${value / 1000000n}.${(value % 1000000n).toString().padStart(6, "0")}`);
-      }}>+</button>
-  </div>
-</td>
+                  <div className="pos-quantity-controls">
+                    <button type="button"
+                      aria-label={`Disminuir ${line.name}`}
+                      disabled={sale.busy || sale.unresolved || sale.sale !== null ||
+                        (parseCopMicros(line.quantity) ?? 0n) <= 1000000n}
+                      onClick={() => {
+                        const value = (parseCopMicros(line.quantity) ?? 0n) - 1000000n;
+                        sale.updateLineQuantity(index, `${value / 1000000n}.${(value % 1000000n).toString().padStart(6, "0")}`);
+                      }}>−</button>
+                    <input
+                      key={line.quantity}
+                      aria-label={`Cantidad de ${line.name}`}
+                      inputMode="decimal"
+                      defaultValue={line.quantity.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "")}
+                      disabled={sale.busy || sale.unresolved || sale.sale !== null}
+                      onKeyDown={event => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                      onBlur={event => {
+                        const value = event.currentTarget.value;
+                        const parsed = parseCopMicros(value);
+                        if (parsed === null || parsed <= 0n) {
+                          event.currentTarget.value = line.quantity;
+                          return;
+                        }
+                        sale.updateLineQuantity(index, value);
+                      }}
+                    />
+                    <button type="button"
+                      aria-label={`Aumentar ${line.name}`}
+                      disabled={sale.busy || sale.unresolved || sale.sale !== null}
+                      onClick={() => {
+                        const value = (parseCopMicros(line.quantity) ?? 0n) + 1000000n;
+                        sale.updateLineQuantity(index, `${value / 1000000n}.${(value % 1000000n).toString().padStart(6, "0")}`);
+                      }}>+</button>
+                  </div>
+                </td>
                 <td className="pos-cart-money">
                   {formatScale6Display(line.priceAmount)}
                 </td>
@@ -306,6 +369,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
           </tbody>
         </table>
       </div>
+      )}
       <div className="pos-total" data-testid="cart-preview-total">
         <span>{sale.sale !== null ? "Total a pagar" : "Subtotal estimado (sin impuestos ni redondeo)"}</span>
         <strong>
@@ -349,6 +413,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             </li>)}</ul>}
           </div>}
       <button
+        className="pos-checkout-action pos-primary-action"
         data-testid="create-sale-button"
         onClick={() => { void sale.createSale(); }}
         disabled={!canCreateSale || sale.busy || sale.unresolved || sale.lines.length === 0 || sale.sale !== null}
@@ -356,15 +421,21 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
         Crear venta
       </button>
 
-      </section>
-      </div>
-
       {sale.sale !== null && (
-        <div data-testid="sale-created">
-          Total a pagar: <span data-testid="payable-amount" data-amount={sale.sale.payableAmount}>{sale.sale.payableAmount}</span>
-          {/* El identificador se muestra porque el cajero lo necesita para pedir
-              el recibo: el cliente vuelve con una duda y hay que recuperarla. */}
-          {" · venta "}<span data-testid="sale-id">{sale.sale.saleId}</span>
+        <div className="pos-payment-card" data-testid="sale-created">
+          <div className="pos-payment-card-header">
+            <div className="pos-payment-stat">
+              <span>Total a pagar</span>
+              <strong data-testid="payable-amount" data-amount={sale.sale.payableAmount}>{sale.sale.payableAmount}</strong>
+            </div>
+            <div className="pos-payment-stat">
+              <span>Pendiente</span>
+              <strong data-testid="payment-remaining">{remainingAmount ?? sale.sale.payableAmount}</strong>
+            </div>
+            {/* El identificador se muestra porque el cajero lo necesita para pedir
+                el recibo: el cliente vuelve con una duda y hay que recuperarla. */}
+            <p className="pos-payment-sale-id">Venta <span data-testid="sale-id">{sale.sale.saleId}</span></p>
+          </div>
           <label>Importe de este pago en efectivo<input data-testid="payment-amount-input" aria-label="Importe de este pago en efectivo" value={paymentAmount} placeholder={remainingAmount ?? sale.sale.payableAmount} onChange={event => setPaymentAmount(event.target.value)} disabled={sale.busy || completed} inputMode="decimal" /></label>
               <div className="pos-cash-calculator" aria-label="Contador de efectivo recibido">
                 <label>Efectivo recibido (COP)<input aria-label="Efectivo recibido (COP)" inputMode="numeric" value={manualTendered}
@@ -423,56 +494,66 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
                   <div><span>Dinero recibido</span><strong>{formatCopPesos(receivedTotal)}</strong></div>
                   <div><span>A cobrar en este pago</span><strong>{previewPayable !== null ? formatCopMicros(previewPayable) : "No disponible"}</strong></div>
                   {previewDelta !== null && !completed && (
-                    <div data-testid="cash-change-estimate" role="status">
+                    <div
+                      data-testid="cash-change-estimate"
+                      role="status"
+                      data-coverage={previewDelta >= 0n ? "change" : "shortage"}
+                    >
                       <span>{previewDelta >= 0n ? "Cambio estimado" : "Falta para cubrir"}</span>
                       <strong>{formatCopMicros(previewDelta >= 0n ? previewDelta : -previewDelta)}</strong>
                     </div>
                   )}
                 </div>
               </div>
-          <button className="pos-primary-action" type="button"
-            data-testid="charge-cash-button"
-            onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
-            disabled={sale.busy || completed || (confirmedCoverage !== null && !paymentAmount.trim())}
-          >
-            Confirmar cobro en efectivo
-          </button>
-          {/* Reportar la transferencia y atestiguarla son dos actos distintos,
-              con dos permisos distintos (`UC-PAY-002` y `UC-PAY-003`). La
-              pantalla no los funde en un botón: el cajero recibe el comprobante
-              y alguien da el dinero por bueno, que no tiene por qué ser el
-              mismo. */}
-          <button
-            data-testid="register-transfer-button"
-            onClick={() => { void sale.registerTransfer(); }}
-            disabled={sale.busy || completed || sale.transfer !== null}
-          >
-            Transferencia
-          </button>
-          <button
-            data-testid="factus-pay-collect-button"
-            onClick={() => { void sale.collectFactusPay(); }}
-            disabled={sale.busy || sale.factusPay !== null}
-          >
-            Generar QR FACTUS Pay
-          </button>
-          <button
-            data-testid="factus-pay-resume-button"
-            onClick={() => { void sale.resumeFactusPay(); }}
-            disabled={sale.busy || sale.factusPay !== null}
-          >
-            Recuperar FACTUS Pay
-          </button>
+          <div className="pos-payment-actions" role="group" aria-label="Métodos de cobro">
+            <button className="pos-primary-action" type="button"
+              data-testid="charge-cash-button"
+              onClick={() => { void sale.chargeCash(tendered || undefined, paymentAmount || undefined); }}
+              disabled={sale.busy || completed || (confirmedCoverage !== null && !paymentAmount.trim())}
+            >
+              Confirmar cobro en efectivo
+            </button>
+            {/* Reportar la transferencia y atestiguarla son dos actos distintos,
+                con dos permisos distintos (`UC-PAY-002` y `UC-PAY-003`). La
+                pantalla no los funde en un botón: el cajero recibe el comprobante
+                y alguien da el dinero por bueno, que no tiene por qué ser el
+                mismo. */}
+            <button
+              data-testid="register-transfer-button"
+              onClick={() => { void sale.registerTransfer(); }}
+              disabled={sale.busy || completed || sale.transfer !== null}
+            >
+              Transferencia
+            </button>
+            <button
+              data-testid="factus-pay-collect-button"
+              onClick={() => { void sale.collectFactusPay(); }}
+              disabled={sale.busy || sale.factusPay !== null}
+            >
+              Generar QR FACTUS Pay
+            </button>
+            <button
+              data-testid="factus-pay-resume-button"
+              onClick={() => { void sale.resumeFactusPay(); }}
+              disabled={sale.busy || sale.factusPay !== null}
+            >
+              Recuperar FACTUS Pay
+            </button>
+          </div>
         </div>
       )}
 
+      </section>
+      </div>
+
+      <div className="pos-sale-results" aria-live="polite">
       {sale.payment !== null && (
         sale.payment.sale_completed ? (
-          <div data-testid="sale-completed">
+          <div className="pos-result-success" data-testid="sale-completed">
             Venta cobrada · cambio {sale.payment.change_amount ?? "0.000000"}
           </div>
         ) : (
-          <div data-testid="payment-partial">
+          <div className="pos-result-pending" data-testid="payment-partial">
             Pago registrado ({sale.payment.outcome}) · cobertura{" "}
             <span data-testid="confirmed-coverage">{sale.payment.confirmed_coverage ?? "0.000000"}</span>
             {" "}· la venta aún no está cobrada
@@ -481,7 +562,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
       )}
 
       {sale.transfer !== null && (
-        <div data-testid="transfer-registered">
+        <div className="pos-result-pending" data-testid="transfer-registered">
           Transferencia registrada · pago{" "}
           <span data-testid="transfer-payment-id">{sale.transfer.paymentId}</span>
           {" · estado "}
@@ -507,18 +588,18 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
       )}
 
       {transferCompleted ? (
-        <div data-testid="transfer-sale-completed">
+        <div className="pos-result-success" data-testid="transfer-sale-completed">
           Venta cobrada por transferencia · cobertura{" "}
           <span data-testid="transfer-confirmed-coverage">
             {sale.transferReceiptAmount ?? sale.transferConfirmation?.confirmed_coverage}
           </span>
         </div>
       ) : sale.transferConfirmation !== null || sale.transfer?.status === "CONFIRMED" ? (
-        <div data-testid="transfer-partial">Transferencia {sale.transferConfirmation?.outcome ?? "confirmada"} · la venta aún no está cobrada</div>
+        <div className="pos-result-pending" data-testid="transfer-partial">Transferencia {sale.transferConfirmation?.outcome ?? "confirmada"} · la venta aún no está cobrada</div>
       ) : null}
 
       {sale.factusPay !== null && (
-        <div data-testid="factus-pay-registered">
+        <div className="pos-result-pending" data-testid="factus-pay-registered">
           FACTUS Pay · pago{" "}
           <span data-testid="factus-pay-payment-id">{sale.factusPay.paymentId}</span>
           {" · ref "}
@@ -553,14 +634,14 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
 
       {sale.factusPayConfirmation !== null && (
         sale.factusPayConfirmation.sale_completed ? (
-          <div data-testid="factus-pay-sale-completed">
+          <div className="pos-result-success" data-testid="factus-pay-sale-completed">
             Venta cobrada por FACTUS Pay · cobertura{" "}
             <span data-testid="factus-pay-confirmed-coverage">
               {sale.factusPayConfirmation.confirmed_coverage}
             </span>
           </div>
         ) : (
-          <div data-testid="factus-pay-partial">
+          <div className="pos-result-pending" data-testid="factus-pay-partial">
             FACTUS Pay {sale.factusPayConfirmation.outcome} · la venta aún no está cobrada
           </div>
         )
@@ -568,7 +649,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
 
       {sale.closedShift !== null && (
         sale.closedShift.outcome === "CLOSED" ? (
-          <div data-testid="shift-close-result">
+          <div className="pos-result-success" data-testid="shift-close-result">
             Turno cerrado · esperado{" "}
             <span data-testid="shift-expected-cash">{sale.closedShift.expected_cash}</span>
             {" · contado "}
@@ -579,14 +660,31 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
         ) : (
           /* Un cierre rechazado no se disfraza: el código estable es la única
              pista accionable que tiene el cajero. */
-          <div data-testid="shift-close-rejected">{sale.closedShift.outcome}</div>
+          <div className="pos-result-pending" data-testid="shift-close-rejected">{sale.closedShift.outcome}</div>
         )
       )}
+      </div>
 
       {sale.unresolved && <div role="alert">Hay una operación pendiente de respuesta.
         <button type="button" data-testid="retry-pending-operation" disabled={sale.busy} onClick={() => { void sale.retryPending(); }}>Reintentar operación pendiente</button>
       </div>}
-      {sale.error !== null && <div data-testid="sale-error">{sale.error}</div>}
+      {sale.error !== null && (
+        <div data-testid="sale-error">
+          {sale.error === "INSUFFICIENT_STOCK"
+            ? "No se pudo completar el cobro: el inventario ya no es elegible (p. ej. lote vencido). El pago no se registró."
+            : sale.error}
+          {sale.error === "INSUFFICIENT_STOCK" && sale.sale !== null && (
+            <button
+              type="button"
+              data-testid="cancel-blocked-sale-button"
+              disabled={sale.busy || sale.unresolved}
+              onClick={() => { void sale.cancelSale(); }}
+            >
+              Cancelar venta y liberar reserva
+            </button>
+          )}
+        </div>
+      )}
       <button data-testid="reset-button" onClick={() => { if (!sale.reset()) return; setManualTendered(""); setDenominationCounts({}); setPaymentAmount(""); setShowDenominations(false); }} disabled={sale.busy}>
         Nueva venta
       </button>

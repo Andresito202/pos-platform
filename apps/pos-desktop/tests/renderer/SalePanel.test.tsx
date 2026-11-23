@@ -55,6 +55,9 @@ const FOUND_ITEM = succeeded({
   presentation_id: PRESENTATION,
   code: "ARZ-500",
   name: "Arroz",
+  description: null,
+  brand: null,
+  category: null,
   presentation_name: "Bolsa 500g",
   unit_code: "GRM",
   unit_precision: 0,
@@ -62,6 +65,15 @@ const FOUND_ITEM = succeeded({
   stock_controlled: true,
   price_amount: "3500.000000",
   currency_code: "COP",
+  quantity_available: "20.000000",
+  quantity_on_hand: "20.000000",
+  quantity_reserved: "0.000000",
+  quantity_unsellable: "0.000000",
+  low_stock_threshold: null,
+  availability_state: "AVAILABLE",
+  product_version: 1,
+  presentation_version: 1,
+  media_id: null,
 });
 
 function install(overrides: Record<string, unknown>): void {
@@ -220,6 +232,27 @@ describe("SalePanel — vertical comercial", () => {
     expect(screen.queryByRole("button", { name: "Añadir billete de $5.000" })).toBeNull();
     expect(screen.getByTestId("tendered-display").textContent).toBe("$5.000");
     expect(calls.get("payment.register.cash")).toBeUndefined();
+  });
+
+  it("keeps checkout inside the sale layout and marks shortage distinctly from change", async () => {
+    install(BASE_OVERRIDES);
+    const { container } = render(<SalePanel />);
+    expect(screen.getByTestId("shift-closed").className).toContain("pos-shift-card");
+    await openShift();
+    expect(screen.getByTestId("shift-open").className).toContain("pos-shift-card");
+    await addProduct();
+    await createSale();
+    const layout = container.querySelector(".pos-sale-layout");
+    const checkout = screen.getByTestId("sale-created");
+    expect(layout?.contains(checkout)).toBe(true);
+    fireEvent.change(screen.getByLabelText("Efectivo recibido (COP)"), { target: { value: "1000" } });
+    const estimate = await screen.findByTestId("cash-change-estimate");
+    expect(estimate.getAttribute("data-coverage")).toBe("shortage");
+    expect(estimate.textContent).toContain("Falta para cubrir");
+    fireEvent.change(screen.getByLabelText("Efectivo recibido (COP)"), { target: { value: "5000" } });
+    await waitFor(() => {
+      expect(screen.getByTestId("cash-change-estimate").getAttribute("data-coverage")).toBe("change");
+    });
   });
 
   it("normalizes typed cash before sending the payment contract", async () => {

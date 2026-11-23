@@ -4,7 +4,7 @@ import { uuidV7 } from "@pos-platform/contracts";
 import { canonicalJson } from "../channel/canonical-json.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
 import type { DurableSyncStore } from "../sync/durable-sync-store.js";
-import { bigIntToScale6 } from "../money.js";
+import { bigIntToScale6, scale6ToBigInt } from "../money.js";
 import type { SaleLineCalculation, SaleTotalsCalculation } from "./sale-calculation.js";
 
 const SALE_PAYLOAD_SCHEMA_VERSION = "1.0.0";
@@ -411,11 +411,11 @@ export class SqliteSaleStore {
   }
 
   /**
-   * P1: cancel a local READY_FOR_PAYMENT sale and free its inventory holds.
-   * Does not cancel PAYMENT_IN_PROGRESS / COMPLETED — those require payment
-   * reconciliation first. `releaseHolds` runs in the same SQLite transaction
-   * after the sale is CANCELLED so inventory refuses to release unbound.
-   * IPC/permission surface for sale.cancel is not materialized in this closure.
+   * Cancel a local unpaid sale and free its SALE inventory holds in one txn.
+   * Allowed from READY_FOR_PAYMENT, or PAYMENT_IN_PROGRESS with zero confirmed
+   * coverage and no pending CREATED payments. Confirmed funds are never
+   * auto-refunded — those require an authorized reconciliation/refund path.
+   * SALE holds are not released through inventory.reservation.release IPC.
    */
   cancelReadyForPayment(input: {
     readonly scope: SyncScope;
@@ -432,8 +432,29 @@ export class SqliteSaleStore {
     | { readonly kind: "CANCELLED"; readonly saleId: string }
     | { readonly kind: "IDEMPOTENT"; readonly saleId: string }
     | { readonly kind: "NOT_FOUND" }
-    | { readonly kind: "CONFLICT"; readonly status: string } {
+    | { readonly kind: "CONFLICT"; readonly status: string }
+    | { readonly kind: "CONFIRMED_COVERAGE_REQUIRES_RECONCILIATION" }
+    | { readonly kind: "PENDING_PAYMENTS_MUST_CANCEL" } {
     const transaction = this.database.native.transaction(() => {
+      const priorOp = this.database.native.prepare(
+        `SELECT payload_checksum FROM runtime_operations WHERE idempotency_key=?`,
+      ).get(input.idempotencyKey) as { payload_checksum: string } | undefined;
+      if (priorOp) {
+        if (priorOp.payload_checksum !== input.requestChecksum) {
+          return { kind: "CONFLICT" as const, status: "IDEMPOTENCY_CONFLICT" };
+        }
+        const priorSale = this.database.native.prepare(
+          `SELECT id, status FROM sales_sales
+           WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`,
+        ).get(
+          input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.saleId,
+        ) as { id: string; status: string } | undefined;
+        if (priorSale?.status === "CANCELLED") {
+          return { kind: "IDEMPOTENT" as const, saleId: priorSale.id };
+        }
+        return { kind: "CONFLICT" as const, status: priorSale?.status ?? "UNKNOWN" };
+      }
+
       const sale = this.database.native.prepare(
         `SELECT id, status FROM sales_sales
          WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`,
@@ -444,21 +465,53 @@ export class SqliteSaleStore {
       if (sale.status === "CANCELLED") {
         return { kind: "IDEMPOTENT" as const, saleId: sale.id };
       }
-      if (sale.status !== "READY_FOR_PAYMENT") {
+      if (sale.status !== "READY_FOR_PAYMENT" && sale.status !== "PAYMENT_IN_PROGRESS") {
         return { kind: "CONFLICT" as const, status: sale.status };
       }
-      const nowIso = new Date().toISOString();
+
+      const confirmedRows = this.database.native.prepare(
+        `SELECT amount FROM payments_payment_allocations
+         WHERE tenant_id=? AND collection_subject_type='SALE' AND collection_subject_id=?`,
+      ).all(input.scope.tenantId, input.saleId) as Array<{ amount: string }>;
+      const confirmed = confirmedRows.reduce(
+        (sum, row) => sum + scale6ToBigInt(row.amount),
+        0n,
+      );
+      if (confirmed > 0n) {
+        return { kind: "CONFIRMED_COVERAGE_REQUIRES_RECONCILIATION" as const };
+      }
+
+      const pending = this.database.native.prepare(
+        `SELECT COUNT(*) AS n FROM payments_payments p
+         JOIN payments_payment_groups g
+           ON g.tenant_id=p.tenant_id AND g.id=p.payment_group_id
+         WHERE p.tenant_id=? AND g.collection_subject_type='SALE'
+           AND g.collection_subject_id=? AND p.status='CREATED'`,
+      ).get(input.scope.tenantId, input.saleId) as { n: number };
+      if (pending.n > 0) {
+        return { kind: "PENDING_PAYMENTS_MUST_CANCEL" as const };
+      }
+
+      const previousStatus = sale.status;
+      const nowIso = this.now().toISOString();
       const updated = this.database.native.prepare(
         `UPDATE sales_sales
          SET status='CANCELLED', cancelled_at=?, version=version+1
          WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?
-           AND status='READY_FOR_PAYMENT'`,
+           AND status IN ('READY_FOR_PAYMENT','PAYMENT_IN_PROGRESS')`,
       ).run(
         nowIso, input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.saleId,
       );
       if (updated.changes !== 1) {
-        return { kind: "CONFLICT" as const, status: "READY_FOR_PAYMENT" };
+        return { kind: "CONFLICT" as const, status: previousStatus };
       }
+
+      this.database.native.prepare(
+        `INSERT INTO runtime_operations(
+          operation_id,idempotency_key,payload_checksum,status,result_code,created_at,updated_at
+        ) VALUES (?,?,?,'SUCCEEDED','SALE_CANCELLED',?,?)`,
+      ).run(uuidV7(), input.idempotencyKey, input.requestChecksum, nowIso, nowIso);
+
       this.database.native.prepare(
         `INSERT INTO local_operation_audit(
           tenant_id, company_id, branch_id, device_id,
@@ -471,7 +524,7 @@ export class SqliteSaleStore {
         input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId,
         input.operatorUserId, input.sessionId, input.saleId,
         input.correlationId, input.causationId, input.reasonCode,
-        canonicalJson({ sale_id: input.saleId, previous_status: "READY_FOR_PAYMENT" }),
+        canonicalJson({ sale_id: input.saleId, previous_status: previousStatus }),
         nowIso,
       );
       const nextSequence = (this.database.native.prepare(
@@ -500,7 +553,7 @@ export class SqliteSaleStore {
         payload_schema_version: SALE_PAYLOAD_SCHEMA_VERSION,
         payload: {
           sale_id: input.saleId,
-          previous_status: "READY_FOR_PAYMENT",
+          previous_status: previousStatus,
           reason_code: input.reasonCode,
         },
         payload_checksum: input.requestChecksum,

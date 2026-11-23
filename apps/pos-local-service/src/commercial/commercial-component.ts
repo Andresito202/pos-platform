@@ -22,6 +22,10 @@ import { CloseCashShiftUseCase } from "../cash/close-cash-shift-use-case.js";
 import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
 import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { RegisterProductUseCase } from "../catalog/register-product-use-case.js";
+import { UpdateProductUseCase } from "../catalog/update-product-use-case.js";
+import { SupersedePriceUseCase } from "../catalog/supersede-price-use-case.js";
+import { ManageCatalogMediaUseCase } from "../catalog/manage-catalog-media-use-case.js";
+import { CatalogMediaStore } from "../catalog/catalog-media-store.js";
 import { FindCatalogItemUseCase } from "../catalog/find-catalog-item-use-case.js";
 import { ListCatalogItemsUseCase } from "../catalog/list-catalog-items-use-case.js";
 import { AddPresentationUseCase, UpsertFoodPolicyUseCase } from "../catalog/add-presentation-use-case.js";
@@ -56,6 +60,7 @@ import { SqliteAdminMetricsStore } from "../admin/sqlite-admin-metrics-store.js"
 import { GetAdminMetricsUseCase } from "../admin/get-admin-metrics-use-case.js";
 import { SqliteWaitingCartStore } from "../sales/sqlite-waiting-cart-store.js";
 import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
+import { CancelSaleUseCase } from "../sales/cancel-sale-use-case.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { ReceiveStockUseCase } from "../inventory/receive-stock-use-case.js";
 import { AdjustStockUseCase,ChangeBatchStatusUseCase } from "../inventory/adjust-stock-use-case.js";
@@ -123,6 +128,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly openCashShift: OpenCashShiftUseCase;
         readonly closeCashShift: CloseCashShiftUseCase;
         readonly createSale: CreateSaleUseCase;
+        readonly cancelSale: CancelSaleUseCase;
         readonly registerCashPayment: RegisterCashPaymentUseCase;
         readonly registerTransferPayment: RegisterTransferPaymentUseCase;
         readonly confirmTransferPayment: ConfirmTransferPaymentUseCase;
@@ -134,6 +140,9 @@ export class CommercialComponent implements RuntimeComponent {
         readonly registerCustomer: RegisterCustomerUseCase;
         readonly getCustomer: GetCustomerUseCase;
         readonly registerProduct: RegisterProductUseCase;
+        readonly updateProduct: UpdateProductUseCase;
+        readonly supersedePrice: SupersedePriceUseCase;
+        readonly manageCatalogMedia: ManageCatalogMediaUseCase;
         readonly findCatalogItem: FindCatalogItemUseCase;
         readonly listCatalogItems: ListCatalogItemsUseCase;
         readonly receiveStock: ReceiveStockUseCase;
@@ -250,6 +259,7 @@ export class CommercialComponent implements RuntimeComponent {
   get openCashShift(): OpenCashShiftUseCase { return this.ready.openCashShift; }
   get closeCashShift(): CloseCashShiftUseCase { return this.ready.closeCashShift; }
   get createSale(): CreateSaleUseCase { return this.ready.createSale; }
+  get cancelSale(): CancelSaleUseCase { return this.ready.cancelSale; }
   get registerCashPayment(): RegisterCashPaymentUseCase { return this.ready.registerCashPayment; }
   get registerTransferPayment(): RegisterTransferPaymentUseCase { return this.ready.registerTransferPayment; }
   get confirmTransferPayment(): ConfirmTransferPaymentUseCase { return this.ready.confirmTransferPayment; }
@@ -261,6 +271,9 @@ export class CommercialComponent implements RuntimeComponent {
   get registerCustomer(): RegisterCustomerUseCase { return this.ready.registerCustomer; }
   get getCustomer(): GetCustomerUseCase { return this.ready.getCustomer; }
   get registerProduct(): RegisterProductUseCase { return this.ready.registerProduct; }
+  get updateProduct(): UpdateProductUseCase { return this.ready.updateProduct; }
+  get supersedePrice(): SupersedePriceUseCase { return this.ready.supersedePrice; }
+  get manageCatalogMedia(): ManageCatalogMediaUseCase { return this.ready.manageCatalogMedia; }
   get findCatalogItem(): FindCatalogItemUseCase { return this.ready.findCatalogItem; }
   get listCatalogItems(): ListCatalogItemsUseCase { return this.ready.listCatalogItems; }
   get receiveStock(): ReceiveStockUseCase { return this.ready.receiveStock; }
@@ -387,6 +400,7 @@ export class CommercialComponent implements RuntimeComponent {
       openCashShift: new OpenCashShiftUseCase(masterSnapshotStore, cashShiftStore, this.now),
       closeCashShift: new CloseCashShiftUseCase(cashShiftStore, this.now),
       createSale: new CreateSaleUseCase(catalogStore, inventoryStore, cashShiftStore, saleStore, this.now, pharmacyStore),
+      cancelSale: new CancelSaleUseCase(saleStore, inventoryStore, this.now),
       upsertPharmacyEstablishment: new UpsertPharmacyEstablishmentUseCase(pharmacyStore),
       upsertPharmacyProfile: new UpsertPharmacyProfileUseCase(pharmacyStore),
       registerPharmacyPrescription: new RegisterPharmacyPrescriptionUseCase(pharmacyStore),
@@ -421,10 +435,16 @@ export class CommercialComponent implements RuntimeComponent {
       // El recibo no escribe: su almacen solo lee la venta ya cobrada (`DEC-019`).
       getReceipt: new GetReceiptUseCase(new SqliteReceiptStore(database)),
       registerProduct: new RegisterProductUseCase(catalogStore),
+      updateProduct: new UpdateProductUseCase(catalogStore),
+      supersedePrice: new SupersedePriceUseCase(catalogStore),
+      manageCatalogMedia: new ManageCatalogMediaUseCase(
+        catalogStore,
+        new CatalogMediaStore(database, this.config.data_directory, this.now),
+      ),
       addPresentation: new AddPresentationUseCase(catalogStore),
       upsertFoodPolicy: new UpsertFoodPolicyUseCase(catalogStore),
-      findCatalogItem: new FindCatalogItemUseCase(catalogStore),
-      listCatalogItems: new ListCatalogItemsUseCase(catalogStore),
+      findCatalogItem: new FindCatalogItemUseCase(catalogStore, inventoryStore, pharmacyStore),
+      listCatalogItems: new ListCatalogItemsUseCase(catalogStore, inventoryStore, pharmacyStore),
       registerCashPayment: new RegisterCashPaymentUseCase(paymentStore, this.now),
       registerTransferPayment: new RegisterTransferPaymentUseCase(paymentStore, this.now),
       confirmTransferPayment: new ConfirmTransferPaymentUseCase(paymentStore, this.now),

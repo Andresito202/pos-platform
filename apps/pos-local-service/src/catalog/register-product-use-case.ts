@@ -16,6 +16,9 @@ export const PERMISSION_CATALOG_PRODUCT_REGISTER = "CATALOG_PRODUCT_REGISTER";
 export interface RegisterProductRequest {
   readonly code: string;
   readonly name: string;
+  readonly description?: string | null;
+  readonly brand?: string | null;
+  readonly category?: string | null;
   readonly stockControlled: boolean;
   readonly presentationName: string;
   readonly unitCode: string;
@@ -36,8 +39,11 @@ function requestChecksum(request: RegisterProductRequest, operatorUserId: string
   return createHash("sha256")
     .update(canonicalJson({
       barcode: request.barcode,
+      brand: request.brand ?? null,
+      category: request.category ?? null,
       code: request.code,
       currency_code: request.currencyCode,
+      description: request.description ?? null,
       idempotency_key: request.idempotencyKey,
       operator_user_id: operatorUserId,
       price_amount: request.priceAmount,
@@ -77,6 +83,9 @@ export class RegisterProductUseCase {
       operationId: uuidV7(),
       code: request.code,
       name: request.name,
+      description: request.description?.trim() || null,
+      brand: request.brand?.trim() || null,
+      category: request.category?.trim() || null,
       stockControlled: request.stockControlled,
       presentationName: request.presentationName,
       unitCode: request.unitCode,

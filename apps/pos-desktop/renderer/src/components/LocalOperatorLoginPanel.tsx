@@ -82,8 +82,10 @@ export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=
 
   return (
     <section className="pos-local-login" aria-label="Acceso de operador local">
-      {loading ? <p role="status">Consultando sesión local…</p> : !supported ? (
-        <p role="status">Acceso local no habilitado para este servicio.</p>
+      {loading ? (
+        <p role="status" className="pos-entry-banner pos-entry-banner--info">Consultando sesión local…</p>
+      ) : !supported ? (
+        <p role="status" className="pos-entry-banner pos-entry-banner--warning">Acceso local no habilitado para este servicio.</p>
       ) : operator ? (
         <>
           <h3>Sesión local activa</h3>
@@ -101,15 +103,15 @@ export function LocalOperatorLoginPanel({onAuthenticated}: {onAuthenticated?:()=
           <div className="pos-password-field"><input id="pos-local-password" type={passwordVisible ? "text" : "password"} autoComplete="current-password"
             value={password} onChange={event=>setPassword(event.target.value)}
             disabled={busy} required maxLength={512} placeholder="Ingresa tu contraseña"/>
-            <button type="button" aria-label={passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
+            <button type="button" className="pos-password-toggle"
+              aria-label={passwordVisible ? "Ocultar contraseña" : "Mostrar contraseña"}
               aria-pressed={passwordVisible} onClick={()=>setPasswordVisible(value=>!value)} disabled={busy}>
               <img src={passwordVisible ? new URL("../assets/payment-icons/eye-off.svg", import.meta.url).href : new URL("../assets/payment-icons/eye.svg", import.meta.url).href} alt="" />
             </button></div>
           <button type="submit" disabled={busy}>{busy?"Verificando…":"Ingresar"}</button>
         </form>
       )}
-      {message && <p role="status" className="pos-local-login-message">{message}</p>}
-      <small>Instalación local de desarrollo. No acredita certificación comercial, fiscal ni SCM.</small>
+      {message && <p role="alert" className="pos-local-login-message">{message}</p>}
     </section>
   );
 }

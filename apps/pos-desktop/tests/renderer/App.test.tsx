@@ -131,6 +131,45 @@ describe("App", () => {
     });
   });
 
+  it("keeps SUPERVISOR on payment review without exposing Caja", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "AVAILABLE",
+      result: {
+        outcome: "AVAILABLE",
+        permissions: [
+          "PAYMENTS_PAYMENT_READ",
+          "PAYMENTS_TRANSFER_CONFIRM",
+          "PAYMENTS_PAYMENT_CANCEL",
+          "INVENTORY_STOCK_READ",
+          "CATALOG_PRODUCT_READ",
+          "CUSTOMERS_CUSTOMER_READ",
+          "SALES_RECEIPT_READ",
+        ],
+        entitlements: [],
+      },
+    });
+    vi.mocked(window.posService["local.operator.session"]).mockResolvedValue(
+      localOperatorResult("AUTHENTICATED", { username: "supervisor.local", role: "SUPERVISOR" }),
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Inventario" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Revisar transferencias" })).toBeTruthy();
+    });
+
+    expect(screen.queryByRole("button", { name: "Caja y ventas" })).toBeNull();
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Revisar transferencias" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("transfer-review-panel")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
+  });
+
   it("shows a non-empty audit nav for SUPERADMINISTRADOR with AUDIT_EVENT_READ only", async () => {
     vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
       status: "SUCCEEDED",
@@ -205,6 +244,13 @@ describe("App", () => {
       expect(screen.getByRole("img", { name: "Camacho POS Colombia" })).toBeTruthy();
     });
 
+    const card = screen.getByLabelText("Estado de acceso");
+    const site = screen.getByTestId("institutional-website");
+    expect(card.contains(site)).toBe(false);
+    expect(screen.getByText("Sitio web de Camacho POS Colombia")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Actualizar acceso" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reintentar conexión" })).toBeNull();
+    expect(screen.queryByText(/Servicio local: conectado/i)).toBeNull();
     expect(screen.queryByTestId("sale-panel")).toBeNull();
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
   });
@@ -221,9 +267,34 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByTestId("authorization-error")).toBeTruthy();
     });
-
+    expect(screen.getByTestId("authorization-error").textContent).toContain(
+      "El canal con el servicio local se interrumpió.",
+    );
+    expect(screen.getByRole("button", { name: "Reintentar conexión" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Actualizar acceso" })).toBeNull();
+    expect(screen.queryByLabelText("Usuario")).toBeNull();
     expect(screen.queryByTestId("sale-panel")).toBeNull();
     expect(screen.queryByTestId("catalog-panel")).toBeNull();
+  });
+
+  it("fails closed without granting access when capabilities return a non-AVAILABLE success code", async () => {
+    vi.mocked(window.posService["authorization.capabilities.get"]).mockResolvedValue({
+      status: "SUCCEEDED",
+      result_code: "OK",
+      result: null,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("authorization-error")).toBeTruthy();
+    });
+    expect(screen.getByTestId("authorization-error").textContent).toBe(
+      "La respuesta de autorización no es válida.",
+    );
+    expect(screen.getByTestId("authorization-error").textContent).not.toContain(": OK");
+    expect(screen.queryByLabelText("Usuario")).toBeNull();
+    expect(screen.queryByTestId("sale-panel")).toBeNull();
   });
 
   it("uses the original brand and collapses navigation without changing permissions or the active screen", async () => {
@@ -231,9 +302,11 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Catálogo" })).toBeTruthy());
     const heading = screen.getByRole("heading", { name: "Catálogo", level: 1 });
     expect(screen.getByRole("img", { name: "Camacho POS Colombia" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Saltar al área de trabajo" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Ocultar menú" }));
     expect(screen.getByRole("button", { name: "Mostrar menú" }).getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("button", { name: "Catálogo" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Saltar al área de trabajo" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Catálogo", level: 1 })).toBe(heading);
     fireEvent.click(screen.getByRole("button", { name: "Mostrar menú" }));
     expect(screen.getByRole("button", { name: "Catálogo" }).getAttribute("aria-current")).toBe("page");
@@ -247,9 +320,11 @@ describe("App", () => {
     });
   });
 
-  it("renders the status panel in loading state initially", () => {
+  it("keeps runtime diagnostics off the normal login surface while status is pending", () => {
     render(<App />);
-    expect(screen.getByTestId("status-loading")).toBeTruthy();
+    expect(screen.queryByTestId("status-loading")).toBeNull();
+    expect(screen.queryByTestId("status-connected")).toBeNull();
+    expect(screen.queryByText(/Servicio local: conectado/i)).toBeNull();
   });
 
   it("renders the operation panel after authorization loads", async () => {

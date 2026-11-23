@@ -8,6 +8,7 @@ import { StatusPanel } from "./components/StatusPanel.js";
 import { LocalOperatorLoginPanel } from "./components/LocalOperatorLoginPanel.js";
 import { LocalOperatorSessionControl } from "./components/LocalOperatorSessionControl.js";
 import { LocalAdministrativeAuditPanel } from "./components/LocalAdministrativeAuditPanel.js";
+import { InstitutionalWebsiteLink } from "./components/InstitutionalWebsiteLink.js";
 
 import { AdministrativeControlPanel } from "./components/AdministrativeControlPanel.js";
 import { TransferReviewPanel } from "./components/TransferReviewPanel.js";
@@ -18,6 +19,7 @@ import { CatalogPanel } from "./components/CatalogPanel.js";
 import { InventoryPanel } from "./components/InventoryPanel.js";
 import { CustomerPanel } from "./components/CustomerPanel.js";
 import { FiscalPanel } from "./components/FiscalPanel.js";
+import { bindCatalogMediaSession, clearCatalogMediaCache } from "./catalog-media-cache.js";
 import { useAuthorizationCapabilities } from "./hooks/useAuthorizationCapabilities.js";
 import { useLocalOperatorSession } from "./hooks/useLocalOperatorSession.js";
 import { homeScreenId, orderScreensByRole } from "./roleNavigation.js";
@@ -67,6 +69,7 @@ function LocalApp(): React.JSX.Element {
       || authorization.phase === "expired"
       || authorization.phase === "error"
     ) {
+      clearCatalogMediaCache();
       setActiveScreen(null);
       setVisitedScreens(new Set());
       setNavigationOpen(true);
@@ -80,10 +83,18 @@ function LocalApp(): React.JSX.Element {
     ? `${localSession.username ?? ""}:${localSession.role ?? ""}`
     : null;
   useEffect(() => {
-    if (settledIdentity === null) return;
+    if (settledIdentity === null) {
+      clearCatalogMediaCache();
+      return;
+    }
+    bindCatalogMediaSession({
+      username: localSession.username,
+      role: localSession.role,
+      epoch: sessionEpoch,
+    });
     setActiveScreen(null);
     setVisitedScreens(new Set());
-  }, [settledIdentity]);
+  }, [settledIdentity, localSession.username, localSession.role, sessionEpoch]);
 
   const screens = useMemo<Screen[]>(() => {
     if (authorization.phase !== "ready" || !localSession.ready) return [];
@@ -188,54 +199,73 @@ function LocalApp(): React.JSX.Element {
     return (
       <main className="pos-entry" aria-busy={loading}>
         <section className="pos-entry-brand" aria-label="Identidad Camacho POS Colombia">
-          <BrandMark variant="entry" />
-          <h2>Acceso seguro al<br />punto de venta</h2>
-          <p>Inicia sesión para continuar con tu operación.</p>
+          <div className="pos-entry-brand-content">
+            <BrandMark variant="entry" />
+            <h2>Tecnología que impulsa tu negocio</h2>
+            <p>Gestiona tus operaciones con precisión, seguridad y confianza.</p>
+          </div>
         </section>
-        <section className="pos-entry-card" aria-label="Estado de acceso">
-          <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
-          <h1>Iniciar sesión</h1>
-          <h2>
-            {loading
-              ? "Validando sesión"
-              : unauthenticated
-                ? "Accede con tu cuenta local para continuar"
-                : authorization.phase === "denied"
-                  ? "Acceso denegado"
-                  : authorization.phase === "expired"
-                    ? "Sesión expirada"
-                    : "Acceso no disponible"}
-          </h2>
-          <p>
-            {loading
-              ? "Comprobando la sesión y los permisos efectivos."
-              : unauthenticated
-                ? "Identifícate para acceder a las funciones locales autorizadas de tu perfil."
-                : "El POS no ha podido verificar una sesión autorizada."}
-          </p>
-          {loading ? (
-            <div data-testid="authorization-loading" role="status">Cargando permisos…</div>
-          ) : unauthenticated ? (
-            <div data-testid="authorization-unauthenticated" role="status">
-              No hay una sesión iniciada en este dispositivo.
-            </div>
-          ) : authorization.phase === "denied" ? (
-            <div data-testid="authorization-denied" role="alert">
-              La sesión no dispone de permisos efectivos para operar en este POS.
-            </div>
-          ) : authorization.phase === "expired" ? (
-            <div data-testid="authorization-expired" role="alert">
-              La verificación del backend indica que la sesión expiró. Es necesario autenticarse de nuevo.
-            </div>
-          ) : authorization.phase === "error" ? (
-            <div data-testid="authorization-error" role="alert">
-              No se pudo cargar la autorización: {authorization.message}
-            </div>
-          ) : null}
-          {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={refreshAccess} />}
-          <button type="button" onClick={refreshAccess} disabled={loading}>Actualizar acceso</button>
-          <StatusPanel />
-        </section>
+        <div className="pos-entry-form-column">
+          <section className="pos-entry-card" aria-label="Estado de acceso">
+            <span className="pos-entry-eyebrow">CAMACHO POS COLOMBIA</span>
+            <h1>Iniciar sesión</h1>
+            {unauthenticated ? (
+              <p className="pos-entry-lead">Ingresa a tu espacio de trabajo.</p>
+            ) : (
+              <>
+                <p className="pos-entry-lead">
+                  {loading
+                    ? "Validando sesión"
+                    : authorization.phase === "denied"
+                      ? "Acceso denegado"
+                      : authorization.phase === "expired"
+                        ? "Sesión expirada"
+                        : "Acceso no disponible"}
+                </p>
+                {loading ? (
+                  <p className="pos-entry-copy">Comprobando la sesión y los permisos efectivos.</p>
+                ) : authorization.phase === "error" ? null : (
+                  <p className="pos-entry-copy">El POS no ha podido verificar una sesión autorizada.</p>
+                )}
+              </>
+            )}
+            {loading ? (
+              <div data-testid="authorization-loading" role="status" className="pos-entry-banner pos-entry-banner--info">
+                Cargando permisos…
+              </div>
+            ) : unauthenticated ? (
+              <div data-testid="authorization-unauthenticated" role="status" className="pos-entry-banner pos-entry-banner--info">
+                No hay una sesión iniciada en este dispositivo.
+              </div>
+            ) : authorization.phase === "denied" ? (
+              <div data-testid="authorization-denied" role="alert" className="pos-entry-banner pos-entry-banner--warning">
+                La sesión no dispone de permisos efectivos para operar en este POS.
+              </div>
+            ) : authorization.phase === "expired" ? (
+              <div data-testid="authorization-expired" role="alert" className="pos-entry-banner pos-entry-banner--warning">
+                La sesión expiró. Es necesario autenticarse de nuevo.
+              </div>
+            ) : authorization.phase === "error" ? (
+              <div data-testid="authorization-error" role="alert" className="pos-entry-banner pos-entry-banner--error">
+                {authorization.message}
+              </div>
+            ) : null}
+            {unauthenticated && <LocalOperatorLoginPanel onAuthenticated={refreshAccess} />}
+            {authorization.phase === "error" && (
+              <button
+                type="button"
+                className="pos-entry-secondary"
+                data-testid="retry-connection"
+                onClick={refreshAccess}
+                disabled={loading}
+              >
+                Reintentar conexión
+              </button>
+            )}
+            <StatusPanel />
+          </section>
+          <InstitutionalWebsiteLink />
+        </div>
       </main>
     );
   }
@@ -244,8 +274,8 @@ function LocalApp(): React.JSX.Element {
 
   return (
     <main className="pos-shell" data-navigation-open={navigationOpen} data-operator-role={localSession.role ?? "none"}>
+      <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
       <aside id="pos-navigation" className="pos-sidebar" aria-label="Navegación principal" hidden={!navigationOpen}>
-        <a className="pos-skip-link" href="#pos-workspace">Saltar al área de trabajo</a>
         <BrandMark variant="sidebar" />
         <p className="pos-brand-name">Camacho POS Colombia</p>
         <p className="pos-subtitle">
@@ -256,8 +286,8 @@ function LocalApp(): React.JSX.Element {
               : localSession.role === "ADMINISTRADOR"
                 ? "Administración"
                 : localSession.role === "SUPERADMINISTRADOR"
-                  ? "Auditoría local (no GLOBAL)"
-                  : "Acceso según permisos efectivos"}
+                  ? "Auditoría"
+                  : "Acceso según permisos"}
         </p>
         <nav className="pos-nav">
           {screens.map((screen) => (
@@ -285,12 +315,20 @@ function LocalApp(): React.JSX.Element {
           <div>
             <p className="pos-product-name">Camacho POS Colombia</p>
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
-            <p>Acceso disponible según la autorización efectiva de la sesión.</p>
+            <p>
+              {localSession.role === "SUPERVISOR"
+                ? "Supervisión de operaciones autorizadas."
+                : localSession.role === "ADMINISTRADOR"
+                  ? "Administración del negocio."
+                  : localSession.role === "SUPERADMINISTRADOR"
+                    ? "Auditoría en este dispositivo."
+                    : "Acceso según los permisos de tu sesión."}
+            </p>
           </div>
         </header>
 
         <section className="pos-status">
-          <StatusPanel />
+          <StatusPanel onRetry={refreshAccess} />
         </section>
 
         <section className="pos-screen" aria-label="Pantalla activa">

@@ -465,6 +465,43 @@ export const SaleCreateResultSchema = z.strictObject({
 
 export const SaleCreateResponseSchema = createResponseEnvelopeSchema(SaleCreateResultSchema);
 
+// ── sale.cancel ──────────────────────────────────────────────────────────────
+
+/**
+ * Cancels a local unpaid sale and releases its SALE inventory holds.
+ * Does not refund confirmed payments — those require reconciliation/refund.
+ * Does not free SALE holds via inventory.reservation.release.
+ */
+export const SaleCancelRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    sale_id: UuidSchema,
+    reason_code: z.string().min(1).max(64),
+  }),
+).safeExtend({ message_type: z.literal("sale.cancel") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const SaleCancelOutcomeSchema = z.enum([
+  "CANCELLED",
+  "IDEMPOTENT",
+  "UNAUTHORIZED",
+  "IDEMPOTENCY_CONFLICT",
+  "NOT_FOUND",
+  "CONFLICT",
+  "CONFIRMED_COVERAGE_REQUIRES_RECONCILIATION",
+  "PENDING_PAYMENTS_MUST_CANCEL",
+]);
+
+export const SaleCancelResultSchema = z.strictObject({
+  outcome: SaleCancelOutcomeSchema,
+  sale_id: UuidSchema.nullable(),
+  released_reservations: z.number().int().nonnegative().nullable(),
+});
+
+export const SaleCancelResponseSchema = createResponseEnvelopeSchema(SaleCancelResultSchema);
+
 // ── payment.register.cash ────────────────────────────────────────────────────
 
 /**
@@ -1084,6 +1121,9 @@ export const CatalogProductRegisterRequestSchema = createRequestEnvelopeSchema(
   z.strictObject({
     code: z.string().min(1).max(64),
     name: z.string().min(1).max(200),
+    description: z.string().min(1).max(2000).nullable().optional(),
+    brand: z.string().min(1).max(120).nullable().optional(),
+    category: z.string().min(1).max(120).nullable().optional(),
     stock_controlled: z.boolean(),
     presentation_name: z.string().min(1).max(200),
     unit_code: z.string().min(1).max(16),
@@ -1122,6 +1162,128 @@ export const CatalogProductRegisterResultSchema = z.strictObject({
 export const CatalogProductRegisterResponseSchema =
   createResponseEnvelopeSchema(CatalogProductRegisterResultSchema);
 
+export const CatalogProductUpdateRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    expected_version: z.number().int().positive(),
+    name: z.string().min(1).max(200).optional(),
+    code: z.string().min(1).max(64).optional(),
+    description: z.string().min(1).max(2000).nullable().optional(),
+    brand: z.string().min(1).max(120).nullable().optional(),
+    category: z.string().min(1).max(120).nullable().optional(),
+    status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+    presentation_id: UuidSchema.optional(),
+    presentation_expected_version: z.number().int().positive().optional(),
+    presentation_name: z.string().min(1).max(200).optional(),
+    barcode: BarcodeSchema.nullable().optional(),
+    /** Scale-6 threshold for LOW; null clears. Precision must fit presentation unit. */
+    low_stock_threshold: PositiveScale6Schema.nullable().optional(),
+    reason: z.string().min(1).max(300).nullable().optional(),
+  }),
+).safeExtend({ message_type: z.literal("catalog.product.update") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogProductUpdateResultSchema = z.strictObject({
+  outcome: z.enum([
+    "UPDATED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "NOT_FOUND",
+    "VERSION_CONFLICT",
+    "PRESENTATION_VERSION_CONFLICT",
+    "CODE_ALREADY_REGISTERED",
+    "BARCODE_ALREADY_REGISTERED",
+    "INVALID_INPUT",
+    "IDEMPOTENCY_CONFLICT",
+  ]),
+  product_id: UuidSchema.nullable(),
+  version: z.number().int().positive().nullable(),
+  presentation_version: z.number().int().positive().nullable(),
+  current_version: z.number().int().positive().nullable(),
+});
+export const CatalogProductUpdateResponseSchema =
+  createResponseEnvelopeSchema(CatalogProductUpdateResultSchema);
+
+export const CatalogPricePublishRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    presentation_id: UuidSchema,
+    amount: PositiveScale6Schema,
+    currency_code: CurrencyCodeSchema,
+  }),
+).safeExtend({ message_type: z.literal("catalog.price.publish") })
+  .superRefine((request, context) => {
+    forbidCallerAssertedIdentity(request, context);
+    requireIdempotentOperation(request, context);
+  });
+
+export const CatalogPricePublishResultSchema = z.strictObject({
+  outcome: z.enum([
+    "PUBLISHED",
+    "IDEMPOTENT",
+    "UNAUTHORIZED",
+    "NOT_FOUND",
+    "INVALID_AMOUNT",
+    "IDEMPOTENCY_CONFLICT",
+  ]),
+  price_id: UuidSchema.nullable(),
+  presentation_id: UuidSchema.nullable(),
+});
+export const CatalogPricePublishResponseSchema =
+  createResponseEnvelopeSchema(CatalogPricePublishResultSchema);
+
+export const CatalogMediaPutRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    expected_version: z.number().int().positive(),
+    content_base64: z.string().min(1).max(400_000),
+  }),
+).safeExtend({ message_type: z.literal("catalog.media.put") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogMediaClearRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({
+    product_id: UuidSchema,
+    expected_version: z.number().int().positive(),
+  }),
+).safeExtend({ message_type: z.literal("catalog.media.clear") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogMediaMutateResultSchema = z.strictObject({
+  outcome: z.enum([
+    "ATTACHED",
+    "UNAUTHORIZED",
+    "NOT_FOUND",
+    "VERSION_CONFLICT",
+    "INVALID",
+  ]),
+  media_id: UuidSchema.nullable(),
+  product_id: UuidSchema.nullable(),
+  version: z.number().int().positive().nullable(),
+  current_version: z.number().int().positive().nullable(),
+  reason: z.string().min(1).max(64).nullable(),
+});
+export const CatalogMediaMutateResponseSchema =
+  createResponseEnvelopeSchema(CatalogMediaMutateResultSchema);
+
+export const CatalogMediaGetRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ media_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("catalog.media.get") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const CatalogMediaGetResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  media_id: UuidSchema.nullable(),
+  mime_type: z.enum(["image/jpeg", "image/png", "image/webp"]).nullable(),
+  width_px: z.number().int().positive().nullable(),
+  height_px: z.number().int().positive().nullable(),
+  content_base64: z.string().min(1).max(400_000).nullable(),
+});
+export const CatalogMediaGetResponseSchema =
+  createResponseEnvelopeSchema(CatalogMediaGetResultSchema);
+
 // ── catalog.item.find · catalog.item.get ─────────────────────────────────────
 
 /**
@@ -1140,12 +1302,32 @@ export const CatalogItemGetRequestSchema = createRequestEnvelopeSchema(
 ).safeExtend({ message_type: z.literal("catalog.item.get") })
   .superRefine(forbidCallerAssertedIdentity);
 
+/**
+ * Sellable availability projected from inventory for cashier surfaces.
+ * `NOT_TRACKED` = product is not stock-controlled (no invented zero).
+ * `LOW` = dispensable units at/below presentation threshold.
+ * `RESTRICTED` = pharmacy registration invalid/expired (verifiable).
+ * `VERIFICATION_REQUIRED` = dispensable stock exists but sale needs
+ * prescription/controlled checks that the tile cannot authorize.
+ */
+export const CatalogAvailabilityStateSchema = z.enum([
+  "AVAILABLE",
+  "LOW",
+  "OUT_OF_STOCK",
+  "RESTRICTED",
+  "VERIFICATION_REQUIRED",
+  "NOT_TRACKED",
+]);
+
 export const CatalogItemResultSchema = z.strictObject({
   outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
   product_id: UuidSchema.nullable(),
   presentation_id: UuidSchema.nullable(),
   code: z.string().min(1).max(64).nullable(),
   name: z.string().min(1).max(200).nullable(),
+  description: z.string().min(1).max(2000).nullable(),
+  brand: z.string().min(1).max(120).nullable(),
+  category: z.string().min(1).max(120).nullable(),
   presentation_name: z.string().min(1).max(200).nullable(),
   unit_code: z.string().min(1).max(16).nullable(),
   unit_precision: z.number().int().min(0).max(6).nullable(),
@@ -1157,6 +1339,21 @@ export const CatalogItemResultSchema = z.strictObject({
    */
   price_amount: PositiveScale6Schema.nullable(),
   currency_code: CurrencyCodeSchema.nullable(),
+  /** Units available to sell (sellable − reserved). null when NOT_TRACKED. */
+  quantity_available: NonNegativeScale6Schema.nullable(),
+  /** Physical on-hand. null when NOT_TRACKED. */
+  quantity_on_hand: NonNegativeScale6Schema.nullable(),
+  /** Units held by ACTIVE reservations. null when NOT_TRACKED. */
+  quantity_reserved: NonNegativeScale6Schema.nullable(),
+  /** Physical units not dispensable (expired/blocked). null when NOT_TRACKED. */
+  quantity_unsellable: NonNegativeScale6Schema.nullable(),
+  /** Presentation low-stock threshold (scale-6). null when unset / NOT_TRACKED. */
+  low_stock_threshold: PositiveScale6Schema.nullable(),
+  availability_state: CatalogAvailabilityStateSchema.nullable(),
+  product_version: z.number().int().positive().nullable(),
+  presentation_version: z.number().int().positive().nullable(),
+  /** Verified media reference — never a raw filesystem path or remote URL. */
+  media_id: UuidSchema.nullable(),
 });
 
 export const CatalogItemResponseSchema = createResponseEnvelopeSchema(CatalogItemResultSchema);
@@ -1175,6 +1372,9 @@ export const CatalogItemListItemSchema = z.strictObject({
   presentation_id: UuidSchema,
   code: z.string().min(1).max(64),
   name: z.string().min(1).max(200),
+  description: z.string().min(1).max(2000).nullable(),
+  brand: z.string().min(1).max(120).nullable(),
+  category: z.string().min(1).max(120).nullable(),
   presentation_name: z.string().min(1).max(200),
   unit_code: z.string().min(1).max(16),
   unit_precision: z.number().int().min(0).max(6),
@@ -1182,6 +1382,15 @@ export const CatalogItemListItemSchema = z.strictObject({
   stock_controlled: z.boolean(),
   price_amount: PositiveScale6Schema,
   currency_code: CurrencyCodeSchema,
+  quantity_available: NonNegativeScale6Schema.nullable(),
+  quantity_on_hand: NonNegativeScale6Schema.nullable(),
+  quantity_reserved: NonNegativeScale6Schema.nullable(),
+  quantity_unsellable: NonNegativeScale6Schema.nullable(),
+  low_stock_threshold: PositiveScale6Schema.nullable(),
+  availability_state: CatalogAvailabilityStateSchema,
+  product_version: z.number().int().positive(),
+  presentation_version: z.number().int().positive(),
+  media_id: UuidSchema.nullable(),
 });
 
 export const CatalogItemListResultSchema = z.strictObject({
@@ -2104,6 +2313,7 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "cash.shift.open",
   "cash.shift.close",
   "sale.create",
+  "sale.cancel",
   "cart.waiting.save",
   "cart.waiting.list",
   "cart.waiting.get",
@@ -2124,6 +2334,11 @@ export const CommercialIpcMessageTypeSchema = z.enum([
   "customer.marketing.unsubscribe",
   "customer.marketing.get",
   "catalog.product.register",
+  "catalog.product.update",
+  "catalog.price.publish",
+  "catalog.media.put",
+  "catalog.media.clear",
+  "catalog.media.get",
   "catalog.item.find",
   "catalog.item.get",
   "catalog.item.list",
@@ -2170,6 +2385,7 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:cash.shift.open",
   "pos:cash.shift.close",
   "pos:sale.create",
+  "pos:sale.cancel",
   "pos:cart.waiting.save",
   "pos:cart.waiting.list",
   "pos:cart.waiting.get",
@@ -2190,6 +2406,11 @@ export const COMMERCIAL_IPC_ELECTRON_CHANNELS = [
   "pos:customer.marketing.unsubscribe",
   "pos:customer.marketing.get",
   "pos:catalog.product.register",
+  "pos:catalog.product.update",
+  "pos:catalog.price.publish",
+  "pos:catalog.media.put",
+  "pos:catalog.media.clear",
+  "pos:catalog.media.get",
   "pos:catalog.item.find",
   "pos:catalog.item.get",
   "pos:catalog.item.list",
@@ -2230,6 +2451,7 @@ export type SessionRecoverResult = z.infer<typeof SessionRecoverResultSchema>;
 export type CashShiftOpenResult = z.infer<typeof CashShiftOpenResultSchema>;
 export type CashShiftCloseResult = z.infer<typeof CashShiftCloseResultSchema>;
 export type SaleCreateResult = z.infer<typeof SaleCreateResultSchema>;
+export type SaleCancelResult = z.infer<typeof SaleCancelResultSchema>;
 export type PaymentRegisterCashResult = z.infer<typeof PaymentRegisterCashResultSchema>;
 export type PaymentRegisterTransferResult = z.infer<typeof PaymentRegisterTransferResultSchema>;
 export type PaymentTransferConfirmResult = z.infer<typeof PaymentTransferConfirmResultSchema>;
@@ -2246,8 +2468,13 @@ export type FiscalDocumentIssueResult = z.infer<typeof FiscalDocumentIssueResult
 export type FiscalDocumentIssueReason = z.infer<typeof FiscalDocumentIssueReasonSchema>;
 export type FiscalNumberingSyncResult = z.infer<typeof FiscalNumberingSyncResultSchema>;
 export type CatalogProductRegisterResult = z.infer<typeof CatalogProductRegisterResultSchema>;
+export type CatalogProductUpdateResult = z.infer<typeof CatalogProductUpdateResultSchema>;
+export type CatalogPricePublishResult = z.infer<typeof CatalogPricePublishResultSchema>;
+export type CatalogMediaMutateResult = z.infer<typeof CatalogMediaMutateResultSchema>;
+export type CatalogMediaGetResult = z.infer<typeof CatalogMediaGetResultSchema>;
 export type CatalogItemResult = z.infer<typeof CatalogItemResultSchema>;
 export type CatalogItemListItem = z.infer<typeof CatalogItemListItemSchema>;
+export type CatalogAvailabilityState = z.infer<typeof CatalogAvailabilityStateSchema>;
 export type SalesReceiptGetResult = z.infer<typeof SalesReceiptGetResultSchema>;
 export type ReceiptLine = z.infer<typeof ReceiptLineSchema>;
 export type ReceiptPayment = z.infer<typeof ReceiptPaymentSchema>;

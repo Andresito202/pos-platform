@@ -5,7 +5,13 @@ import {
   toRoleAssignments,
 } from "@pos-platform/application";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
+import type { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
+import type { SqlitePharmacyStore } from "../pharmacy/sqlite-pharmacy-store.js";
 import type { SyncScope } from "../sync/durable-sync-store.js";
+import {
+  readCatalogAvailability,
+  type CatalogAvailability,
+} from "./catalog-availability.js";
 import type { CatalogItem, SqliteCatalogStore } from "./sqlite-catalog-store.js";
 
 export const PERMISSION_CATALOG_PRODUCT_READ = "CATALOG_PRODUCT_READ";
@@ -19,12 +25,16 @@ export type FindCatalogItemRequest =
   | { readonly by: "PRESENTATION"; readonly presentationId: string };
 
 export type FindCatalogItemResult =
-  | { readonly kind: "FOUND"; readonly item: CatalogItem }
+  | { readonly kind: "FOUND"; readonly item: CatalogItem; readonly availability: CatalogAvailability }
   | { readonly kind: "NOT_FOUND" }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string };
 
 export class FindCatalogItemUseCase {
-  constructor(private readonly catalogStore: SqliteCatalogStore) {}
+  constructor(
+    private readonly catalogStore: SqliteCatalogStore,
+    private readonly inventoryStore: SqliteInventoryStore,
+    private readonly pharmacyStore: SqlitePharmacyStore | null = null,
+  ) {}
 
   execute(
     scope: SyncScope,
@@ -46,6 +56,24 @@ export class FindCatalogItemUseCase {
       ? this.catalogStore.findByBarcode(catalogScope, request.barcode)
       : this.catalogStore.findItemByPresentation(catalogScope, request.presentationId);
 
-    return item === null ? { kind: "NOT_FOUND" } : { kind: "FOUND", item };
+    if (item === null) return { kind: "NOT_FOUND" };
+    return {
+      kind: "FOUND",
+      item,
+      availability: readCatalogAvailability(
+        this.inventoryStore,
+        scope,
+        item.presentation.id,
+        item.product.stockControlled,
+        {
+          lowStockThreshold: item.presentation.lowStockThreshold,
+          pharmacyProfile: this.pharmacyStore?.getProfile(
+            catalogScope,
+            item.product.id,
+          ) ?? null,
+          at,
+        },
+      ),
+    };
   }
 }

@@ -49,7 +49,7 @@ describe("original administrative panel BUSINESS integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "Retirar C1" }));
     await waitFor(() => expect(BusinessClient.prototype.retire).toHaveBeenCalledWith(scope,register));
     await screen.findByRole("status");
-    fireEvent.click(screen.getByRole("button", { name: "Cerrar sesión BUSINESS" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar sesión" }));
     await screen.findByRole("button", { name: "Ingresar con autenticador" });
     expect(BusinessClient.prototype.logout).toHaveBeenCalledOnce();
   });

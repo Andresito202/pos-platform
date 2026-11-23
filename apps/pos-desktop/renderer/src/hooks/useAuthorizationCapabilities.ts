@@ -13,6 +13,42 @@ export type AuthorizationCapabilities = AuthorizationState & { retry: () => void
 
 const emptyAccess = { permissions: new Set<string>(), entitlements: new Set<string>() };
 
+/**
+ * Operator-facing copy only. Never treats transport codes such as `OK`
+ * (used by `runtime.status.get`) as an authorization grant, and never echoes
+ * raw codes that contradict the visible failure state.
+ */
+export function describeAuthorizationFailure(resultCode: string): string {
+  switch (resultCode) {
+    case "LOCAL_SERVICE_UNAVAILABLE":
+      return "No hay conexión con el servicio local del POS.";
+    case "CHANNEL_BROKEN":
+      return "El canal con el servicio local se interrumpió.";
+    case "AUTHORIZATION_SNAPSHOT_UNAVAILABLE":
+      return "No hay una autorización vigente en este dispositivo.";
+    case "AUTHORIZATION_RESPONSE_INVALID":
+    case "SESSION_RECOVERY_RESPONSE_INVALID":
+    case "OK":
+      return "La respuesta de autorización no es válida.";
+    case "UNVERIFIABLE":
+      return "No fue posible verificar la sesión almacenada.";
+    default:
+      return "No fue posible verificar los permisos de acceso.";
+  }
+}
+
+function failureFromUnknown(error: unknown): string {
+  if (error instanceof Error) {
+    if (
+      error.message === "AUTHORIZATION_RESPONSE_INVALID"
+      || error.message === "SESSION_RECOVERY_RESPONSE_INVALID"
+    ) {
+      return describeAuthorizationFailure(error.message);
+    }
+  }
+  return describeAuthorizationFailure("LOCAL_SERVICE_UNAVAILABLE");
+}
+
 export function useAuthorizationCapabilities(): AuthorizationCapabilities {
   const [state, setState] = useState<AuthorizationState>({
     phase: "loading",
@@ -35,7 +71,7 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
     generation.current++;
     setState(reason === "SESSION_NOT_BOUND"
       ? { phase: "unauthenticated", ...emptyAccess }
-      : { phase: "error", ...emptyAccess, message: reason });
+      : { phase: "error", ...emptyAccess, message: describeAuthorizationFailure(reason) });
   }), []);
 
   useEffect(() => {
@@ -78,7 +114,11 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
           }
           if (recovered.status !== "SUCCEEDED" || recovered.result_code !== "ACTIVE" || result.data.outcome !== "ACTIVE" ||
             result.data.session_id === null || result.data.offline_valid_until === null || result.data.decision !== null) {
-            commit({ phase: "error", ...emptyAccess, message: recovered.result_code });
+            commit({
+              phase: "error",
+              ...emptyAccess,
+              message: describeAuthorizationFailure(recovered.result_code),
+            });
             return;
           }
           // ACTIVE is not a permission grant. Read only the backend's effective
@@ -87,11 +127,13 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
         }
 
         const result = AuthorizationCapabilitiesGetResultSchema.safeParse(response.result);
+        // Fail closed: only AVAILABLE + matching payload grants capabilities.
+        // Codes such as OK (runtime status) must never unlock the shell.
         if (response.status !== "SUCCEEDED" || response.result_code !== "AVAILABLE" || !result.success || result.data.outcome !== "AVAILABLE") {
           commit({
             phase: "error",
             ...emptyAccess,
-            message: response.result_code,
+            message: describeAuthorizationFailure(response.result_code),
           });
           return;
         }
@@ -106,7 +148,7 @@ export function useAuthorizationCapabilities(): AuthorizationCapabilities {
           commit({
             phase: "error",
             ...emptyAccess,
-            message: "LOCAL_SERVICE_UNAVAILABLE",
+            message: failureFromUnknown(error),
           });
         }
       }

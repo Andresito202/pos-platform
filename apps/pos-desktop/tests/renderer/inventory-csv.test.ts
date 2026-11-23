@@ -1,15 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { previewInventoryCsv, confirmInventoryCsv, INVENTORY_CSV_COLUMNS } from "../../renderer/src/inventory-csv.js";
+import {
+  previewInventoryCsv,
+  previewInventoryXlsx,
+  confirmInventoryCsv,
+  inventoryXlsxTemplate,
+  INVENTORY_CSV_COLUMNS,
+} from "../../renderer/src/inventory-csv.js";
 const batch = "12345678-1234-4234-8234-123456789012";
 const presentation = "018f0000-0000-7000-8000-000000000001";
+const legacyHeader = "import_id;row_id;presentation_id;movement_type;quantity;reason_code;business_date\n";
 const header = INVENTORY_CSV_COLUMNS.join(";") + "\n";
-const row = (id: number, qty = "2.5") => `${batch};${id};${presentation};PURCHASE_RECEIPT;${qty};PURCHASE;2026-11-10\n`;
+const row = (id: number, qty = "2.5") =>
+  `${batch};${id};${presentation};PURCHASE_RECEIPT;${qty};PURCHASE;2026-11-10;;;;;\n`;
+const legacyRow = (id: number, qty = "2.5") =>
+  `${batch};${id};${presentation};PURCHASE_RECEIPT;${qty};PURCHASE;2026-11-10\n`;
 const posted = { status: "SUCCEEDED" as const, result_code: "POSTED", result: { outcome: "POSTED", stock_sequence: 1, quantity_after: "2.500000", available: null } };
 describe("inventory import uses authorized stock ledger", () => {
   it("previews exact decimals and validates complete file before any write", async () => {
     const plan = previewInventoryCsv(header + row(1), ";");
     expect(plan.rows[0]?.payload?.quantity).toBe("2.500000");
     expect(plan.rows[0]?.errors).toEqual([]);
+    expect(previewInventoryCsv(legacyHeader + legacyRow(1), ";").rows[0]?.errors).toEqual([]);
     let calls = 0;
     for (const body of [row(1) + row(1), row(1) + row(2, "-2"), row(1) + row(2, "=SUM(A1)")]) {
       await expect(confirmInventoryCsv(previewInventoryCsv(header + body, ";"), () => {}, async () => { calls++; return posted; })).rejects.toThrow("CSV_PLAN_INVALID");
@@ -44,5 +55,15 @@ describe("inventory import uses authorized stock ledger", () => {
     for (const source of ["a".repeat(1048577), header + '"unfinished', header.replace("quantity", "cost"), header + row(1).repeat(1001)]) {
       expect(() => previewInventoryCsv(source, ";")).toThrow();
     }
+  });
+  it("reads XLSX existencias template and requires complete batch fields together", () => {
+    const plan = previewInventoryXlsx(inventoryXlsxTemplate(batch));
+    expect(plan.rows[0]?.errors.length).toBeGreaterThan(0);
+    const withBatch = header
+      + `${batch};1;${presentation};PURCHASE_RECEIPT;2;PURCHASE;2026-11-10;L1;2026-01-01;2027-01-01;PROV-1;FAC-1\n`;
+    expect(previewInventoryCsv(withBatch, ";").rows[0]?.payload?.batch?.code).toBe("L1");
+    const incomplete = header
+      + `${batch};1;${presentation};PURCHASE_RECEIPT;2;PURCHASE;2026-11-10;L1;;;;\n`;
+    expect(previewInventoryCsv(incomplete, ";").rows[0]?.errors).toContain("BATCH_FIELDS_INCOMPLETE");
   });
 });
