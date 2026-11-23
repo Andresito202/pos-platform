@@ -740,3 +740,134 @@ button.pos-cart-remove svg path {
         grid-column: auto;
     }
 }
+
+/* Administrative panels — metric states and reporting slots */
+.pos-admin-panel {
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+}
+
+.pos-admin-grid--two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pos-admin-card[data-metric-state="unavailable"] strong,
+.pos-admin-card[data-metric-state="forbidden"] strong,
+.pos-admin-empty[data-metric-state="unavailable"] strong,
+.pos-reporting-slot-list [data-metric-state="unavailable"] strong {
+    color: #536475;
+    font-size: 18px;
+}
+
+.pos-admin-card[data-metric-state="error"] strong,
+.pos-admin-empty[data-metric-state="error"] strong {
+    color: #8a1f1a;
+}
+
+.pos-admin-card[data-metric-state="loading"] strong,
+.pos-admin-empty[data-metric-state="loading"] strong {
+    color: #3d5a6c;
+}
+
+.pos-admin-card[data-metric-state="empty"] strong {
+    color: #142b3a;
+}
+
+.pos-metric-state {
+    display: block;
+    margin-top: 6px;
+    color: #6a7c89;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.pos-admin-card[data-transfer-status="pending"] {
+    border-left: 3px solid #c9a227;
+}
+
+.pos-admin-card[data-transfer-status="confirmed"] {
+    border-left: 3px solid #17623c;
+}
+
+.pos-admin-card[data-transfer-status="cancelled"] {
+    border-left: 3px solid #8a1f1a;
+}
+
+.pos-screen .pos-danger-action {
+    background: #fff0f0;
+    color: #8a1f1a;
+    border: 1px solid #efb4b4;
+}
+
+.pos-screen .pos-danger-action:not(:disabled):hover {
+    background: #ffe0e0;
+    color: #6d1511;
+}
+
+.pos-admin-scope-select {
+    display: grid;
+    gap: 6px;
+    font-weight: 600;
+    max-width: 720px;
+}
+
+.pos-admin-scope-select select {
+    width: 100%;
+    min-width: 0;
+}
+
+.pos-reporting-slots {
+    display: grid;
+    gap: 10px;
+}
+
+.pos-reporting-slots h3 {
+    margin: 0;
+}
+
+.pos-reporting-slot-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+    gap: 10px;
+}
+
+.pos-reporting-slot-list li {
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+    border: 1px dashed #ccd8e1;
+    border-radius: 8px;
+    background: #f8fafb;
+    min-width: 0;
+}
+
+.pos-reporting-slot-list span {
+    color: #536475;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.pos-reporting-slot-list small {
+    color: #6a7c89;
+    line-height: 1.35;
+}
+
+@media (max-width: 1100px) {
+    .pos-admin-grid--two {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 1366px) {
+    .pos-admin-panel {
+        gap: 14px;
+    }
+
+    .pos-reporting-slot-list {
+        grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr));
+    }
+}

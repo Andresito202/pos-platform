@@ -305,7 +305,15 @@ function LocalApp(): React.JSX.Element {
           <div>
             <p className="pos-product-name">Camacho POS Colombia</p>
             <h1>{selectedScreen?.label ?? "Sin acceso operativo"}</h1>
-            <p>Acceso disponible según la autorización efectiva de la sesión.</p>
+            <p>
+              {localSession.role === "SUPERVISOR"
+                ? "Supervisión sin carrito ni venta. Solo operaciones autorizadas."
+                : localSession.role === "ADMINISTRADOR"
+                  ? "Administración BUSINESS local del alcance autorizado."
+                  : localSession.role === "SUPERADMINISTRADOR"
+                    ? "Auditoría local · no confundir con autoridad GLOBAL."
+                    : "Acceso disponible según la autorización efectiva de la sesión."}
+            </p>
           </div>
         </header>
 
