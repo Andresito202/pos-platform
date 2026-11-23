@@ -169,6 +169,24 @@ describe("subscription webhook replay after successful inbox acknowledgment", ()
     expect(sql).toContain("i.amount=q.total_minor::numeric/power");
   });
 
+  it("recovers on the next poll after transient enqueue failure without provider resend",async()=>{
+    const row={
+      tenant_id:uuidV7(),company_id:uuidV7(),integration_id:uuidV7(),
+      external_transaction_id:uuidV7(),amount_scale6:"49900.000000",currency_code:"COP",
+    };
+    const pool={query:vi.fn(async(_sql:string,_params?:unknown[])=>({rows:[row]}))};
+    const fulfillment=new SubscriptionLicenseFulfillment(pool as never,provision,policies);
+    const enqueue=vi.spyOn(fulfillment,"enqueueFromWebhookObservation")
+      .mockRejectedValueOnce(new Error("TRANSIENT_DB_ENQUEUE_FAILED"))
+      .mockResolvedValueOnce("ENQUEUED");
+    const first=await fulfillment.recoverUnqueuedSubscriptionWebhooks();
+    expect(first).toEqual({recovered:0,errors:["TRANSIENT_DB_ENQUEUE_FAILED"]});
+    const second=await fulfillment.recoverUnqueuedSubscriptionWebhooks();
+    expect(second).toEqual({recovered:1,errors:[]});
+    expect(enqueue).toHaveBeenCalledTimes(2);
+    expect(pool.query).toHaveBeenCalledTimes(2);
+  });
+
   it("does not enqueue POS webhooks and surfaces transient replay failures",async()=>{
     const pool={query:vi.fn(async(_sql:string,_params?:unknown[])=>({rows:[]}))};
     const fulfillment=new SubscriptionLicenseFulfillment(pool as never,provision,policies);
