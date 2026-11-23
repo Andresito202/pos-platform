@@ -86,6 +86,27 @@ const stubChannel = {
     if (messageType === "local.operator.logout") {
       return Promise.resolve(localOperatorEnvelope("SIGNED_OUT"));
     }
+    if (messageType === "runtime.status.get") {
+      // Contract-valid READY only. This is liveness for the smoke harness —
+      // not commercial authorization and not an SSA/SAS grant.
+      return Promise.resolve({
+        protocol_version: "1.0.0",
+        request_id: "11111111-1111-4111-8111-111111111111",
+        correlation_id: "11111111-1111-4111-8111-111111111112",
+        operation_id: null,
+        status: "SUCCEEDED",
+        result_code: "OK",
+        result_schema_version: "1.0.0",
+        error: null,
+        server_time: "2026-11-10T00:00:00.000Z",
+        result: {
+          service_version: "1.0.0",
+          protocol_version: "1.0.0",
+          service_state: "READY",
+          schema_version: "5",
+        },
+      });
+    }
 
     return Promise.resolve({
       status: "SUCCEEDED",
