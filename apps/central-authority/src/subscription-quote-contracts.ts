@@ -619,6 +619,108 @@ export class SubscriptionQuoteContracts{
     }
   }
 
+  /**
+   * Re-fetch the FACTUS Pay QR for an existing pending subscription collection.
+   * GLOBAL LICENSE_ISSUE + current MFA only. Never invents paid status.
+   */
+  async recoverCollection(sessionId:string,raw:unknown){
+    const request=SubscriptionPaymentVerifyRequestSchema.parse(raw);
+    UuidSchema.parse(sessionId);
+    if(this.factusPay===null)throw Error("SUBSCRIPTION_FACTUS_PAY_GATEWAY_REQUIRED");
+    const c=await this.pool.connect();
+    let meta:{
+      paymentId:string;quoteId:string;tenantId:string;companyId:string;
+      providerReference:string;amountScale6:string;totalMinor:number;expiresAt:Date;
+    };
+    try{
+      await c.query("BEGIN");
+      await c.query(
+        "SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true),set_config('app.tenant_id','',true)",
+        [`${this.limits.lockTimeoutMs}ms`,`${this.limits.statementTimeoutMs}ms`],
+      );
+      await c.query('SELECT "authorization".lock_platform_sources_for_read()');
+      await c.query("SELECT id FROM identity.sessions WHERE id=$1 FOR SHARE",[sessionId]);
+      const permissions=new PostgresPlatformAdministrationSessionRepository(c);
+      if(!await permissions.findActivePlatformPermissionForSession(
+        sessionId,CentralAdministrationOperation.LICENSE_ISSUE,this.limits.reauthenticationMs,
+      ))throw Error("LICENSING_GLOBAL_LICENSE_ISSUE_REQUIRED");
+      if((await c.query(`SELECT 1 FROM identity.browser_session_handoffs h JOIN identity.sessions s ON s.id=h.session_id AND s.user_id=h.user_id
+        JOIN identity.users u ON u.id=s.user_id AND u.status='ACTIVE'
+        JOIN identity.user_credentials pwd ON pwd.id=h.password_credential_id AND pwd.user_id=u.id AND pwd.status='ACTIVE'
+          AND pwd.credential_type='PASSWORD' AND pwd.version=h.password_credential_version AND pwd.revoked_at IS NULL
+          AND (pwd.locked_until IS NULL OR pwd.locked_until<=clock_timestamp())
+        JOIN identity.mfa_factors f ON f.id=h.factor_id AND f.user_id=u.id AND f.status='ACTIVE' AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL
+        WHERE s.id=$1 AND h.tenant_id IS NULL AND h.membership_id IS NULL FOR SHARE OF u,pwd,f`,[sessionId])).rowCount!==1){
+        throw Error("LICENSING_CURRENT_GLOBAL_CREDENTIAL_REQUIRED");
+      }
+      const row=(await c.query(`SELECT p.id AS payment_id,q.id AS quote_id,q.tenant_id,q.company_id,
+          q.provider_reference,q.total_minor,q.currency_exponent,q.expires_at,p.status AS payment_status,a.status AS attempt_status
+        FROM payments.payments p
+        JOIN payments.payment_groups g ON g.id=p.payment_group_id AND g.tenant_id=p.tenant_id
+        JOIN payments.payment_attempts a ON a.payment_id=p.id AND a.tenant_id=p.tenant_id
+        JOIN subscriptions.license_quotes q ON q.id=g.collection_subject_id
+        WHERE p.id=$1 AND g.collection_subject_type='SUBSCRIPTION_QUOTE'
+        FOR SHARE OF p,a,q`,[request.payment_id])).rows[0] as {
+        payment_id:string;quote_id:string;tenant_id:string;company_id:string;provider_reference:string;
+        total_minor:string|number;currency_exponent:number;expires_at:Date;payment_status:string;attempt_status:string;
+      }|undefined;
+      if(!row)throw Error("SUBSCRIPTION_PAYMENT_NOT_FOUND");
+      if(row.payment_status!=="PENDING"||row.attempt_status!=="PENDING")throw Error("SUBSCRIPTION_PAYMENT_NOT_PENDING");
+      if(row.expires_at.getTime()<=Date.now())throw Error("SUBSCRIPTION_QUOTE_EXPIRED");
+      const amountScale6=subscriptionAmountToScale6(Number(row.total_minor),Number(row.currency_exponent));
+      meta={
+        paymentId:String(row.payment_id),quoteId:String(row.quote_id),
+        tenantId:String(row.tenant_id),companyId:String(row.company_id),
+        providerReference:String(row.provider_reference),amountScale6,
+        totalMinor:Number(row.total_minor),expiresAt:row.expires_at,
+      };
+      const actor=await permissions.findActivePlatformPermissionForSession(
+        sessionId,CentralAdministrationOperation.LICENSE_ISSUE,this.limits.reauthenticationMs,
+      );
+      if(!actor)throw Error("LICENSING_GLOBAL_LICENSE_ISSUE_REQUIRED");
+      const payload=canonicalSessionTrustJson({
+        payment_id:meta.paymentId,quote_id:meta.quoteId,provider_reference:meta.providerReference,
+        amount_scale6:meta.amountScale6,tenant_id:meta.tenantId,company_id:meta.companyId,
+      });
+      await c.query(`INSERT INTO audit.audit_events(id,actor_type,actor_id,session_id,action_code,resource_type,resource_reference_kind,resource_id,
+        correlation_id,schema_version,reported_at,server_recorded_at,result,new_value,payload_checksum)
+        VALUES($1,'PLATFORM_ACCOUNT',$2,$3,'SUBSCRIPTION_COLLECTION_QR_RECOVERED','SUBSCRIPTION_QUOTE','INSTANCE',$4,$5,1,clock_timestamp(),clock_timestamp(),'SUCCEEDED',$6::jsonb,$7)`,
+        [uuidV7(),actor.user_id,sessionId,meta.quoteId,request.correlation_id,payload,sha256(payload)]);
+      await c.query("COMMIT");
+    }catch(error){
+      await c.query("ROLLBACK");
+      throw error;
+    }finally{
+      c.release();
+    }
+
+    const remainingSeconds=Math.max(60,Math.floor((meta.expiresAt.getTime()-Date.now())/1000));
+    const opened=await this.factusPay.recoverOrCreateCollection({
+      referenceCode:meta.providerReference,
+      amountScale6:meta.amountScale6,
+      expirationSeconds:remainingSeconds,
+    });
+    if(opened.referenceCode!==meta.providerReference
+      ||opened.amountScale6!==meta.amountScale6
+      ||opened.currencyCode!=="COP"){
+      throw new SubscriptionFactusPayGatewayError("FACTUS_PAY_COLLECTION_MISMATCH");
+    }
+    return {
+      paymentId:meta.paymentId,
+      quoteId:meta.quoteId,
+      tenantId:meta.tenantId,
+      companyId:meta.companyId,
+      providerReference:meta.providerReference,
+      amountScale6:meta.amountScale6,
+      totalMinor:meta.totalMinor,
+      currencyCode:"COP" as const,
+      status:opened.status,
+      qr:opened.qr,
+      paid:opened.status==="paid",
+      expiresAt:meta.expiresAt.toISOString(),
+    };
+  }
+
   /** Pending subscription quotes available for exceptional bank confirmation. */
   async listPending(sessionId:string){
     UuidSchema.parse(sessionId);

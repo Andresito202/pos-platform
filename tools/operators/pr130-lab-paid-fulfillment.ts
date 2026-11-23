@@ -210,18 +210,20 @@ async function main():Promise<void>{
 
   const evidence:{
     commit:string;mode:string;reference_sha256:string;amount_sha256:string;
-    provider_paid_observed:boolean;confirmation_source:string|null;
-    payment_confirmed:boolean;license_issued:boolean;license_id_sha256:string|null;
-    device_activated:boolean;runtime_verified:boolean;idempotent_reissue:boolean;
-    block:string|null;
+    provider_paid_observed:boolean;ephemeral_lab_service_issue:boolean;
+    global_quote_end_to_end:boolean;confirmation_source:string|null;
+    payment_confirmed:boolean;license_issued:boolean;license_allocated:boolean;
+    license_id_sha256:string|null;device_activated:boolean;runtime_verified:boolean;
+    idempotent_reissue:boolean;block:string|null;
   }={
     commit:sha,mode:"paid_fulfillment",
     reference_sha256:sha256Hex(continuity.reference_code),
     amount_sha256:sha256Hex(continuity.amount_scale6),
-    provider_paid_observed:false,confirmation_source:null,
-    payment_confirmed:false,license_issued:false,license_id_sha256:null,
-    device_activated:false,runtime_verified:false,idempotent_reissue:false,
-    block:"PROVIDER_PAID_NOT_OBSERVED",
+    provider_paid_observed:false,ephemeral_lab_service_issue:false,
+    global_quote_end_to_end:false,confirmation_source:null,
+    payment_confirmed:false,license_issued:false,license_allocated:false,
+    license_id_sha256:null,device_activated:false,runtime_verified:false,
+    idempotent_reissue:false,block:"PROVIDER_PAID_NOT_OBSERVED",
   };
 
   const sandbox=mkdtempSync(join(tmpdir(),"pr130-paid-fulfill-"));
@@ -286,17 +288,24 @@ async function main():Promise<void>{
     // markIssuedPipeline advances to ACTIVATION_PENDING with license_id set.
     evidence.license_issued=typeof job?.license_id==="string"
       &&["ISSUED","DELIVERY_PENDING","ACTIVATION_PENDING"].includes(String(job?.status));
+    evidence.ephemeral_lab_service_issue=evidence.license_issued;
+    // Lab seed is not a prior GLOBAL authenticated quote → paid path.
+    evidence.global_quote_end_to_end=false;
+    evidence.license_allocated=false;
     evidence.license_id_sha256=job?.license_id?sha256Hex(job.license_id):null;
     evidence.idempotent_reissue=third.issued===0&&evidence.license_issued;
     evidence.device_activated=false;
     evidence.runtime_verified=false;
     evidence.block=evidence.license_issued
-      ?"DEVICE_ACTIVATION_CHANNEL_NOT_AVAILABLE"
+      ?"EPHEMERAL_LAB_ISSUE_ONLY_GLOBAL_QUOTE_E2E_PENDING"
       :`FULFILLMENT_INCOMPLETE:status=${job?.status??"none"};errors=${[...first.errors,...second.errors].join(",")}`;
 
     console.log("FACTUS_PAY_PROVIDER_PAID_OBSERVED=true");
+    console.log("EPHEMERAL_LAB_SERVICE_ISSUE="+evidence.ephemeral_lab_service_issue);
+    console.log("GLOBAL_QUOTE_END_TO_END=false");
     console.log("PAYMENT_CONFIRMED="+evidence.payment_confirmed);
     console.log("LICENSE_ISSUED="+evidence.license_issued);
+    console.log("LICENSE_ALLOCATED=false");
     console.log("DEVICE_ACTIVATED=false");
     console.log("RUNTIME_VERIFIED=false");
   }finally{

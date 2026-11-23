@@ -102,6 +102,7 @@ async function main():Promise<void>{
       }
     }else{
       const opened=await prepareOrRecoverCollection({gateway:client,continuity});
+      evidence.collection_outcome=opened.outcome;
       evidence.collection_created=opened.created;
       evidence.collection_recovered=opened.recovered;
       evidence.collection_status=opened.status;
@@ -109,6 +110,9 @@ async function main():Promise<void>{
       evidence.get_status=observed.status;
       evidence.reference_and_amount_match=true;
       evidence.provider_paid_observed=observed.paid;
+      evidence.ephemeral_lab_service_issue=false;
+      evidence.global_quote_end_to_end=false;
+      evidence.license_allocated=false;
 
       const ownerReachable=localOperator
         ||process.env.PR130_PRIVATE_QR_OWNER_REACHABLE==="true"
@@ -116,17 +120,20 @@ async function main():Promise<void>{
       evidence.private_qr_owner_reachable=ownerReachable;
 
       if(privateDir){
-        saveContinuity(privateDir,continuity);
-        const wrote=writePrivateQr(privateDir,opened.qr);
-        evidence.private_qr_channel=wrote?"WRITTEN":"UNAVAILABLE";
+        evidence.private_fs_isolation=saveContinuity(privateDir,continuity);
+        const qrWrite=writePrivateQr(privateDir,opened.qr);
+        evidence.private_qr_channel=qrWrite.written?"WRITTEN":"UNAVAILABLE";
+        if(qrWrite.written)evidence.private_fs_isolation=qrWrite.isolation;
         console.log("PRIVATE_QR_CHANNEL="+evidence.private_qr_channel);
+        console.log("PRIVATE_FS_ISOLATION="+evidence.private_fs_isolation);
         console.log("PRIVATE_QR_OWNER_REACHABLE="+ownerReachable);
-        console.log("PRIVATE_OPERATOR_DIR_CONFIGURED=true");
+        console.log("SIMULATOR_REQUIRES_CAMERA=true");
+        console.log("SIMULATOR_IMAGE_IMPORT_SUPPORTED=false");
         console.log("SIMULATOR_URL=https://pay-api-sandbox.factus.com.co/simulator");
         if(ownerReachable){
-          console.log("OWNER_ACTION=open_private_qr_png_then_scan_in_official_simulator_choose_successful_payment");
+          console.log("OWNER_ACTION=display_qr_on_second_surface_then_scan_with_android_simulator_camera");
         }else{
-          console.log("OWNER_ACTION=run_local_prepare_with_CAMACHO_PRIVATE_OPERATOR_DIR_then_set_PR130_SANDBOX_COLLECTION_REFERENCE_AMOUNT_secrets");
+          console.log("OWNER_ACTION=use_GLOBAL_HTTPS_portal_or_local_private_dir_then_second_device_for_simulator");
         }
       }else{
         evidence.private_qr_channel="UNAVAILABLE";
@@ -160,8 +167,10 @@ async function main():Promise<void>{
         }
       }
 
+      console.log("FACTUS_PAY_COLLECTION_OUTCOME="+opened.outcome);
       console.log("FACTUS_PAY_COLLECTION_OPEN_AND_GET_VERIFIED");
       console.log("FACTUS_PAY_PROVIDER_PAID_OBSERVED="+evidence.provider_paid_observed);
+      console.log("GLOBAL_QUOTE_END_TO_END=false");
       console.log("LICENSE_ISSUED=false");
       console.log("RUNTIME_VERIFIED=false");
     }

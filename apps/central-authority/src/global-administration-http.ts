@@ -171,7 +171,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         sendCommercialJson(res,200,result);
         return;
       }
-      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/subscription-quotes/create","/v1/platform/subscription-quotes/pending","/v1/platform/subscription-quotes/verify-payment","/v1/platform/subscription-quotes/confirm-bank-manual","/v1/platform/subscription-quotes/fulfillment-status","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
+      const allowed=["/v1/platform/session","/v1/platform/license-offers/list","/v1/platform/license-offers/catalog","/v1/platform/license-offers/save","/v1/platform/license-offers/set-entitlements","/v1/platform/license-offers/publish","/v1/platform/subscription-quotes/create","/v1/platform/subscription-quotes/pending","/v1/platform/subscription-quotes/recover-collection","/v1/platform/subscription-quotes/verify-payment","/v1/platform/subscription-quotes/confirm-bank-manual","/v1/platform/subscription-quotes/fulfillment-status","/v1/platform/licenses/issue","/v1/platform/licenses/allocate","/v1/platform/licenses/revoke-activation","/v1/platform/licenses/activations","/v1/platform/licenses/assignment-context"];
       if(!allowed.includes(path??"")){sendCommercialJson(res,404,{code:"GLOBAL_NOT_FOUND"});return;}
       const session=await sessions.authorize(request,(path==="/v1/platform/licenses/revoke-activation"||path==="/v1/platform/licenses/activations")?CentralAdministrationOperation.LICENSE_REVOKE:
         path?.startsWith("/v1/platform/licenses/")||path?.startsWith("/v1/platform/subscription-quotes/")?CentralAdministrationOperation.LICENSE_ISSUE:CanonicalPermission.LICENSE_PLAN_MANAGE);
@@ -190,6 +190,9 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
       }
       if(path==="/v1/platform/subscription-quotes/pending"&&exact(b,[])){
         sendCommercialJson(res,200,await quotes.listPending(session));return;
+      }
+      if(path==="/v1/platform/subscription-quotes/recover-collection"){
+        sendCommercialJson(res,200,await quotes.recoverCollection(session,b));return;
       }
       if(path==="/v1/platform/subscription-quotes/fulfillment-status"&&exact(b,[])){
         if(!fulfillment){sendCommercialJson(res,409,{code:"SUBSCRIPTION_FULFILLMENT_NOT_PROVISIONED"});return;}

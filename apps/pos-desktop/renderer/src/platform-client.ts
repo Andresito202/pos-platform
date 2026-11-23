@@ -122,7 +122,7 @@ export class PlatformClient{
       ||typeof result.quoteChecksum!=="string"||!/^[a-f0-9]{64}$/.test(result.quoteChecksum)
       ||typeof result.idempotent!=="boolean"
       ||!["OPENED","NOT_CONFIGURED","PROVIDER_UNAVAILABLE","IDEMPOTENT_EXISTING"].includes(String(result.providerOpenStatus))
-      ||result.paymentStatus!=="PENDING"){
+      ||(result.paymentStatus!=="PENDING"&&result.paymentStatus!=="CONFIRMED")){
       throw Error("Central no confirmó la cotización. Reintenta con la misma clave de idempotencia.");
     }
     return {
@@ -131,8 +131,28 @@ export class PlatformClient{
       providerReference:typeof result.providerReference==="string"?result.providerReference:null,
       providerOpenStatus:result.providerOpenStatus as "OPENED"|"NOT_CONFIGURED"|"PROVIDER_UNAVAILABLE"|"IDEMPOTENT_EXISTING",
       qr:typeof result.qr==="string"?result.qr:null,
-      paymentStatus:"PENDING" as const,
+      paymentStatus:(result.paymentStatus==="CONFIRMED"?"CONFIRMED":"PENDING") as "PENDING"|"CONFIRMED",
       idempotent:result.idempotent,
+    };
+  }
+  async recoverSubscriptionCollection(request:unknown){
+    const body=SubscriptionPaymentVerifyRequestSchema.parse(request);
+    const result=await this.post("subscription-quotes/recover-collection",body);
+    if(!UuidSchema.safeParse(result.paymentId).success||!UuidSchema.safeParse(result.quoteId).success
+      ||!UuidSchema.safeParse(result.tenantId).success||!UuidSchema.safeParse(result.companyId).success
+      ||typeof result.providerReference!=="string"||typeof result.amountScale6!=="string"
+      ||!Number.isSafeInteger(result.totalMinor)||Number(result.totalMinor)<=0
+      ||result.currencyCode!=="COP"||typeof result.status!=="string"
+      ||typeof result.paid!=="boolean"||typeof result.expiresAt!=="string"){
+      throw Error("Central no recuperó el recaudo FACTUS. El QR no se muestra.");
+    }
+    return {
+      paymentId:String(result.paymentId),quoteId:String(result.quoteId),
+      tenantId:String(result.tenantId),companyId:String(result.companyId),
+      providerReference:String(result.providerReference),amountScale6:String(result.amountScale6),
+      totalMinor:Number(result.totalMinor),currencyCode:"COP" as const,status:String(result.status),
+      qr:typeof result.qr==="string"?result.qr:null,
+      paid:result.paid===true,expiresAt:String(result.expiresAt),
     };
   }
   async verifySubscriptionPayment(request:unknown){

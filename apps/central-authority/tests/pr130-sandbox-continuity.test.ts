@@ -17,6 +17,8 @@ import {
   PR130_COLLECTION_EXPIRATION_SECONDS,
 } from "../src/pr130-lab-collection-continuity.js";
 import {SubscriptionLicenseFulfillment} from "../src/subscription-license-fulfillment.js";
+import {SubscriptionFactusPayGatewayError} from "../src/subscription-factus-pay-gateway.js";
+import {SubscriptionQuoteContracts} from "../src/subscription-quote-contracts.js";
 
 describe("PR130 sandbox collection continuity",()=>{
   it("rejects private operator directories inside evidence or artifacts",()=>{
@@ -44,7 +46,8 @@ describe("PR130 sandbox collection continuity",()=>{
         amountScale6:"150000.000000",
         expirationSeconds:PR130_COLLECTION_EXPIRATION_SECONDS,
       });
-      saveContinuity(privateDir,record);
+      const isolation=saveContinuity(privateDir,record);
+      expect(isolation).toBe(process.platform==="win32"?"WINDOWS_ICACLS":"POSIX_MODE");
       const loaded=loadContinuity(privateDir);
       expect(loaded?.reference_code).toBe(record.reference_code);
       expect(loaded?.amount_scale6).toBe("150000.000000");
@@ -52,7 +55,8 @@ describe("PR130 sandbox collection continuity",()=>{
       expect(loaded?.expiration_seconds).toBe(86_400);
 
       const qr="data:image/png;base64,aGVsbG8=";
-      expect(writePrivateQr(privateDir,qr)).toBe(true);
+      const written=writePrivateQr(privateDir,qr);
+      expect(written.written).toBe(true);
       expect(existsSync(join(privateDir,"collection-qr.png"))).toBe(true);
 
       const evidence=emptyEvidence({
@@ -62,6 +66,10 @@ describe("PR130 sandbox collection continuity",()=>{
         amountSha256:sha256Hex(record.amount_scale6),
       });
       evidence.private_qr_channel="WRITTEN";
+      expect(evidence.simulator_requires_camera).toBe(true);
+      expect(evidence.simulator_image_import_supported).toBe(false);
+      expect(evidence.ephemeral_lab_service_issue).toBe(false);
+      expect(evidence.global_quote_end_to_end).toBe(false);
       assertEvidenceIsRedacted(evidence);
       expect(()=>assertEvidenceIsRedacted({...evidence,qr})).toThrow("PR130_EVIDENCE_CONTAINS_QR");
       expect(()=>assertEvidenceIsRedacted({...evidence,reference_code:record.reference_code}))
@@ -71,52 +79,67 @@ describe("PR130 sandbox collection continuity",()=>{
     }
   });
 
-  it("reuses the same reference on recover and never treats ready as paid",async()=>{
+  it("classifies RECOVERED from authentic GET before any POST",async()=>{
     const reference=uuidV7();
     const amount="150000.000000";
     const qr="data:image/png;base64,qqqq";
-    const transport=vi.fn(async(input:RequestInfo,init?:RequestInit)=>{
-      const url=String(input);
-      if(init?.method==="GET"||!init?.method){
-        if(url.includes("/v1/collections/")){
-          return new Response(JSON.stringify({
-            status:"success",
-            data:{reference_code:reference,status:"ready",amount:"150000",currency_code:"COP",qr},
-          }),{status:200});
-        }
-      }
-      return new Response(JSON.stringify({
-        status:"success",
-        data:{reference_code:reference,status:"ready",amount:"150000",currency_code:"COP",qr},
-      }),{status:201});
+    const get=vi.fn(async()=>({
+      referenceCode:reference,amountScale6:amount,status:"ready",qr,currencyCode:"COP" as const,
+    }));
+    const recoverOrCreate=vi.fn(async()=>{throw new Error("MUST_NOT_POST_WHEN_GET_HITS");});
+    const opened=await prepareOrRecoverCollection({
+      gateway:{getCollection:get,recoverOrCreateCollection:recoverOrCreate},
+      continuity:newContinuityRecord({referenceCode:reference,amountScale6:amount}),
     });
-    const {createHttpSubscriptionFactusPayGateway}=await import("../src/subscription-factus-pay-http-gateway.js");
-    const gateway=createHttpSubscriptionFactusPayGateway({
-      environment:"SANDBOX",
-      resolveAccessToken:async()=>"token-for-test-0123456789abcdef",
-      transport:transport as unknown as typeof fetch,
-    });
-    const continuity=newContinuityRecord({referenceCode:reference,amountScale6:amount});
-    const opened=await prepareOrRecoverCollection({gateway,continuity});
-    expect(opened.status).toBe("ready");
-    const polled=await pollCollection({gateway,continuity});
-    expect(polled.status).toBe("ready");
-    expect(polled.paid).toBe(false);
+    expect(opened).toEqual({status:"ready",qr,recovered:true,created:false,outcome:"RECOVERED"});
+    expect(recoverOrCreate).not.toHaveBeenCalled();
   });
 
-  it("rejects wrong-company amount mismatches on poll",async()=>{
+  it("classifies CREATED only after GET NOT_FOUND then open",async()=>{
     const reference=uuidV7();
-    const {createHttpSubscriptionFactusPayGateway}=await import("../src/subscription-factus-pay-http-gateway.js");
-    const gateway=createHttpSubscriptionFactusPayGateway({
-      environment:"SANDBOX",
-      resolveAccessToken:async()=>"token-for-test-0123456789abcdef",
-      transport:async()=>new Response(JSON.stringify({
-        status:"success",
-        data:{reference_code:reference,status:"paid",amount:"1000.00",currency_code:"COP"},
-      }),{status:200}) as never,
-    });
-    await expect(pollCollection({
+    const amount="150000.000000";
+    const qr="data:image/png;base64,qqqq";
+    let gets=0;
+    const gateway={
+      getCollection:vi.fn(async()=>{
+        gets+=1;
+        if(gets===1)throw new SubscriptionFactusPayGatewayError("FACTUS_PAY_COLLECTION_NOT_FOUND");
+        return {referenceCode:reference,amountScale6:amount,status:"ready",qr,currencyCode:"COP" as const};
+      }),
+      recoverOrCreateCollection:vi.fn(async()=>({
+        referenceCode:reference,amountScale6:amount,status:"ready",qr,currencyCode:"COP" as const,
+      })),
+    };
+    const opened=await prepareOrRecoverCollection({
       gateway,
+      continuity:newContinuityRecord({referenceCode:reference,amountScale6:amount}),
+    });
+    expect(opened.outcome).toBe("CREATED");
+    expect(opened.created).toBe(true);
+    expect(opened.recovered).toBe(false);
+    expect(gateway.recoverOrCreateCollection).toHaveBeenCalledOnce();
+  });
+
+  it("never treats ready as paid and rejects amount mismatches",async()=>{
+    const reference=uuidV7();
+    const gateway={
+      getCollection:vi.fn(async()=>({
+        referenceCode:reference,amountScale6:"150000.000000",status:"ready",qr:null,currencyCode:"COP" as const,
+      })),
+      recoverOrCreateCollection:vi.fn(),
+    };
+    const polled=await pollCollection({
+      gateway,
+      continuity:newContinuityRecord({referenceCode:reference,amountScale6:"150000.000000"}),
+    });
+    expect(polled.paid).toBe(false);
+
+    const mismatch={
+      getCollection:vi.fn(async()=>{throw new SubscriptionFactusPayGatewayError("FACTUS_PAY_AMOUNT_MISMATCH");}),
+      recoverOrCreateCollection:vi.fn(),
+    };
+    await expect(pollCollection({
+      gateway:mismatch,
       continuity:newContinuityRecord({referenceCode:reference,amountScale6:"150000.000000"}),
     })).rejects.toMatchObject({code:"FACTUS_PAY_AMOUNT_MISMATCH"});
   });
@@ -166,5 +189,31 @@ describe("PR130 sandbox collection continuity",()=>{
     expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
       paymentId,status:"PENDING",confirmationSource:"PENDING_WEBHOOK",
     }));
+  });
+
+  it("refuses recoverCollection when Factus gateway is not provisioned",async()=>{
+    const quotes=new SubscriptionQuoteContracts(
+      {connect:vi.fn()} as never,
+      [{policy_reference:"P",tax_policy_reference:"T",support_policy_reference:"S"}],
+      null,
+      {reauthenticationMs:60_000,lockTimeoutMs:2_000,statementTimeoutMs:10_000},
+      null,
+    );
+    await expect(quotes.recoverCollection(uuidV7(),{
+      payment_id:uuidV7(),correlation_id:uuidV7(),
+    })).rejects.toThrow("SUBSCRIPTION_FACTUS_PAY_GATEWAY_REQUIRED");
+  });
+
+  it("keeps lab claim fields distinct from commercial end-to-end",()=>{
+    const evidence=emptyEvidence({
+      commit:"a".repeat(40),mode:"paid_fulfillment",
+      referenceSha256:"b".repeat(64),amountSha256:"c".repeat(64),
+    });
+    evidence.provider_paid_observed=true;
+    evidence.ephemeral_lab_service_issue=true;
+    expect(evidence.global_quote_end_to_end).toBe(false);
+    expect(evidence.license_allocated).toBe(false);
+    expect(evidence.device_activated).toBe(false);
+    expect(evidence.runtime_verified).toBe(false);
   });
 });
