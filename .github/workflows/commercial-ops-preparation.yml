@@ -34,6 +34,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Typecheck affected runtimes
         run: pnpm --filter @pos-platform/observability --filter @pos-platform/central-authority --filter @pos-platform/pos-local-service --filter @pos-platform/target-migrations -r typecheck
+      - name: Outbox checksum regression
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/sync-store.test.ts tests/bloque5-offline-sync-e2e.test.ts tests/sync-dispatcher.test.ts
       - name: Architecture, contracts and repository policy
         run: |
           pnpm architecture:check
