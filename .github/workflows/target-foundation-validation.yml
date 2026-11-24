@@ -4,9 +4,12 @@ on:
   push:
     branches:
       - main
+      - codex/scm-real-integration-20261122
   pull_request:
     branches:
       - main
+      # Active SCM integration line (PR #137 and successors base here).
+      - codex/scm-real-integration-20261122
   workflow_dispatch:
     inputs:
       run_factus_sandbox_exceptional:

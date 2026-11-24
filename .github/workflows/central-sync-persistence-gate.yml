@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - main
+      - codex/scm-real-integration-20261122
   workflow_dispatch:
 
 permissions:

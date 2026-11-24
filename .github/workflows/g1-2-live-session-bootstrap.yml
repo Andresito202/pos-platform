@@ -6,7 +6,7 @@ on:
       - main
       - claude/pos-camacho-bloque-4c-ld43py
   pull_request:
-    branches: [main]
+    branches: [main, codex/scm-real-integration-20261122]
   workflow_dispatch:
 
 permissions:

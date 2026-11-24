@@ -17,6 +17,7 @@ import { isScmCheckpointUrl } from "./scm-checkpoint-http.js";
 import { prepareScmCheckpointRuntime } from "./scm-checkpoint-runtime.js";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 import { DurableFixedWindowRateLimiter } from "./durable-fixed-window-rate-limiter.js";
+import { PostgresFixedWindowRateLimiter } from "./postgres-fixed-window-rate-limiter.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -136,14 +137,28 @@ const rateLimitStateFile = process.env.CENTRAL_RATE_LIMIT_STATE_FILE;
 if (rateLimitStateFile !== undefined && !isAbsolute(rateLimitStateFile)) {
   throw new Error("CENTRAL_RATE_LIMIT_STATE_FILE_MUST_BE_ABSOLUTE");
 }
-const limiter = rateLimitStateFile === undefined
-  ? new FixedWindowRateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_BUCKETS_MAX, RATE_LIMIT_WINDOW_MS)
-  : new DurableFixedWindowRateLimiter(
-    rateLimitStateFile,
+/** Default: PostgreSQL distributed budgets. file = single-node durable; memory = process-local. */
+const rateLimitBackend = (process.env.CENTRAL_RATE_LIMIT_BACKEND ?? "postgres").trim().toLowerCase();
+if (!["postgres", "file", "memory"].includes(rateLimitBackend)) {
+  throw new Error("CENTRAL_RATE_LIMIT_BACKEND_INVALID");
+}
+if (rateLimitBackend === "file" && rateLimitStateFile === undefined) {
+  throw new Error("CENTRAL_RATE_LIMIT_STATE_FILE_REQUIRED_FOR_FILE_BACKEND");
+}
+const limiter = rateLimitBackend === "postgres"
+  ? new PostgresFixedWindowRateLimiter(pool, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS)
+  : rateLimitBackend === "file"
+  ? new DurableFixedWindowRateLimiter(
+    rateLimitStateFile!,
     RATE_LIMIT_MAX,
     RATE_LIMIT_BUCKETS_MAX,
     RATE_LIMIT_WINDOW_MS,
-  );
+  )
+  : new FixedWindowRateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_BUCKETS_MAX, RATE_LIMIT_WINDOW_MS);
+
+async function allowRate(key: string): Promise<boolean> {
+  return await Promise.resolve(limiter.allow(key));
+}
 
 const factusPayProvision = process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
 const factusPayHandler = factusPayProvision === undefined
@@ -211,7 +226,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       send(response, 401, { status: "REJECTED", result_code: "SESSION_TRUST_UNAUTHORIZED", request_id: requestId, correlation_id: correlationId });
       return;
     }
-    if (!limiter.allow(`${remote}:session-trust`)) {
+    if (!(await allowRate(`${remote}:session-trust`))) {
       send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
       return;
     }
@@ -231,7 +246,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
 
   const authorization = request.headers.authorization ?? null;
   const authFingerprint = createHash("sha256").update(authorization ?? "anonymous").digest("hex");
-  if (!limiter.allow(`${remote}:${authFingerprint}`)) {
+  if (!(await allowRate(`${remote}:${authFingerprint}`))) {
     send(response, 429, { status: "REJECTED", result_code: "DEVICE_ENROLLMENT_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
     return;
   }
