@@ -15,6 +15,11 @@ import { prepareBusinessAdministrationRuntime } from "./business-administration-
 import { prepareSubscriptionFulfillmentRuntime } from "./subscription-fulfillment-runtime.js";
 import { prepareSubscriptionFactusPayGateway } from "./subscription-factus-pay-gateway-runtime.js";
 import { createCentralRouter } from "./central-router.js";
+import {
+  CommercialPortalBridgeService,
+  MemoryCommercialPortalBridgeStore,
+  createCommercialPortalBridgeHandler,
+} from "./commercial-portal-bridge/index.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -211,10 +216,29 @@ const businessHandler = await (async () => {
   catch (error) { await pool.end(); throw error; }
 })();
 
+const commercialBridgeHandler = (() => {
+  const bridgeKey = process.env.COMMERCIAL_BRIDGE_KEY?.trim() ?? "";
+  const trialWebhookKey = process.env.CENTRAL_TRIAL_WEBHOOK_KEY?.trim() ?? "";
+  if (!bridgeKey || !trialWebhookKey) return null;
+  if (bridgeKey.length < 32 || trialWebhookKey.length < 32) {
+    throw new Error("COMMERCIAL_BRIDGE_KEYS_TOO_SHORT");
+  }
+  const bridge = new CommercialPortalBridgeService(new MemoryCommercialPortalBridgeStore(), {
+    bridgeKey,
+    trialWebhookKey,
+  });
+  return createCommercialPortalBridgeHandler(bridge);
+})();
+
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, createCentralRouter(async (request, response) => {
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
+
+  if (commercialBridgeHandler) {
+    const handled = await commercialBridgeHandler(request, response);
+    if (handled) return;
+  }
 
   if (request.url === "/v1/licensing/activations/resolve" ||
       request.url === "/platform" || request.url?.startsWith("/platform/") ||
