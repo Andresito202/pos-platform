@@ -6,7 +6,7 @@ import {writeFileSync,readFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 const project=dirname(fileURLToPath(import.meta.url));
 export async function bundleRuntime(output=join(project,"build/runtime-root")) {
-  const {build}=createRequire(join(project,"../pos-local-service/package.json"))("esbuild");
+  const {build}=createRequire(join(project,"../../apps/pos-local-service/package.json"))("esbuild");
   const evidence={profile:"ANDROID_OPERATIONAL_ONLY",entries:{},sha256:{}};
   for(const entry of ["runtime-probe","runtime-service"]){const result=await build({
     entryPoints:[join(project,entry+".mts")],bundle:true,platform:"node",target:"node22",format:"esm",external:["better-sqlite3"],

@@ -12,7 +12,6 @@ import android.os.Bundle
 import android.os.IBinder
 import android.util.TypedValue
 import android.view.Gravity
-import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -23,7 +22,8 @@ import org.json.JSONObject
 
 /**
  * Brand-first commercial entry (Commercial Precision yellow #FFC400).
- * Continues only to login; never invents a BUSINESS session from UI presence.
+ * Informational only until the BUSINESS authorization chain is connected to
+ * Local Service. No credential form is offered from this surface.
  */
 class EntryActivity : Activity() {
     private var binder: LocalPosService.LocalBinder? = null
@@ -32,6 +32,7 @@ class EntryActivity : Activity() {
     private val navy = Color.parseColor("#10283D")
     private val ink = Color.parseColor("#142B3A")
     private val muted = Color.parseColor("#536475")
+    private val danger = Color.parseColor("#9F2525")
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             binder = service as LocalPosService.LocalBinder
@@ -84,22 +85,18 @@ class EntryActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(24), 0, 0)
         }
-        val continueButton = Button(this).apply {
-            text = "Continuar"
-            filterTouchesWhenObscured = true
-            setBackgroundColor(navy)
-            setTextColor(yellow)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56)).apply {
-                topMargin = dp(36)
-            }
-            setOnClickListener { startActivity(Intent(this@EntryActivity, LoginActivity::class.java)) }
+        val gate = TextView(this).apply {
+            text = "El acceso comercial se abrirá cuando el aprovisionamiento confiable y la ceremonia BUSINESS estén conectados al servicio local. No hay formulario de credenciales en esta versión."
+            setTextColor(danger)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(28), 0, 0)
         }
         root.addView(brand)
         root.addView(title)
         root.addView(subtitle)
         root.addView(statusView)
-        root.addView(continueButton)
+        root.addView(gate)
         setContentView(ScrollView(this).apply { addView(root); setBackgroundColor(yellow) })
 
         startForegroundService(Intent(this, LocalPosService::class.java))

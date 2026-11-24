@@ -1,7 +1,7 @@
-import { AndroidServiceFoundation } from "../pos-local-service/src/android/android-service-foundation.js";
-import { AndroidPrivateServiceControl } from "../pos-local-service/src/android/android-private-service-control.js";
-import { AndroidKeystoreKeyProvider } from "../pos-local-service/src/security/android-keystore-key-provider.js";
-import { EncryptedFileSecretStore } from "../pos-local-service/src/security/encrypted-secret-store.js";
+import { AndroidServiceFoundation } from "../../apps/pos-local-service/src/android/android-service-foundation.js";
+import { AndroidPrivateServiceControl } from "../../apps/pos-local-service/src/android/android-private-service-control.js";
+import { AndroidKeystoreKeyProvider } from "../../apps/pos-local-service/src/security/android-keystore-key-provider.js";
+import { EncryptedFileSecretStore } from "../../apps/pos-local-service/src/security/encrypted-secret-store.js";
 import { fstatSync,readSync } from "node:fs";
 import { dirname,join } from "node:path";
 

@@ -13,8 +13,8 @@ Base diagnosis: Android absent on `main`/PR #135; lab probes on `feat/android-co
 | `CamachoCommercialDomains` contract | Ported |
 | Commercial package `co.camachopos.colombia` (not renamed probe) | Done |
 | Lab probes preserved under `tools/android-lab-probes/` (non-product) | Done |
-| Yellow brand entry + fail-closed login shell | Done (Block 2 scaffold) |
-| Pos shell modules gated (caja/catálogo/…) | Scaffold only — all blocked |
+| Yellow brand entry (informational; no credential form) | Done — Codex P1 |
+| Pos shell modules gated (caja/catálogo/…) | Present, not navigable from entry |
 | Commercial shell APK task (`commercialShellApk`) | Implemented + built unsigned |
 | Embedded Node/SQLite engine in commercial APK | Pending (lab scripts reusable; not claimed) |
 
@@ -22,7 +22,7 @@ Base diagnosis: Android absent on `main`/PR #135; lab probes on `feat/android-co
 
 | Block | Status |
 |---|---|
-| 2 Login/roles/UI amarilla táctil | Scaffold fail-closed; BUSINESS ceremony not wired |
+| 2 Login/roles/UI amarilla táctil | Entry amarilla informativa; login form removed until ceremony wired |
 | 3 Caja/catálogo/offline | `PosShellActivity` tiles blocked without grants |
 | 4 Hardware | AAR + `HardwareSurfaceGate`; drawer still unverified profile |
 | 5 Central/FACTUS/Nequi/trial PR #135 | `TrialCapacityBridge` stub only; no device cable |

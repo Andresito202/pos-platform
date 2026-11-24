@@ -18,7 +18,7 @@ test('real Android bundles exclude GLOBAL, prices, license checkout and Play Bil
     const written=JSON.parse(await readFile(join(dir,'android-operational-boundary.json'),'utf8'));assert.deepEqual(written,result);
     assert.deepEqual(verifyAndroidOperationalBundle(dir),result);
     const forbidden=join(dir,'PlatformOfferEditor.tsx');await writeFile(forbidden,'export const forbidden=true;');
-    const {build}=createRequire(new URL('../pos-local-service/package.json',import.meta.url))('esbuild');
+    const {build}=createRequire(new URL('../../apps/pos-local-service/package.json',import.meta.url))('esbuild');
     await assert.rejects(build({entryPoints:[forbidden],bundle:true,write:false,plugins:[androidOperationalBoundary()],logLevel:'silent'}),/ANDROID_OPERATIONAL_MODULE_BOUNDARY/);
     await writeFile(join(dir,'runtime-service.mjs'),'// tampered test fixture');assert.throws(()=>verifyAndroidOperationalBundle(dir),/BUNDLE_CHANGED/);
   }finally{if(dirname(resolve(dir))!==resolve(tmpdir())||!basename(dir).startsWith('camacho-android-operational-'))throw Error('CLEANUP_REJECTED');await rm(dir,{recursive:true,force:true});}
