@@ -28,12 +28,15 @@ export async function prepareGlobalAdministrationRuntime(input:{
   {const catalog=(await input.pool.query("SELECT encode(checksum,'hex') AS checksum FROM platform.target_migration_executions WHERE migration_id='023_license_offer_terms' AND status='APPLIED'")).rows;
     if(catalog.length!==1||catalog[0].checksum!==p.catalog_migration_checksum)throw Error("LICENSE_CATALOG_REGISTERED_SCHEMA_REQUIRED");}
   const rejection=managed(p.rejection_verifier_file,8192).trim();if(!isSupportedPlatformPasswordVerifier(rejection))throw Error("GLOBAL_ADMIN_REJECTION_VERIFIER_REQUIRED");
+  const turnstile=p.turnstile_secret_file?managed(p.turnstile_secret_file,8192).trim():null;
+  if(p.turnstile_secret_file&&(!turnstile||turnstile.length<16))throw Error("GLOBAL_TURNSTILE_SECRET_REQUIRED");
   const api=createGlobalAdministrationHandler({pool:input.pool,policy:{mode:"DEPLOYMENT",origin:input.origin,rpId:p.rp_id,policyReference:p.policy_reference,
     rejectionVerifier:rejection,challengeLifetimeMs:l.challenge_ms,sessionLifetimeMs:l.session_ms,maximumMfaAgeMs:l.mfa_age_ms,
     maximumReauthenticationAgeMs:l.reauthentication_ms,browserLifetimeMs:l.browser_ms,idleTimeoutMs:l.idle_ms,lockTimeoutMs:l.sql_lock_ms,statementTimeoutMs:l.sql_statement_ms},
     limits:{maximumBodyBytes:l.maximum_body_bytes,maximumPendingFlows:l.maximum_pending_flows,requestsPerWindow:l.requests_per_window,
       maximumBuckets:l.maximum_buckets,requestWindowMs:l.request_window_ms,loginWindowMs:l.login_window_ms,
       maximumLoginPerAddress:l.maximum_login_per_address,maximumLoginPerAccount:l.maximum_login_per_account},
+    turnstileSecret:turnstile,
     ...(p.fulfillment_policies?{fulfillmentPolicies:p.fulfillment_policies}:{}),
     ...(p.subscription_collection?{subscriptionCollection:p.subscription_collection}:{}),
     ...(input.factusPay?{factusPay:input.factusPay}:{}),

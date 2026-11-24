@@ -115,6 +115,8 @@ export const GlobalAdministrationProvisionSchema=z.strictObject({
   subscription_collection:z.strictObject({
     tenant_id:UuidSchema,company_id:UuidSchema,branch_id:UuidSchema,integration_id:UuidSchema,
   }).optional(),
+  /** Absolute path to Cloudflare Turnstile secret; when set, login/begin requires turnstileToken. */
+  turnstile_secret_file:z.string().min(1).max(4096).optional(),
   limits:z.strictObject({challenge_ms:positiveLimit,session_ms:positiveLimit,mfa_age_ms:positiveLimit,reauthentication_ms:positiveLimit,
     browser_ms:positiveLimit,idle_ms:positiveLimit,sql_lock_ms:positiveLimit,sql_statement_ms:positiveLimit,maximum_body_bytes:positiveLimit,
     maximum_pending_flows:positiveLimit,request_window_ms:positiveLimit,requests_per_window:positiveLimit,maximum_buckets:positiveLimit,

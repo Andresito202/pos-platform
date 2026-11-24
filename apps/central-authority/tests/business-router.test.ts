@@ -99,7 +99,8 @@ beforeEach(async () => {
     rejection_verifier_file: "TEST_ONLY", migration_checksums: Object.fromEntries(["013_business_browser_sessions","015_authorization_snapshot_sequences","019_subscription_quotes","020_subscription_payments","022_license_activations","023_license_offer_terms","029_cash_register_master","030_commercial_authorization_catalog","031_business_owner_role","032_tenant_initialization_permission","033_cash_register_license_bindings"].map(id => [id,"a".repeat(64)])),
     license_policy: { profile: "CAMACHO_LICENSE_ACTIVATION_V1", policy_reference: "TEST_ONLY", subscription_grace_days: 3, grace_basis: "ELAPSED_24_HOURS", perpetual_use: "NO_EXPIRY", support_and_external_services: "SEPARATE", accepted_contract_policy_references: ["TEST_ONLY"], offline_capabilities: ["CASH_REGISTER"] },
     renderer: { directory: "TEST_ONLY", maximum_asset_bytes: 10000 }, limits: { challenge_ms: 60000, session_ms: 300000, browser_ms: 300000, mfa_age_ms: 60000, reauthentication_ms: 300000, idle_ms: 300000,
-      sql_lock_ms: 2000, sql_statement_ms: 10000, maximum_body_bytes: 16384, maximum_pending_flows: 10, requests_per_window: 100, maximum_buckets: 100, request_window_ms: 60000, maximum_login_per_account: 20 } });
+      sql_lock_ms: 2000, sql_statement_ms: 10000, maximum_body_bytes: 16384, maximum_pending_flows: 10, requests_per_window: 100, maximum_buckets: 100, request_window_ms: 60000, maximum_login_per_account: 20,
+      login_window_ms: 60000, maximum_login_per_address: 40 } });
   server.on("request", createCentralRouter(async (_req,res) => { res.writeHead(404); res.end('{"code":"FALLBACK"}'); }, createBusinessAdministrationHandler(pool,policy,"TEST_VERIFIER_NOT_USED")));
 });
 afterEach(async () => { vi.restoreAllMocks(); if (server) { server.closeAllConnections(); await new Promise<void>(resolve => server!.close(() => resolve())); } });

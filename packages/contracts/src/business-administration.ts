@@ -6,8 +6,13 @@ import { LicenseActivationPolicySchema } from "./license-activation.js";
 export const BUSINESS_API = "/v1/business/";
 const positive = z.number().int().positive().max(2_147_483_647);
 const email = z.email().max(320);
-export const BusinessLoginBeginSchema = z.strictObject({ email, password: z.string().min(1).max(1024) });
-export const BusinessLoginCompleteSchema = BusinessLoginBeginSchema.extend({
+export const BusinessLoginBeginSchema = z.strictObject({
+  email, password: z.string().min(1).max(1024),
+  /** Required when Central provision sets turnstile_secret_file (public web). */
+  turnstileToken: z.string().min(1).max(2048).optional(),
+});
+export const BusinessLoginCompleteSchema = z.strictObject({
+  email, password: z.string().min(1).max(1024),
   challenge: z.string().min(1).max(128), response: z.unknown(),
   tenantId: UuidSchema, membershipId: UuidSchema,
 });
@@ -40,10 +45,13 @@ export const BusinessAdministrationProvisionSchema = z.strictObject({
   ].map(id => [id, z.string().regex(/^[a-f0-9]{64}$/)])) as Record<string, z.ZodString>),
   license_policy: LicenseActivationPolicySchema,
   renderer: z.strictObject({ directory: z.string().min(1).max(4096), maximum_asset_bytes: positive }),
+  /** Absolute path to Cloudflare Turnstile secret; when set, login/begin requires turnstileToken. */
+  turnstile_secret_file: z.string().min(1).max(4096).optional(),
   limits: z.strictObject({ challenge_ms: positive, session_ms: positive, browser_ms: positive, mfa_age_ms: positive,
     reauthentication_ms: positive, idle_ms: positive, sql_lock_ms: positive, sql_statement_ms: positive,
     maximum_body_bytes: positive, maximum_pending_flows: positive, requests_per_window: positive,
-    maximum_buckets: positive, request_window_ms: positive, maximum_login_per_account: positive }),
+    maximum_buckets: positive, request_window_ms: positive, maximum_login_per_account: positive,
+    login_window_ms: positive, maximum_login_per_address: positive }),
 }).superRefine((p, ctx) => {
   const l = p.limits;
   if (new URL(p.origin).hostname !== p.rp_id || l.sql_statement_ms <= l.sql_lock_ms || l.browser_ms > l.session_ms ||

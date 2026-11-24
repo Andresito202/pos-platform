@@ -25,7 +25,13 @@ export async function prepareBusinessAdministrationRuntime(pool: Pool, provision
   }
   const rejection = managed(policy.rejection_verifier_file, 8192).trim();
   if (!isSupportedPlatformPasswordVerifier(rejection)) throw Error("BUSINESS_REJECTION_VERIFIER_REQUIRED");
-  const api = createBusinessAdministrationHandler(pool, policy, rejection);
+  const turnstile = policy.turnstile_secret_file
+    ? managed(policy.turnstile_secret_file, 8192).trim()
+    : null;
+  if (policy.turnstile_secret_file && (!turnstile || turnstile.length < 16)) {
+    throw Error("BUSINESS_TURNSTILE_SECRET_REQUIRED");
+  }
+  const api = createBusinessAdministrationHandler(pool, policy, rejection, turnstile);
   const assets = createGlobalAdministrationAssets({ directory: policy.renderer.directory, origin, maximumAssetBytes: policy.renderer.maximum_asset_bytes, page: "business" });
   return async (req: Parameters<typeof api>[0], res: Parameters<typeof api>[1]) => {
     if (req.url === "/business" || req.url?.startsWith("/business/")) await assets(req, res);

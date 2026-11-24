@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { TLSSocket } from "node:tls";
 import { BUSINESS_API, BusinessLoginBeginSchema, BusinessLoginCompleteSchema, uuidV7,
@@ -9,12 +9,24 @@ import { BusinessBrowserSessionIssuer } from "./business-browser-session-issuer.
 import { BusinessBrowserSessionAuthority } from "./business-browser-session-authority.js";
 import { BusinessCashRegisters, BusinessRejection } from "./business-cash-registers.js";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
+import { spendDurableLoginBudget } from "./login-abuse-budget.js";
+import { verifyTurnstileToken } from "./turnstile-siteverify.js";
 import { inspectCommercialHeaders, readCommercialJsonBody, sendCommercialJson, validateCommercialAssertion } from "./commercial-https-request-boundary.js";
 
 const FLOW = "__Host-camacho_business_flow";
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
+const csrfEqual = (a: string, b: string) => {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+};
 const flowCookie = (value: string, ms: number) => `${FLOW}=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(ms / 1000)}`;
-export function createBusinessAdministrationHandler(pool: Pool, policy: BusinessAdministrationProvision, rejectionVerifier: string) {
+export function createBusinessAdministrationHandler(
+  pool: Pool,
+  policy: BusinessAdministrationProvision,
+  rejectionVerifier: string,
+  turnstileSecret: string | null = null,
+) {
   const l = policy.limits;
   const mfa = new BusinessInitialMfaFlow(pool, { origin: policy.origin, rpId: policy.rp_id,
     challengeLifetimeMs: l.challenge_ms, rejectionVerifier, sessionScope: "BUSINESS" });
@@ -24,7 +36,6 @@ export function createBusinessAdministrationHandler(pool: Pool, policy: Business
   const authority = new BusinessBrowserSessionAuthority(policy.origin, l.reauthentication_ms, l.idle_ms);
   const registers = new BusinessCashRegisters(policy.license_policy);
   const limiter = new FixedWindowRateLimiter(l.requests_per_window, l.maximum_buckets, l.request_window_ms);
-  const loginLimiter = new FixedWindowRateLimiter(l.maximum_login_per_account, l.maximum_buckets, l.request_window_ms);
   const pending = new Map<string, { email: string; challenge: string; csrf: string; expires: number }>();
   let starting = 0;
   async function transaction<T>(run: (c: PoolClient) => Promise<T>) {
@@ -56,9 +67,22 @@ export function createBusinessAdministrationHandler(pool: Pool, policy: Business
         const parsed = path === "login/begin" ? BusinessLoginBeginSchema.safeParse(body) : BusinessLoginCompleteSchema.safeParse(body);
         if (!parsed.success) { sendCommercialJson(res, 400, { code: "BUSINESS_LOGIN_INVALID" }); return; }
         const b = parsed.data;
-        if (!loginLimiter.allow(hash(b.email.trim().toLowerCase()))) { sendCommercialJson(res, 429, { code: "BUSINESS_RATE_LIMITED" }); return; }
+        if (!await spendDurableLoginBudget(pool, "BUSINESS", req.socket.remoteAddress ?? "unknown", b.email, {
+          windowMs: l.login_window_ms,
+          maximumPerAddress: l.maximum_login_per_address,
+          maximumPerAccount: l.maximum_login_per_account,
+        })) { sendCommercialJson(res, 429, { code: "BUSINESS_RATE_LIMITED" }); return; }
         for (const [key, value] of pending) if (value.expires <= Date.now()) pending.delete(key);
         if (path === "login/begin") {
+          if (turnstileSecret !== null) {
+            const token = "turnstileToken" in b && typeof b.turnstileToken === "string" ? b.turnstileToken : "";
+            const remote = req.socket.remoteAddress;
+            if (!await verifyTurnstileToken({
+              secret: turnstileSecret,
+              token,
+              ...(remote ? { remoteip: remote } : {}),
+            })) { sendCommercialJson(res, 401, { code: "BUSINESS_TURNSTILE_REJECTED" }); return; }
+          }
           if (pending.size + starting >= l.maximum_pending_flows) { sendCommercialJson(res, 429, { code: "BUSINESS_RATE_LIMITED" }); return; }
           starting++;
           let challenge;
@@ -74,14 +98,14 @@ export function createBusinessAdministrationHandler(pool: Pool, policy: Business
         const token = values.length === 1 ? values[0]!.slice(FLOW.length + 1) : "";
         const held = pending.get(hash(token)); pending.delete(hash(token));
         res.setHeader("set-cookie", flowCookie("", 0));
-        if (!/^[A-Za-z0-9_-]{43}$/.test(token) || !held || held.expires <= Date.now() || !csrf || hash(csrf) !== held.csrf ||
+        if (!/^[A-Za-z0-9_-]{43}$/.test(token) || !held || held.expires <= Date.now() || !csrf || !csrfEqual(hash(csrf), held.csrf) ||
             held.email !== b2.email.trim().toLowerCase() || held.challenge !== b2.challenge || !validateCommercialAssertion(b2.response)) {
           sendCommercialJson(res, 401, { code: "BUSINESS_MFA_REJECTED" }); return;
         }
         const receipt = await mfa.complete({ email: b2.email, password: b2.password, challenge: b2.challenge,
           response: b2.response as Parameters<BusinessInitialMfaFlow["complete"]>[0]["response"] });
         if (!receipt) { sendCommercialJson(res, 401, { code: "BUSINESS_MFA_REJECTED" }); return; }
-        const issued = await issuer.issue(receipt, b2.tenantId, b2.membershipId);
+        const issued = await issuer.issue(receipt, b2.tenantId, b2.membershipId, cookie);
         res.setHeader("set-cookie", [issued.setCookie, flowCookie("", 0)]);
         sendCommercialJson(res, 200, { authenticated: true, scope: "BUSINESS", csrfToken: issued.csrfToken }); return;
       }

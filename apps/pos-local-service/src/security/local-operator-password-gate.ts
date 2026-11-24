@@ -40,18 +40,21 @@ export class LocalOperatorPasswordGate {
         const row = this.database.native.prepare(
           "SELECT window_started_ms, attempts FROM local_operator_password_budget WHERE principal=?",
         ).get(key) as { window_started_ms: number; attempts: number } | undefined;
-        const active = row && now >= row.window_started_ms && now - row.window_started_ms < this.windowMs;
+        // Wall-clock rollback must not reset the budget (fail closed).
+        if (row && now < row.window_started_ms) return false;
+        const active = row && now - row.window_started_ms < this.windowMs;
         if (active && row.attempts >= limit) return false;
       }
       for (const key of [principal, "(global)"]) {
         const row = this.database.native.prepare(
           "SELECT window_started_ms, attempts FROM local_operator_password_budget WHERE principal=?",
         ).get(key) as { window_started_ms: number; attempts: number } | undefined;
-        const active = row && now >= row.window_started_ms && now - row.window_started_ms < this.windowMs;
+        if (row && now < row.window_started_ms) return false;
+        const active = row && now - row.window_started_ms < this.windowMs;
         this.database.native.prepare(
           "INSERT INTO local_operator_password_budget(principal,window_started_ms,attempts) VALUES(?,?,?) " +
           "ON CONFLICT(principal) DO UPDATE SET window_started_ms=excluded.window_started_ms,attempts=excluded.attempts",
-        ).run(key, active ? row.window_started_ms : now, active ? row.attempts + 1 : 1);
+        ).run(key, active ? row!.window_started_ms : now, active ? row!.attempts + 1 : 1);
       }
       return true;
     });

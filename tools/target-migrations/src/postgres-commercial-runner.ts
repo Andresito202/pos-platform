@@ -74,9 +74,12 @@ export const POSTGRES_034_DESCRIPTOR=descriptor("034_reporting_aggregate_permiss
   [],"authorization");
 export const POSTGRES_035_DESCRIPTOR=descriptor("035_subscription_license_fulfillment",POSTGRES_023_DESCRIPTOR.migrationId,
   ["subscriptions.license_fulfillment_jobs"],"subscriptions");
+export const POSTGRES_036_DESCRIPTOR=descriptor("036_business_login_abuse_budget",POSTGRES_021_DESCRIPTOR.migrationId,
+  [],"identity");
 
-type CommercialMigrationTarget="SUBSCRIPTION_FULFILLMENT"|"REPORTING_PERMISSIONS"|"CASH_REGISTER_BINDINGS"|"TENANT_INITIALIZATION"|"BUSINESS_OWNER"|"COMMERCIAL_AUTHORIZATION"|"CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
+type CommercialMigrationTarget="LOGIN_ABUSE_BUDGET"|"SUBSCRIPTION_FULFILLMENT"|"REPORTING_PERMISSIONS"|"CASH_REGISTER_BINDINGS"|"TENANT_INITIALIZATION"|"BUSINESS_OWNER"|"COMMERCIAL_AUTHORIZATION"|"CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="LOGIN_ABUSE_BUDGET")return [POSTGRES_036_DESCRIPTOR];
   if(target==="SUBSCRIPTION_FULFILLMENT")return [POSTGRES_035_DESCRIPTOR];
   if(target==="REPORTING_PERMISSIONS")return [POSTGRES_034_DESCRIPTOR];
   if(target==="CASH_REGISTER_BINDINGS")return [POSTGRES_033_DESCRIPTOR];
@@ -334,7 +337,7 @@ export async function applyCommercialMigrations(input:{migratorUrl:string;expect
         const predecessor=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_003_DESCRIPTOR.migrationId])).rows[0];
         check(predecessor&&Buffer.from(predecessor.checksum).equals(sha256(await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact))),"Factus Pay 003 predecessor mismatch");
       }
-      let predecessor=input.target==="SUBSCRIPTION_FULFILLMENT"?POSTGRES_023_DESCRIPTOR:input.target==="REPORTING_PERMISSIONS"?POSTGRES_033_DESCRIPTOR:input.target==="CASH_REGISTER_BINDINGS"?POSTGRES_032_DESCRIPTOR:input.target==="TENANT_INITIALIZATION"?POSTGRES_031_DESCRIPTOR:input.target==="BUSINESS_OWNER"?POSTGRES_030_DESCRIPTOR:input.target==="COMMERCIAL_AUTHORIZATION"?POSTGRES_029_DESCRIPTOR:input.target==="CASH_REGISTER_MASTER"?POSTGRES_023_DESCRIPTOR:POSTGRES_007_DESCRIPTOR;
+      let predecessor=input.target==="LOGIN_ABUSE_BUDGET"?POSTGRES_021_DESCRIPTOR:input.target==="SUBSCRIPTION_FULFILLMENT"?POSTGRES_023_DESCRIPTOR:input.target==="REPORTING_PERMISSIONS"?POSTGRES_033_DESCRIPTOR:input.target==="CASH_REGISTER_BINDINGS"?POSTGRES_032_DESCRIPTOR:input.target==="TENANT_INITIALIZATION"?POSTGRES_031_DESCRIPTOR:input.target==="BUSINESS_OWNER"?POSTGRES_030_DESCRIPTOR:input.target==="COMMERCIAL_AUTHORIZATION"?POSTGRES_029_DESCRIPTOR:input.target==="CASH_REGISTER_MASTER"?POSTGRES_023_DESCRIPTOR:POSTGRES_007_DESCRIPTOR;
       for(const d of selected){
         const checksum=sha256(await readArtifact(d.upArtifact)),prior=sha256(await readArtifact(predecessor.upArtifact));
         const history=(await c.query("SELECT execution_id,checksum,status FROM platform.target_migration_executions WHERE migration_id=$1 ORDER BY started_at",[d.migrationId])).rows;

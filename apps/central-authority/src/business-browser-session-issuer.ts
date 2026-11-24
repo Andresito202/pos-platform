@@ -49,6 +49,7 @@ export class BusinessBrowserSessionIssuer {
     receipt: unknown,
     tenantId: string,
     membershipId: string,
+    previousCookie: string | null = null,
   ): Promise<{ setCookie: string; csrfToken: string }> {
     UuidSchema.parse(tenantId);
     UuidSchema.parse(membershipId);
@@ -64,6 +65,14 @@ export class BusinessBrowserSessionIssuer {
     const csrfToken = secret();
     const handoffHash = hash(secret());
     const client = await this.pool.connect();
+    const COOKIE = "__Host-camacho_business";
+    const extract = (raw: string | null) => {
+      if (!raw || raw.length > 8192) return null;
+      const values = raw.split(";").map(s => s.trim()).filter(s => s.startsWith(COOKIE + "="));
+      if (values.length !== 1) return null;
+      const value = values[0]!.slice(COOKIE.length + 1);
+      return /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null;
+    };
 
     try {
       await client.query("BEGIN");
@@ -158,6 +167,39 @@ export class BusinessBrowserSessionIssuer {
 
       if (role.rowCount !== 1) {
         throw Error("BUSINESS_SESSION_AUTHORIZATION_REJECTED");
+      }
+
+      // Fresh ceremony replaces only this browser's previous BUSINESS cookie.
+      const previous = extract(previousCookie);
+      if (previous) {
+        const old = (await client.query(
+          `SELECT b.session_id,b.user_id FROM identity.browser_sessions b
+             JOIN identity.sessions s ON s.id=b.session_id AND s.user_id=b.user_id
+            WHERE b.cookie_hash=$1 AND b.origin=$2 AND b.tenant_id=$3 AND b.membership_id=$4
+              AND b.revoked_at IS NULL AND s.tenant_id=$3 AND s.tenant_membership_id=$4
+            FOR UPDATE OF b,s`,
+          [hash(previous), p.origin, tenantId, membershipId],
+        )).rows[0];
+        if (old) {
+          await client.query(
+            "UPDATE identity.browser_sessions SET last_used_at=clock_timestamp(),revoked_at=clock_timestamp() WHERE cookie_hash=$1",
+            [hash(previous)],
+          );
+          await client.query(
+            "UPDATE identity.sessions SET revoked_at=clock_timestamp(),revocation_reason='BUSINESS_BROWSER_REPLACED',version=version+1 WHERE id=$1 AND revoked_at IS NULL",
+            [old.session_id],
+          );
+          await new PostgresPlatformSecurityEventRepository(this.pool).append({
+            user_id: old.user_id,
+            session_id: old.session_id,
+            tenant_id: tenantId,
+            event_code: PlatformSecurityEventCode.SESSION_REVOKED,
+            result: "REVOKED",
+            reason_code: "BUSINESS_BROWSER_REPLACED",
+            correlation_id: evidence.correlationId,
+            occurred_at: new Date().toISOString(),
+          }, client);
+        }
       }
 
       const inserted = await client.query(
