@@ -54,6 +54,44 @@ describe("DurableFixedWindowRateLimiter", () => {
       );
       expect(second.retainedBuckets).toBe(1);
       expect(second.allow("attacker", base + 500)).toBe(false);
+      second.dispose();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("flushes exhausted budgets after traffic stops without an explicit flush", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "camacho-rate-idle-"));
+    const path = join(directory, "rate-limit.json");
+    const base = Date.now();
+    try {
+      const first = new DurableFixedWindowRateLimiter(path, 2, 100, 60_000, 40, () => base);
+      expect(first.allow("attacker", base)).toBe(true);
+      expect(first.allow("attacker", base)).toBe(true);
+      expect(first.allow("attacker", base)).toBe(false);
+      // No explicit flush — scheduled timer must persist the exhausted window.
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      const second = new DurableFixedWindowRateLimiter(path, 2, 100, 60_000, 40, () => base + 10);
+      expect(second.allow("attacker", base + 10)).toBe(false);
+      second.dispose();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("dispose persists dirty state immediately for shutdown", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "camacho-rate-dispose-"));
+    const path = join(directory, "rate-limit.json");
+    const base = Date.now();
+    try {
+      const first = new DurableFixedWindowRateLimiter(path, 2, 100, 60_000, 60_000, () => base);
+      expect(first.allow("attacker", base)).toBe(true);
+      expect(first.allow("attacker", base)).toBe(true);
+      expect(first.allow("attacker", base)).toBe(false);
+      first.dispose();
+      const second = new DurableFixedWindowRateLimiter(path, 2, 100, 60_000, 60_000, () => base + 5);
+      expect(second.allow("attacker", base + 5)).toBe(false);
+      second.dispose();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

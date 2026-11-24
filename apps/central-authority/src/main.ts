@@ -259,6 +259,9 @@ server.listen(PORT, deployment?.bindAddress ?? process.env.CENTRAL_BIND_ADDRESS 
 
 const shutdown = async (signal: string) => {
   server.close();
+  if (limiter instanceof DurableFixedWindowRateLimiter) {
+    limiter.dispose();
+  }
   await pool.end();
   process.stdout.write(JSON.stringify({ service: "central-authority", status: "STOPPED", signal }) + "\n");
   process.exit(0);

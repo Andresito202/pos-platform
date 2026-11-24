@@ -12,6 +12,9 @@ type Snapshot = {
  * Process-local fixed-window limiter with atomic file durability.
  * Survives Central restarts on a single node. Does not synchronize multi-node
  * clusters — that remains residual risk until a shared store is authorized.
+ *
+ * Dirty state is flushed on the flush interval even when traffic stops, and
+ * `dispose()` must be called on shutdown so the last window is not lost.
  */
 export class DurableFixedWindowRateLimiter {
   private readonly memory: FixedWindowRateLimiter;
@@ -20,6 +23,7 @@ export class DurableFixedWindowRateLimiter {
   private readonly maximum: number;
   private dirty = false;
   private lastFlush = 0;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     path: string,
@@ -46,21 +50,22 @@ export class DurableFixedWindowRateLimiter {
 
   allow(key: string, now = Date.now()): boolean {
     const ok = this.memory.allow(key, now);
-    this.dirty = true;
-    if (now - this.lastFlush >= this.flushEveryMs) this.flush(now);
+    this.markDirty(now);
     return ok;
   }
 
   pruneExpired(now = Date.now()): number {
     const removed = this.memory.pruneExpired(now);
     if (removed > 0) {
-      this.dirty = true;
+      this.markDirty(now);
       this.flush(now);
     }
     return removed;
   }
 
+  /** Persist immediately if dirty. Safe to call repeatedly; clears pending timer. */
   flush(now = Date.now()): void {
+    this.clearFlushTimer();
     if (!this.dirty) return;
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     const buckets: Snapshot["buckets"] = {};
@@ -77,6 +82,36 @@ export class DurableFixedWindowRateLimiter {
     renameSync(tmp, this.path);
     this.dirty = false;
     this.lastFlush = now;
+  }
+
+  /** Flush pending abuse budgets before process exit. */
+  dispose(): void {
+    this.flush(this.now());
+  }
+
+  private markDirty(now: number): void {
+    this.dirty = true;
+    if (now - this.lastFlush >= this.flushEveryMs) {
+      this.flush(now);
+      return;
+    }
+    this.scheduleFlush();
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushTimer !== null || !this.dirty) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      this.flush(this.now());
+    }, this.flushEveryMs);
+    // Keep the process alive only for the flush window; shutdown still calls dispose().
+    this.flushTimer.unref?.();
+  }
+
+  private clearFlushTimer(): void {
+    if (this.flushTimer === null) return;
+    clearTimeout(this.flushTimer);
+    this.flushTimer = null;
   }
 
   private restore(now: number): void {
