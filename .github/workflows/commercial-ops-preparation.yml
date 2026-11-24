@@ -45,3 +45,54 @@ jobs:
           for f in infra/ops/*.sh; do bash -n "$f" || exit; done
           for f in infra/ops/*.mjs; do node --check "$f" || exit; done
           for f in infra/k6/*.js; do node --input-type=module --check < "$f" || exit; done
+
+  recovery-and-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Replay real PostgreSQL WAL to a point between commits
+        run: |
+          docker run --rm -i --network none --user postgres \
+            -v "$PWD/infra/ops:/ops:ro" postgres:16.14 bash -se <<'DRILL'
+          set -euo pipefail
+          root="$(mktemp -d)"
+          mkdir "$root/archive" "$root/socket" "$root/drills"
+          initdb -D "$root/primary" --auth=trust --no-locale > /dev/null
+          printf "archive_mode = on\narchive_command = 'cp \"%%p\" \"%s/%%f\"'\n" "$root/archive" >> "$root/primary/postgresql.conf"
+          pg_ctl -D "$root/primary" -l "$root/primary.log" -o "-h '' -k $root/socket -p 5442" -w start
+          trap 'pg_ctl -D "$root/primary" -m fast -w stop' EXIT
+          export PGHOST="$root/socket" PGPORT=5442 PGUSER=postgres PGDATABASE=postgres
+          psql -Xq -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA platform;
+          CREATE TABLE platform.target_migration_executions (marker int PRIMARY KEY);
+          SQL
+          pg_basebackup -D "$root/base" -Fp -X stream --checkpoint=fast
+          psql -Xq -v ON_ERROR_STOP=1 -c 'INSERT INTO platform.target_migration_executions VALUES (1)'
+          sleep 1
+          target="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          sleep 1
+          psql -Xq -v ON_ERROR_STOP=1 -c 'INSERT INTO platform.target_migration_executions VALUES (2)'
+          incident="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          wal="$(psql -XAt -v ON_ERROR_STOP=1 -c 'SELECT pg_walfile_name(pg_current_wal_insert_lsn())')"
+          psql -Xq -v ON_ERROR_STOP=1 -c 'SELECT pg_switch_wal()' > /dev/null
+          for retry in {1..60}; do
+            [[ -s "$root/archive/$wal" ]] && break
+            sleep 1
+          done
+          [[ -s "$root/archive/$wal" ]]
+          printf 'SELECT array_agg(marker ORDER BY marker) = ARRAY[1] FROM platform.target_migration_executions;\n' > "$root/verify.sql"
+          PITR_BASE_BACKUP="$root/base" PITR_WAL_ARCHIVE="$root/archive" PITR_DRILL_PARENT="$root/drills" \
+            PITR_TARGET_UTC="$target" PITR_INCIDENT_UTC="$incident" PITR_DB_USER=postgres \
+            PITR_DATABASE=postgres PITR_VERIFY_SQL_FILE="$root/verify.sql" bash /ops/pitr-postgres-drill.sh
+          DRILL
+      - name: Build portable Central image and check its runtime imports
+        run: |
+          docker build -f infra/docker/central-authority/Dockerfile -t camacho-pos-central:check .
+          docker run --rm --network none camacho-pos-central:check node --import tsx \
+            --input-type=module -e 'await import("@pos-platform/observability/node"); if (process.getuid() !== 10001) process.exit(1);'
+          docker run --rm --network none --workdir /app/tools/target-migrations camacho-pos-central:check \
+            node --import tsx --input-type=module -e 'await import("@pos-platform/device-trust"); await import("@pos-platform/observability/node");'

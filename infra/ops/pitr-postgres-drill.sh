@@ -16,7 +16,7 @@ for timestamp in "$PITR_TARGET_UTC" "$PITR_INCIDENT_UTC"; do
   [[ "$timestamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]
   date -u -d "$timestamp" +%s >/dev/null
 done
-started=$SECONDS
+started="$(date +%s%3N)"
 pg_verifybackup "$PITR_BASE_BACKUP"
 [[ ! -e "$PITR_BASE_BACKUP/standby.signal" && ! -e "$PITR_BASE_BACKUP/recovery.signal" ]]
 [[ -z "$(find "$PITR_BASE_BACKUP" -type l -print -quit)" ]]
@@ -29,6 +29,7 @@ chmod 700 "$pgdata"
 touch "$pgdata/recovery.signal"
 cat > "$drill/postgresql.conf" <<CONFIG
 listen_addresses = ''
+port = 5432
 unix_socket_directories = '$drill/socket'
 unix_socket_permissions = 0700
 archive_mode = off
@@ -44,8 +45,8 @@ pg_ctl -D "$pgdata" -l "$drill/postgres.log" -o "-c config_file=$drill/postgresq
 
 replayed=""
 for attempt in {1..60}; do
-  replayed="$(psql -XAt -v ON_ERROR_STOP=1 -h "$drill/socket" -U "$PITR_DB_USER" -d "$PITR_DATABASE" -c "
-    SELECT extract(epoch FROM pg_last_xact_replay_timestamp())::bigint
+  replayed="$(psql -XAt -v ON_ERROR_STOP=1 -h "$drill/socket" -p 5432 -U "$PITR_DB_USER" -d "$PITR_DATABASE" -c "
+    SELECT floor(extract(epoch FROM pg_last_xact_replay_timestamp()))::bigint
     WHERE pg_is_in_recovery() AND pg_get_wal_replay_pause_state()='paused'
       AND to_regclass('platform.target_migration_executions') IS NOT NULL
   ")"
@@ -56,4 +57,11 @@ done
 incident="$(date -u -d "$PITR_INCIDENT_UTC" +%s)"
 target="$(date -u -d "$PITR_TARGET_UTC" +%s)"
 (( replayed <= target && target <= incident ))
-printf 'PITR_VERIFY_OK restore_verification_seconds=%s observed_replay_gap_seconds=%s\n' "$((SECONDS - started))" "$((incident - replayed))"
+if [[ -n "${PITR_VERIFY_SQL_FILE:-}" ]]; then
+  [[ "$PITR_VERIFY_SQL_FILE" == /* && -f "$PITR_VERIFY_SQL_FILE" && ! -L "$PITR_VERIFY_SQL_FILE" ]]
+  result="$(psql -XAt -v ON_ERROR_STOP=1 -h "$drill/socket" -p 5432 -U "$PITR_DB_USER" \
+    -d "$PITR_DATABASE" -f "$PITR_VERIFY_SQL_FILE")"
+  [[ "$result" == t ]] || { echo PITR_BUSINESS_CHECK_FAILED >&2; exit 1; }
+fi
+printf 'PITR_VERIFY_OK restore_verification_ms=%s observed_replay_gap_seconds=%s\n' \
+  "$(( $(date +%s%3N) - started ))" "$((incident - replayed))"
