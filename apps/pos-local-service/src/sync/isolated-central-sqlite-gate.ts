@@ -10,7 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "@pos-platform/local-channel";
-import type { SyncOperation } from "@pos-platform/contracts";
+import { SyncOperationSchema } from "@pos-platform/contracts";
+import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
+import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
+import { SqliteCashShiftStore } from "../cash/sqlite-cash-shift-store.js";
+import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
+import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
 import { CentralTransportError, type CentralTransport } from "./central-transport.js";
 import type { DeviceCredentialProvider } from "./device-credential.js";
 import { DurableSyncStore, type SyncScope } from "./durable-sync-store.js";
@@ -43,33 +48,65 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
     let clock = new Date();
     const policy = { maxAttempts: 4, baseDelayMs: 1_000, maxDelayMs: 1_000, jitterRatio: 0.2 };
     let store = new DurableSyncStore(database, policy, () => clock);
-    const payload = { gate: "SQLITE_OUTBOX_CENTRAL", nonce: input.uuidV7() };
-    const operationId = input.uuidV7();
-    const operation: SyncOperation = {
-      operation_id: operationId,
-      tenant_id: input.scope.tenantId,
-      company_id: input.scope.companyId,
-      branch_id: input.scope.branchId,
-      device_id: input.scope.deviceId,
-      installation_id: input.scope.installationId,
-      session_id: input.uuidV7(),
-      actor_id: input.uuidV7(),
-      aggregate_type: "SYNC_GATE",
-      aggregate_id: input.uuidV7(),
-      operation_type: "SYNC.TEST",
-      authority_policy: "APPEND_ONLY_SHARED",
-      local_sequence: 1,
-      idempotency_key: `sqlite-sync-gate-${operationId}`,
-      expected_version: null,
-      payload_schema_version: "1.0.0",
-      payload,
-      payload_checksum: createHash("sha256").update(canonicalJson(payload)).digest("hex"),
-      causation_id: null,
-      correlation_id: input.uuidV7(),
-      occurred_at_local: clock.toISOString(),
-      recorded_at_local: clock.toISOString(),
-    };
-    if (store.enqueue(operation) !== "ENQUEUED") throw new Error("SQLITE_ENQUEUE_FAILED");
+    // Seed only catalog inputs; the actual commercial use case produces the
+    // sale, calculation, runtime operation, audit and outbox atomically.
+    const productId = input.uuidV7();
+    const presentationId = input.uuidV7();
+    const actorId = input.uuidV7();
+    const sessionId = input.uuidV7();
+    const correlationId = input.uuidV7();
+    const at = clock.toISOString();
+    const scope = input.scope;
+    database.native.prepare(`INSERT INTO catalog_product(
+      id,tenant_id,company_id,code,name,status,stock_controlled,registered_by_actor_id,
+      idempotency_key,correlation_id,version,created_at,updated_at)
+      VALUES (?,?,?,'SYNC-GATE-PRODUCT','Gate product','ACTIVE',0,?,?,?,1,?,?)`)
+      .run(productId,scope.tenantId,scope.companyId,actorId,`catalog-${productId}`,correlationId,at,at);
+    database.native.prepare(`INSERT INTO catalog_presentation(
+      id,tenant_id,product_id,name,unit_code,unit_precision,barcode,status,created_at,updated_at)
+      VALUES (?,?,?,'Unit','UND',0,NULL,'ACTIVE',?,?)`)
+      .run(presentationId,scope.tenantId,productId,at,at);
+    database.native.prepare(`INSERT INTO catalog_price(
+      id,tenant_id,presentation_id,amount,currency_code,status,created_at,updated_at)
+      VALUES (?,?,?,'1025.000000','COP','ACTIVE',?,?)`)
+      .run(input.uuidV7(),scope.tenantId,presentationId,at,at);
+    const now = () => clock;
+    const saleUseCase = new CreateSaleUseCase(
+      new SqliteCatalogStore(database,store),
+      new SqliteInventoryStore(database,store,now),
+      new SqliteCashShiftStore(database,store,now),
+      new SqliteSaleStore(database,store,now),now,
+    );
+    const validUntil = new Date(clock.getTime()+3600000).toISOString();
+    const sale = saleUseCase.execute(scope,sessionId,{
+      claims: { snapshot_id:input.uuidV7(),user_id:actorId,installation_id:scope.installationId,
+        device_id:scope.deviceId,sequence:1,issued_at:at,expires_at:validUntil,key_id:"LAB_AUTHZ",
+        assignments:[{tenant_id:scope.tenantId,company_id:scope.companyId,branch_id:scope.branchId,
+          status:"ACTIVE",valid_from:at,valid_until:validUntil,role_status:"ACTIVE",
+          permissions:[{code:"SALES_SALE_CREATE",status:"ACTIVE"}]}] },
+      signature:"isolated-fixture",activatedAt:at,
+    },{
+      cashRegisterId:null,idempotencyKey:`sqlite-sync-gate-${correlationId}`,
+      channel:"POS_LOCAL",businessDate:at.slice(0,10),timezoneId:"America/Bogota",
+      utcOffsetMinutes:-300,documentSeries:"GATE-001",currencyCode:"COP",
+      correlationId,causationId:null,
+      lines:[{productId,presentationId,quantity:"1.000000"}],
+    });
+    if (sale.kind !== "CREATED" || sale.payableAmount !== "1050.000000") {
+      throw new Error(`SQLITE_COMMERCIAL_SALE_FAILED:${sale.kind}`);
+    }
+    const row = database.native.prepare("SELECT operation_json FROM local_sync_outbox WHERE operation_type='SALE_CREATED'")
+      .get() as {operation_json:string};
+    const operation = SyncOperationSchema.parse(JSON.parse(row.operation_json));
+    const operationId = operation.operation_id;
+    if (operation.aggregate_id !== sale.saleId || operation.local_sequence !== 1
+      || operation.payload_checksum !== createHash("sha256").update(canonicalJson(operation.payload)).digest("hex")) {
+      throw new Error("SQLITE_COMMERCIAL_OUTBOX_INVALID");
+    }
+    // Persist offline first and reopen before any network activity.
+    database.close();
+    database = LocalDatabase.open({dataDirectory:directory});
+    store = new DurableSyncStore(database,policy,now);
 
     const credentials: DeviceCredentialProvider = {
       isProvisioned: () => true,
@@ -135,6 +172,11 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
     if (inbox.count !== 1) throw new Error("SQLITE_INBOX_NOT_DEDUPLICATED");
     if ((await dispatcher.dispatchOnce(input.scope)).kind !== "IDLE") {
       throw new Error("SQLITE_OUTBOX_NOT_IDLE_AFTER_ACK");
+    }
+    const persistedSale = database.native.prepare("SELECT payable_amount,calculation_checksum FROM sales_sales WHERE id=?")
+      .get(sale.saleId) as {payable_amount:string;calculation_checksum:string};
+    if (persistedSale.payable_amount !== sale.payableAmount || persistedSale.calculation_checksum !== sale.calculationChecksum) {
+      throw new Error("SQLITE_COMMERCIAL_TOTAL_CHANGED");
     }
     return { operationId, idempotencyKey: operation.idempotency_key, localCheckpoint: 1, localInboxRows: 1, recoveredInterruptedDispatches };
   } finally {
