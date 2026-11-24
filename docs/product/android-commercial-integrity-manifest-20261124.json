@@ -1,7 +1,7 @@
 {
   "pr": 136,
   "branch": "cursor/android-commercial-integration-c53a",
-  "git_head_at_build_start": "5fc755110f307fc8328889a367d2e7557d41e1d2",
+  "git_head_at_build_start": "e8ce91a9febed2119e339a827d418cf90e694d7b",
   "package_id": "co.camachopos.colombia",
   "version_name": "0.3.1-native-central",
   "version_code": 3,
@@ -38,5 +38,6 @@
     "Central native route activation",
     "Physical CH340/PRINT/drawer",
     "Play production signing"
-  ]
+  ],
+  "apk_built_from_tree": "e8ce91a9febed2119e339a827d418cf90e694d7b"
 }
