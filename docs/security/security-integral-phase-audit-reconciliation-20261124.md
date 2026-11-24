@@ -12,6 +12,7 @@ Los inventarios marcaron controles ABSENT en el momento del muestreo. Esta nota 
 | Rate limiter en `main.ts` desalojaba presupuestos | Sustituido por `FixedWindowRateLimiter` canónico + durable opcional | PR #137; tests 4 PASS |
 | Android root/Frida/debug ABSENT (off-HEAD) | `AndroidRuntimeIntegrity` + `files.json` verify | PR #136 @ `64d4430e`; tests 2 PASS + compileKotlin |
 | SSRF en `commercialApiOrigin` trial callback | `assertSafeCommercialPortalCallbackOrigin` + re-validate before fetch | PR #135 @ `d257e512`; bridge tests 12 PASS |
+| Portal webhook/SCA/rate (Task) | Header/Bearer + atomic upsert + CI SCA | PR #1 @ `28b1803`; CI SUCCESS; [Remediate portal security gaps](bc-8b729e96-87b8-5500-9a4d-5184ce1b97c8) |
 
 ## Confirmado reutilizable (no duplicar)
 
@@ -25,9 +26,9 @@ Los inventarios marcaron controles ABSENT en el momento del muestreo. Esta nota 
 
 | Gap | Repo / rama | Acción |
 |---|---|---|
-| Webhook Factus `?key=` (prefer header) | camacho-pos-comercial PR #2 @ `08edb92` | Header `x-factus-pay-webhook-key` preferido; query residual documentado |
-| Rate-limit multi-instancia | camacho-pos-comercial PR #2 | Upsert SQL atómico en `assertDurable` |
-| CI SCA portal | camacho-pos-comercial PR #2 | Audit report high+; critical fail-closed |
+| Webhook Factus `?key=` | camacho-pos-comercial PR #1 @ `28b1803` | Bearer / `X-Factus-Pay-Webhook-Key`; query solo con `FACTUS_PAY_WEBHOOK_ALLOW_QUERY_KEY` (default false). PR #2 superseded |
+| Rate-limit multi-instancia | camacho-pos-comercial PR #1 @ `28b1803` | Upsert SQL atómico; CI SUCCESS |
+| CI SCA portal | camacho-pos-comercial PR #1 @ `28b1803` | Critical fail-closed; high residual documented |
 | Turnstile / edge WAF no RUNTIME_VERIFIED | ambos | Residual infra |
 | Authenticode / Play / cert física | pos-platform | BLOCKED / reservada |
 | Refresh-token family enforcement en app | pos-platform tip | Residual SEC-G02 |
