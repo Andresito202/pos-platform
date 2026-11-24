@@ -111,8 +111,20 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
     payload_checksum: Buffer;
     idempotency_key: string;
     operation_type: string;
+    company_id: string | null;
+    branch_id: string | null;
+    actor_id: string | null;
+    aggregate_type: string;
+    aggregate_id: string;
+    correlation_id: string;
+    causation_id: string | null;
+    authority_policy: string;
+    expected_version: string | null;
+    schema_version: number;
   }>(
-    `SELECT id, payload_checksum, idempotency_key, operation_type
+    `SELECT id, payload_checksum, idempotency_key, operation_type,
+            company_id, branch_id, actor_id, aggregate_type, aggregate_id,
+            correlation_id, causation_id, authority_policy, expected_version::text, schema_version
        FROM sync.sync_operations
       WHERE tenant_id = $1 AND id = $2
       FOR UPDATE`,
@@ -128,7 +140,13 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
     if (storedChecksum !== operation.payload_checksum) {
       throw Object.assign(new Error("operation_id replay has a different checksum"), { code: "SYNC.OPERATION_CHECKSUM_CONFLICT" });
     }
-    if (row.idempotency_key !== operation.idempotency_key || row.operation_type !== operation.operation_type) {
+    if (row.idempotency_key !== operation.idempotency_key || row.operation_type !== operation.operation_type
+      || row.company_id !== operation.company_id || row.branch_id !== operation.branch_id
+      || row.actor_id !== operation.actor_id || row.aggregate_type !== operation.aggregate_type
+      || row.aggregate_id !== operation.aggregate_id || row.correlation_id !== operation.correlation_id
+      || row.causation_id !== operation.causation_id || row.authority_policy !== operation.authority_policy
+      || row.expected_version !== (operation.expected_version === null ? null : String(operation.expected_version))
+      || row.schema_version !== schemaMajor(operation.payload_schema_version)) {
       throw Object.assign(new Error("operation_id replay has different immutable identity"), { code: "SYNC.OPERATION_IDENTITY_CONFLICT" });
     }
     return;
