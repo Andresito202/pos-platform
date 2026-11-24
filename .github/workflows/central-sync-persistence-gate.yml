@@ -9,6 +9,7 @@ on:
     branches:
       - main
       - codex/scm-real-integration-20261122
+      - cursor/security-integral-phase-c53a
   workflow_dispatch:
 
 permissions:
