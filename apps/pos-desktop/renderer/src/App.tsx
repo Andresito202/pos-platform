@@ -188,10 +188,14 @@ function LocalApp(): React.JSX.Element {
   }, [authorization, localSession.role, localSession.ready]);
 
   useEffect(() => {
-    if (activeScreen !== null || screens.length === 0) return;
+    // Materialize the role home only while no screen is selected. Use a
+    // functional update so a concurrent nav click (e.g. Catálogo) cannot be
+    // overwritten by a stale home effect that still saw activeScreen === null.
+    if (screens.length === 0) return;
     const home = homeScreenId(screens, localSession.role);
-    if (home !== null) setActiveScreen(home);
-  }, [activeScreen, screens, localSession.role]);
+    if (home === null) return;
+    setActiveScreen((current) => (current === null ? home : current));
+  }, [screens, localSession.role]);
 
   if (authorization.phase !== "ready" || !localSession.ready) {
     const loading = authorization.phase === "loading" || (authorization.phase === "ready" && !localSession.ready);
