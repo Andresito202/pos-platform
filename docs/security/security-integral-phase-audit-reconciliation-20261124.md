@@ -25,9 +25,9 @@ Los inventarios marcaron controles ABSENT en el momento del muestreo. Esta nota 
 
 | Gap | Repo / rama | Acción |
 |---|---|---|
-| Webhook Factus `?key=` en query | camacho-pos-comercial PR #1 | Preferir header + timing-safe; Task [Remediate portal security gaps](bc-8b729e96-87b8-5500-9a4d-5184ce1b97c8) |
-| Rate-limit no atómico / multi-instancia portal | camacho-pos-comercial | Upsert atómico o residual documentado |
-| CI SCA ausente en portal | camacho-pos-comercial | `pnpm audit` en CI |
+| Webhook Factus `?key=` (prefer header) | camacho-pos-comercial PR #2 @ `08edb92` | Header `x-factus-pay-webhook-key` preferido; query residual documentado |
+| Rate-limit multi-instancia | camacho-pos-comercial PR #2 | Upsert SQL atómico en `assertDurable` |
+| CI SCA portal | camacho-pos-comercial PR #2 | Audit report high+; critical fail-closed |
 | Turnstile / edge WAF no RUNTIME_VERIFIED | ambos | Residual infra |
 | Authenticode / Play / cert física | pos-platform | BLOCKED / reservada |
 | Refresh-token family enforcement en app | pos-platform tip | Residual SEC-G02 |
