@@ -43,3 +43,13 @@ nsis:
   # Elevation required once for WinSW/SCM registration; cashier day-to-day does not.
 publish: null
 icon: packaging/icon.png
+# Fail-closed Electron fuses (Block 2 security phase). Do not re-enable NODE /
+# inspect argv or disable ASAR integrity for packaging convenience.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: true

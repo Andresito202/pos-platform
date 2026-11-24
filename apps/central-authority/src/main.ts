@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
@@ -14,6 +15,8 @@ import { prepareBusinessAdministrationRuntime } from "./business-administration-
 import { createCentralRouter } from "./central-router.js";
 import { isScmCheckpointUrl } from "./scm-checkpoint-http.js";
 import { prepareScmCheckpointRuntime } from "./scm-checkpoint-runtime.js";
+import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
+import { DurableFixedWindowRateLimiter } from "./durable-fixed-window-rate-limiter.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -39,24 +42,6 @@ function constantTimeEqual(left: string, right: string): boolean {
   const a = Buffer.from(left, "utf8");
   const b = Buffer.from(right, "utf8");
   return a.length === b.length && timingSafeEqual(a, b);
-}
-
-class FixedWindowRateLimiter {
-  private readonly buckets = new Map<string, { count: number; startedAt: number }>();
-  allow(key: string, now = Date.now()): boolean {
-    const existing = this.buckets.get(key);
-    if (!existing || now - existing.startedAt >= RATE_LIMIT_WINDOW_MS) {
-      if (this.buckets.size >= RATE_LIMIT_BUCKETS_MAX) {
-        const first = this.buckets.keys().next().value;
-        if (first) this.buckets.delete(first);
-      }
-      this.buckets.set(key, { count: 1, startedAt: now });
-      return true;
-    }
-    if (existing.count >= RATE_LIMIT_MAX) return false;
-    existing.count += 1;
-    return true;
-  }
 }
 
 async function readBody(request: IncomingMessage, maxBytes: number): Promise<string> {
@@ -147,7 +132,18 @@ const handler = new DeviceEnrollmentHttpHandler(issuer, {
   },
   now: () => new Date(),
 });
-const limiter = new FixedWindowRateLimiter();
+const rateLimitStateFile = process.env.CENTRAL_RATE_LIMIT_STATE_FILE;
+if (rateLimitStateFile !== undefined && !isAbsolute(rateLimitStateFile)) {
+  throw new Error("CENTRAL_RATE_LIMIT_STATE_FILE_MUST_BE_ABSOLUTE");
+}
+const limiter = rateLimitStateFile === undefined
+  ? new FixedWindowRateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_BUCKETS_MAX, RATE_LIMIT_WINDOW_MS)
+  : new DurableFixedWindowRateLimiter(
+    rateLimitStateFile,
+    RATE_LIMIT_MAX,
+    RATE_LIMIT_BUCKETS_MAX,
+    RATE_LIMIT_WINDOW_MS,
+  );
 
 const factusPayProvision = process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
 const factusPayHandler = factusPayProvision === undefined
