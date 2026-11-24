@@ -35,6 +35,7 @@ export type EnqueueResult = "ENQUEUED" | "ALREADY_ENQUEUED";
 interface OutboxRow {
   operation_id: string;
   operation_json: string;
+  payload_checksum: string;
   local_sequence: number;
   status: "PENDING" | "IN_FLIGHT" | "RETRY_WAIT" | "ACKNOWLEDGED" | "DEAD_LETTER";
   attempt_count: number;
@@ -171,7 +172,7 @@ export class DurableSyncStore {
     const at = this.now();
     const checkpoint = this.checkpoint(scope);
     const rows = this.database.native.prepare(
-      `SELECT operation_id,operation_json,local_sequence,status,attempt_count,next_attempt_at
+      `SELECT operation_id,operation_json,payload_checksum,local_sequence,status,attempt_count,next_attempt_at
          FROM local_sync_outbox
         WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?
           AND local_sequence>?
@@ -198,6 +199,24 @@ export class DurableSyncStore {
     }
     if (selected.length === 0) return null;
 
+    // Validate persisted evidence before claiming or signing anything. Do not repair
+    // legacy rows by hashing untrusted stored payloads; preserve them for recovery.
+    const operations = selected.map((row) => {
+      const operation = SyncOperationSchema.parse(JSON.parse(row.operation_json));
+      if (operation.payload_checksum !== row.payload_checksum
+        || checksum(operation.payload) !== row.payload_checksum
+        || operation.operation_id !== row.operation_id
+        || operation.local_sequence !== row.local_sequence
+        || operation.tenant_id !== scope.tenantId
+        || operation.company_id !== scope.companyId
+        || operation.branch_id !== scope.branchId
+        || operation.device_id !== scope.deviceId
+        || operation.installation_id !== scope.installationId) {
+        throw new Error("SYNC_OUTBOX_INTEGRITY_REVIEW_REQUIRED");
+      }
+      return operation;
+    });
+
     const updatedAt = at.toISOString();
     const claim = this.database.native.transaction(() => {
       const update = this.database.native.prepare(
@@ -214,7 +233,6 @@ export class DurableSyncStore {
     });
     claim();
 
-    const operations = selected.map((row) => SyncOperationSchema.parse(JSON.parse(row.operation_json)));
     return {
       batch_id: randomUUID(),
       tenant_id: scope.tenantId,
