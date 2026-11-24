@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { AuthorizationSnapshotClaims } from "@pos-platform/contracts";
 import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
+import { inspectPendingOutbox } from "../src/sync/outbox-recovery-inspection.js";
 import { SqliteCatalogStore } from "../src/catalog/sqlite-catalog-store.js";
 import { SqliteCashShiftStore } from "../src/cash/sqlite-cash-shift-store.js";
 import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
@@ -327,6 +328,37 @@ describe("calculateSaleTotals", () => {
 // ────────────────────────────────────────────────────────────────────────────
 
 describe("CreateSaleUseCase", () => {
+  it("classifies legacy sale evidence without rewriting the outbox", async () => {
+    const database = openTracked(await directory());
+    insertFixture(database, "1025.000000");
+    const result = buildStores(database).useCase.execute(scope, SESSION_ID, buildAuthSnapshot(), buildRequest());
+    expect(result.kind).toBe("CREATED");
+    if (result.kind !== "CREATED") throw new Error("sale creation failed");
+    const row = database.native.prepare("SELECT operation_id,operation_json FROM local_sync_outbox WHERE operation_type='SALE_CREATED'").get() as {operation_id:string;operation_json:string};
+    const sale = database.native.prepare("SELECT request_checksum FROM sales_sales WHERE id=?").get(result.saleId) as {request_checksum:string};
+    const original = JSON.parse(row.operation_json);
+    const finding = { operationId:row.operation_id, sequence:original.local_sequence };
+    expect(inspectPendingOutbox(database,scope)).toContainEqual({...finding,result:"VALID"});
+    const legacy = {...original,payload_checksum:sale.request_checksum};
+    expect(original.payload_checksum).not.toBe(legacy.payload_checksum);
+    const update = database.native.prepare("UPDATE local_sync_outbox SET operation_json=?,payload_checksum=? WHERE operation_id=?");
+    update.run(canonicalJson(legacy),legacy.payload_checksum,row.operation_id);
+    const snapshot = () => database.native.prepare("SELECT * FROM local_sync_outbox WHERE operation_id=?").get(row.operation_id);
+    const before = snapshot();
+    expect(inspectPendingOutbox(database,scope)).toContainEqual({...finding,result:"SALE_CREATE_EVIDENCE_MATCH"});
+    expect(snapshot()).toEqual(before);
+    expect(inspectPendingOutbox(database,{...scope,companyId:OTHER_TENANT})).toEqual([]);
+    const altered = {...legacy,payload:{...legacy.payload,payable_amount:"1.000000"}};
+    update.run(canonicalJson(altered),legacy.payload_checksum,row.operation_id);
+    const alteredBefore = snapshot();
+    expect(inspectPendingOutbox(database,scope)).toContainEqual({...finding,result:"REVIEW_REQUIRED"});
+    expect(snapshot()).toEqual(alteredBefore);
+    update.run(canonicalJson(legacy),legacy.payload_checksum,row.operation_id);
+    database.native.prepare("UPDATE local_sync_outbox SET attempt_count=1 WHERE operation_id=?").run(row.operation_id);
+    expect(inspectPendingOutbox(database,scope)).toContainEqual({...finding,result:"REVIEW_REQUIRED"});
+    expect(database.native.prepare("SELECT payable_amount FROM sales_sales WHERE id=?").get(result.saleId)).toEqual({payable_amount:"1050.000000"});
+  });
+
   it("creates a sale atomically: sale, items, counter, outbox and audit in one commit", async () => {
     const dir = await directory();
     const database = openTracked(dir);
