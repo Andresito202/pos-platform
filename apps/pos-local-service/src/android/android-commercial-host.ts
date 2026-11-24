@@ -203,32 +203,36 @@ export class AndroidCommercialHost {
   }
 
   async handleRequest(raw: unknown): Promise<unknown> {
-    const request = raw as IpcRequest;
-    if (!request || typeof request !== "object" || typeof request.message_type !== "string") {
-      return this.denied(request, "INVALID_REQUEST", "La solicitud no es válida.");
+    // Host-only Android BUSINESS ceremony messages are not part of the commercial
+    // IpcRequest union; inspect the wire string before narrowing to IpcRequest.
+    const wire = raw as { protocol_version?: string; request_id?: string; correlation_id?: string | null; message_type?: unknown } | null;
+    if (!wire || typeof wire !== "object" || typeof wire.message_type !== "string") {
+      return this.denied(undefined, "INVALID_REQUEST", "La solicitud no es válida.");
     }
+    const messageType = wire.message_type;
 
     if (
-      request.message_type === "android.business.native_request"
-      || request.message_type === "android.business.token_exchange"
+      messageType === "android.business.native_request"
+      || messageType === "android.business.token_exchange"
     ) {
       // Central native-request / token routes are prepared in DeviceProof allowlists
       // but not simulated. Fail closed until enrollment + Central composition exist.
       return this.denied(
-        request,
-        request.message_type === "android.business.native_request"
+        wire as IpcRequest,
+        messageType === "android.business.native_request"
           ? "BUSINESS_NATIVE_REQUEST_UNAVAILABLE"
           : "BUSINESS_TOKEN_EXCHANGE_UNAVAILABLE",
-        request.message_type === "android.business.native_request"
+        messageType === "android.business.native_request"
           ? "Central aún no acepta solicitudes nativas Android con DeviceProof en este despliegue."
           : "El canje de token BUSINESS con DeviceProof no está disponible sin Central y credencial enrolada.",
       );
     }
 
+    const request = raw as IpcRequest;
     if (
-      request.message_type === "local.operator.login"
-      || request.message_type === "local.operator.session"
-      || request.message_type === "local.operator.logout"
+      messageType === "local.operator.login"
+      || messageType === "local.operator.session"
+      || messageType === "local.operator.logout"
     ) {
       // Kept for lab probes only; commercial UI must not use these for authorization.
       return this.handleOperator(request);
