@@ -24,10 +24,11 @@ describe("commercial portal bridge", () => {
         const url = String(input);
         const body = init?.body ? JSON.parse(String(init.body)) : null;
         const headers = init?.headers as Record<string, string> | undefined;
+        const key = headers?.["x-central-trial-webhook-key"];
         activations.push({
           url,
           body,
-          key: headers?.["x-central-trial-webhook-key"],
+          ...(key !== undefined ? { key } : {}),
         });
         return new Response(JSON.stringify({ ok: true, status: "ACTIVE" }), {
           status: 200,
