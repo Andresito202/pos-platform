@@ -27,6 +27,11 @@
 Las capturas de esta carpeta son **nivel A** (paneles) y **nivel B** (login).
 **No** son certificación comercial nivel C.
 
+El harness temporal de Electron con identidades simuladas se retiró de esta PR
+antes de integrarla a `main`: no forma parte del runtime ni de los scripts E2E
+permanentes. Las imágenes se conservan únicamente como evidencia histórica
+visual, sin afirmar que se generaron desde sesiones comerciales auténticas.
+
 ## Capturas (HEAD de la rama)
 
 | Archivo | Superficie | Nivel |
