@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="co.camachopos.colombia"
+    android:versionCode="1"
+    android:versionName="0.1.0-android-commercial-block1">
+  <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <application
+      android:name="co.camachopos.colombia.PosApplication"
+      android:label="Camacho POS Colombia"
+      android:allowBackup="false"
+      android:debuggable="false"
+      android:usesCleartextTraffic="false"
+      android:theme="@android:style/Theme.Material.Light.NoActionBar">
+    <service
+        android:name="co.camachopos.colombia.runtime.LocalPosService"
+        android:exported="false" />
+    <activity
+        android:name="co.camachopos.colombia.ui.EntryActivity"
+        android:exported="true"
+        android:configChanges="orientation|screenSize|keyboardHidden"
+        android:windowSoftInputMode="adjustResize">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+    <activity
+        android:name="co.camachopos.colombia.ui.LoginActivity"
+        android:exported="false"
+        android:windowSoftInputMode="adjustResize" />
+    <activity
+        android:name="co.camachopos.colombia.ui.PosShellActivity"
+        android:exported="false" />
+    <activity
+        android:name="co.camachopos.colombia.auth.BusinessAuthorizationCallbackActivity"
+        android:exported="false"
+        android:noHistory="true" />
+  </application>
+</manifest>

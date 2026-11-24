@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@color/camacho_brand_yellow">
+  <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:gravity="center_horizontal"
+      android:padding="28dp">
+    <ImageView
+        android:id="@+id/brand_lockup"
+        android:layout_width="match_parent"
+        android:layout_height="96dp"
+        android:layout_marginTop="48dp"
+        android:adjustViewBounds="true"
+        android:contentDescription="@string/brand_name"
+        android:scaleType="fitCenter"
+        android:src="@drawable/brand_lockup" />
+    <TextView
+        android:id="@+id/brand_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:gravity="center"
+        android:text="@string/brand_name"
+        android:textColor="@color/camacho_navy"
+        android:textSize="28sp"
+        android:textStyle="bold" />
+    <TextView
+        android:id="@+id/brand_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:gravity="center"
+        android:text="@string/entry_subtitle"
+        android:textColor="@color/camacho_ink"
+        android:textSize="16sp" />
+    <TextView
+        android:id="@+id/runtime_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:gravity="center"
+        android:text="@string/status_blocked"
+        android:textColor="@color/camacho_muted"
+        android:textSize="14sp" />
+    <Button
+        android:id="@+id/continue_button"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="36dp"
+        android:background="@color/camacho_navy"
+        android:text="@string/entry_cta"
+        android:textAllCaps="false"
+        android:textColor="@color/camacho_brand_yellow"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+  </LinearLayout>
+</ScrollView>

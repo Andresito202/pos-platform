@@ -1,0 +1,10 @@
+{
+  "name": "@pos-platform/pos-android",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:identity": "echo \"Run: gradle -p apps/pos-android commercialIdentityTest\"",
+    "build:shell-apk": "echo \"Run: gradle -p apps/pos-android commercialShellApk\""
+  }
+}

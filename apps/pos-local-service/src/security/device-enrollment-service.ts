@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey } from "node:crypto";
 import {
   DeviceEnrollmentActivationSchema,
   DeviceEnrollmentRequestSchema,
@@ -113,6 +113,11 @@ export class DeviceEnrollmentService {
       installationId: this.binding.installationId, deviceId: this.binding.deviceId,
     });
     if (verification.decision !== "VALID") throw new Error(`device enrollment credential rejected: ${verification.decision}`);
+    // A central credential for another key under the same deployment IDs is not
+    // evidence that this local identity was enrolled. Compare key material, not PEM formatting.
+    const certifiedKey = createPublicKey(result.credential.claims.device_public_key_pem).export({ type: "spki", format: "der" });
+    const localKey = createPublicKey(this.identity.publicKeyPem()).export({ type: "spki", format: "der" });
+    if (!certifiedKey.equals(localKey)) throw new Error("DEVICE_ENROLLMENT_LOCAL_KEY_MISMATCH");
     if (!this.credentialStore) throw new Error("DEVICE_TRUST_CREDENTIAL_STORE_UNAVAILABLE");
     this.credentialStore.save(result.credential);
     this.database.native.prepare(

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@color/camacho_surface">
+  <LinearLayout
+      android:layout_width="match_parent"
+      android:layout_height="wrap_content"
+      android:orientation="vertical"
+      android:padding="24dp">
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="8dp"
+        android:background="@color/camacho_brand_yellow" />
+    <ImageView
+        android:layout_width="180dp"
+        android:layout_height="64dp"
+        android:layout_marginTop="24dp"
+        android:adjustViewBounds="true"
+        android:contentDescription="@string/brand_name"
+        android:scaleType="fitStart"
+        android:src="@drawable/brand_lockup" />
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="@string/login_title"
+        android:textColor="@color/camacho_navy"
+        android:textSize="24sp"
+        android:textStyle="bold" />
+    <EditText
+        android:id="@+id/username"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="24dp"
+        android:background="@color/camacho_card"
+        android:hint="@string/login_hint_user"
+        android:inputType="text"
+        android:padding="14dp"
+        android:textColor="@color/camacho_ink"
+        android:textColorHint="@color/camacho_muted" />
+    <EditText
+        android:id="@+id/password"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="12dp"
+        android:background="@color/camacho_card"
+        android:hint="@string/login_hint_password"
+        android:inputType="textPassword"
+        android:padding="14dp"
+        android:textColor="@color/camacho_ink"
+        android:textColorHint="@color/camacho_muted" />
+    <Button
+        android:id="@+id/login_button"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="20dp"
+        android:background="@color/camacho_brand_yellow"
+        android:text="@string/login_action"
+        android:textAllCaps="false"
+        android:textColor="@color/camacho_navy"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+    <TextView
+        android:id="@+id/login_message"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="@string/login_blocked"
+        android:textColor="@color/camacho_danger"
+        android:textSize="14sp" />
+  </LinearLayout>
+</ScrollView>

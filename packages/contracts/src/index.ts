@@ -12,6 +12,7 @@ export * from "./hardware.js";
 export * from "./license-offer.js";
 export * from "./license-sector.js";
 export * from "./native-client-registration.js";
+export * from "./commercial-domains.js";
 export * from "./commercial-access.js";
 export * from "./license-activation.js";
 export * from "./central-administration.js";

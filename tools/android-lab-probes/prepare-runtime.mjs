@@ -1,0 +1,43 @@
+/** Isolated Node/Bionic feasibility inputs. Never installs Termux or modifies the host POS. */
+import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
+import { cpSync,existsSync,mkdirSync,readFileSync,writeFileSync } from "node:fs";
+import { dirname,join,resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { bundleRuntime } from "./bundle-runtime.mjs";
+const project=dirname(fileURLToPath(import.meta.url)),root=resolve(project,"../..");
+const output=resolve(process.argv[2]??join(project,"build/runtime-inputs"));mkdirSync(output,{recursive:true});
+const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
+const repository="https://packages.termux.dev/apt/termux-main/";
+const keyCommit="3383e9f8a5566e4445eae6eeeaded8873a0c5f98";
+const keys=["2096779623.gpg","agnostic-apollo.gpg","grimler.gpg","kcubeterm.gpg","landfillbaby.gpg","mradityaalok.gpg","termux-autobuilds.gpg","termux-pacman.gpg","thunder-coding.gpg"];
+async function get(url,path,expected){
+  if(existsSync(path)&&expected&&sha(readFileSync(path))===expected)return;
+  const response=await fetch(url,{signal:AbortSignal.timeout(120000)});if(!response.ok)throw new Error(`FETCH_FAILED ${response.status}: ${url}`);
+  const bytes=Buffer.from(await response.arrayBuffer());if(expected&&sha(bytes)!==expected)throw new Error(`CHECKSUM_MISMATCH: ${url}`);
+  writeFileSync(path,bytes);
+}
+await get(repository+"dists/stable/InRelease",join(output,"InRelease"));
+await get(repository+"dists/stable/Release",join(output,"Release"));
+await get(repository+"dists/stable/main/binary-aarch64/Packages",join(output,"Packages"));
+mkdirSync(join(output,"keys"),{recursive:true});
+for(const key of keys)await get(`https://raw.githubusercontent.com/termux/termux-packages/${keyCommit}/packages/termux-keyring/${key}`,join(output,"keys",key));
+const rows=readFileSync(join(output,"Packages"),"utf8").split("\n\n").map(row=>Object.fromEntries(row.split("\n").filter(line=>/^\S[^:]+: /.test(line)).map(line=>{const colon=line.indexOf(":");return [line.slice(0,colon),line.slice(colon+2)];})));
+const names=["nodejs-lts","libc++","openssl","c-ares","libicu","libsqlite","zlib","termux-licenses"];
+const selected=names.map(name=>{const row=rows.find(row=>row.Package===name);if(!row||!["aarch64","all"].includes(row.Architecture))throw new Error(`PACKAGE_MISSING: ${name}`);return row;});
+const lockPath=join(project,"runtime-input-lock.json");
+const lock={repository,keyCommit,packages:selected.map(p=>({name:p.Package,version:p.Version,sha256:p.SHA256,filename:p.Filename}))};
+if(existsSync(lockPath)&&JSON.stringify(JSON.parse(readFileSync(lockPath,"utf8")))!==JSON.stringify(lock))throw new Error("RUNTIME_INPUT_LOCK_CHANGED_EXPLICIT_REVIEW_REQUIRED");
+mkdirSync(join(output,"debs"),{recursive:true});
+for(const p of selected)await get(repository+p.Filename,join(output,"debs",p.Package+".deb"),p.SHA256);
+writeFileSync(join(output,"packages.json"),JSON.stringify(selected,null,2));
+if(!existsSync(lockPath))writeFileSync(lockPath,JSON.stringify(lock,null,2));
+writeFileSync(join(output,"input-provenance.json"),JSON.stringify({purpose:"ISOLATED_ANDROID_RUNTIME_FEASIBILITY",repository,keyCommit,metadata:{InRelease:sha(readFileSync(join(output,"InRelease"))),Packages:sha(readFileSync(join(output,"Packages")))},packages:selected.map(p=>({name:p.Package,version:p.Version,sha256:p.SHA256,source:repository+p.Filename})),note:"Extraction/execution must wait for verify-inputs.py GPG and signed-index checks. No Termux app is installed."},null,2));
+const require=createRequire(join(root,"packages/database-sqlite/package.json"));
+const better=dirname(require.resolve("better-sqlite3/package.json"));
+const addon=dirname(createRequire(join(better,"package.json")).resolve("node-addon-api"));
+const native=join(output,"better-sqlite3");mkdirSync(native,{recursive:true});
+for(const item of ["src","deps","lib","package.json","LICENSE"])if(existsSync(join(better,item)))cpSync(join(better,item),join(native,item),{recursive:true});
+cpSync(addon,join(output,"node-addon-api"),{recursive:true});
+await bundleRuntime(output);
+console.log(JSON.stringify({prepared:output,node:selected[0].Version,betterSqlite:"13.0.3",execution:"NOT_YET_TESTED"}));

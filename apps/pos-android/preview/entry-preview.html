@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Camacho POS Colombia — Entry preview</title>
+  <style>
+    :root {
+      --camacho-brand-yellow: #ffc400;
+      --camacho-navy: #10283d;
+      --camacho-ink: #142b3a;
+      --camacho-muted: #536475;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Bahnschrift, "Segoe UI", system-ui, sans-serif;
+      background: #1a1a1a;
+      display: grid;
+      place-items: center;
+    }
+    .device {
+      width: 360px;
+      min-height: 640px;
+      background: var(--camacho-brand-yellow);
+      color: var(--camacho-ink);
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: 0 12px 40px rgba(0,0,0,.45);
+    }
+    .device img { width: 100%; max-height: 96px; object-fit: contain; margin-top: 48px; }
+    h1 {
+      margin: 28px 0 0;
+      font-size: 28px;
+      color: var(--camacho-navy);
+      text-align: center;
+    }
+    p.sub { margin: 12px 0 0; font-size: 16px; text-align: center; }
+    p.status { margin: 24px 0 0; font-size: 14px; color: var(--camacho-muted); text-align: center; }
+    button {
+      margin-top: 36px;
+      width: 100%;
+      height: 56px;
+      border: 0;
+      background: var(--camacho-navy);
+      color: var(--camacho-brand-yellow);
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .badge {
+      position: fixed; top: 12px; left: 12px; right: 12px;
+      background: #10283d; color: #ffc400; padding: 10px 14px; font-size: 13px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="badge">Preview de layout comercial (tokens aprobados) — no es captura de M60WL ni prueba física</div>
+  <div class="device">
+    <img src="../src/main/assets/brand_lockup.png" alt="Camacho POS Colombia" />
+    <h1>Camacho POS Colombia</h1>
+    <p class="sub">Punto de venta local-first para Colombia</p>
+    <p class="status">Acceso comercial bloqueado · READY · BLOCKED_PENDING_TRUSTED_PROVISIONING</p>
+    <button type="button">Continuar</button>
+  </div>
+</body>
+</html>

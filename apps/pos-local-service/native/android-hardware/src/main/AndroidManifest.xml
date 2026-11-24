@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="co.camachopos.hardware">
+    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="28" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <application>
+        <!-- No exported service, WebSocket listener, implicit intent or JavaScriptInterface. -->
+        <service android:name="co.camachopos.hardware.HardwareBridgeService" android:exported="false" />
+    </application>
+</manifest>
