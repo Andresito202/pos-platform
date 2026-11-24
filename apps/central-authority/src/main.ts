@@ -15,9 +15,20 @@ import { prepareBusinessAdministrationRuntime } from "./business-administration-
 import { createCentralRouter } from "./central-router.js";
 import { isScmCheckpointUrl } from "./scm-checkpoint-http.js";
 import { prepareScmCheckpointRuntime } from "./scm-checkpoint-runtime.js";
+import { createTelemetryBundle } from "@pos-platform/observability";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 import { DurableFixedWindowRateLimiter } from "./durable-fixed-window-rate-limiter.js";
 import { PostgresFixedWindowRateLimiter } from "./postgres-fixed-window-rate-limiter.js";
+
+const telemetry = createTelemetryBundle({
+  sink: {
+    write(record) {
+      process.stdout.write(`${JSON.stringify(record)}\n`);
+    },
+  },
+  serviceName: "central-authority",
+  enableOtelApi: process.env.OTEL_ENABLE_API === "1",
+});
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -157,7 +168,19 @@ const limiter = rateLimitBackend === "postgres"
   : new FixedWindowRateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_BUCKETS_MAX, RATE_LIMIT_WINDOW_MS);
 
 async function allowRate(key: string): Promise<boolean> {
-  return await Promise.resolve(limiter.allow(key));
+  const allowed = await Promise.resolve(limiter.allow(key));
+  const route = key.includes("session-trust") ? "session-trust" : "device-enrollment";
+  if (allowed) {
+    telemetry.metrics.counter("pos.rate_limit.allowed", 1, { route });
+  } else {
+    telemetry.metrics.counter("pos.rate_limit.denied", 1, { route });
+    telemetry.alerts.emit({
+      kind: "security.rate_limited",
+      severity: "warn",
+      attributes: { route },
+    });
+  }
+  return allowed;
 }
 
 const factusPayProvision = process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
