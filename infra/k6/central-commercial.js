@@ -45,7 +45,7 @@ export const options = {
       executor: "per-vu-iterations",
       vus: profile.throughput.sync_burst_concurrency,
       iterations: batchesPerDevice,
-      maxDuration: "10m",
+      maxDuration: "90s",
     },
   },
   thresholds: {
