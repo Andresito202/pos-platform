@@ -1,0 +1,24 @@
+# Default exclusions for root-context Docker builds; specific Dockerfile ignore files override this file.
+.git
+**/.git
+**/.env
+**/.env.*
+**/node_modules
+**/dist
+**/.next
+**/.cache
+**/.nx
+**/*.key
+**/*.pem
+**/*.pfx
+**/*.p12
+**/*.jks
+**/*.keystore
+**/id_rsa
+**/id_ed25519
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.log
+**/test-results
+**/playwright-report
