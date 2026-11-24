@@ -1,41 +1,26 @@
 # Android commercial integration — progress
 
-Branch: `cursor/android-commercial-integration-c53a` (from `main`, selective extract).
-Base diagnosis: Android absent on `main`/PR #135; lab probes on `feat/android-commercial-runtime`.
+Branch: `cursor/android-commercial-integration-c53a` · PR #136
 
-## Block 1 — Runtime / APK shell
+## Completed in this wave
 
-| Item | Status |
+| Item | Evidence |
 |---|---|
-| Branch from current `main` | Done |
-| Selective foundation (`android-service-foundation`, Keystore provider, hardware AAR, association prep) | Ported |
-| `DEVICE_ENROLLMENT_LOCAL_KEY_MISMATCH` restored on enrollment (fail-closed) | Done |
-| `CamachoCommercialDomains` contract | Ported |
-| Commercial package `co.camachopos.colombia` (not renamed probe) | Done |
-| Lab probes preserved under `tools/android-lab-probes/` (non-product) | Done |
-| Yellow brand entry (informational; no credential form) | Done — Codex P1 |
-| Pos shell modules gated (caja/catálogo/…) | Present, not navigable from entry |
-| Commercial shell APK task (`commercialShellApk`) | Implemented + built unsigned |
-| Embedded Node/SQLite engine in commercial APK | Pending (lab scripts reusable; not claimed) |
+| Node/SQLite engine packaged via approved lab pipeline | `prepare-runtime` → verify → extract → NDK compile → `package-runtime-assets`; commercial `runtime-service.mjs` bundled from `AndroidCommercialHost` |
+| Signed installable APK API 28 | `gradle commercialApk` → `camacho-pos-colombia.apk` (v2 signed, test PKCS12) |
+| Real Local Service host | `AndroidCommercialHost` + `AndroidCommercialServiceControl` (`REQUEST` / license / stop) |
+| Login UI Windows identity | Official `camacho-pos-colombia-login-entry.png`, navy stage, yellow CTA; calls `local.operator.login` (no mock success) |
+| Caja/catálogo/inventario/clientes/turnos/carrito | `PosShellActivity` invokes real contracts via binder → engine |
+| License / trial gate | `LicenseCapacityGate` wired when provision file present; zero offline grace |
+| Fail-closed without provision | Host tests: `DEVICE_NOT_PROVISIONED` / `OPERATOR_STORE_UNAVAILABLE` |
 
-## Blocks 2–6
+## Not claimed
 
-| Block | Status |
-|---|---|
-| 2 Login/roles/UI amarilla táctil | Entry amarilla informativa; login form removed until ceremony wired |
-| 3 Caja/catálogo/offline | `PosShellActivity` tiles blocked without grants |
-| 4 Hardware | AAR + `HardwareSurfaceGate`; drawer still unverified profile |
-| 5 Central/FACTUS/Nequi/trial PR #135 | `TrialCapacityBridge` stub only; no device cable |
-| 6 Security/aislamiento/update | Keystore + enrollment mismatch; APK update flow pending |
+- Physical M60WL install/captures in this Cloud Agent (no KVM/`/dev/kvm` for emulator; no device ADB)
+- Production Play signing
+- BUSINESS SSA browser ceremony without deposited App Links + release cert
+- Hardware PRINT/DRAWER physical pulse on device in this run
 
-## Evidencia Block 1 (este entorno)
+## Build
 
-Comandos observados:
-
-- `pnpm --filter @pos-platform/contracts exec vitest run tests/commercial-domains.test.ts` → PASS (1)
-- `pnpm --filter @pos-platform/pos-local-service test --` android foundation suite → **20/20 PASS**
-- `pnpm --filter @pos-platform/central-authority exec vitest run` android association/native → **4/4 PASS**
-- `gradle commercialIdentityTest commercialShellApk` → **BUILD SUCCESSFUL**
-- APK unsigned badging: `package: name='co.camachopos.colombia' minSdkVersion:'28' launchable-activity: EntryActivity`
-
-Capturas de dispositivo M60WL: **no ejecutadas** aquí (sin ADB/dispositivo). Previews HTML/layout de tokens amarillos son referencia visual, **no** evidencia física.
+See `apps/pos-android/README.md`.

@@ -8,107 +8,220 @@ import android.content.ServiceConnection
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.IBinder
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
+import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import co.camachopos.colombia.CommercialIdentity
 import co.camachopos.colombia.runtime.LocalPosService
-import org.json.JSONObject
+import co.camachopos.colombia.runtime.PosClient
 
 /**
- * Brand-first commercial entry (Commercial Precision yellow #FFC400).
- * Informational only until the BUSINESS authorization chain is connected to
- * Local Service. No credential form is offered from this surface.
+ * Commercial entry matching Windows Commercial Precision identity:
+ * navy brand stage, official lockup, yellow primary action.
  */
 class EntryActivity : Activity() {
     private var binder: LocalPosService.LocalBinder? = null
-    private lateinit var statusView: TextView
+    private var client: PosClient? = null
+    private lateinit var messageView: TextView
+    private lateinit var loginButton: Button
     private val yellow = Color.parseColor("#FFC400")
     private val navy = Color.parseColor("#10283D")
+    private val navyDeep = Color.parseColor("#061C30")
     private val ink = Color.parseColor("#142B3A")
     private val muted = Color.parseColor("#536475")
+    private val surface = Color.parseColor("#F3F6F8")
     private val danger = Color.parseColor("#9F2525")
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             binder = service as LocalPosService.LocalBinder
-            renderStatus()
+            client = PosClient(binder!!)
+            client?.session { result ->
+                runOnUiThread {
+                    val outcome = result.optJSONObject("result")?.optString("outcome")
+                    if (outcome == "AUTHENTICATED") openWorkspace()
+                }
+            }
         }
         override fun onServiceDisconnected(name: ComponentName?) {
             binder = null
+            client = null
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val pad = dp(28)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(yellow)
-            setPadding(pad, pad, pad, pad)
+            setBackgroundColor(surface)
+        }
+        val brandStage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
+            background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(navyDeep, Color.parseColor("#0A2F4F"), Color.parseColor("#071F35")),
+            )
+            setPadding(dp(24), dp(36), dp(24), dp(36))
         }
         val brand = ImageView(this).apply {
             adjustViewBounds = true
             contentDescription = CommercialIdentity.DISPLAY_NAME
             scaleType = ImageView.ScaleType.FIT_CENTER
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(96)).apply {
-                topMargin = dp(48)
-            }
+            layoutParams = LinearLayout.LayoutParams(dp(280), dp(100))
             runCatching {
                 assets.open("brand_lockup.png").use { setImageBitmap(BitmapFactory.decodeStream(it)) }
             }
         }
+        val tagline = TextView(this).apply {
+            text = "Tecnología que impulsa tu negocio"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setTypeface(Typeface.DEFAULT_BOLD)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(18), 0, 0)
+        }
+        val support = TextView(this).apply {
+            text = "Gestiona tus operaciones con precisión, seguridad y confianza."
+            setTextColor(Color.parseColor("#E7EEF4"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, 0)
+        }
+        brandStage.addView(brand)
+        brandStage.addView(tagline)
+        brandStage.addView(support)
+
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(24), dp(24), dp(24))
+        }
+        val eyebrow = TextView(this).apply {
+            text = "CAMACHO POS COLOMBIA"
+            setTextColor(muted)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTypeface(Typeface.DEFAULT_BOLD)
+        }
         val title = TextView(this).apply {
-            text = CommercialIdentity.DISPLAY_NAME
+            text = "Iniciar sesión"
             setTextColor(navy)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
             setTypeface(Typeface.DEFAULT_BOLD)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(28), 0, 0)
+            setPadding(0, dp(8), 0, 0)
         }
-        val subtitle = TextView(this).apply {
-            text = "Punto de venta local-first para Colombia"
+        val lead = TextView(this).apply {
+            text = "Ingresa a tu espacio de trabajo."
             setTextColor(ink)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(12), 0, 0)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+            setPadding(0, dp(8), 0, 0)
         }
-        statusView = TextView(this).apply {
-            text = "Acceso comercial bloqueado"
-            setTextColor(muted)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(24), 0, 0)
+        val username = EditText(this).apply {
+            hint = "Usuario"
+            setHintTextColor(muted)
+            setTextColor(ink)
+            setBackgroundColor(Color.WHITE)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            inputType = InputType.TYPE_CLASS_TEXT
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56)).apply {
+                topMargin = dp(20)
+            }
+            minimumHeight = dp(56)
         }
-        val gate = TextView(this).apply {
-            text = "El acceso comercial se abrirá cuando el aprovisionamiento confiable y la ceremonia BUSINESS estén conectados al servicio local. No hay formulario de credenciales en esta versión."
+        val password = EditText(this).apply {
+            hint = "Contraseña"
+            setHintTextColor(muted)
+            setTextColor(ink)
+            setBackgroundColor(Color.WHITE)
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56)).apply {
+                topMargin = dp(12)
+            }
+            minimumHeight = dp(56)
+        }
+        messageView = TextView(this).apply {
+            text = ""
             setTextColor(danger)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            gravity = Gravity.CENTER
-            setPadding(0, dp(28), 0, 0)
+            setPadding(0, dp(12), 0, 0)
         }
-        root.addView(brand)
-        root.addView(title)
-        root.addView(subtitle)
-        root.addView(statusView)
-        root.addView(gate)
-        setContentView(ScrollView(this).apply { addView(root); setBackgroundColor(yellow) })
+        loginButton = Button(this).apply {
+            text = "Ingresar"
+            filterTouchesWhenObscured = true
+            setBackgroundColor(yellow)
+            setTextColor(navy)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            setTypeface(Typeface.DEFAULT_BOLD)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56)).apply {
+                topMargin = dp(16)
+            }
+            setOnClickListener {
+                val user = username.text?.toString()?.trim().orEmpty()
+                val pass = password.text?.toString().orEmpty()
+                if (user.isEmpty() || pass.isEmpty()) {
+                    messageView.text = "Completa usuario y contraseña."
+                    return@setOnClickListener
+                }
+                val active = client
+                if (active == null) {
+                    messageView.text = "El servicio local aún no está listo."
+                    return@setOnClickListener
+                }
+                isEnabled = false
+                messageView.setTextColor(muted)
+                messageView.text = "Validando sesión…"
+                active.login(user, pass) { result ->
+                    runOnUiThread {
+                        isEnabled = true
+                        val body = result.optJSONObject("result")
+                        val outcome = body?.optString("outcome")
+                        when (outcome) {
+                            "AUTHENTICATED" -> openWorkspace()
+                            "DENIED" -> {
+                                messageView.setTextColor(danger)
+                                messageView.text = "Usuario o contraseña incorrectos."
+                            }
+                            "RATE_LIMITED" -> {
+                                messageView.setTextColor(danger)
+                                messageView.text = "Demasiados intentos. Espera unos minutos."
+                            }
+                            else -> {
+                                messageView.setTextColor(danger)
+                                val userMessage = result.optJSONObject("error")?.optString("user_message")
+                                messageView.text = if (!userMessage.isNullOrBlank()) userMessage
+                                else "No se pudo iniciar sesión en este dispositivo."
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        form.addView(eyebrow)
+        form.addView(title)
+        form.addView(lead)
+        form.addView(username)
+        form.addView(password)
+        form.addView(loginButton)
+        form.addView(messageView)
+        root.addView(brandStage)
+        root.addView(form)
+        setContentView(ScrollView(this).apply { addView(root); setBackgroundColor(surface) })
 
         startForegroundService(Intent(this, LocalPosService::class.java))
         bindService(Intent(this, LocalPosService::class.java), connection, Context.BIND_AUTO_CREATE)
     }
 
-    private fun renderStatus() {
-        val raw = binder?.status() ?: return
-        val json = JSONObject(raw)
-        val access = json.optString("commercial_access", "BLOCKED_PENDING_TRUSTED_PROVISIONING")
-        val state = json.optString("state", "UNKNOWN")
-        statusView.text = "Acceso comercial bloqueado · $state · $access"
+    private fun openWorkspace() {
+        startActivity(Intent(this, PosShellActivity::class.java))
+        finish()
     }
 
     private fun dp(value: Int): Int =

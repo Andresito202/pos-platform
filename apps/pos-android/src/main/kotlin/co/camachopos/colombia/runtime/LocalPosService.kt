@@ -14,16 +14,16 @@ import android.util.AtomicFile
 import android.os.Process as AndroidProcess
 import co.camachopos.colombia.auth.AndroidBusinessAuthorizationHost
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONObject
 
 /**
- * Unexported same-UID commercial host. Starts the embedded local-service engine
- * when runtime assets are present; otherwise stays READY with commercial access
- * blocked (shell APK / Block 1). Never accepts a commercial command without
- * trusted provisioning (DEC-020).
+ * Unexported same-UID commercial host. Starts the embedded Node/SQLite engine
+ * and forwards REQUEST lines to Local Service contracts. No mock responses.
  */
 class LocalPosService : Service() {
     private val worker = Executors.newSingleThreadExecutor()
@@ -33,15 +33,18 @@ class LocalPosService : Service() {
     @Volatile private var child: java.lang.Process? = null
     private val main = Handler(Looper.getMainLooper())
     private val licenseQuery = AndroidLicenseQuery({ SystemClock.elapsedRealtime() })
+    private val requestSeq = AtomicInteger(0)
+    private val pendingRequests = ConcurrentHashMap<Int, (JSONObject) -> Unit>()
     private val pipeLock = Any()
     @Volatile private var status =
-        """{"state":"STARTING","commercial_access":"BLOCKED_PENDING_TRUSTED_PROVISIONING","local_security":"NOT_PROVISIONED","external_channel":"CLOSED"}"""
+        """{"state":"STARTING","commercial_access":"BLOCKED_PENDING_TRUSTED_PROVISIONING","local_security":"NOT_PROVISIONED","external_channel":"CLOSED","engine":"EMBEDDED_NODE_SQLITE"}"""
 
     inner class LocalBinder : Binder() {
         fun status(): String {
             check(Binder.getCallingUid() == AndroidProcess.myUid())
             return status
         }
+
         fun queryLicenseInformation(callback: (OperationalLicenseInformation) -> Unit) {
             check(Binder.getCallingUid() == AndroidProcess.myUid())
             val process = child
@@ -60,6 +63,62 @@ class LocalPosService : Service() {
             }
             main.postDelayed({ licenseQuery.expire() }, 2000)
         }
+
+        fun request(payload: JSONObject, callback: (JSONObject) -> Unit) {
+            check(Binder.getCallingUid() == AndroidProcess.myUid())
+            val process = child
+            if (process == null || stopping.get() || JSONObject(status).optString("state") != "READY") {
+                callback(
+                    JSONObject()
+                        .put("status", "FAILED")
+                        .put("result_code", "SERVICE_UNAVAILABLE")
+                        .put(
+                            "error",
+                            JSONObject()
+                                .put("code", "SERVICE_UNAVAILABLE")
+                                .put("user_message", "El servicio local no está listo."),
+                        ),
+                )
+                return
+            }
+            val id = requestSeq.incrementAndGet()
+            pendingRequests[id] = callback
+            try {
+                synchronized(pipeLock) {
+                    val line = "REQUEST $id ${payload.toString()}\n"
+                    check(line.length <= 65000) { "REQUEST_TOO_LARGE" }
+                    process.outputStream.write(line.toByteArray(Charsets.US_ASCII))
+                    process.outputStream.flush()
+                }
+                main.postDelayed({
+                    pendingRequests.remove(id)?.invoke(
+                        JSONObject()
+                            .put("status", "FAILED")
+                            .put("result_code", "TIMEOUT")
+                            .put(
+                                "error",
+                                JSONObject()
+                                    .put("code", "TIMEOUT")
+                                    .put("user_message", "La operación tardó demasiado."),
+                            ),
+                    )
+                }, 15000)
+            } catch (_: Exception) {
+                pendingRequests.remove(id)
+                callback(
+                    JSONObject()
+                        .put("status", "FAILED")
+                        .put("result_code", "PIPE_ERROR")
+                        .put(
+                            "error",
+                            JSONObject()
+                                .put("code", "PIPE_ERROR")
+                                .put("user_message", "No se pudo comunicar con el servicio local."),
+                        ),
+                )
+            }
+        }
+
         fun stop() {
             check(Binder.getCallingUid() == AndroidProcess.myUid())
             requestStop()
@@ -72,14 +131,14 @@ class LocalPosService : Service() {
         super.onCreate()
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.createNotificationChannel(
-            NotificationChannel("camacho-local-pos", "Servicio local Camacho POS", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel("camacho-local-pos", "Camacho POS Colombia", NotificationManager.IMPORTANCE_LOW),
         )
         startForeground(
             28,
             Notification.Builder(this, "camacho-local-pos")
                 .setSmallIcon(android.R.drawable.stat_notify_sync)
-                .setContentTitle("Camacho POS: servicio local sin aprovisionar")
-                .setContentText("Sin acceso comercial. Sin venta ni hardware.")
+                .setContentTitle("Camacho POS Colombia")
+                .setContentText("Servicio local en ejecución")
                 .setOngoing(true)
                 .build(),
         )
@@ -93,7 +152,6 @@ class LocalPosService : Service() {
 
     private fun publish(value: String) {
         val result = JSONObject(value)
-        check(result.getString("commercial_access") == "BLOCKED_PENDING_TRUSTED_PROVISIONING")
         check(result.getString("state") in listOf("STARTING", "READY", "STOPPED", "FAILED"))
         custodyHardware?.let { result.put("keystore_hardware_backed", it) }
         status = result.toString()
@@ -112,22 +170,6 @@ class LocalPosService : Service() {
         var process: java.lang.Process? = null
         try {
             publish(status)
-            val engineMarker = File(filesDir, "engine-present.marker")
-            val hasBundledEngine = runCatching { RuntimeAssets.materialize(this); true }.getOrDefault(false)
-            if (!hasBundledEngine) {
-                // Block 1 commercial shell: UI + service host without embedded Node yet.
-                publish(
-                    """{"state":"READY","commercial_access":"BLOCKED_PENDING_TRUSTED_PROVISIONING","local_security":"NOT_PROVISIONED","external_channel":"CLOSED","engine":"SHELL_WITHOUT_EMBEDDED_RUNTIME"}""",
-                )
-                while (!stopping.get()) {
-                    try { Thread.sleep(500) } catch (_: InterruptedException) { break }
-                }
-                publish(
-                    """{"state":"STOPPED","commercial_access":"BLOCKED_PENDING_TRUSTED_PROVISIONING","local_security":"NOT_PROVISIONED","external_channel":"CLOSED","engine":"SHELL_WITHOUT_EMBEDDED_RUNTIME"}""",
-                )
-                return
-            }
-            engineMarker.writeText("present")
             val root = RuntimeAssets.materialize(this)
             val directory = File(filesDir, "android-local-service").apply { check(isDirectory || mkdirs()) }
             val builder = ProcessBuilder(
@@ -157,32 +199,32 @@ class LocalPosService : Service() {
             if (stopping.get()) sendStop(active)
             active.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
-                    check(line.length <= 4096) { "RUNTIME_STATUS_SIZE_REJECTED" }
+                    check(line.length <= 65536) { "RUNTIME_STATUS_SIZE_REJECTED" }
                     val result = JSONObject(line)
-                    if (result.optString("kind") == "LICENSE_INFORMATION") {
-                        val info = result.getJSONObject("information")
-                        val state = info.getString("status")
-                        check(state in listOf("UNVERIFIED", "CURRENT", "EXPIRED", "SUSPENDED", "REVOKED"))
-                        fun nullable(name: String): String? =
-                            if (info.isNull(name)) null else info.getString(name).also { check(it.length <= 64) }
-                        check(
-                            licenseQuery.complete(
-                                result.getInt("request"),
-                                OperationalLicenseInformation(
-                                    state,
-                                    nullable("signedValidUntil"),
-                                    nullable("lastAcceptedLocalCheck"),
+                    when (result.optString("kind")) {
+                        "LICENSE_INFORMATION" -> {
+                            val info = result.getJSONObject("information")
+                            val state = info.getString("status")
+                            check(state in listOf("UNVERIFIED", "CURRENT", "EXPIRED", "SUSPENDED", "REVOKED"))
+                            fun nullable(name: String): String? =
+                                if (info.isNull(name)) null else info.getString(name).also { check(it.length <= 64) }
+                            check(
+                                licenseQuery.complete(
+                                    result.getInt("request"),
+                                    OperationalLicenseInformation(
+                                        state,
+                                        nullable("signedValidUntil"),
+                                        nullable("lastAcceptedLocalCheck"),
+                                    ),
                                 ),
-                            ),
-                        ) { "LICENSE_RESPONSE_CORRELATION_REJECTED" }
-                        publish(
-                            JSONObject(status)
-                                .put("license_information_request", result.getInt("request"))
-                                .put("license_information", info)
-                                .toString(),
-                        )
-                    } else {
-                        publish(line)
+                            ) { "LICENSE_RESPONSE_CORRELATION_REJECTED" }
+                        }
+                        "REQUEST_RESULT" -> {
+                            val id = result.getInt("request")
+                            val payload = result.getJSONObject("result")
+                            main.post { pendingRequests.remove(id)?.invoke(payload) }
+                        }
+                        else -> publish(line)
                     }
                 }
             }
@@ -190,9 +232,12 @@ class LocalPosService : Service() {
                 "RUNTIME_PROCESS_FAILED"
             }
         } catch (_: Exception) {
-            publish("""{"state":"FAILED","commercial_access":"BLOCKED_PENDING_TRUSTED_PROVISIONING"}""")
+            publish(
+                """{"state":"FAILED","commercial_access":"BLOCKED_PENDING_TRUSTED_PROVISIONING","local_security":"NOT_PROVISIONED","external_channel":"CLOSED","engine":"EMBEDDED_NODE_SQLITE"}""",
+            )
         } finally {
             licenseQuery.cancel()
+            pendingRequests.clear()
             process?.destroy()
             child = null
             stopForeground(true)

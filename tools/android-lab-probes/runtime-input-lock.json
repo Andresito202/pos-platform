@@ -4,9 +4,9 @@
   "packages": [
     {
       "name": "nodejs-lts",
-      "version": "24.18.0-2",
-      "sha256": "c799ca24e353ee6a3dc016577592142da7b8defadc32b225bfc189b00a639076",
-      "filename": "pool/main/n/nodejs-lts/nodejs-lts_24.18.0-2_aarch64.deb"
+      "version": "24.22.3",
+      "sha256": "80edcc73db025db0baa09be27e3d65a16e6f2a72ab925f1873a1b808ab857c28",
+      "filename": "pool/main/n/nodejs-lts/nodejs-lts_24.22.3_aarch64.deb"
     },
     {
       "name": "libc++",
@@ -28,21 +28,21 @@
     },
     {
       "name": "libicu",
-      "version": "78.3",
-      "sha256": "f536403f65a08fe0df6e7304184e902d54def77d5c3bd5edfd9109d57601d276",
-      "filename": "pool/main/libi/libicu/libicu_78.3_aarch64.deb"
+      "version": "79.1",
+      "sha256": "83c980a010e957738e3567127801d66a1b9bd7e404a4fda98788048ee57d606c",
+      "filename": "pool/main/libi/libicu/libicu_79.1_aarch64.deb"
     },
     {
       "name": "libsqlite",
-      "version": "3.54.1",
-      "sha256": "0856cac8cc87f6e112f2eef4fcac6ad5cb08209ecb7cc260f997874fc186a3c0",
-      "filename": "pool/main/libs/libsqlite/libsqlite_3.54.1_aarch64.deb"
+      "version": "3.54.1-1",
+      "sha256": "661fb995f7215845007b222a85266ae99d9443e87e0604f8677edfd738e6b81a",
+      "filename": "pool/main/libs/libsqlite/libsqlite_3.54.1-1_aarch64.deb"
     },
     {
       "name": "zlib",
-      "version": "1.3.2",
-      "sha256": "75e7d0af17fcc3b40004309fdc00a1ddb9ae08346dce5e269902c34ac3966ac9",
-      "filename": "pool/main/z/zlib/zlib_1.3.2_aarch64.deb"
+      "version": "1.4",
+      "sha256": "e3027565ae50bcd8ba5113c988b589754ae192c9cc3e6afbe3e4ed7c06b2598e",
+      "filename": "pool/main/z/zlib/zlib_1.4_aarch64.deb"
     },
     {
       "name": "termux-licenses",

@@ -3,3 +3,6 @@
 /lab/build/
 *.apk
 !src/**/*
+/src/main/assets/runtime/
+/signing/*.p12
+/signing/*.jks

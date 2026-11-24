@@ -23,7 +23,6 @@ dependencies {
 }
 
 kotlin {
-    // Cloud/Linux hosts may only expose JDK 21; bytecode target remains 1.8 for API 28.
     jvmToolchain(21)
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
@@ -57,15 +56,27 @@ val commercialHostJar by tasks.registering(Jar::class) {
     archiveFileName.set("camacho-pos-colombia-host.jar")
 }
 
-tasks.register("commercialShellApk") {
+tasks.register("commercialApk") {
     group = "build"
-    description = "Build Camacho POS Colombia commercial shell APK (API 28). Unsigned if no lab keystore."
+    description = "Build signed Camacho POS Colombia commercial APK (API 28) with embedded Node/SQLite runtime assets."
     dependsOn(commercialHostJar)
     doLast {
         require(System.getProperty("os.name").lowercase().contains("linux")) {
             "Linux build host required for aapt2/r8 packaging"
         }
-        val out = layout.buildDirectory.dir("commercial-shell-apk").get().asFile.apply { mkdirs() }
+        val brandAssets = file("src/main/assets")
+        val runtimeAssets = file("../../tools/android-lab-probes/build/runtime-assets/runtime")
+        require(file("${runtimeAssets}/files.json").isFile) {
+            "Embedded runtime assets missing. Build tools/android-lab-probes runtime (prepare/extract/compile/package) first."
+        }
+        val out = layout.buildDirectory.dir("commercial-apk").get().asFile.apply { mkdirs() }
+        val stagedAssets = file("${out}/assets").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        copy { from(brandAssets); into(stagedAssets); include("*.png") }
+        copy { from(runtimeAssets); into(file("${stagedAssets}/runtime")) }
+        val assetsDir = stagedAssets
         fun run(vararg args: String) {
             val process = ProcessBuilder(*args).redirectErrorStream(true).start()
             process.inputStream.bufferedReader().useLines { lines -> lines.forEach { println(it) } }
@@ -81,9 +92,7 @@ tasks.register("commercialShellApk") {
         check(aapt.setExecutable(true))
         val api = configurations.compileClasspath.get().files.single { it.name.startsWith("android-all-") }
         val manifest = file("src/main/AndroidManifest.xml")
-        val assetsDir = file("src/main/assets")
-        val assetArgs = if (assetsDir.isDirectory) arrayOf("-A", assetsDir.path) else emptyArray()
-        run(aapt.path, "link", "-o", "${out}/resources.apk", "--manifest", manifest.path, "-I", api.path, *assetArgs)
+        run(aapt.path, "link", "-o", "${out}/resources.apk", "--manifest", manifest.path, "-I", api.path, "-A", assetsDir.path)
         val dex = file("${out}/dex").apply { mkdirs() }
         val stdlib = configurations.runtimeClasspath.get().files.filter {
             it.name.startsWith("kotlin-stdlib-") && !it.name.contains("jdk")
@@ -110,12 +119,11 @@ tasks.register("commercialShellApk") {
                 zip.closeEntry()
             }
         }
-        println("UNSIGNED_APK=${unsigned.absolutePath}")
-        val signerSource = providers.gradleProperty("signerSource").orNull?.let { file(it) }
+        val signerSource = file("../pos-local-service/native/android-hardware/host/tools/SignApk.java")
         val keystore = providers.gradleProperty("probeSigning").orNull?.let { file(it) }
-        if (signerSource == null || keystore == null || !signerSource.isFile || !keystore.isFile) {
-            println("SIGNING_SKIPPED: provide -PsignerSource=... -PprobeSigning=... to sign with lab keystore")
-            return@doLast
+            ?: file("signing/camacho-android-test.p12")
+        require(signerSource.isFile && keystore.isFile) {
+            "SignApk.java and signing/camacho-android-test.p12 (or -PprobeSigning) required"
         }
         val apk = file("${out}/camacho-pos-colombia.apk")
         run(javac, "-cp", apkSigner.asPath, "-d", out.path, signerSource.path)
@@ -125,5 +133,11 @@ tasks.register("commercialShellApk") {
         )
         run(aapt.path, "dump", "badging", apk.path)
         println("SIGNED_APK=${apk.absolutePath}")
+        println("UNSIGNED_APK=${unsigned.absolutePath}")
     }
+}
+
+// Backward-compatible alias used by earlier docs.
+tasks.register("commercialShellApk") {
+    dependsOn("commercialApk")
 }
