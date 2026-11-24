@@ -1,0 +1,42 @@
+{
+  "pr": 136,
+  "branch": "cursor/android-commercial-integration-c53a",
+  "git_head_at_build_start": "5fc755110f307fc8328889a367d2e7557d41e1d2",
+  "package_id": "co.camachopos.colombia",
+  "version_name": "0.3.1-native-central",
+  "version_code": 3,
+  "min_sdk": 28,
+  "signing": {
+    "scheme": "APK Signature Scheme v2",
+    "keystore": "apps/pos-android/signing/camacho-android-test.p12",
+    "cert_sha256_no_colons": "70856d4ea8a9a004e7377d7f88713605f1f6e00dc77d14de740320575125f224",
+    "cert_sha256_colon": "70:85:6D:4E:A8:A9:A0:04:E7:37:7D:7F:88:71:36:05:F1:F6:E0:0D:C7:7D:14:DE:74:03:20:57:51:25:F2:24",
+    "note": "TEST_PKCS12_lab_only_not_Play"
+  },
+  "apk": {
+    "path": "apps/pos-android/build/commercial-apk/camacho-pos-colombia.apk",
+    "artifact_copy": "/opt/cursor/artifacts/camacho-pos-colombia-signed.apk",
+    "sha256": "336cb9e579a2c87d65d460d53ccdde2105c4fbe8b277c9cbaf78ba558009cdf6",
+    "bytes": 73022290
+  },
+  "runtime": {
+    "files_json_sha256": "2a54b4b4423f67559676b513d1a18e6cf95946fafc8c7e41a6ac5d485d1b7a60",
+    "bundle_id": "a152ed2704ce4e9db809e6f2014b36056ab5aae346adb1c088e348ad6e2b8b76",
+    "commercial_runtime_service_sha256": "f532741d2d5e3824a7f015e4371da71edd6787c12017a3ef263f309d392a67ad"
+  },
+  "app_links_preparation": {
+    "file": "docs/product/android-assetlinks-prepared-not-published.json",
+    "publication_status": "NOT_PUBLISHED"
+  },
+  "trial_policy": {
+    "source_pr": 135,
+    "trial_hours": 120,
+    "offline_grace_hours": 0
+  },
+  "non_claims": [
+    "OS App Links verify on M60WL",
+    "Central native route activation",
+    "Physical CH340/PRINT/drawer",
+    "Play production signing"
+  ]
+}

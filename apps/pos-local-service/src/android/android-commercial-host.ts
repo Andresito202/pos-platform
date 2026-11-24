@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { IpcRequestSchema, type IpcRequest } from "@pos-platform/contracts";
 import { ServiceLifecycle } from "../lifecycle.js";
 import { LocalDatabaseComponent } from "../local-database-component.js";
 import { DurableSyncComponent } from "../sync/durable-sync-component.js";
@@ -12,7 +13,12 @@ import { AndroidKeystoreKeyProvider } from "../security/android-keystore-key-pro
 import { EncryptedFileSecretStore } from "../security/encrypted-secret-store.js";
 import { LicenseCapacityGate, type OperationalLicenseInformation, readLicenseCapacityProvision } from "../security/license-capacity-gate.js";
 import { parseServiceConfig, type ServiceConfig } from "../config.js";
-import type { IpcRequest } from "@pos-platform/contracts";
+import {
+  AndroidBusinessNativeCentralClient,
+  AndroidNativeRequestMaterialSchema,
+  AndroidTokenExchangeMaterialSchema,
+} from "./android-business-native-central.js";
+import { ANDROID_TRIAL_CAPACITY_POLICY } from "./android-trial-capacity-policy.js";
 
 export type AndroidHostStatus = {
   readonly state: "STARTING" | "READY" | "STOPPED" | "FAILED";
@@ -39,6 +45,7 @@ export class AndroidCommercialHost {
   private handler: CommercialRequestHandler | undefined;
   private operators: LocalOperatorSessionRegistry | undefined;
   private config: ServiceConfig | undefined;
+  private nativeCentral: AndroidBusinessNativeCentralClient | undefined;
   private connectionId = randomUUID();
   private statusValue: AndroidHostStatus = {
     state: "STARTING",
@@ -53,6 +60,13 @@ export class AndroidCommercialHost {
     private readonly directory: string,
     private readonly provider: AndroidKeystoreKeyProvider,
     private readonly now: () => Date = () => new Date(),
+    /**
+     * Optional DeviceProof client when enrollment + Central HTTPS are present.
+     * Returning null keeps native-request / token exchange fail-closed.
+     */
+    private readonly resolveNativeCentral: (
+      config: ServiceConfig,
+    ) => AndroidBusinessNativeCentralClient | null = () => null,
   ) {
     this.database = new LocalDatabaseComponent(directory);
     this.lifecycle = new ServiceLifecycle([this.database]);
@@ -148,6 +162,13 @@ export class AndroidCommercialHost {
       modules.push("commercial");
       security = "PROVISIONED";
       access = "BUSINESS_READY";
+      if (this.config.central_base_url) {
+        const client = this.resolveNativeCentral(this.config);
+        if (client) {
+          this.nativeCentral = client;
+          modules.push("business-native-central");
+        }
+      }
     }
 
     this.statusValue = {
@@ -174,6 +195,11 @@ export class AndroidCommercialHost {
 
   status(): AndroidHostStatus {
     return this.statusValue;
+  }
+
+  /** Observation only — PR #135 trial window; enforcement is LicenseCapacityGate. */
+  trialCapacityPolicy() {
+    return ANDROID_TRIAL_CAPACITY_POLICY;
   }
 
   licenseInformation(): OperationalLicenseInformation {
@@ -203,36 +229,41 @@ export class AndroidCommercialHost {
   }
 
   async handleRequest(raw: unknown): Promise<unknown> {
-    // Host-only Android BUSINESS ceremony messages are not part of the commercial
-    // IpcRequest union; inspect the wire string before narrowing to IpcRequest.
-    const wire = raw as { protocol_version?: string; request_id?: string; correlation_id?: string | null; message_type?: unknown } | null;
+    // Host-only Android BUSINESS ceremony messages are not part of IpcRequestSchema;
+    // inspect the wire string before Zod-narrowing commercial IPC.
+    const wire = raw as {
+      protocol_version?: string;
+      request_id?: string;
+      correlation_id?: string | null;
+      message_type?: unknown;
+      payload?: unknown;
+    } | null;
     if (!wire || typeof wire !== "object" || typeof wire.message_type !== "string") {
       return this.denied(undefined, "INVALID_REQUEST", "La solicitud no es válida.");
     }
     const messageType = wire.message_type;
 
-    if (
-      messageType === "android.business.native_request"
-      || messageType === "android.business.token_exchange"
-    ) {
-      // Central native-request / token routes are prepared in DeviceProof allowlists
-      // but not simulated. Fail closed until enrollment + Central composition exist.
-      return this.denied(
-        wire as IpcRequest,
-        messageType === "android.business.native_request"
-          ? "BUSINESS_NATIVE_REQUEST_UNAVAILABLE"
-          : "BUSINESS_TOKEN_EXCHANGE_UNAVAILABLE",
-        messageType === "android.business.native_request"
-          ? "Central aún no acepta solicitudes nativas Android con DeviceProof en este despliegue."
-          : "El canje de token BUSINESS con DeviceProof no está disponible sin Central y credencial enrolada.",
-      );
+    if (messageType === "android.business.native_request") {
+      return this.handleNativeRequest(wire);
+    }
+    if (messageType === "android.business.token_exchange") {
+      return this.handleTokenExchange(wire);
     }
 
-    const request = raw as IpcRequest;
+    const parsed = IpcRequestSchema.safeParse(raw);
+    if (!parsed.success) {
+      return this.denied(
+        wire as IpcRequest,
+        "INVALID_REQUEST",
+        "La solicitud no cumple el contrato IPC comercial.",
+      );
+    }
+    const request = parsed.data;
+
     if (
-      messageType === "local.operator.login"
-      || messageType === "local.operator.session"
-      || messageType === "local.operator.logout"
+      request.message_type === "local.operator.login"
+      || request.message_type === "local.operator.session"
+      || request.message_type === "local.operator.logout"
     ) {
       // Kept for lab probes only; commercial UI must not use these for authorization.
       return this.handleOperator(request);
@@ -247,6 +278,92 @@ export class AndroidCommercialHost {
     }
 
     return Promise.resolve(this.handler.handle(request as never, this.connectionId));
+  }
+
+  private async handleNativeRequest(wire: {
+    protocol_version?: string;
+    request_id?: string;
+    correlation_id?: string | null;
+    payload?: unknown;
+  }): Promise<unknown> {
+    const material = AndroidNativeRequestMaterialSchema.safeParse(wire.payload);
+    if (!material.success) {
+      return this.denied(wire as IpcRequest, "INVALID_REQUEST", "La solicitud nativa BUSINESS no es válida.");
+    }
+    if (!this.nativeCentral) {
+      return this.denied(
+        wire as IpcRequest,
+        "BUSINESS_NATIVE_REQUEST_UNAVAILABLE",
+        "Central aún no acepta solicitudes nativas Android con DeviceProof en este despliegue.",
+      );
+    }
+    try {
+      const result = await this.nativeCentral.registerNativeRequest(material.data);
+      return {
+        protocol_version: wire.protocol_version ?? "1.0.0",
+        request_id: wire.request_id ?? randomUUID(),
+        correlation_id: wire.correlation_id ?? null,
+        operation_id: null,
+        status: "SUCCEEDED",
+        result_code: "NATIVE_REQUEST_BOUND",
+        result_schema_version: "1.0.0",
+        error: null,
+        server_time: this.now().toISOString(),
+        result,
+      };
+    } catch (error) {
+      const code = error instanceof Error && /^[A-Z0-9_]{8,80}$/.test(error.message)
+        ? error.message
+        : "CENTRAL_NATIVE_REQUEST_REJECTED";
+      return this.denied(
+        wire as IpcRequest,
+        code === "CENTRAL_NATIVE_ROUTE_NOT_ACTIVATED" ? "BUSINESS_NATIVE_REQUEST_UNAVAILABLE" : code,
+        "Central rechazó o no activó el registro nativo BUSINESS con DeviceProof.",
+      );
+    }
+  }
+
+  private async handleTokenExchange(wire: {
+    protocol_version?: string;
+    request_id?: string;
+    correlation_id?: string | null;
+    payload?: unknown;
+  }): Promise<unknown> {
+    const material = AndroidTokenExchangeMaterialSchema.safeParse(wire.payload);
+    if (!material.success) {
+      return this.denied(wire as IpcRequest, "INVALID_REQUEST", "El canje BUSINESS no es válido.");
+    }
+    if (!this.nativeCentral) {
+      return this.denied(
+        wire as IpcRequest,
+        "BUSINESS_TOKEN_EXCHANGE_UNAVAILABLE",
+        "El canje de token BUSINESS con DeviceProof no está disponible sin Central y credencial enrolada.",
+      );
+    }
+    try {
+      const result = await this.nativeCentral.exchangeToken(material.data);
+      return {
+        protocol_version: wire.protocol_version ?? "1.0.0",
+        request_id: wire.request_id ?? randomUUID(),
+        correlation_id: wire.correlation_id ?? null,
+        operation_id: null,
+        status: "SUCCEEDED",
+        result_code: "TOKEN_EXCHANGED",
+        result_schema_version: "1.0.0",
+        error: null,
+        server_time: this.now().toISOString(),
+        result,
+      };
+    } catch (error) {
+      const code = error instanceof Error && /^[A-Z0-9_]{8,80}$/.test(error.message)
+        ? error.message
+        : "CENTRAL_TOKEN_EXCHANGE_REJECTED";
+      return this.denied(
+        wire as IpcRequest,
+        code === "CENTRAL_NATIVE_ROUTE_NOT_ACTIVATED" ? "BUSINESS_TOKEN_EXCHANGE_UNAVAILABLE" : code,
+        "Central rechazó o no activó el canje de token BUSINESS.",
+      );
+    }
   }
 
   private async handleOperator(request: IpcRequest): Promise<unknown> {

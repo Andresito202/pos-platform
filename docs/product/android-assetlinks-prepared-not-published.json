@@ -1,0 +1,23 @@
+{
+  "publication_status": "NOT_PUBLISHED",
+  "origin": "https://central.camachoposcolombia.com",
+  "association_path": "/.well-known/assetlinks.json",
+  "callback": "https://central.camachoposcolombia.com/android/callback",
+  "package_id": "co.camachopos.colombia",
+  "signing": "TEST_PKCS12_hardware-lab",
+  "statements": [
+    {
+      "relation": [
+        "delegate_permission/common.handle_all_urls"
+      ],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "co.camachopos.colombia",
+        "sha256_cert_fingerprints": [
+          "70:85:6D:4E:A8:A9:A0:04:E7:37:7D:7F:88:71:36:05:F1:F6:E0:0D:C7:7D:14:DE:74:03:20:57:51:25:F2:24"
+        ]
+      }
+    }
+  ],
+  "note": "NOT_PUBLISHED. Replace fingerprint with release cert before Central publication. OS App Links verify requires M60WL."
+}

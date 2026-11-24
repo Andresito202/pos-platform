@@ -29,7 +29,10 @@ Salida: `apps/pos-android/build/commercial-apk/camacho-pos-colombia.apk`.
 
 - Entrada BUSINESS: App Links + DeviceProof native-request + SSA (`session.activate` / `session.recover`).
 - `local.operator.login` no autoriza operaciones comerciales en este host.
-- Contratos: caja, ventas/carrito, catálogo, inventario, clientes, pagos, hardware, licencia.
+- IPC comercial: `IpcRequestSchema` fail-closed tras mensajes host-only `android.business.*`.
+- Contratos: caja, ventas/carrito, catálogo, inventario, clientes, pagos, hardware, licencia/trial 120h (PR #135).
 - Hardware: `UsbHostTransport` existente; CH340/impresora por descubrimiento USB; cajón bloqueado sin perfil eléctrico verificado.
+- Instalación M60WL: `docs/product/android-m60wl-install-enroll-test.md`.
+- Integridad APK: `docs/product/android-commercial-integrity-manifest-20261124.json`.
 
 Lab probes: `tools/android-lab-probes/` (no producto).

@@ -236,6 +236,38 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     return;
   }
 
+  // Reserved Android/Windows BUSINESS native surface (migration 016 + DeviceProof
+  // allowlist). Explicitly fail-closed until D3 registration, DAL publication and
+  // native request activation are authorized. Do not invent an alternate stack.
+  const commercialNativePath = request.url?.split("?", 1)[0] ?? "";
+  if (
+    commercialNativePath === "/v1/commercial/native-request-challenges"
+    || commercialNativePath === "/v1/commercial/native-requests"
+    || commercialNativePath === "/v1/commercial/token"
+    || commercialNativePath === "/v1/commercial/login"
+    || commercialNativePath === "/.well-known/assetlinks.json"
+  ) {
+    if (!limiter.allow(`${remote}:commercial-native`)) {
+      send(response, 429, {
+        status: "REJECTED",
+        result_code: "COMMERCIAL_NATIVE_RATE_LIMITED",
+        request_id: requestId,
+        correlation_id: correlationId,
+      }, { "retry-after": "60" });
+      return;
+    }
+    send(response, 503, {
+      status: "REJECTED",
+      result_code: commercialNativePath === "/.well-known/assetlinks.json"
+        ? "ANDROID_ASSET_LINKS_NOT_PUBLISHED"
+        : "NATIVE_BUSINESS_ROUTE_NOT_ACTIVATED",
+      request_id: requestId,
+      correlation_id: correlationId,
+      publication_status: "NOT_PUBLISHED",
+    });
+    return;
+  }
+
   if (request.method === "POST" && request.url === FACTUS_PAY_COLLECTION_WEBHOOK_PATH) {
     if (factusPayHandler === undefined) {
       send(response, 503, { status: "REJECTED", result_code: "FACTUS_PAY_NOT_PROVISIONED" });

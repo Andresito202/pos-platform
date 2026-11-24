@@ -87,8 +87,8 @@ tasks.register("commercialApk") {
             process.inputStream.bufferedReader().useLines { lines -> lines.forEach { println(it) } }
             check(process.waitFor() == 0) { "APK_TOOL_FAILED: ${args[0]}" }
         }
-        val java = "${System.getProperty("java.home")}/bin/java"
-        val javac = "${System.getProperty("java.home")}/bin/javac"
+        val javaBin = "${System.getProperty("java.home")}/bin/java"
+        val javacBin = "${System.getProperty("java.home")}/bin/javac"
         copy {
             from(zipTree(aaptTool.singleFile))
             into(file("${out}/aapt"))
@@ -103,7 +103,7 @@ tasks.register("commercialApk") {
             it.name.startsWith("kotlin-stdlib-") && !it.name.contains("jdk")
         }
         run(
-            java, "-cp", dexTool.asPath, "com.android.tools.r8.D8",
+            javaBin, "-cp", dexTool.asPath, "com.android.tools.r8.D8",
             "--min-api", "28", "--lib", api.path,
             "--output", dex.path,
             commercialHostJar.get().archiveFile.get().asFile.path,
@@ -131,20 +131,22 @@ tasks.register("commercialApk") {
             "SignApk.java and signing/camacho-android-test.p12 (or -PprobeSigning) required"
         }
         val apk = file("${out}/camacho-pos-colombia.apk")
-        run(javac, "-cp", apkSigner.asPath, "-d", out.path, signerSource.path)
+        run(javacBin, "-cp", apkSigner.asPath, "-d", out.path, signerSource.path)
         run(
-            java, "-cp", apkSigner.asPath + ":" + out.path,
+            javaBin, "-cp", apkSigner.asPath + ":" + out.path,
             "SignApk", keystore.path, unsigned.path, apk.path,
         )
         run(aapt.path, "dump", "badging", apk.path)
         // Drop unpacked runtime from the project tree so ARCH-003 does not scan
         // embedded Node requires (better-sqlite3) under apps/pos-android/build.
         stagedAssets.deleteRecursively()
+        file("build/staging-runtime").deleteRecursively()
         println("SIGNED_APK=${apk.absolutePath}")
         println("UNSIGNED_APK=${unsigned.absolutePath}")
-        println("APK_SHA256=" + java.security.MessageDigest.getInstance("SHA-256")
-            .digest(apk.readBytes())
-            .joinToString("") { "%02x".format(it) })
+        val shaProc = ProcessBuilder("sha256sum", apk.absolutePath).redirectErrorStream(true).start()
+        val shaLine = shaProc.inputStream.bufferedReader().readText().trim()
+        check(shaProc.waitFor() == 0 && shaLine.startsWith("")) { "APK_SHA256_FAILED" }
+        println("APK_SHA256=" + shaLine.substringBefore(' '))
     }
 }
 
