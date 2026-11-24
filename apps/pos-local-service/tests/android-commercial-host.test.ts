@@ -39,6 +39,24 @@ describe("AndroidCommercialHost", () => {
     }
   });
 
+  it("fails closed when packaged mode requires runtime files.json and it is missing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "camacho-android-host-"));
+    const provider = new AndroidKeystoreKeyProvider(Buffer.alloc(32, 7), "android");
+    const previous = process.env.ANDROID_REQUIRE_RUNTIME_MANIFEST;
+    process.env.ANDROID_REQUIRE_RUNTIME_MANIFEST = "1";
+    const host = new AndroidCommercialHost(directory, provider);
+    try {
+      await expect(host.start()).rejects.toThrow(/ANDROID_RUNTIME_MANIFEST_REQUIRED/);
+      expect(host.status().state).toBe("FAILED");
+    } finally {
+      if (previous === undefined) delete process.env.ANDROID_REQUIRE_RUNTIME_MANIFEST;
+      else process.env.ANDROID_REQUIRE_RUNTIME_MANIFEST = previous;
+      await host.stop().catch(() => undefined);
+      provider.destroy();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unknown message types through IpcRequestSchema before the commercial handler", async () => {
     const directory = await mkdtemp(join(tmpdir(), "camacho-android-host-"));
     const provider = new AndroidKeystoreKeyProvider(Buffer.alloc(32, 5), "android");

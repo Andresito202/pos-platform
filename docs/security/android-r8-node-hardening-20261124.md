@@ -10,7 +10,7 @@ Branch: `cursor/android-r8-hardening-c53a` (from PR #136 @ `64d4430e`).
 | Optional R8 `--release` | `-PcommercialR8Shrink=true` + `proguard/commercial-r8.pro` |
 | Keep rules for host + JNI | Present; Node asset paths not obfuscated (assets copied verbatim) |
 | `AndroidRuntimeIntegrity` | Already on #136 — root/Frida/debug fail-closed for BUSINESS |
-| Embedded runtime `files.json` verify | Already on #136 |
+| Embedded runtime `files.json` verify | Wired into `AndroidCommercialHost.start()`; `ANDROID_REQUIRE_RUNTIME_MANIFEST=1` / `ANDROID_COMMERCIAL_PACKAGED=1` fail-closed if missing |
 
 ## Explicitly not done
 

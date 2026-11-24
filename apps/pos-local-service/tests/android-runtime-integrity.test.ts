@@ -42,4 +42,16 @@ describe("verifyAndroidEmbeddedRuntimeIntegrity", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it("requireManifest fails closed when files.json is absent", async () => {
+    const root = await mkdtemp(join(tmpdir(), "android-runtime-"));
+    try {
+      expect(() => verifyAndroidEmbeddedRuntimeIntegrity(root)).not.toThrow();
+      expect(() =>
+        verifyAndroidEmbeddedRuntimeIntegrity(root, { requireManifest: true }),
+      ).toThrow(/ANDROID_RUNTIME_MANIFEST_REQUIRED/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

@@ -2,14 +2,28 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+export type AndroidRuntimeIntegrityOptions = {
+  /**
+   * Packaged BUSINESS builds must ship `files.json`. Lab/unpackaged layouts omit
+   * the flag so missing manifests stay usable.
+   */
+  requireManifest?: boolean;
+};
+
 /**
  * Verifies embedded Node/SQLite runtime assets against files.json digests.
  * Fail-closed when the manifest is present but tampered. Absence of files.json
- * keeps unpackaged lab layouts usable.
+ * keeps unpackaged lab layouts usable unless `requireManifest` is set.
  */
-export function verifyAndroidEmbeddedRuntimeIntegrity(runtimeRoot: string): void {
+export function verifyAndroidEmbeddedRuntimeIntegrity(
+  runtimeRoot: string,
+  options: AndroidRuntimeIntegrityOptions = {},
+): void {
   const manifestPath = join(runtimeRoot, "files.json");
-  if (!existsSync(manifestPath)) return;
+  if (!existsSync(manifestPath)) {
+    if (options.requireManifest) throw new Error("ANDROID_RUNTIME_MANIFEST_REQUIRED");
+    return;
+  }
   let manifest: { files?: Record<string, string> };
   try {
     manifest = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(manifestPath))) as {

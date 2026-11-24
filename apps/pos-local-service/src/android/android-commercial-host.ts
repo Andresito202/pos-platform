@@ -25,6 +25,7 @@ import {
   type AndroidNativeCentralDeps,
 } from "./android-commercial-native-composition.js";
 import { ANDROID_TRIAL_CAPACITY_POLICY } from "./android-trial-capacity-policy.js";
+import { verifyAndroidEmbeddedRuntimeIntegrity } from "./android-runtime-integrity.js";
 
 export type AndroidHostStatus = {
   readonly state: "STARTING" | "READY" | "STOPPED" | "FAILED";
@@ -82,6 +83,28 @@ export class AndroidCommercialHost {
   }
 
   async start(): Promise<void> {
+    const runtimeRoot = process.env.ANDROID_EMBEDDED_RUNTIME_ROOT?.trim()
+      || (existsSync(join(this.directory, "runtime"))
+        ? join(this.directory, "runtime")
+        : join(this.directory, "..", "runtime"));
+    // Packaged commercial APKs set ANDROID_REQUIRE_RUNTIME_MANIFEST=1 (or ship
+    // files.json under the runtime root). Lab hosts omit both and stay open.
+    const requireManifest = process.env.ANDROID_REQUIRE_RUNTIME_MANIFEST === "1"
+      || process.env.ANDROID_COMMERCIAL_PACKAGED === "1";
+    try {
+      verifyAndroidEmbeddedRuntimeIntegrity(runtimeRoot, { requireManifest });
+    } catch (error) {
+      this.statusValue = {
+        state: "FAILED",
+        commercial_access: "BLOCKED_PENDING_TRUSTED_PROVISIONING",
+        local_security: "NOT_PROVISIONED",
+        external_channel: "CLOSED",
+        engine: "EMBEDDED_NODE_SQLITE",
+        modules: [],
+      };
+      throw error;
+    }
+
     await this.lifecycle.start();
     const modules: string[] = ["local-database"];
     const provisionPath = join(this.directory, "android-commercial-provision.env");
