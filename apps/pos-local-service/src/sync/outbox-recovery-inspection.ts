@@ -45,6 +45,11 @@ export function inspectPendingOutbox(database: LocalDatabase, scope: SyncScope):
           || row.attempt_count !== 0 || op.expected_version !== null
           || op.authority_policy !== "LOCAL_AUTHORITATIVE_UNTIL_SYNC") return review;
         if (database.native.prepare("SELECT 1 FROM local_sync_inbox WHERE operation_id=?").get(op.operation_id)) return review;
+        if (database.native.prepare("SELECT 1 FROM local_sync_dead_letter WHERE operation_id=?").get(op.operation_id)) return review;
+        const checkpoint = database.native.prepare(`SELECT acknowledged_through_local_sequence AS sequence FROM local_sync_checkpoint
+          WHERE tenant_id=? AND company_id=? AND branch_id=? AND device_id=? AND installation_id=?`)
+          .get(scope.tenantId,scope.companyId,scope.branchId,scope.deviceId,scope.installationId) as {sequence:number} | undefined;
+        if (op.local_sequence <= (checkpoint?.sequence ?? 0)) return review;
         const sale = database.native.prepare(`SELECT id,customer_id,document_series,sale_number,
           calculation_checksum,currency_code,payable_amount,request_checksum,correlation_id,
           causation_id,operator_actor_id,created_at FROM sales_sales
