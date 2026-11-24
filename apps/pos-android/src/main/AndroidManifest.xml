@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="co.camachopos.colombia"
-    android:versionCode="1"
-    android:versionName="0.2.0-commercial-engine">
+    android:versionCode="2"
+    android:versionName="0.3.0-business-surfaces">
   <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="28" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-feature android:name="android.hardware.usb.host" android:required="false" />
   <application
       android:name="co.camachopos.colombia.PosApplication"
       android:label="Camacho POS Colombia"
@@ -25,13 +27,23 @@
         <category android:name="android.intent.category.LAUNCHER" />
       </intent-filter>
     </activity>
-    <!-- LoginActivity intentionally absent until BUSINESS ceremony is connected. -->
     <activity
         android:name="co.camachopos.colombia.ui.PosShellActivity"
         android:exported="false" />
     <activity
         android:name="co.camachopos.colombia.auth.BusinessAuthorizationCallbackActivity"
-        android:exported="false"
-        android:noHistory="true" />
+        android:exported="true"
+        android:launchMode="singleTop"
+        android:noHistory="true">
+      <intent-filter android:autoVerify="true">
+        <action android:name="android.intent.action.VIEW" />
+        <category android:name="android.intent.category.DEFAULT" />
+        <category android:name="android.intent.category.BROWSABLE" />
+        <data
+            android:scheme="https"
+            android:host="central.camachoposcolombia.com"
+            android:path="/android/callback" />
+      </intent-filter>
+    </activity>
   </application>
 </manifest>

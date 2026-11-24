@@ -119,11 +119,83 @@ class LocalPosService : Service() {
             }
         }
 
+        fun takeBusinessAuthorizationCode(): co.camachopos.colombia.auth.AndroidPendingBusinessAuthorization.Exchange? {
+            check(Binder.getCallingUid() == AndroidProcess.myUid())
+            return AndroidBusinessAuthorizationHost.takeForNativeExchange()
+        }
+
+        fun depositBusinessExchange(
+            exchange: co.camachopos.colombia.auth.AndroidPendingBusinessAuthorization.Exchange,
+        ) {
+            check(Binder.getCallingUid() == AndroidProcess.myUid())
+            pendingExchange = exchange
+        }
+
+        fun businessClientId(): String {
+            check(Binder.getCallingUid() == AndroidProcess.myUid())
+            return JSONObject(status).optString("business_client_id", "android-commercial")
+        }
+
+        fun registerNativeBusinessRequest(
+            material: JSONObject,
+            callback: (JSONObject) -> Unit,
+        ) {
+            check(Binder.getCallingUid() == AndroidProcess.myUid())
+            request(
+                JSONObject()
+                    .put("protocol_version", "1.0.0")
+                    .put("message_type", "android.business.native_request")
+                    .put("request_id", java.util.UUID.randomUUID().toString())
+                    .put("correlation_id", JSONObject.NULL)
+                    .put("payload", material),
+                callback,
+            )
+        }
+
+        fun completeBusinessTokenExchange(callback: (JSONObject) -> Unit) {
+            check(Binder.getCallingUid() == AndroidProcess.myUid())
+            val exchange = pendingExchange
+            if (exchange == null) {
+                callback(
+                    JSONObject()
+                        .put("status", "FAILED")
+                        .put("result_code", "BUSINESS_EXCHANGE_MISSING")
+                        .put(
+                            "error",
+                            JSONObject()
+                                .put("code", "BUSINESS_EXCHANGE_MISSING")
+                                .put("user_message", "No hay código BUSINESS pendiente de canje."),
+                        ),
+                )
+                return
+            }
+            request(
+                JSONObject()
+                    .put("protocol_version", "1.0.0")
+                    .put("message_type", "android.business.token_exchange")
+                    .put("request_id", java.util.UUID.randomUUID().toString())
+                    .put("correlation_id", JSONObject.NULL)
+                    .put(
+                        "payload",
+                        JSONObject()
+                            .put("code", exchange.code)
+                            .put("code_verifier", exchange.verifier)
+                            .put("state", exchange.state)
+                            .put("client_id", exchange.clientId)
+                            .put("redirect_uri", exchange.redirectUri),
+                    ),
+                callback,
+            )
+        }
+
         fun stop() {
             check(Binder.getCallingUid() == AndroidProcess.myUid())
             requestStop()
         }
     }
+
+    @Volatile
+    private var pendingExchange: co.camachopos.colombia.auth.AndroidPendingBusinessAuthorization.Exchange? = null
 
     override fun onBind(intent: Intent?): IBinder = LocalBinder()
 

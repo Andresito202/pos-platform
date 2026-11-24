@@ -87,7 +87,8 @@ export class AndroidCommercialHost {
       ) as NodeJS.ProcessEnv;
       env.POS_DATA_DIRECTORY = this.directory;
       env.NODE_ENV = "development";
-      if (existsSync(authStore)) env.POS_LOCAL_OPERATOR_AUTH_STORE = authStore;
+      // Android commercial never elevates local-operator into CommercialRequestHandler.
+      // SSA/session.activate is the only commercial authority path.
       this.config = parseServiceConfig(env);
       this.durableSync = new DurableSyncComponent(this.database);
       await this.durableSync.start();
@@ -142,7 +143,7 @@ export class AndroidCommercialHost {
       this.handler = new CommercialRequestHandler(
         this.config,
         this.commercial,
-        (connectionId) => this.operators?.resolve(connectionId) ?? null,
+        () => null,
       );
       modules.push("commercial");
       security = "PROVISIONED";
@@ -208,10 +209,28 @@ export class AndroidCommercialHost {
     }
 
     if (
+      request.message_type === "android.business.native_request"
+      || request.message_type === "android.business.token_exchange"
+    ) {
+      // Central native-request / token routes are prepared in DeviceProof allowlists
+      // but not simulated. Fail closed until enrollment + Central composition exist.
+      return this.denied(
+        request,
+        request.message_type === "android.business.native_request"
+          ? "BUSINESS_NATIVE_REQUEST_UNAVAILABLE"
+          : "BUSINESS_TOKEN_EXCHANGE_UNAVAILABLE",
+        request.message_type === "android.business.native_request"
+          ? "Central aún no acepta solicitudes nativas Android con DeviceProof en este despliegue."
+          : "El canje de token BUSINESS con DeviceProof no está disponible sin Central y credencial enrolada.",
+      );
+    }
+
+    if (
       request.message_type === "local.operator.login"
       || request.message_type === "local.operator.session"
       || request.message_type === "local.operator.logout"
     ) {
+      // Kept for lab probes only; commercial UI must not use these for authorization.
       return this.handleOperator(request);
     }
 

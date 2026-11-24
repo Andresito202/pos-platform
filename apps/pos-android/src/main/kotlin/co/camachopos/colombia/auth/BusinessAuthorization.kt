@@ -35,14 +35,38 @@ class AndroidPendingBusinessAuthorization(private val registration:AndroidNative
     private val clock:()->Long={System.nanoTime()/1_000_000}) {
     private var verifier:ByteArray?=null;private var state:ByteArray?=null;private var startedAt=0L
     data class Exchange(val code:String,val verifier:String,val state:String,val clientId:String,val redirectUri:String)
+    /** Material for DeviceProof native-request registration. Verifier stays on device. */
+    data class PkceMaterial(
+        val clientId:String,
+        val redirectUri:String,
+        val codeChallenge:String,
+        val codeChallengeMethod:String,
+        val state:String,
+    )
     init { require(lifetimeMs>0) }
     private fun b64(value:ByteArray)=Base64.getUrlEncoder().withoutPadding().encodeToString(value)
-    @Synchronized fun begin():String {
+    /** Creates local PKCE custody that Central must bind via DeviceProof before browser open. */
+    @Synchronized fun prepare():PkceMaterial {
         cancel();val random=SecureRandom();verifier=ByteArray(48).also { random.nextBytes(it) };state=ByteArray(32).also { random.nextBytes(it) };startedAt=clock()
         val challenge=b64(MessageDigest.getInstance("SHA-256").digest(b64(verifier!!).toByteArray(Charsets.US_ASCII)))
+        return PkceMaterial(registration.clientId,registration.callback,challenge,"S256",b64(state!!))
+    }
+    /** Legacy PKCE URL kept for JVM contract tests only. */
+    @Synchronized fun begin():String {
+        val material=prepare()
         fun encode(value:String)=java.net.URLEncoder.encode(value,"UTF-8")
-        return registration.origin+"/v1/commercial/login?client_id="+encode(registration.clientId)+"&redirect_uri="+encode(registration.callback)+
-            "&code_challenge="+challenge+"&code_challenge_method=S256&state="+b64(state!!)
+        return registration.origin+"/v1/commercial/login?client_id="+encode(material.clientId)+"&redirect_uri="+encode(material.redirectUri)+
+            "&code_challenge="+material.codeChallenge+"&code_challenge_method="+material.codeChallengeMethod+"&state="+material.state
+    }
+    /**
+     * V2 navigation after Central accepted the same PKCE material under DeviceProof.
+     * Does not regenerate verifier/state — that would break callback correlation.
+     */
+    @Synchronized fun loginUrlForRequest(requestSelector:String):String {
+        require(requestSelector.matches(Regex("^[A-Za-z0-9_-]{43}$"))) { "NATIVE_REQUEST_SELECTOR_REJECTED" }
+        check(verifier!=null&&state!=null) { "BUSINESS_PKCE_NOT_PREPARED" }
+        val now=clock();check(now>=startedAt&&now-startedAt<lifetimeMs) { "BUSINESS_PKCE_EXPIRED" }
+        return registration.origin+"/v1/commercial/login?request="+requestSelector
     }
     @Synchronized fun consume(callback:String):Exchange? {
         val secret=state?:return null;val codeVerifier=verifier?:return null
@@ -66,7 +90,7 @@ class AndroidPendingBusinessAuthorization(private val registration:AndroidNative
 
 /** The only constructor is behind HTTPS DAL + installed APK signer verification.
  * No caller boolean substitutes association. OS intent-filter verification and
- * D3 activation remain separate; the current probe manifest has no App Link. */
+ * D3 activation remain separate. */
 class VerifiedAndroidBusinessAppLink private constructor(val registration:AndroidNativeRegistration) {
     companion object {
         fun verify(context:Context,registration:AndroidNativeRegistration,timeoutMs:Int):VerifiedAndroidBusinessAppLink {
@@ -108,15 +132,29 @@ class VerifiedAndroidBusinessAppLink private constructor(val registration:Androi
             return output.toByteArray()
         }
     }
+    /** Legacy test helper — commercial entry must use prepared PKCE + V2 selector. */
     fun openSystemBrowser(context:Context,lifetimeMs:Long):AndroidPendingBusinessAuthorization {
         check(context.packageName==registration.packageId)
         val pending=AndroidPendingBusinessAuthorization(registration,lifetimeMs)
-        val url=pending.begin();val intent=Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val url=pending.begin()
+        openUrl(context,url,pending)
+        return pending
+    }
+    fun openSystemBrowserWithRequest(
+        context:Context,
+        pending:AndroidPendingBusinessAuthorization,
+        requestSelector:String,
+    ) {
+        check(context.packageName==registration.packageId)
+        val url=pending.loginUrlForRequest(requestSelector)
+        openUrl(context,url,pending)
+    }
+    private fun openUrl(context:Context,url:String,pending:AndroidPendingBusinessAuthorization) {
+        val intent=Intent(Intent.ACTION_VIEW,android.net.Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         try{
             val target=context.packageManager.resolveActivity(intent,PackageManager.MATCH_DEFAULT_ONLY)?:error("ANDROID_SYSTEM_BROWSER_UNAVAILABLE")
             check(target.activityInfo.packageName!=context.packageName) { "ANDROID_AUTH_BROWSER_CANNOT_BE_SELF" }
             context.startActivity(intent)
         }catch(error:Exception){pending.cancel();throw error}
-        return pending
     }
 }

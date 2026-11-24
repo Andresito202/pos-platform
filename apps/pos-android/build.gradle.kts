@@ -35,7 +35,11 @@ tasks.withType<JavaCompile>().configureEach {
 
 sourceSets {
     main {
-        kotlin.srcDirs("src/main/kotlin")
+        kotlin.srcDirs(
+            "src/main/kotlin",
+            // Existing android-hardware adapters (UsbHostTransport / HardwareCore).
+            "../pos-local-service/native/android-hardware/src/main/kotlin",
+        )
     }
     create("commercialIdentityTest") {
         kotlin.srcDir("src/test/kotlin")
@@ -65,10 +69,11 @@ tasks.register("commercialApk") {
             "Linux build host required for aapt2/r8 packaging"
         }
         val brandAssets = file("src/main/assets")
-        val runtimeAssets = file("../../tools/android-lab-probes/build/runtime-assets/runtime")
-        require(file("${runtimeAssets}/files.json").isFile) {
-            "Embedded runtime assets missing. Build tools/android-lab-probes runtime (prepare/extract/compile/package) first."
-        }
+        val runtimeAssets = sequenceOf(
+            file("build/staging-runtime"),
+            file("../../tools/android-lab-probes/build/runtime-assets/runtime"),
+        ).firstOrNull { file("${it}/files.json").isFile }
+            ?: error("Embedded runtime assets missing. Build tools/android-lab-probes runtime (prepare/extract/compile/package) first.")
         val out = layout.buildDirectory.dir("commercial-apk").get().asFile.apply { mkdirs() }
         val stagedAssets = file("${out}/assets").apply {
             deleteRecursively()
@@ -132,8 +137,14 @@ tasks.register("commercialApk") {
             "SignApk", keystore.path, unsigned.path, apk.path,
         )
         run(aapt.path, "dump", "badging", apk.path)
+        // Drop unpacked runtime from the project tree so ARCH-003 does not scan
+        // embedded Node requires (better-sqlite3) under apps/pos-android/build.
+        stagedAssets.deleteRecursively()
         println("SIGNED_APK=${apk.absolutePath}")
         println("UNSIGNED_APK=${unsigned.absolutePath}")
+        println("APK_SHA256=" + java.security.MessageDigest.getInstance("SHA-256")
+            .digest(apk.readBytes())
+            .joinToString("") { "%02x".format(it) })
     }
 }
 

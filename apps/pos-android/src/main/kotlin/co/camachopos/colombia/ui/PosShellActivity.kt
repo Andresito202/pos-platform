@@ -19,19 +19,27 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import co.camachopos.colombia.CommercialIdentity
+import co.camachopos.colombia.hardware.CommercialHardwareBridge
+import co.camachopos.colombia.hardware.HardwareSurfaceGate
 import co.camachopos.colombia.runtime.LocalPosService
 import co.camachopos.colombia.runtime.PosClient
+import co.camachopos.colombia.runtime.TrialCapacityBridge
+import co.camachopos.colombia.security.OfflineExpiryPolicy
+import org.json.JSONArray
 import org.json.JSONObject
+import java.time.LocalDate
+import java.time.ZoneId
 
 /**
- * Commercial workspace: Caja, carrito, catálogo, inventario, clientes, turnos.
- * Every action invokes Local Service contracts through the embedded engine.
+ * Commercial workspace backed only by Local Service contracts + SSA session.
+ * No mock successes. Every action invokes a real message_type.
  */
 class PosShellActivity : Activity() {
     private var binder: LocalPosService.LocalBinder? = null
     private var client: PosClient? = null
     private lateinit var content: LinearLayout
     private lateinit var statusLine: TextView
+    private var hardware: CommercialHardwareBridge? = null
     private val yellow = Color.parseColor("#FFC400")
     private val navy = Color.parseColor("#10283D")
     private val surface = Color.parseColor("#F3F6F8")
@@ -42,16 +50,16 @@ class PosShellActivity : Activity() {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             binder = service as LocalPosService.LocalBinder
             client = PosClient(binder!!)
-            client?.session { result ->
+            hardware = CommercialHardwareBridge(this@PosShellActivity)
+            client?.recoverSession { result ->
                 runOnUiThread {
                     val outcome = result.optJSONObject("result")?.optString("outcome")
-                    if (outcome != "AUTHENTICATED") {
+                    if (outcome != "ACTIVE") {
                         startActivity(Intent(this@PosShellActivity, EntryActivity::class.java))
                         finish()
                     } else {
-                        val username = result.optJSONObject("result")?.optString("username").orEmpty()
-                        val role = result.optJSONObject("result")?.optString("role").orEmpty()
-                        statusLine.text = "$username · $role"
+                        val sessionId = result.optJSONObject("result")?.optString("session_id").orEmpty()
+                        statusLine.text = if (sessionId.isBlank()) "Sesión BUSINESS" else "Sesión · ${sessionId.take(8)}"
                         showHome()
                     }
                 }
@@ -60,6 +68,7 @@ class PosShellActivity : Activity() {
         override fun onServiceDisconnected(name: ComponentName?) {
             binder = null
             client = null
+            hardware = null
         }
     }
 
@@ -115,31 +124,45 @@ class PosShellActivity : Activity() {
             "Catálogo" to { showCatalog() },
             "Inventario" to { showInventory() },
             "Clientes" to { showCustomers() },
-            "Licencia" to { showLicense() },
+            "Pagos / Sync" to { showPayments() },
+            "Hardware" to { showHardware() },
+            "Licencia / Trial" to { showLicense() },
+            "Permisos" to { showCapabilities() },
             "Cerrar sesión" to { logout() },
-        ).forEach { (label, action) ->
-            content.addView(primaryButton(label, action))
-        }
+        ).forEach { (label, action) -> content.addView(primaryButton(label, action)) }
     }
 
     private fun showCash() {
         screen("Caja / Turnos") {
-            val register = field("ID de caja")
-            val amount = field("Monto de apertura")
+            val register = field("ID de caja (UUID)")
+            val amount = field("Monto de apertura (scale-6)")
             addView(register)
             addView(amount)
             addView(primaryButton("Abrir turno") {
+                val zone = ZoneId.systemDefault()
                 client?.invoke(
                     "cash.shift.open",
                     JSONObject()
                         .put("cash_register_id", register.text.toString().trim())
-                        .put("opening_amount", amount.text.toString().trim()),
+                        .put("opening_amount", amount.text.toString().trim())
+                        .put("business_date", LocalDate.now(zone).toString())
+                        .put("timezone_id", zone.id)
+                        .put("utc_offset_minutes", zone.rules.getOffset(java.time.Instant.now()).totalSeconds / 60),
+                    idempotent = true,
                 ) { showResult(it) }
             })
+            val shiftId = field("ID de turno abierto")
+            val expected = field("Versión esperada al cerrar")
+            addView(shiftId)
+            addView(expected)
             addView(primaryButton("Cerrar turno") {
                 client?.invoke(
                     "cash.shift.close",
-                    JSONObject().put("cash_register_id", register.text.toString().trim()),
+                    JSONObject()
+                        .put("shift_id", shiftId.text.toString().trim())
+                        .put("expected_version", expected.text.toString().trim().toIntOrNull() ?: 1)
+                        .put("counted_amount", amount.text.toString().trim().ifBlank { "0.000000" }),
+                    idempotent = true,
                 ) { showResult(it) }
             })
         }
@@ -147,15 +170,74 @@ class PosShellActivity : Activity() {
 
     private fun showSales() {
         screen("Carrito / Ventas") {
-            addView(note("Las ventas usan los contratos sale.create / cart.waiting.* del servicio local."))
+            val register = field("ID de caja (UUID o vacío)")
+            val product = field("ID producto")
+            val presentation = field("ID presentación")
+            val quantity = field("Cantidad scale-6")
+            val barcode = field("Identificador escaneado (opcional)")
+            addView(register); addView(product); addView(presentation); addView(quantity); addView(barcode)
+            addView(primaryButton("Crear venta (offline/local)") {
+                val zone = ZoneId.systemDefault()
+                val registerId = register.text.toString().trim()
+                client?.invoke(
+                    "sale.create",
+                    JSONObject()
+                        .put("cash_register_id", if (registerId.isBlank()) JSONObject.NULL else registerId)
+                        .put("customer_id", JSONObject.NULL)
+                        .put("channel", "POS")
+                        .put("business_date", LocalDate.now(zone).toString())
+                        .put("timezone_id", zone.id)
+                        .put("utc_offset_minutes", zone.rules.getOffset(java.time.Instant.now()).totalSeconds / 60)
+                        .put("document_series", "POS")
+                        .put("currency_code", "COP")
+                        .put(
+                            "lines",
+                            JSONArray().put(
+                                JSONObject()
+                                    .put("product_id", product.text.toString().trim())
+                                    .put("presentation_id", presentation.text.toString().trim())
+                                    .put("quantity", quantity.text.toString().trim())
+                                    .put(
+                                        "identifier",
+                                        barcode.text.toString().trim().ifBlank { JSONObject.NULL },
+                                    ),
+                            ),
+                        ),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            val cartId = field("ID carrito en espera")
+            addView(cartId)
             addView(primaryButton("Listar carritos en espera") {
                 client?.invoke("cart.waiting.list") { showResult(it) }
             })
-            val saleId = field("ID de venta a cancelar")
+            addView(primaryButton("Obtener carrito") {
+                client?.invoke(
+                    "cart.waiting.get",
+                    JSONObject().put("cart_id", cartId.text.toString().trim()),
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Descartar carrito") {
+                client?.invoke(
+                    "cart.waiting.discard",
+                    JSONObject()
+                        .put("cart_id", cartId.text.toString().trim())
+                        .put("expected_version", 1),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            val saleId = field("ID de venta")
             addView(saleId)
             addView(primaryButton("Cancelar venta") {
                 client?.invoke(
                     "sale.cancel",
+                    JSONObject().put("sale_id", saleId.text.toString().trim()),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Ver recibo") {
+                client?.invoke(
+                    "sales.receipt.get",
                     JSONObject().put("sale_id", saleId.text.toString().trim()),
                 ) { showResult(it) }
             })
@@ -164,15 +246,31 @@ class PosShellActivity : Activity() {
 
     private fun showCatalog() {
         screen("Catálogo") {
-            addView(primaryButton("Listar productos") {
-                client?.invoke("catalog.item.list", JSONObject()) { showResult(it) }
-            })
-            val query = field("Buscar producto")
+            val query = field("Consulta")
             addView(query)
-            addView(primaryButton("Buscar") {
+            addView(primaryButton("Listar productos") {
+                client?.invoke(
+                    "catalog.item.list",
+                    JSONObject()
+                        .put("query", query.text.toString().trim())
+                        .put("limit", 40)
+                        .put("offset", 0),
+                ) { showResult(it) }
+            })
+            val barcode = field("Código de barras")
+            addView(barcode)
+            addView(primaryButton("Buscar por código") {
                 client?.invoke(
                     "catalog.item.find",
-                    JSONObject().put("query", query.text.toString().trim()),
+                    JSONObject().put("barcode", barcode.text.toString().trim()),
+                ) { showResult(it) }
+            })
+            val presentation = field("ID presentación")
+            addView(presentation)
+            addView(primaryButton("Obtener presentación") {
+                client?.invoke(
+                    "catalog.item.get",
+                    JSONObject().put("presentation_id", presentation.text.toString().trim()),
                 ) { showResult(it) }
             })
         }
@@ -180,18 +278,44 @@ class PosShellActivity : Activity() {
 
     private fun showInventory() {
         screen("Inventario") {
-            val product = field("ID de producto")
-            addView(product)
+            val presentation = field("ID presentación")
+            val qty = field("Cantidad scale-6")
+            val reason = field("Código motivo (REASON_CODE)")
+            addView(presentation); addView(qty); addView(reason)
             addView(primaryButton("Consultar stock") {
                 client?.invoke(
                     "inventory.stock.get",
-                    JSONObject().put("product_id", product.text.toString().trim()),
+                    JSONObject().put("presentation_id", presentation.text.toString().trim()),
                 ) { showResult(it) }
             })
             addView(primaryButton("Listar lotes") {
                 client?.invoke(
                     "inventory.batch.list",
-                    JSONObject().put("product_id", product.text.toString().trim()),
+                    JSONObject().put("presentation_id", presentation.text.toString().trim()),
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Recibir stock") {
+                client?.invoke(
+                    "inventory.stock.receive",
+                    JSONObject()
+                        .put("presentation_id", presentation.text.toString().trim())
+                        .put("movement_type", "PURCHASE_RECEIPT")
+                        .put("quantity", qty.text.toString().trim())
+                        .put("reason_code", reason.text.toString().trim().ifBlank { "PURCHASE_RECEIPT" })
+                        .put("business_date", LocalDate.now().toString()),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Ajustar stock (+)") {
+                client?.invoke(
+                    "inventory.stock.adjust",
+                    JSONObject()
+                        .put("presentation_id", presentation.text.toString().trim())
+                        .put("movement_type", "ADJUSTMENT_POSITIVE")
+                        .put("quantity", qty.text.toString().trim())
+                        .put("reason_code", reason.text.toString().trim().ifBlank { "ADJUSTMENT_POSITIVE" })
+                        .put("business_date", LocalDate.now().toString()),
+                    idempotent = true,
                 ) { showResult(it) }
             })
         }
@@ -199,22 +323,236 @@ class PosShellActivity : Activity() {
 
     private fun showCustomers() {
         screen("Clientes") {
-            val query = field("Documento o nombre")
-            addView(query)
+            val docCode = field("Código DIAN documento (13=CC)")
+            val doc = field("Identificación (solo dígitos)")
+            val names = field("Nombres")
+            addView(docCode); addView(doc); addView(names)
             addView(primaryButton("Buscar cliente") {
                 client?.invoke(
                     "customer.find",
-                    JSONObject().put("query", query.text.toString().trim()),
+                    JSONObject()
+                        .put("identification_document_code", docCode.text.toString().trim().ifBlank { "13" })
+                        .put("identification", doc.text.toString().trim()),
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Registrar cliente") {
+                client?.invoke(
+                    "customer.register",
+                    JSONObject()
+                        .put("identification_document_code", docCode.text.toString().trim().ifBlank { "13" })
+                        .put("identification", doc.text.toString().trim())
+                        .put("verification_digit", JSONObject.NULL)
+                        .put("legal_organization_code", "2")
+                        .put("company", JSONObject.NULL)
+                        .put("names", names.text.toString().trim())
+                        .put("tribute_code", "ZZ")
+                        .put("fiscal_responsibility_codes", JSONArray().put("R-99-PN"))
+                        .put("email", JSONObject.NULL)
+                        .put("phone", JSONObject.NULL)
+                        .put("address", JSONObject.NULL)
+                        .put("country_code", "CO")
+                        .put("municipality_code", JSONObject.NULL),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            val customerId = field("ID cliente")
+            addView(customerId)
+            addView(primaryButton("Obtener cliente") {
+                client?.invoke(
+                    "customer.get",
+                    JSONObject().put("customer_id", customerId.text.toString().trim()),
+                ) { showResult(it) }
+            })
+        }
+    }
+
+    private fun showPayments() {
+        screen("Pagos / Sync") {
+            val saleId = field("ID venta")
+            val amount = field("Monto scale-6")
+            val paymentId = field("ID pago")
+            val version = field("Versión esperada")
+            addView(saleId); addView(amount); addView(paymentId); addView(version)
+            addView(primaryButton("Registrar efectivo") {
+                client?.invoke(
+                    "payment.register.cash",
+                    JSONObject()
+                        .put("sale_id", saleId.text.toString().trim())
+                        .put("amount", amount.text.toString().trim()),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Transferencia Nequi/Bre-B") {
+                client?.invoke(
+                    "payment.register.transfer",
+                    JSONObject()
+                        .put("sale_id", saleId.text.toString().trim())
+                        .put("amount", amount.text.toString().trim())
+                        .put("provider_code", "NEQUI")
+                        .put("provider_reference", JSONObject.NULL),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Confirmar transferencia") {
+                client?.invoke(
+                    "payment.transfer.confirm",
+                    JSONObject()
+                        .put("payment_id", paymentId.text.toString().trim())
+                        .put("expected_version", version.text.toString().trim().toIntOrNull() ?: 1),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            addView(primaryButton("FACTUS Pay cobrar") {
+                client?.invoke(
+                    "payment.factus_pay.collect",
+                    JSONObject()
+                        .put("sale_id", saleId.text.toString().trim())
+                        .put("amount", amount.text.toString().trim())
+                        .put("expiration_seconds", 900),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            addView(primaryButton("FACTUS Pay verificar") {
+                client?.invoke(
+                    "payment.factus_pay.verify",
+                    JSONObject()
+                        .put("payment_id", paymentId.text.toString().trim())
+                        .put("expected_version", version.text.toString().trim().toIntOrNull() ?: 1),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            addView(primaryButton("FACTUS Pay reanudar") {
+                client?.invoke(
+                    "payment.factus_pay.resume",
+                    JSONObject().put("sale_id", saleId.text.toString().trim()),
+                    idempotent = true,
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Consultar pago") {
+                client?.invoke(
+                    "payment.get",
+                    JSONObject().put("payment_id", paymentId.text.toString().trim()),
+                ) { showResult(it) }
+            })
+            addView(note("Outbox/sync: el motor DurableSync arranca con provisión. El estado se observa vía licencia y resultados de venta offline."))
+            addView(primaryButton("Estado del servicio") {
+                val status = binder?.status().orEmpty()
+                showResult(
+                    JSONObject()
+                        .put("status", "SUCCEEDED")
+                        .put("result_code", "HOST_STATUS")
+                        .put("result", JSONObject(status)),
+                )
+            })
+        }
+    }
+
+    private fun showHardware() {
+        screen("Hardware") {
+            val bridge = hardware
+            addView(note("CH340 VID/PID ${HardwareSurfaceGate.CH340_VENDOR_ID}/${HardwareSurfaceGate.CH340_PRODUCT_ID}. Impresora/cajón vía UsbHostTransport existente. Sin pulso físico simulado."))
+            addView(primaryButton("Descubrir USB") {
+                val devices = bridge?.discover().orEmpty()
+                showResult(
+                    JSONObject()
+                        .put("status", "SUCCEEDED")
+                        .put("result_code", "USB_INVENTORY")
+                        .put("result", JSONObject().put("devices", JSONArray(devices.map {
+                            JSONObject()
+                                .put("name", it.deviceName)
+                                .put("vendorId", it.vendorId)
+                                .put("productId", it.productId)
+                                .put("permission", it.permissionGranted)
+                                .put("kind", HardwareSurfaceGate.classify(it.vendorId, it.productId))
+                        }))),
+                )
+            })
+            addView(primaryButton("Pedir permiso CH340") {
+                val scale = bridge?.discover()?.firstOrNull {
+                    it.vendorId == HardwareSurfaceGate.CH340_VENDOR_ID && it.productId == HardwareSurfaceGate.CH340_PRODUCT_ID
+                }
+                if (scale == null) {
+                    showResult(failed("SCALE_NOT_PRESENT", "No hay CH340 conectado."))
+                } else {
+                    bridge.requestPermission(scale.deviceName)
+                    showResult(
+                        JSONObject()
+                            .put("status", "SUCCEEDED")
+                            .put("result_code", "USB_PERMISSION_REQUESTED")
+                            .put("result", JSONObject().put("device", scale.deviceName)),
+                    )
+                }
+            })
+            val register = field("ID caja para pesaje")
+            val presentation = field("ID presentación masa")
+            addView(register); addView(presentation)
+            addView(primaryButton("Capturar peso (contrato)") {
+                client?.invoke(
+                    "hardware.command",
+                    JSONObject()
+                        .put("action", "capture_weight")
+                        .put("cash_register_id", register.text.toString().trim())
+                        .put("presentation_id", presentation.text.toString().trim()),
+                ) { showResult(it) }
+            })
+            val jobId = field("Job ID")
+            val saleId = field("Sale ID")
+            val bindingId = field("Binding ID")
+            addView(jobId); addView(saleId); addView(bindingId)
+            addView(primaryButton("Listar hardware") {
+                client?.invoke("hardware.command", JSONObject().put("action", "list")) { showResult(it) }
+            })
+            addView(primaryButton("Diagnosticar hardware") {
+                client?.invoke("hardware.command", JSONObject().put("action", "diagnose")) { showResult(it) }
+            })
+            addView(primaryButton("Imprimir recibo (contrato)") {
+                client?.invoke(
+                    "hardware.command",
+                    JSONObject()
+                        .put("action", "print_receipt")
+                        .put("job_id", jobId.text.toString().trim())
+                        .put("sale_id", saleId.text.toString().trim()),
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Encolar apertura de cajón") {
+                if (!HardwareSurfaceGate.isCommercialHardwareReady(true, false)) {
+                    showResult(
+                        failed(
+                            HardwareSurfaceGate.DRAWER_BLOCK_REASON,
+                            "Perfil eléctrico del cajón M60WL no verificado en este dispositivo.",
+                        ),
+                    )
+                    return@primaryButton
+                }
+                client?.invoke(
+                    "hardware.command",
+                    JSONObject()
+                        .put("action", "enqueue")
+                        .put("job_id", jobId.text.toString().trim())
+                        .put("binding_id", bindingId.text.toString().trim())
+                        .put("kind", "DRAWER_OPEN")
+                        .put("sale_id", JSONObject.NULL)
+                        .put("reason", "CASH_DRAWER_OPEN"),
+                ) { showResult(it) }
+            })
+            addView(primaryButton("Despachar job") {
+                client?.invoke(
+                    "hardware.command",
+                    JSONObject()
+                        .put("action", "dispatch")
+                        .put("job_id", jobId.text.toString().trim()),
                 ) { showResult(it) }
             })
         }
     }
 
     private fun showLicense() {
-        screen("Licencia") {
+        screen("Licencia / Trial") {
+            addView(note(TrialCapacityBridge.describeCapacityPolicy()))
             addView(primaryButton("Consultar licencia") {
                 binder?.queryLicenseInformation { info ->
                     runOnUiThread {
+                        val allowed = OfflineExpiryPolicy.allowsCommercialSale(info.status, trustedClockOk = true)
                         showResult(
                             JSONObject()
                                 .put("status", "SUCCEEDED")
@@ -224,7 +562,10 @@ class PosShellActivity : Activity() {
                                     JSONObject()
                                         .put("status", info.status)
                                         .put("signedValidUntil", info.signedValidUntil)
-                                        .put("lastAcceptedLocalCheck", info.lastAcceptedLocalCheck),
+                                        .put("lastAcceptedLocalCheck", info.lastAcceptedLocalCheck)
+                                        .put("trialHours", TrialCapacityBridge.TRIAL_HOURS)
+                                        .put("offlineGraceHours", TrialCapacityBridge.OFFLINE_GRACE_HOURS)
+                                        .put("saleAllowed", allowed),
                                 ),
                         )
                     }
@@ -233,13 +574,21 @@ class PosShellActivity : Activity() {
         }
     }
 
-    private fun logout() {
-        client?.logout {
-            runOnUiThread {
-                startActivity(Intent(this, EntryActivity::class.java))
-                finish()
-            }
+    private fun showCapabilities() {
+        screen("Permisos") {
+            addView(primaryButton("Leer capacidades SSA") {
+                client?.capabilities { showResult(it) }
+            })
+            addView(primaryButton("Recuperar sesión") {
+                client?.recoverSession { showResult(it) }
+            })
         }
+    }
+
+    private fun logout() {
+        // BUSINESS logout is session expiry/revoke via Central; clear local recoverability by leaving.
+        startActivity(Intent(this, EntryActivity::class.java))
+        finish()
     }
 
     private fun screen(name: String, build: LinearLayout.() -> Unit) {
@@ -255,17 +604,25 @@ class PosShellActivity : Activity() {
                 val userMessage = result.optJSONObject("error")?.optString("user_message")
                 val code = result.optString("result_code")
                 val status = result.optString("status")
+                val body = result.optJSONObject("result")
                 text = when {
                     !userMessage.isNullOrBlank() -> userMessage
+                    status == "SUCCEEDED" && body != null -> "OK ($code)\n${body.toString(2)}"
                     status == "SUCCEEDED" -> "Operación completada ($code)."
                     else -> "No se pudo completar la operación ($code)."
                 }
                 setTextColor(if (status == "SUCCEEDED") ink else danger)
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setPadding(0, dp(12), 0, 0)
+                setTextIsSelectable(true)
             },
         )
     }
+
+    private fun failed(code: String, message: String) = JSONObject()
+        .put("status", "FAILED")
+        .put("result_code", code)
+        .put("error", JSONObject().put("code", code).put("user_message", message))
 
     private fun title(text: String) = TextView(this).apply {
         this.text = text

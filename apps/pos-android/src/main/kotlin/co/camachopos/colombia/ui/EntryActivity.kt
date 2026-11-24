@@ -11,22 +11,22 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.IBinder
-import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.widget.Button
-import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import co.camachopos.colombia.CommercialIdentity
+import co.camachopos.colombia.auth.BusinessCeremonyCoordinator
 import co.camachopos.colombia.runtime.LocalPosService
 import co.camachopos.colombia.runtime.PosClient
+import org.json.JSONObject
 
 /**
- * Commercial entry matching Windows Commercial Precision identity:
- * navy brand stage, official lockup, yellow primary action.
+ * Commercial entry: Windows yellow identity + BUSINESS ceremony only.
+ * local.operator.login is intentionally absent — it must not authorize commerce.
  */
 class EntryActivity : Activity() {
     private var binder: LocalPosService.LocalBinder? = null
@@ -44,12 +44,13 @@ class EntryActivity : Activity() {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             binder = service as LocalPosService.LocalBinder
             client = PosClient(binder!!)
-            client?.session { result ->
+            client?.recoverSession { result ->
                 runOnUiThread {
                     val outcome = result.optJSONObject("result")?.optString("outcome")
-                    if (outcome == "AUTHENTICATED") openWorkspace()
+                    if (outcome == "ACTIVE") openWorkspace()
                 }
             }
+            resumeExchangeIfPresent()
         }
         override fun onServiceDisconnected(name: ComponentName?) {
             binder = null
@@ -118,34 +119,10 @@ class EntryActivity : Activity() {
             setPadding(0, dp(8), 0, 0)
         }
         val lead = TextView(this).apply {
-            text = "Ingresa a tu espacio de trabajo."
+            text = "Acceso BUSINESS con Central, DeviceProof, App Links y SSA."
             setTextColor(ink)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             setPadding(0, dp(8), 0, 0)
-        }
-        val username = EditText(this).apply {
-            hint = "Usuario"
-            setHintTextColor(muted)
-            setTextColor(ink)
-            setBackgroundColor(Color.WHITE)
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-            inputType = InputType.TYPE_CLASS_TEXT
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56)).apply {
-                topMargin = dp(20)
-            }
-            minimumHeight = dp(56)
-        }
-        val password = EditText(this).apply {
-            hint = "Contraseña"
-            setHintTextColor(muted)
-            setTextColor(ink)
-            setBackgroundColor(Color.WHITE)
-            setPadding(dp(14), dp(14), dp(14), dp(14))
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56)).apply {
-                topMargin = dp(12)
-            }
-            minimumHeight = dp(56)
         }
         messageView = TextView(this).apply {
             text = ""
@@ -154,7 +131,7 @@ class EntryActivity : Activity() {
             setPadding(0, dp(12), 0, 0)
         }
         loginButton = Button(this).apply {
-            text = "Ingresar"
+            text = "Ingresar con BUSINESS"
             filterTouchesWhenObscured = true
             setBackgroundColor(yellow)
             setTextColor(navy)
@@ -163,52 +140,11 @@ class EntryActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(56)).apply {
                 topMargin = dp(16)
             }
-            setOnClickListener {
-                val user = username.text?.toString()?.trim().orEmpty()
-                val pass = password.text?.toString().orEmpty()
-                if (user.isEmpty() || pass.isEmpty()) {
-                    messageView.text = "Completa usuario y contraseña."
-                    return@setOnClickListener
-                }
-                val active = client
-                if (active == null) {
-                    messageView.text = "El servicio local aún no está listo."
-                    return@setOnClickListener
-                }
-                isEnabled = false
-                messageView.setTextColor(muted)
-                messageView.text = "Validando sesión…"
-                active.login(user, pass) { result ->
-                    runOnUiThread {
-                        isEnabled = true
-                        val body = result.optJSONObject("result")
-                        val outcome = body?.optString("outcome")
-                        when (outcome) {
-                            "AUTHENTICATED" -> openWorkspace()
-                            "DENIED" -> {
-                                messageView.setTextColor(danger)
-                                messageView.text = "Usuario o contraseña incorrectos."
-                            }
-                            "RATE_LIMITED" -> {
-                                messageView.setTextColor(danger)
-                                messageView.text = "Demasiados intentos. Espera unos minutos."
-                            }
-                            else -> {
-                                messageView.setTextColor(danger)
-                                val userMessage = result.optJSONObject("error")?.optString("user_message")
-                                messageView.text = if (!userMessage.isNullOrBlank()) userMessage
-                                else "No se pudo iniciar sesión en este dispositivo."
-                            }
-                        }
-                    }
-                }
-            }
+            setOnClickListener { startBusiness() }
         }
         form.addView(eyebrow)
         form.addView(title)
         form.addView(lead)
-        form.addView(username)
-        form.addView(password)
         form.addView(loginButton)
         form.addView(messageView)
         root.addView(brandStage)
@@ -217,6 +153,104 @@ class EntryActivity : Activity() {
 
         startForegroundService(Intent(this, LocalPosService::class.java))
         bindService(Intent(this, LocalPosService::class.java), connection, Context.BIND_AUTO_CREATE)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        resumeExchangeIfPresent()
+    }
+
+    private fun startBusiness() {
+        val activeBinder = binder
+        if (activeBinder == null) {
+            messageView.setTextColor(danger)
+            messageView.text = "El servicio local aún no está listo."
+            return
+        }
+        loginButton.isEnabled = false
+        messageView.setTextColor(muted)
+        messageView.text = "Verificando App Links…"
+        val clientId = activeBinder.businessClientId().ifBlank { "android-commercial" }
+        BusinessCeremonyCoordinator.prepare(this, clientId) { outcome ->
+            if (!outcome.ok || outcome.prepared == null) {
+                loginButton.isEnabled = true
+                messageView.setTextColor(danger)
+                messageView.text = outcome.userMessage
+                return@prepare
+            }
+            val material = outcome.prepared.material
+            messageView.text = "Registrando solicitud nativa con DeviceProof…"
+            activeBinder.registerNativeBusinessRequest(
+                JSONObject()
+                    .put("client_id", material.clientId)
+                    .put("redirect_uri", material.redirectUri)
+                    .put("code_challenge", material.codeChallenge)
+                    .put("code_challenge_method", material.codeChallengeMethod)
+                    .put("state", material.state)
+                    .put("purpose", "BUSINESS_NATIVE_AUTHORIZATION_V1"),
+            ) { registration ->
+                runOnUiThread {
+                    if (registration.optString("status") != "SUCCEEDED") {
+                        loginButton.isEnabled = true
+                        messageView.setTextColor(danger)
+                        val userMessage = registration.optJSONObject("error")?.optString("user_message")
+                        messageView.text = if (!userMessage.isNullOrBlank()) userMessage
+                        else "Central no emitió el selector request. Sin DeviceProof enrolado no hay acceso BUSINESS."
+                        return@runOnUiThread
+                    }
+                    val selector = registration.optJSONObject("result")?.optString("request")
+                    if (selector.isNullOrBlank() || !selector.matches(Regex("^[A-Za-z0-9_-]{43}$"))) {
+                        loginButton.isEnabled = true
+                        messageView.setTextColor(danger)
+                        messageView.text = "Central no devolvió un selector request válido."
+                        return@runOnUiThread
+                    }
+                    BusinessCeremonyCoordinator.openBrowser(this, selector) { browser ->
+                        loginButton.isEnabled = true
+                        messageView.setTextColor(if (browser.ok) ink else danger)
+                        messageView.text = browser.userMessage
+                    }
+                }
+            }
+        }
+    }
+
+    private fun resumeExchangeIfPresent() {
+        val exchange = binder?.takeBusinessAuthorizationCode() ?: return
+        val active = client ?: return
+        val activeBinder = binder ?: return
+        messageView.setTextColor(muted)
+        messageView.text = "Código recibido. Canjeando con DeviceProof…"
+        activeBinder.depositBusinessExchange(exchange)
+        activeBinder.completeBusinessTokenExchange { tokenResult ->
+            runOnUiThread {
+                if (tokenResult.optString("status") != "SUCCEEDED") {
+                    messageView.setTextColor(danger)
+                    val userMessage = tokenResult.optJSONObject("error")?.optString("user_message")
+                    messageView.text = if (!userMessage.isNullOrBlank()) userMessage
+                    else "No se pudo canjear el código BUSINESS."
+                    return@runOnUiThread
+                }
+                val assertion = tokenResult.optJSONObject("result")?.optJSONObject("session_assertion")
+                if (assertion == null) {
+                    messageView.setTextColor(danger)
+                    messageView.text = "Central no entregó SSA. No se activa sesión comercial."
+                    return@runOnUiThread
+                }
+                active.activateSession(assertion) { activate ->
+                    runOnUiThread {
+                        if (activate.optString("status") == "SUCCEEDED") {
+                            openWorkspace()
+                        } else {
+                            messageView.setTextColor(danger)
+                            val userMessage = activate.optJSONObject("error")?.optString("user_message")
+                            messageView.text = if (!userMessage.isNullOrBlank()) userMessage
+                            else "No se pudo activar la SSA en el servicio local."
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun openWorkspace() {

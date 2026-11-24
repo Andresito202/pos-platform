@@ -58,4 +58,50 @@ describe("AndroidCommercialHost", () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+
+  it("fails closed on BUSINESS native-request and token exchange without Central", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "camacho-android-host-"));
+    const provider = new AndroidKeystoreKeyProvider(Buffer.alloc(32, 3), "android");
+    const host = new AndroidCommercialHost(directory, provider);
+    try {
+      await host.start();
+      const native = await host.handleRequest({
+        protocol_version: "1.0.0",
+        message_type: "android.business.native_request",
+        request_id: randomUUID(),
+        payload: {
+          client_id: "android-commercial",
+          redirect_uri: "https://central.camachoposcolombia.com/android/callback",
+          code_challenge: "a".repeat(43),
+          code_challenge_method: "S256",
+          state: "b".repeat(43),
+          purpose: "BUSINESS_NATIVE_AUTHORIZATION_V1",
+        },
+      });
+      expect(native).toMatchObject({
+        status: "FAILED",
+        result_code: "BUSINESS_NATIVE_REQUEST_UNAVAILABLE",
+      });
+      const token = await host.handleRequest({
+        protocol_version: "1.0.0",
+        message_type: "android.business.token_exchange",
+        request_id: randomUUID(),
+        payload: {
+          code: "c".repeat(64),
+          code_verifier: "d".repeat(64),
+          state: "e".repeat(43),
+          client_id: "android-commercial",
+          redirect_uri: "https://central.camachoposcolombia.com/android/callback",
+        },
+      });
+      expect(token).toMatchObject({
+        status: "FAILED",
+        result_code: "BUSINESS_TOKEN_EXCHANGE_UNAVAILABLE",
+      });
+    } finally {
+      await host.stop();
+      provider.destroy();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
 });
