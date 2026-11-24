@@ -11,7 +11,7 @@ PR #136 · branch `cursor/android-commercial-integration-c53a`
 | versionCode | 3 |
 | minSdk | 28 |
 | Signing | APK Signature Scheme v2 · test PKCS12 (`hardware-lab`) |
-| APK SHA-256 | `336cb9e579a2c87d65d460d53ccdde2105c4fbe8b277c9cbaf78ba558009cdf6` |
+| APK SHA-256 | `166b48e6875960fe1598aa1ae42bd3b664a18ac9a11b73a1db3f63c9015f6da9` |
 | Size | 73022290 bytes |
 | Artifact copy | `/opt/cursor/artifacts/camacho-pos-colombia-signed.apk` |
 | Runtime `files.json` SHA-256 | see integrity manifest |

@@ -1,7 +1,7 @@
 {
   "pr": 136,
   "branch": "cursor/android-commercial-integration-c53a",
-  "git_head_at_build_start": "e8ce91a9febed2119e339a827d418cf90e694d7b",
+  "git_head_at_build_start": "eb1528cec1d1dd78a2cb1551ae0fce64ae8e377e",
   "package_id": "co.camachopos.colombia",
   "version_name": "0.3.1-native-central",
   "version_code": 3,
@@ -16,7 +16,7 @@
   "apk": {
     "path": "apps/pos-android/build/commercial-apk/camacho-pos-colombia.apk",
     "artifact_copy": "/opt/cursor/artifacts/camacho-pos-colombia-signed.apk",
-    "sha256": "336cb9e579a2c87d65d460d53ccdde2105c4fbe8b277c9cbaf78ba558009cdf6",
+    "sha256": "166b48e6875960fe1598aa1ae42bd3b664a18ac9a11b73a1db3f63c9015f6da9",
     "bytes": 73022290
   },
   "runtime": {
@@ -39,5 +39,5 @@
     "Physical CH340/PRINT/drawer",
     "Play production signing"
   ],
-  "apk_built_from_tree": "e8ce91a9febed2119e339a827d418cf90e694d7b"
+  "apk_built_from_tree": "eb1528cec1d1dd78a2cb1551ae0fce64ae8e377e"
 }
