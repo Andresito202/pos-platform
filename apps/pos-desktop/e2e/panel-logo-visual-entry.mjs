@@ -1,7 +1,9 @@
 /**
- * Electron entry for panel-logo visual evidence only.
- * Authenticates an ADMINISTRADOR stub so sidebar + sales + dashboard render
- * with the real BrandMark. Does not claim commercial authorization.
+ * Electron entry for panel-logo *visual* evidence only (e2e harness).
+ *
+ * Stub channel paints ADMINISTRADOR / CAJERO shells so BrandMark + logo-stage
+ * CSS can be screenshot. Not a commercial session. Not SSA/SAS. Not production
+ * entry. Must never be imported by runtime/production bundles.
  */
 import { bootstrap } from "../dist/main.js";
 

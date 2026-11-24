@@ -1,33 +1,50 @@
-# Panel logo unify — evidencia visual 2026-11-23
+# Panel logo unify — evidencia 2026-11-23 / 2026-11-24
 
-## Alcance
+## Qué faltaba (hallazgo de revisión)
 
-Unificación del `BrandMark` del POS Desktop al lockup amarillo aprobado del login
-(`docs/brand/camacho-pos-colombia-login-entry.png`), sin cajas artificiales detrás
-del logo y sin el mark metálico azul legacy.
+1. El asset del logo se unificó al lockup transparente del login, pero la **zona
+   del logo** en sidebar/header seguía sobre el flat `#152530` / fondo claro del
+   header, sin el tratamiento navy/azul/ámbar del login aprobado.
+2. Las capturas iniciales usaron `panel-logo-visual-entry.mjs` (stub). Eso
+   **no certifica** apariencia con login comercial real.
 
-No cambia lógica comercial, permisos, caja, ventas ni licencias.
+## Qué se corrigió
 
-## Capturas (implementación final real)
+- Stage local en `.pos-brand--sidebar` / `.pos-brand--header`: mismos gradientes
+  familia que `.pos-entry-brand`, **sólo** alrededor del logo (no todo el panel).
+- Logo sigue siendo `camacho-pos-colombia-login-entry.png` (RGBA transparente).
+- Evidencia reclasificada: visual renderer ≠ certificación con login real.
+- Captura adicional: sidebar colapsado.
 
-Generadas con Electron + renderer compilado (`pnpm build:renderer`) y
-`e2e/panel-logo-visual.spec.ts` el 2026-11-23.
+## Niveles de evidencia (no confundir)
 
-| Archivo | Superficie |
-| --- | --- |
-| `01-login.png` | Login aprobado (referencia) |
-| `02-sidebar-shell.png` | Sidebar + shell ADMINISTRADOR |
-| `03-dashboard.png` | Dashboard administrativo |
-| `04-sales.png` | Panel Caja y ventas (CAJERO) |
-| `05-admin.png` | Auditoría administrativa |
+| Nivel | Qué demuestra | Qué NO demuestra |
+| --- | --- | --- |
+| **A — Visual renderer** | Asset + stage CSS en Electron compilado | Login comercial, RBAC, licencias |
+| **B — Login UI unbound** | Pantalla de acceso real (smoke/unbound) | Sesión autenticada comercial |
+| **C — Login real Windows** | Operador + local service físicos | *(fuera de este entorno Linux CI)* |
 
-Confirmación: estas capturas son de la implementación final de esta rama
-(después de `BrandMark` + `brand.css` + ajuste sidebar en `workspace.css`).
+Las capturas de esta carpeta son **nivel A** (paneles) y **nivel B** (login).
+**No** son certificación comercial nivel C.
 
-## Assets
+## Capturas (HEAD de la rama)
 
-- **Antes (paneles):** `login.png` (header), `apilado.png` (sidebar ≥1025px),
-  más caja `background: rgb(255 255 255 / 6%)` en `.pos-brand--sidebar`.
-- **Ahora (todos los paneles BrandMark):** sólo `camacho-pos-colombia-login-entry.png`
-  (RGBA transparente, misma familia visual del login).
-- Legacy metálico (`logo.png` / `logo-960.png`) **no** se usa en BrandMark.
+| Archivo | Superficie | Nivel |
+| --- | --- | --- |
+| `before/*` | Estado previo al stage login-coherente | A (histórico) |
+| `01-login.png` | Login UI unbound + BrandMark entry | B |
+| `02-sidebar-expanded.png` | Sidebar expandido + stage | A |
+| `03-dashboard.png` | Dashboard | A |
+| `04-sales.png` | Caja y ventas | A |
+| `05-admin.png` | Auditoría administrativa | A |
+| `06-sidebar-collapsed.png` | Shell con menú oculto | A |
+
+Enlaces HTTPS (rama `cursor/panel-logo-unify-c53a`) se publican en el cuerpo del
+PR tras el push; rutas locales del repo:
+
+`docs/testing/panel-logo-unify-20261123/`
+
+## Assets BrandMark
+
+- Única fuente UI: `docs/brand/camacho-pos-colombia-login-entry.png`
+- No usados en BrandMark: `apilado.png`, `login.png`, `logo.png` metálico
