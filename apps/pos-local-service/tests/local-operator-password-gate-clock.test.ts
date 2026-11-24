@@ -34,12 +34,16 @@ describe("LocalOperatorPasswordGate clock rollback", () => {
   it("rate-limits when wall clock moves before the budget window start", async () => {
     const { dir, path } = fullStore("secret-pass");
     const db = LocalDatabase.open({ dataDirectory: dir });
-    let now = 1_700_000_000_000;
-    const gate = new LocalOperatorPasswordGate(db, path, () => now);
-    const first = await gate.authenticate("cajero.local", "wrong");
-    expect(first.status).toBe("DENIED");
-    now = now - 60_000;
-    const rolled = await gate.authenticate("cajero.local", "wrong");
-    expect(rolled.status).toBe("RATE_LIMITED");
+    try {
+      let now = 1_700_000_000_000;
+      const gate = new LocalOperatorPasswordGate(db, path, () => now);
+      const first = await gate.authenticate("cajero.local", "wrong");
+      expect(first.status).toBe("DENIED");
+      now = now - 60_000;
+      const rolled = await gate.authenticate("cajero.local", "wrong");
+      expect(rolled.status).toBe("RATE_LIMITED");
+    } finally {
+      try { db.close(); } catch { /* keep assertion failure */ }
+    }
   });
 });
