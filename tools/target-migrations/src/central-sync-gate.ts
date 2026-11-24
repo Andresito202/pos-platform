@@ -536,7 +536,7 @@ async function main(): Promise<void> {
           authorization(context: {
             method: "POST"; path: string; requestId: string; correlationId: string; body: string;
           }): Promise<string>;
-        }): Promise<{ operationId: string; idempotencyKey: string; localCheckpoint: number; localInboxRows: number; recoveredInterruptedDispatches: number }>;
+        }): Promise<{ operationId: string; idempotencyKey: string; saleId: string; payableAmount: string; calculationChecksum: string; localCheckpoint: number; localInboxRows: number; recoveredInterruptedDispatches: number }>;
       };
       const sqlite = await fixture.runIsolatedSqliteGate({
         scope: { tenantId, companyId, branchId, deviceId, installationId },
@@ -548,13 +548,19 @@ async function main(): Promise<void> {
       });
       const durableSqliteOperation = await pool.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM sync.sync_operations
-         WHERE tenant_id=$1 AND id=$2 AND idempotency_key=$3 AND sync_status='SERVER_ACCEPTED'`,
-        [tenantId, sqlite.operationId, sqlite.idempotencyKey],
+         WHERE tenant_id=$1 AND id=$2 AND idempotency_key=$3 AND sync_status='SERVER_ACCEPTED'
+           AND company_id=$4 AND branch_id=$5 AND aggregate_type='SALE'
+           AND aggregate_id=$6 AND operation_type='SALE_CREATED'
+           AND payload->>'sale_id'=$6::text AND payload->>'payable_amount'=$7
+           AND payload->>'calculation_checksum'=$8`,
+        [tenantId, sqlite.operationId, sqlite.idempotencyKey, companyId, branchId,
+          sqlite.saleId, sqlite.payableAmount, sqlite.calculationChecksum],
       );
       if (durableSqliteOperation.rows[0]?.count !== "1") {
         throw new Error("SQLITE_CENTRAL_POSTGRES_DEDUPLICATION_FAILED");
       }
       console.log("SQLITE_OUTBOX_CENTRAL_POSTGRES=VERIFIED");
+      console.log("SQLITE_COMMERCIAL_SALE_IDENTITY_AND_TOTALS=VERIFIED");
       console.log(`SQLITE_CHECKPOINT=${sqlite.localCheckpoint}`);
       console.log(`SQLITE_INBOX_ROW_COUNT=${sqlite.localInboxRows}`);
       console.log("SQLITE_RESPONSE_LOSS_RECOVERY=VERIFIED");
