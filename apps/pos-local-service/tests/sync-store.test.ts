@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import type { SyncBatchRequest, SyncOperation } from "@pos-platform/contracts";
+import { canonicalJson } from "../src/channel/canonical-json.js";
 import { DurableSyncStore, type SyncScope } from "../src/sync/durable-sync-store.js";
 import { DurableSyncComponent } from "../src/sync/durable-sync-component.js";
 import { LocalDatabaseComponent } from "../src/local-database-component.js";
@@ -79,6 +80,53 @@ function accepted(batch: SyncBatchRequest, acknowledged: number) {
 }
 
 describe("DurableSyncStore", () => {
+  it("derives the wire checksum independently of the request checksum and preserves it across restart", async () => {
+    const dir = await directory();
+    let database = LocalDatabase.open({ dataDirectory: dir });
+    const item = { ...operation(1, "01"), payload_checksum: "0".repeat(64) };
+    expect(new DurableSyncStore(database).enqueue(item)).toBe("ENQUEUED");
+    const expected = createHash("sha256").update(canonicalJson(item.payload)).digest("hex");
+    expect(expected).not.toBe(item.payload_checksum);
+    database.close();
+    database = LocalDatabase.open({ dataDirectory: dir });
+    try {
+      const store = new DurableSyncStore(database);
+      expect(store.enqueue(item)).toBe("ALREADY_ENQUEUED");
+      const batch = store.claimBatch(scope, 1)!;
+      expect(batch.operations[0]).toMatchObject({
+        operation_id: item.operation_id, idempotency_key: item.idempotency_key,
+        payload: item.payload, payload_checksum: expected,
+      });
+      store.recordResponse(batch, accepted(batch, 1));
+      expect(store.checkpoint(scope)).toBe(1);
+    } finally { database.close(); }
+  });
+
+  it("preserves a legacy checksum mismatch without claiming or advancing the checkpoint", async () => {
+    const database = LocalDatabase.open({ dataDirectory: await directory() });
+    try {
+      const store = new DurableSyncStore(database);
+      const item = operation(1, "01");
+      store.enqueue(item);
+      const legacy = { ...item, payload_checksum: "0".repeat(64) };
+      // Insert a legacy row as it would have been written by the old writer.
+      database.native.prepare("DELETE FROM local_sync_outbox WHERE operation_id=?").run(item.operation_id);
+      const now = "2026-08-28T20:00:10Z";
+      database.native.prepare(`INSERT INTO local_sync_outbox(
+        operation_id,tenant_id,company_id,branch_id,device_id,installation_id,
+        operation_type,idempotency_key,local_sequence,operation_json,payload_checksum,
+        status,attempt_count,next_attempt_at,last_error_code,created_at,updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,'PENDING',0,NULL,NULL,?,?)`).run(
+        legacy.operation_id,legacy.tenant_id,legacy.company_id,legacy.branch_id,
+        legacy.device_id,legacy.installation_id,legacy.operation_type,legacy.idempotency_key,
+        legacy.local_sequence,canonicalJson(legacy),legacy.payload_checksum,now,now);
+      const before = database.native.prepare("SELECT * FROM local_sync_outbox").get();
+      expect(() => store.claimBatch(scope, 1)).toThrow("SYNC_OUTBOX_INTEGRITY_REVIEW_REQUIRED");
+      expect(database.native.prepare("SELECT * FROM local_sync_outbox").get()).toEqual(before);
+      expect(store.checkpoint(scope)).toBe(0);
+    } finally { database.close(); }
+  });
+
   it("enqueues idempotently and rejects semantic idempotency collisions", async () => {
     const dir = await directory();
     const database = LocalDatabase.open({ dataDirectory: dir });
