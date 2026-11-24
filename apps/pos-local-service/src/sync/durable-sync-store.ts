@@ -98,7 +98,9 @@ export class DurableSyncStore {
   }
 
   enqueue(input: unknown): EnqueueResult {
-    const operation = SyncOperationSchema.parse(input);
+    const parsed = SyncOperationSchema.parse(input);
+    // FZ-008: this trusted writer derives the wire checksum, independently of request idempotency.
+    const operation = { ...parsed, payload_checksum: checksum(parsed.payload) };
     const operationJson = canonicalJson(operation);
     const createdAt = this.now().toISOString();
 
