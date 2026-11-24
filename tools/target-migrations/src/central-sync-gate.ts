@@ -154,7 +154,7 @@ async function main(): Promise<void> {
     payload: batch,
   };
 
-  const requestHeaders = (value: typeof envelope, body: string) => ({
+  const requestHeaders = (value: Pick<typeof envelope, "request_id" | "correlation_id">, body: string) => ({
     authorization: createDeviceRequestAuthorization({
       method: "POST" as const, path: "/v1/sync/batches",
       requestId: value.request_id, correlationId: value.correlation_id,
