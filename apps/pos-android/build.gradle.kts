@@ -102,13 +102,31 @@ tasks.register("commercialApk") {
         val stdlib = configurations.runtimeClasspath.get().files.filter {
             it.name.startsWith("kotlin-stdlib-") && !it.name.contains("jdk")
         }
-        run(
-            javaBin, "-cp", dexTool.asPath, "com.android.tools.r8.D8",
-            "--min-api", "28", "--lib", api.path,
-            "--output", dex.path,
-            commercialHostJar.get().archiveFile.get().asFile.path,
-            *stdlib.map { it.path }.toTypedArray(),
-        )
+        // Default: D8 (dex only) — safest for embedded Node/SQLite assets on API 28.
+        // Optional: -PcommercialR8Shrink=true runs R8 --release with commercial-r8.pro.
+        // Do not enable shrink in CI until M60WL physical validation authorizes it.
+        val r8Shrink = providers.gradleProperty("commercialR8Shrink").orNull == "true"
+        val keepRules = file("proguard/commercial-r8.pro")
+        if (r8Shrink) {
+            require(keepRules.isFile) { "commercial-r8.pro required for R8 shrink mode" }
+            run(
+                javaBin, "-cp", dexTool.asPath, "com.android.tools.r8.R8",
+                "--release",
+                "--min-api", "28", "--lib", api.path,
+                "--pg-conf", keepRules.path,
+                "--output", dex.path,
+                commercialHostJar.get().archiveFile.get().asFile.path,
+                *stdlib.map { it.path }.toTypedArray(),
+            )
+        } else {
+            run(
+                javaBin, "-cp", dexTool.asPath, "com.android.tools.r8.D8",
+                "--min-api", "28", "--lib", api.path,
+                "--output", dex.path,
+                commercialHostJar.get().archiveFile.get().asFile.path,
+                *stdlib.map { it.path }.toTypedArray(),
+            )
+        }
         val unsigned = file("${out}/camacho-pos-colombia-unsigned.apk")
         ZipOutputStream(unsigned.outputStream()).use { zip ->
             ZipFile(file("${out}/resources.apk")).use { source ->
