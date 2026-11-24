@@ -8,6 +8,7 @@ on:
     branches:
       - main
       - codex/scm-real-integration-20261122
+      - cursor/security-integral-phase-c53a
   schedule:
     - cron: "23 5 * * 3"
   workflow_dispatch:
