@@ -12,7 +12,7 @@ Base diagnosis: Android absent on `main`/PR #135; lab probes on `feat/android-co
 | `DEVICE_ENROLLMENT_LOCAL_KEY_MISMATCH` restored on enrollment (fail-closed) | Done |
 | `CamachoCommercialDomains` contract | Ported |
 | Commercial package `co.camachopos.colombia` (not renamed probe) | Done |
-| Lab probes preserved under `apps/pos-android/lab/` | Done |
+| Lab probes preserved under `tools/android-lab-probes/` (non-product) | Done |
 | Yellow brand entry + fail-closed login shell | Done (Block 2 scaffold) |
 | Pos shell modules gated (caja/catálogo/…) | Scaffold only — all blocked |
 | Commercial shell APK task (`commercialShellApk`) | Implemented + built unsigned |
