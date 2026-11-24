@@ -23,12 +23,12 @@ No se repitieron suites ya aprobadas de PR #135/#136 (host 8 PASS, CI 11 SUCCESS
 
 ## Controles nuevos / corregidos
 
-1. **Rate limit:** default `CENTRAL_RATE_LIMIT_BACKEND=postgres` → `PostgresFixedWindowRateLimiter` + migration `035_central_rate_limit_counters` (atomic upsert, multi-instance). Fallbacks: `file` (single-node) / `memory`.
+1. **Rate limit:** default `CENTRAL_RATE_LIMIT_BACKEND=postgres` → `PostgresFixedWindowRateLimiter` + migration `037_central_rate_limit_counters` (pred. `004_device_trust`; D-3 aplica antes de arrancar Central). Fallbacks: `file` / `memory`.
 2. **Electron Fuses / ASAR integrity:** `electron-builder.yml` + `ELECTRON_FUSES_POLICY` + test de no debilitamiento.
 3. **Android BUSINESS integrity:** debugger/Frida/root artifacts; digest verify del motor embebido; host falla si `ANDROID_REQUIRE_RUNTIME_MANIFEST=1` sin `files.json`.
-4. **License wipe seal:** `license-capacity.seal` junto al provision; SQLite wipe → `LICENSE_WIPE_RECOVERY_REQUIRED`.
+4. **License wipe seal:** product seal + sticky machine seal (`XDG_STATE_HOME` / `PROGRAMDATA`); borrar SQLite+product seal no reinicia trial.
 5. **Antifraude IPC:** `sale.create` rechaza `unit_price` / descuentos / totales inyectados (`z.strictObject`).
-6. **Docs:** auditoría, prep firma comercial, prep privatización (repos siguen public).
+6. **Numeración:** `docs/security/migration-numbering-reconciliation-20261124.md` (035→037 vs #135/#136).
 
 ## No ejecutado (bloqueos reales)
 

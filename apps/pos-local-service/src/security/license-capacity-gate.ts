@@ -1,6 +1,7 @@
 import { createHash, createPublicKey } from "node:crypto";
-import { lstatSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import * as z from "zod";
 import { SignedLicenseCapacitySchema } from "@pos-platform/contracts";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
@@ -30,7 +31,10 @@ const SealSchema = z.strictObject({
   digest: z.string().regex(/^[a-f0-9]{64}$/),
 });
 
-/** Absolute file seal outside `pos-local.db` so truncating SQLite alone cannot reset capacity. */
+/**
+ * Absolute file seal. Parent directory is created on write so sticky machine
+ * paths under ProgramData / XDG_STATE_HOME work on first accept.
+ */
 export function fileLicenseCapacitySealStore(absolutePath: string): LicenseCapacitySealStore {
   const path = resolve(absolutePath);
   if (!isAbsolute(path)) throw Error("LICENSE_SEAL_ABSOLUTE_PATH_REQUIRED");
@@ -49,9 +53,55 @@ export function fileLicenseCapacitySealStore(absolutePath: string): LicenseCapac
     },
     write(seal) {
       const parsed = SealSchema.parse(seal);
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       writeFileSync(path, `${JSON.stringify(parsed)}\n`, { mode: 0o600 });
     },
   };
+}
+
+/** Read any store that still has a seal; write to every store (product + sticky). */
+export function compositeLicenseCapacitySealStore(
+  stores: readonly LicenseCapacitySealStore[],
+): LicenseCapacitySealStore {
+  if (stores.length < 1) throw Error("LICENSE_SEAL_STORE_REQUIRED");
+  return {
+    read() {
+      for (const store of stores) {
+        const seal = store.read();
+        if (seal) return seal;
+      }
+      return null;
+    },
+    write(seal) {
+      for (const store of stores) store.write(seal);
+    },
+  };
+}
+
+/**
+ * Machine-state seal outside the product data/provision tree so deleting
+ * SQLite + product `license-capacity.seal` together cannot reset trial/capacity.
+ */
+export function stickyLicenseCapacitySealPath(installationId: string): string {
+  if (!/^[0-9a-fA-F-]{8,128}$/.test(installationId)) {
+    throw Error("LICENSE_SEAL_INSTALLATION_ID_REJECTED");
+  }
+  if (process.platform === "win32") {
+    const base = process.env.PROGRAMDATA || join(homedir(), "AppData", "Local");
+    return join(base, "CamachoPOS", "installations", installationId, "license-capacity.seal");
+  }
+  const base = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+  return join(base, "camacho-pos", "installations", installationId, "license-capacity.seal");
+}
+
+export function commercialLicenseCapacitySealStore(
+  provisionFile: string,
+  installationId: string,
+): LicenseCapacitySealStore {
+  return compositeLicenseCapacitySealStore([
+    fileLicenseCapacitySealStore(join(dirname(provisionFile), "license-capacity.seal")),
+    fileLicenseCapacitySealStore(stickyLicenseCapacitySealPath(installationId)),
+  ]);
 }
 
 const Provision = z.strictObject({

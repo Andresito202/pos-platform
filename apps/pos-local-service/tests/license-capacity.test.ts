@@ -7,6 +7,7 @@ import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { LicenseCapacityClaimsSchema, type LicenseCapacityClaims } from "@pos-platform/contracts";
 import {
   LicenseCapacityGate,
+  compositeLicenseCapacitySealStore,
   fileLicenseCapacitySealStore,
   readLicenseCapacityProvision,
 } from "../src/security/license-capacity-gate.js";
@@ -136,4 +137,34 @@ it("capacity: SQLite wipe with surviving seal denies silent re-accept (anti tria
   new LocalSecurityLifecycle(wiped).registerInitialDeviceKey("DEVICE_TEST");
   expect(sealedGate(wiped).authorize(scope,id(8))).toBe("LICENSE_WIPE_RECOVERY_REQUIRED");
   expect(wiped.native.prepare("SELECT count(*) AS n FROM local_license_activation_state").get()).toEqual({n:0});
+});
+
+it("capacity: deleting SQLite and product seal still denies when sticky machine seal remains",()=>{
+  const f=fixture();
+  const productSeal=join(f.dir,"license-capacity.seal");
+  const stickyDir=mkdtempSync(join(tmpdir(),"pos-license-sticky-"));
+  const stickySeal=join(stickyDir,"license-capacity.seal");
+  const seal=compositeLicenseCapacitySealStore([
+    fileLicenseCapacitySealStore(productSeal),
+    fileLicenseCapacitySealStore(stickySeal),
+  ]);
+  const sealedGate=(db:LocalDatabase)=>new LicenseCapacityGate(
+    db,
+    ()=>readLicenseCapacityProvision(f.path),
+    ()=>new Date("2026-10-26T12:00:00Z"),
+    seal,
+  );
+  expect(sealedGate(f.db).authorize(scope,id(8))).toBeNull();
+  expect(existsSync(productSeal)).toBe(true);
+  expect(existsSync(stickySeal)).toBe(true);
+  rmSync(productSeal,{force:true});
+  const wipedDir=mkdtempSync(join(tmpdir(),"pos-license-wipe-dual-"));
+  const wiped=LocalDatabase.open({dataDirectory:wipedDir});
+  resources.push({db:wiped,dir:wipedDir});
+  new LocalSecurityLifecycle(wiped).registerInitialDeviceKey("DEVICE_TEST");
+  try {
+    expect(sealedGate(wiped).authorize(scope,id(8))).toBe("LICENSE_WIPE_RECOVERY_REQUIRED");
+  } finally {
+    rmSync(stickyDir,{recursive:true,force:true});
+  }
 });

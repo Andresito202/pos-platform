@@ -1,6 +1,6 @@
 import { createPublicKey } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
 import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
@@ -16,7 +16,7 @@ import { DeviceTrustCredentialStore } from "./security/device-trust-credential-s
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
 import {
   LicenseCapacityGate,
-  fileLicenseCapacitySealStore,
+  commercialLicenseCapacitySealStore,
   readLicenseCapacityProvision,
 } from "./security/license-capacity-gate.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
@@ -175,7 +175,7 @@ try {
     (scope, registerId) => {
       const path = config.license_capacity_provision_file;
       if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
-      const seal = fileLicenseCapacitySealStore(join(dirname(path), "license-capacity.seal"));
+      const seal = commercialLicenseCapacitySealStore(path, config.installation_id);
       return new LicenseCapacityGate(
         localDatabase.database,
         () => readLicenseCapacityProvision(path),
@@ -186,7 +186,7 @@ try {
     (scope, entitlement) => {
       const path = config.license_capacity_provision_file;
       if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
-      const seal = fileLicenseCapacitySealStore(join(dirname(path), "license-capacity.seal"));
+      const seal = commercialLicenseCapacitySealStore(path, config.installation_id);
       return new LicenseCapacityGate(
         localDatabase.database,
         () => readLicenseCapacityProvision(path),
@@ -197,7 +197,7 @@ try {
     (scope) => {
       const path = config.license_capacity_provision_file;
       if (!path) return [];
-      const seal = fileLicenseCapacitySealStore(join(dirname(path), "license-capacity.seal"));
+      const seal = commercialLicenseCapacitySealStore(path, config.installation_id);
       return new LicenseCapacityGate(
         localDatabase.database,
         () => readLicenseCapacityProvision(path),
