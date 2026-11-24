@@ -1,6 +1,6 @@
 import { createPublicKey } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { StructuredLogger } from "@pos-platform/observability";
 import { parseServiceConfig } from "./config.js";
 import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
@@ -14,7 +14,11 @@ import { UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.
 import { EnrolledDeviceCredentialProvider } from "./sync/device-credential.js";
 import { DeviceTrustCredentialStore } from "./security/device-trust-credential-store.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
-import { LicenseCapacityGate, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
+import {
+  LicenseCapacityGate,
+  fileLicenseCapacitySealStore,
+  readLicenseCapacityProvision,
+} from "./security/license-capacity-gate.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import { factusPayCredentialContext } from "./payments/factus-pay-credential-store.js";
@@ -171,19 +175,35 @@ try {
     (scope, registerId) => {
       const path = config.license_capacity_provision_file;
       if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
-      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path)).authorize(scope, registerId);
+      const seal = fileLicenseCapacitySealStore(join(dirname(path), "license-capacity.seal"));
+      return new LicenseCapacityGate(
+        localDatabase.database,
+        () => readLicenseCapacityProvision(path),
+        () => new Date(),
+        seal,
+      ).authorize(scope, registerId);
     },
     (scope, entitlement) => {
       const path = config.license_capacity_provision_file;
       if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
-      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path))
-        .authorizeEntitlement(scope, entitlement);
+      const seal = fileLicenseCapacitySealStore(join(dirname(path), "license-capacity.seal"));
+      return new LicenseCapacityGate(
+        localDatabase.database,
+        () => readLicenseCapacityProvision(path),
+        () => new Date(),
+        seal,
+      ).authorizeEntitlement(scope, entitlement);
     },
     (scope) => {
       const path = config.license_capacity_provision_file;
       if (!path) return [];
-      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path))
-        .listEntitlements(scope);
+      const seal = fileLicenseCapacitySealStore(join(dirname(path), "license-capacity.seal"));
+      return new LicenseCapacityGate(
+        localDatabase.database,
+        () => readLicenseCapacityProvision(path),
+        () => new Date(),
+        seal,
+      ).listEntitlements(scope);
     },
     factusPaySecretStore,
   );

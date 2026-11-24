@@ -1,11 +1,15 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { LicenseCapacityClaimsSchema, type LicenseCapacityClaims } from "@pos-platform/contracts";
-import { LicenseCapacityGate, readLicenseCapacityProvision } from "../src/security/license-capacity-gate.js";
+import {
+  LicenseCapacityGate,
+  fileLicenseCapacitySealStore,
+  readLicenseCapacityProvision,
+} from "../src/security/license-capacity-gate.js";
 import { LocalSecurityLifecycle } from "../src/security/security-lifecycle.js";
 import { unsignedLicenseCapacityBytes } from "../src/security/license-verifier.js";
 
@@ -31,7 +35,7 @@ function fixture(){
     spki_sha256:createHash("sha256").update(pair.publicKey.export({type:"spki",format:"der"})).digest("hex"),status}],artifact:signed(c)});
   const save=(value:unknown)=>writeFileSync(path,JSON.stringify(value));save(provision());
   const gate=()=>new LicenseCapacityGate(db,()=>readLicenseCapacityProvision(path),()=>at);
-  return {get db(){return db;},path,claims,gate,save,provision,setTime:(v:string)=>{at=new Date(v);},
+  return {get db(){return db;},dir,path,claims,gate,save,provision,setTime:(v:string)=>{at=new Date(v);},
     restart:()=>{db.close();db=LocalDatabase.open({dataDirectory:dir});resource.db=db;}};
 }
 
@@ -111,4 +115,25 @@ it("signed capacity stops at the exclusive end of the three-day term, even after
   f.setTime("2026-10-26T23:59:59.999Z");expect(f.gate().authorize(scope,id(8))).toBeNull();
   f.setTime("2026-10-27T00:00:00.000Z");expect(f.gate().authorize(scope,id(8))).toBe("LICENSE_EXPIRED");
   f.restart();expect(f.gate().authorize(scope,id(8))).toBe("LICENSE_EXPIRED");
+});
+
+it("capacity: SQLite wipe with surviving seal denies silent re-accept (anti trial reset)",()=>{
+  const f=fixture();
+  const sealPath=join(f.dir,"license-capacity.seal");
+  const sealedGate=(db:LocalDatabase)=>new LicenseCapacityGate(
+    db,
+    ()=>readLicenseCapacityProvision(f.path),
+    ()=>new Date("2026-10-26T12:00:00Z"),
+    fileLicenseCapacitySealStore(sealPath),
+  );
+  expect(sealedGate(f.db).authorize(scope,id(8))).toBeNull();
+  expect(existsSync(sealPath)).toBe(true);
+  // Append-only audit cannot be deleted in-place: simulate wipe by a fresh DB
+  // while provision + seal files outside the new SQLite file remain.
+  const wipedDir=mkdtempSync(join(tmpdir(),"pos-license-wipe-"));
+  const wiped=LocalDatabase.open({dataDirectory:wipedDir});
+  resources.push({db:wiped,dir:wipedDir});
+  new LocalSecurityLifecycle(wiped).registerInitialDeviceKey("DEVICE_TEST");
+  expect(sealedGate(wiped).authorize(scope,id(8))).toBe("LICENSE_WIPE_RECOVERY_REQUIRED");
+  expect(wiped.native.prepare("SELECT count(*) AS n FROM local_license_activation_state").get()).toEqual({n:0});
 });

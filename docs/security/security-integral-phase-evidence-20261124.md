@@ -4,8 +4,9 @@
 
 | Rama | HEAD | Contenido |
 |---|---|---|
-| `cursor/security-integral-phase-c53a` | `49bf8342` + tip tras push docs | Rate limit durable, Electron fuses, auditoría, prep firma/privatización |
+| `cursor/security-integral-phase-c53a` (PR #137) | tip | Rate limit Postgres, fuses, seal anti-wipe, antifraud IPC/negatives, SEC-G buckets |
 | `cursor/android-commercial-integration-c53a` (PR #136) | `64d4430e` | AndroidRuntimeIntegrity + runtime files.json verify |
+| `cursor/android-r8-hardening-c53a` (PR #138) | tip | R8 opcional + host wire de `verifyAndroidEmbeddedRuntimeIntegrity` |
 
 ## Pruebas ejecutadas en este entorno
 
@@ -13,8 +14,10 @@
 |---|---|
 | `pnpm --filter @pos-platform/pos-desktop exec vitest run tests/electron-fuses-policy.test.ts tests/window-security.test.ts` | 9 PASS |
 | `pnpm --filter @pos-platform/central-authority exec vitest run tests/durable-fixed-window-rate-limiter.test.ts` | 4 PASS |
-| `pnpm --filter @pos-platform/pos-local-service exec vitest run tests/android-runtime-integrity.test.ts` | 2 PASS |
-| `gradle -p apps/pos-android compileKotlin` | BUILD SUCCESSFUL |
+| `pnpm --filter @pos-platform/contracts exec vitest run tests/ipc-contracts.test.ts` | 42 PASS (incl. inyección de precio) |
+| `pnpm --filter @pos-platform/pos-local-service exec vitest run tests/license-capacity.test.ts` | 7 PASS (incl. wipe+seal) |
+| `pnpm --filter @pos-platform/pos-local-service exec vitest run tests/android-runtime-integrity.test.ts` | ejecutado en #138 |
+| `gradle -p apps/pos-android compileKotlin` | BUILD SUCCESSFUL (histórico #136) |
 
 No se repitieron suites ya aprobadas de PR #135/#136 (host 8 PASS, CI 11 SUCCESS en `8b99cffc`).
 
@@ -22,8 +25,10 @@ No se repitieron suites ya aprobadas de PR #135/#136 (host 8 PASS, CI 11 SUCCESS
 
 1. **Rate limit:** default `CENTRAL_RATE_LIMIT_BACKEND=postgres` → `PostgresFixedWindowRateLimiter` + migration `035_central_rate_limit_counters` (atomic upsert, multi-instance). Fallbacks: `file` (single-node) / `memory`.
 2. **Electron Fuses / ASAR integrity:** `electron-builder.yml` + `ELECTRON_FUSES_POLICY` + test de no debilitamiento.
-3. **Android BUSINESS integrity:** debugger/Frida/root artifacts; digest verify del motor embebido.
-4. **Docs:** auditoría, prep firma comercial, prep privatización (repos siguen public).
+3. **Android BUSINESS integrity:** debugger/Frida/root artifacts; digest verify del motor embebido; host falla si `ANDROID_REQUIRE_RUNTIME_MANIFEST=1` sin `files.json`.
+4. **License wipe seal:** `license-capacity.seal` junto al provision; SQLite wipe → `LICENSE_WIPE_RECOVERY_REQUIRED`.
+5. **Antifraude IPC:** `sale.create` rechaza `unit_price` / descuentos / totales inyectados (`z.strictObject`).
+6. **Docs:** auditoría, prep firma comercial, prep privatización (repos siguen public).
 
 ## No ejecutado (bloqueos reales)
 

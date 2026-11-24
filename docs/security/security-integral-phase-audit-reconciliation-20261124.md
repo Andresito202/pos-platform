@@ -14,9 +14,9 @@ Los inventarios marcaron controles ABSENT en el momento del muestreo. Esta nota 
 | SSRF en `commercialApiOrigin` trial callback | `assertSafeCommercialPortalCallbackOrigin` + re-validate before fetch | PR #135 @ `d257e512`; bridge tests 12 PASS |
 | Portal webhook/SCA/rate (Task) | Header/Bearer + atomic upsert + CI SCA | PR #1 @ `28b1803`; CI SUCCESS; [Remediate portal security gaps](bc-8b729e96-87b8-5500-9a4d-5184ce1b97c8) |
 | Postgres rate limit multi-nodo | PR #137 @ HEAD | migration 035 + PostgresFixedWindowRateLimiter |
-| Antifraud negatives (precio/caja company) | PR #137 | security-antifraud-negatives 2 PASS |
-| R8 Android prep | cursor/android-r8-hardening-c53a | D8 default; R8 opcional |
-
+| Antifraud negatives (precio/caja company) | PR #137 | security-antifraud-negatives 2 PASS + IPC unit_price reject |
+| License wipe / trial reset | PR #137 | `license-capacity.seal` → `LICENSE_WIPE_RECOVERY_REQUIRED` |
+| R8 Android prep + host integrity wire | PR #138 | D8 default; R8 opcional; `verifyAndroidEmbeddedRuntimeIntegrity` en host start |
 ## Confirmado reutilizable (no duplicar)
 
 - IPC allowlist / contextIsolation / sandbox / preload (Electron).

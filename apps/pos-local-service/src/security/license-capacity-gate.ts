@@ -1,6 +1,6 @@
 import { createHash, createPublicKey } from "node:crypto";
-import { lstatSync, readFileSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { lstatSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import * as z from "zod";
 import { SignedLicenseCapacitySchema } from "@pos-platform/contracts";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
@@ -9,6 +9,50 @@ import { canonicalJson } from "../channel/canonical-json.js";
 import { LicenseVerifier, type TrustedSigningKey } from "./license-verifier.js";
 import { LocalSecurityLifecycle } from "./security-lifecycle.js";
 import { TrustedClockGuard } from "./trusted-clock.js";
+
+/** Survives SQLite wipe when stored outside the DB file (beside provision). */
+export type LicenseCapacitySeal = {
+  installation_id: string;
+  license_id: string;
+  version: number;
+  digest: string;
+};
+
+export interface LicenseCapacitySealStore {
+  read(): LicenseCapacitySeal | null;
+  write(seal: LicenseCapacitySeal): void;
+}
+
+const SealSchema = z.strictObject({
+  installation_id: z.string().min(1).max(128),
+  license_id: z.string().min(1).max(128),
+  version: z.number().int().positive(),
+  digest: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+/** Absolute file seal outside `pos-local.db` so truncating SQLite alone cannot reset capacity. */
+export function fileLicenseCapacitySealStore(absolutePath: string): LicenseCapacitySealStore {
+  const path = resolve(absolutePath);
+  if (!isAbsolute(path)) throw Error("LICENSE_SEAL_ABSOLUTE_PATH_REQUIRED");
+  return {
+    read() {
+      if (!existsSync(path)) return null;
+      const stat = lstatSync(path);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096) return null;
+      try {
+        return SealSchema.parse(JSON.parse(
+          new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path)),
+        ));
+      } catch {
+        return null;
+      }
+    },
+    write(seal) {
+      const parsed = SealSchema.parse(seal);
+      writeFileSync(path, `${JSON.stringify(parsed)}\n`, { mode: 0o600 });
+    },
+  };
+}
 
 const Provision = z.strictObject({
   profile: z.literal("CAMACHO_LICENSE_CAPACITY_PROVISION_V2"),
@@ -59,7 +103,8 @@ export interface OperationalLicenseInformation {
 export class LicenseCapacityGate {
   constructor(private readonly database: LocalDatabase,
     private readonly load: () => { artifact: unknown; keys: ReadonlyMap<string, TrustedSigningKey> },
-    private readonly now: () => Date = () => new Date()) {}
+    private readonly now: () => Date = () => new Date(),
+    private readonly seal: LicenseCapacitySealStore | null = null) {}
 
   /** Read model only: does not activate a license, accept a new version, renew,
    * authorize a sale, contact a provider or infer offline/subscription grace.
@@ -99,6 +144,8 @@ export class LicenseCapacityGate {
         const row = this.database.native.prepare(`SELECT details_json FROM local_security_audit
           WHERE event_type='LICENSE_CAPACITY_ACCEPTED' AND subject_id=? ORDER BY sequence DESC LIMIT 1`).get(scope.installationId) as { details_json: string } | undefined;
         const previous = row ? JSON.parse(row.details_json) as { license_id: string; version: number; digest: string } : undefined;
+        const wipe = this.detectWipeRecoveryRequired(scope.installationId, previous);
+        if (wipe) return wipe;
         if (previous && (previous.license_id !== c.license_id || previous.version > c.license_version ||
             (previous.version === c.license_version && previous.digest !== digest))) return "LICENSE_ROLLBACK_OR_CONFLICT";
         const activation = this.database.native.prepare("SELECT status FROM local_license_activation_state WHERE license_id=?").get(c.license_id) as {status:string} | undefined;
@@ -112,6 +159,7 @@ export class LicenseCapacityGate {
             VALUES ('LICENSE_CAPACITY_ACCEPTED',?,?,?)`).run(scope.installationId,
             JSON.stringify({ license_id: c.license_id, version: c.license_version, digest }), result.evaluatedAt);
         }
+        this.persistSeal(scope.installationId, c.license_id, c.license_version, digest);
         return null;
       }).immediate();
     } catch {
@@ -144,6 +192,8 @@ export class LicenseCapacityGate {
         const previous = row
           ? JSON.parse(row.details_json) as { license_id: string; version: number; digest: string }
           : undefined;
+        const wipe = this.detectWipeRecoveryRequired(scope.installationId, previous);
+        if (wipe) return wipe;
         if (previous && (previous.license_id !== c.license_id || previous.version > c.license_version ||
             (previous.version === c.license_version && previous.digest !== digest))) {
           return "LICENSE_ROLLBACK_OR_CONFLICT";
@@ -161,11 +211,43 @@ export class LicenseCapacityGate {
             JSON.stringify({ license_id: c.license_id, version: c.license_version, digest }),
             result.evaluatedAt);
         }
+        this.persistSeal(scope.installationId, c.license_id, c.license_version, digest);
         return null;
       }).immediate();
     } catch {
       return "LICENSE_CAPACITY_UNAVAILABLE";
     }
+  }
+
+  /**
+   * Seal outside SQLite: empty audit + existing seal ⇒ wipe/reinstall abuse.
+   * Recovery requires Central re-provision (physical/ops path), not silent re-accept.
+   */
+  private detectWipeRecoveryRequired(
+    installationId: string,
+    previous: { license_id: string; version: number; digest: string } | undefined,
+  ): string | null {
+    if (previous || !this.seal) return null;
+    const sealed = this.seal.read();
+    if (!sealed) return null;
+    // Seal outside SQLite survived a DB wipe: refuse silent first-accept (trial/capacity reset).
+    if (sealed.installation_id !== installationId) return "LICENSE_WIPE_RECOVERY_REQUIRED";
+    return "LICENSE_WIPE_RECOVERY_REQUIRED";
+  }
+
+  private persistSeal(
+    installationId: string,
+    licenseId: string,
+    version: number,
+    digest: string,
+  ): void {
+    if (!this.seal) return;
+    this.seal.write({
+      installation_id: installationId,
+      license_id: licenseId,
+      version,
+      digest,
+    });
   }
 
   /** Read-model projection of signed entitlements for navigation. Never authorizes. */
