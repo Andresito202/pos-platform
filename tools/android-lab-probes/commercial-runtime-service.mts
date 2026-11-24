@@ -1,9 +1,13 @@
 import { AndroidCommercialHost } from "../../apps/pos-local-service/src/android/android-commercial-host.js";
 import { AndroidCommercialServiceControl } from "../../apps/pos-local-service/src/android/android-commercial-service-control.js";
+import { verifyAndroidEmbeddedRuntimeIntegrity } from "../../apps/pos-local-service/src/android/android-runtime-integrity.js";
 import { AndroidKeystoreKeyProvider } from "../../apps/pos-local-service/src/security/android-keystore-key-provider.js";
 import { EncryptedFileSecretStore } from "../../apps/pos-local-service/src/security/encrypted-secret-store.js";
 import { fstatSync, readSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+verifyAndroidEmbeddedRuntimeIntegrity(dirname(fileURLToPath(import.meta.url)));
 
 if (process.platform !== "android") throw new Error("ANDROID_HOST_REQUIRED");
 const directory = process.env.CAMACHO_ANDROID_SERVICE_DIRECTORY;

@@ -16,6 +16,7 @@ Branch: `cursor/android-commercial-integration-c53a` · PR #136
 | Trial 120h / zero grace | PR #135 observation + `LicenseCapacityGate` |
 | M60WL runbook (API 28) | Safe `adb install -r` (no uninstall); App Links via `dumpsys` / VIEW intent (no Android 12+ pm commands) |
 | Signed APK 0.3.2 | Integrity manifest · SHA-256 `b7668d36042edb472dd11b9dbe94145a48af3e19d4a75646dd9109125a6e387d` (supersedes eb1528ce APK) |
+| Runtime / host integrity (API 28) | `AndroidRuntimeIntegrity` (debugger/Frida/root artifacts) gates BUSINESS ceremony; `verifyAndroidEmbeddedRuntimeIntegrity` checks `files.json` digests |
 
 ## Real blockers remaining (infra / hardware)
 

@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import co.camachopos.colombia.CommercialIdentity
+import co.camachopos.colombia.security.AndroidRuntimeIntegrity
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 
@@ -52,6 +53,8 @@ object BusinessCeremonyCoordinator {
         worker.execute {
             try {
                 check(context.packageName == CommercialIdentity.APPLICATION_ID)
+                // Block new BUSINESS authority on debuggable/hooked/rooted hosts.
+                AndroidRuntimeIntegrity.requireBusinessSafe(context)
                 val fingerprint = installedSignerSha256(context)
                 val registration = AndroidNativeRegistration.camacho(
                     clientId,
@@ -89,6 +92,12 @@ object BusinessCeremonyCoordinator {
                                 -> "La asociación App Links con Central no está publicada o no coincide con esta APK."
                                 "ANDROID_SIGNER_MISMATCH" ->
                                     "El certificado de esta APK no coincide con el registro BUSINESS."
+                                "ANDROID_DEBUGGABLE_BUILD",
+                                "ANDROID_DEBUGGER_ATTACHED",
+                                "ANDROID_TRACER_ATTACHED",
+                                "ANDROID_HOOK_FRAMEWORK",
+                                "ANDROID_TAMPER_ARTIFACT",
+                                -> "Este dispositivo no supera la integridad requerida para BUSINESS."
                                 else -> "No se pudo preparar el acceso BUSINESS en este dispositivo."
                             },
                         ),
