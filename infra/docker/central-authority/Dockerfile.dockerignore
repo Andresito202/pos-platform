@@ -25,3 +25,18 @@
 **/*.db
 **/dist
 **/dist/**
+
+# Additional local artifacts must not enter the Central image.
+**/.git
+**/.next
+**/.cache
+**/.nx
+**/*.jks
+**/*.keystore
+**/id_rsa
+**/id_ed25519
+**/*.sqlite
+**/*.sqlite3
+**/*.log
+**/test-results
+**/playwright-report
