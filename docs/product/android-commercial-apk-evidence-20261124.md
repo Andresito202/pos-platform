@@ -22,7 +22,7 @@
 
 - Prior signed APK (tree `eb1528ce`): SHA-256 `166b48e6875960fe1598aa1ae42bd3b664a18ac9a11b73a1db3f63c9015f6da9` · versionCode 3.
 - This APK supersedes that build: Central commercial composition + DeviceProof native client + API 28 App Links guide + safe `adb install -r`.
-- Build started from parent `d08f5ae1`; definitive `apk_built_from_tree` is the commit that lands this evidence (see integrity manifest).
+- Build started from parent `d08f5ae1`; definitive HEAD / `apk_built_from_tree`: `238160656b3768e97e865b87ac397aa1b93713ab`.
 
 ## Build commands observed
 

@@ -28,7 +28,7 @@
   },
   "central_composition": {
     "mount": "prepareCentralCommercialRuntime when CENTRAL_COMMERCIAL_PROVISION_FILE + SSA/SAS present",
-    "android_client": "AndroidBusinessNativeCentralClient + createAndroidBusinessNativeCentralClient (DeviceProof/PKCE/token→assertions)",
+    "android_client": "AndroidBusinessNativeCentralClient + createAndroidBusinessNativeCentralClient (DeviceProof/PKCE/token\u2192assertions)",
     "fail_closed_without_provision": "503 NATIVE_BUSINESS_ROUTE_NOT_ACTIVATED"
   },
   "app_links_preparation": {
@@ -39,7 +39,12 @@
   "install_policy": {
     "safe_update": "adb install -r",
     "mandatory_uninstall": false,
-    "preserves": ["app_data", "Keystore", "DeviceTrust", "licenses"]
+    "preserves": [
+      "app_data",
+      "Keystore",
+      "DeviceTrust",
+      "licenses"
+    ]
   },
   "trial_policy": {
     "source_pr": 135,
@@ -53,5 +58,6 @@
     "Play production signing",
     "Simulated BUSINESS login"
   ],
-  "apk_built_from_tree": "PENDING_COMMIT_SHA"
+  "apk_built_from_tree": "238160656b3768e97e865b87ac397aa1b93713ab",
+  "definitive_head": "238160656b3768e97e865b87ac397aa1b93713ab"
 }
