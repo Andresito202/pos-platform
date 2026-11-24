@@ -250,6 +250,41 @@ async function main(): Promise<void> {
     console.log(replayText);
     if (replay.status !== 200) throw new Error("REPLAY_FAILED");
 
+    // Fresh DeviceProof for each attempt: exercise persisted identity, not nonce replay.
+    const mutations = [
+      { label: "AGGREGATE", operation: { ...operation, aggregate_id: uuidV7() } },
+      { label: "ACTOR", operation: { ...operation, actor_id: uuidV7() } },
+      { label: "CORRELATION", operation: { ...operation, correlation_id: uuidV7() } },
+      { label: "BRANCH", operation: { ...operation, branch_id: uuidV7() } },
+      { label: "CAUSATION", operation: { ...operation, causation_id: uuidV7() } },
+    ];
+    for (const mutation of mutations) {
+      const changed = { ...envelope, request_id: uuidV7(), correlation_id: uuidV7(),
+        payload: { ...batch, batch_id: uuidV7(), branch_id: mutation.operation.branch_id,
+          operations: [mutation.operation] } };
+      const body = JSON.stringify(changed);
+      const response = await fetch(`${BASE}/v1/sync/batches`, {
+        method: "POST", headers: requestHeaders(changed, body), body,
+      });
+      const result = await response.json() as { result_code?: string };
+      if (response.status !== 409 || result.result_code !== "SYNC.OPERATION_IDENTITY_CONFLICT") {
+        throw new Error(`REPLAY_IDENTITY_${mutation.label}_NOT_REJECTED:${response.status}:${result.result_code}`);
+      }
+      console.log(`REPLAY_IDENTITY_${mutation.label}=REJECTED`);
+    }
+    const tampered = { ...envelope, request_id: uuidV7(), correlation_id: uuidV7(),
+      payload: { ...batch, batch_id: uuidV7(), operations: [{ ...operation,
+        payload: { ...payload, altered: true } }] } };
+    const tamperedBody = JSON.stringify(tampered);
+    const tamperedResponse = await fetch(`${BASE}/v1/sync/batches`, {
+      method: "POST", headers: requestHeaders(tampered, tamperedBody), body: tamperedBody,
+    });
+    const tamperedResult = await tamperedResponse.json() as { result_code?: string };
+    if (tamperedResponse.status !== 422 || tamperedResult.result_code !== "SYNC.PAYLOAD_CHECKSUM_MISMATCH") {
+      throw new Error("ALTERED_PAYLOAD_NOT_REJECTED");
+    }
+    console.log("ALTERED_PAYLOAD=REJECTED");
+
     const countAfter = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM sync.sync_operations WHERE tenant_id = $1 AND idempotency_key = $2`,
       [tenantId, operation.idempotency_key],
