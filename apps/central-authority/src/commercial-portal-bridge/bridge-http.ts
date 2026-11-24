@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { COMMERCIAL_BRIDGE_KEY_HEADER } from "@pos-platform/contracts";
 import { readCommercialJsonBody, sendCommercialJson } from "../commercial-https-request-boundary.js";
 import { CommercialPortalBridgeService } from "./bridge-service.js";
+import type { GlobalSessionGate } from "./global-session-gate.js";
 
 function header(req: IncomingMessage, name: string): string | undefined {
   const raw = req.headers[name];
@@ -23,8 +24,12 @@ async function readOptionalJson(request: IncomingMessage, maxBytes: number): Pro
 
 /**
  * Mounts commercial portal bridge routes on Central Authority.
+ * Mint requires bridge key + verified GLOBAL MFA session (gate).
  */
-export function createCommercialPortalBridgeHandler(bridge: CommercialPortalBridgeService) {
+export function createCommercialPortalBridgeHandler(
+  bridge: CommercialPortalBridgeService,
+  gate: GlobalSessionGate,
+) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const path = pathOf(request);
     const isBridgePath =
@@ -50,8 +55,13 @@ export function createCommercialPortalBridgeHandler(bridge: CommercialPortalBrid
       bridge.assertBridgeKey(header(request, COMMERCIAL_BRIDGE_KEY_HEADER));
 
       if (path === "/v1/sessions/commercial-bridge/mint") {
+        const global = await gate.verifyForMint(request);
+        if (!global) {
+          sendCommercialJson(response, 401, { code: "GLOBAL_SESSION_REQUIRED" });
+          return true;
+        }
         const { object } = await readCommercialJsonBody(request, 4_096);
-        const result = await bridge.mint(object);
+        const result = await bridge.mint(object, global);
         sendCommercialJson(response, 200, result);
         return true;
       }

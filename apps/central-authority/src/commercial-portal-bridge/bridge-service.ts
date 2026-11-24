@@ -1,4 +1,5 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { uuidV7 } from "@pos-platform/contracts";
 import {
   CommercialPortalIntrospectRequestSchema,
   CommercialPortalMintRequestSchema,
@@ -11,6 +12,7 @@ import {
   CommercialTrialExpireSweepResponseSchema,
   COMMERCIAL_TRIAL_WEBHOOK_KEY_HEADER,
 } from "@pos-platform/contracts";
+import type { VerifiedGlobalSession } from "./global-session-gate.js";
 
 export type BridgeRole = "SUPERADMIN_GLOBAL";
 
@@ -22,6 +24,8 @@ export type PortalSession = {
   authority: "GLOBAL";
   expiresAt: Date;
   revokedAt: Date | null;
+  /** Underlying GLOBAL MFA session — required for identity. */
+  globalSessionId: string;
 };
 
 export type TrialLicense = {
@@ -33,6 +37,7 @@ export type TrialLicense = {
   expiresAt: Date;
   commercialApiOrigin: string;
   revokedAt: Date | null;
+  activationDelivery?: "PENDING" | "ACTIVATED" | "CALLBACK_FAILED";
 };
 
 export type ProvisioningRecord = {
@@ -41,7 +46,11 @@ export type ProvisioningRecord = {
   orderId: string;
   licenseUnits: number;
   payload: unknown;
+  payloadHash: string;
   createdAt: Date;
+  tenantId?: string | null;
+  licenseIds?: string[];
+  fulfillment?: "QUEUED" | "ISSUED" | "ALREADY_QUEUED" | "ALREADY_ISSUED";
 };
 
 export type ReplayRecord = { jti: string; purpose: string; usedAt: Date; expiresAt: Date };
@@ -59,6 +68,26 @@ export interface CommercialPortalBridgeStore {
   claimJti(record: ReplayRecord): Promise<"CLAIMED" | "REPLAY">;
 }
 
+/** Optional hook to issue real licensing.licenses rows for trials/provisioning. */
+export interface CommercialLicenseIssuer {
+  issueTrialLicense(input: {
+    trialId: string;
+    email: string;
+    startsAt: Date;
+    expiresAt: Date;
+    tenantId?: string;
+    planId?: string;
+  }): Promise<{ licenseId: string }>;
+  revokeTrialLicense(licenseId: string, reason: string): Promise<void>;
+  issueProvisioningLicenses(input: {
+    orderId: string;
+    licenseUnits: number;
+    tenantId: string;
+    planId: string;
+    payloadHash: string;
+  }): Promise<{ licenseIds: string[] }>;
+}
+
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -69,7 +98,7 @@ function safeEqual(a: string, b: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
-/** In-memory durable-for-process store — used by standalone/integration and unit tests. */
+/** In-memory store — unit tests / standalone lab only. Forbidden in production mount. */
 export class MemoryCommercialPortalBridgeStore implements CommercialPortalBridgeStore {
   private readonly sessions = new Map<string, PortalSession>();
   private readonly trialsById = new Map<string, TrialLicense>();
@@ -78,6 +107,7 @@ export class MemoryCommercialPortalBridgeStore implements CommercialPortalBridge
   private readonly jtis = new Map<string, ReplayRecord>();
 
   async putSession(session: PortalSession): Promise<void> {
+    if (!session.globalSessionId) throw new Error("COMMERCIAL_BRIDGE_GLOBAL_SESSION_REQUIRED");
     this.sessions.set(session.tokenHash, session);
   }
   async getSessionByTokenHash(tokenHash: string): Promise<PortalSession | null> {
@@ -118,15 +148,16 @@ export class MemoryCommercialPortalBridgeStore implements CommercialPortalBridge
 export type CommercialPortalBridgeConfig = {
   bridgeKey: string;
   trialWebhookKey: string;
-  /** Optional fetch override for tests. */
   fetchImpl?: typeof fetch;
+  /** When set, trial/provisioning write real license rows. */
+  licenseIssuer?: CommercialLicenseIssuer;
+  /** Re-check underlying GLOBAL session on introspect. */
+  isGlobalSessionActive?: (sessionId: string) => Promise<boolean>;
 };
 
 /**
  * Central ↔ commercial portal bridge.
- * Reuses Central identity authority semantics (GLOBAL only for admin) without
- * duplicating the identity database — tokens are short-lived bridge credentials
- * minted after GLOBAL authority is established (or via service mint with bridge key).
+ * Bridge key authenticates the service; GLOBAL MFA session grants identity.
  */
 export class CommercialPortalBridgeService {
   private readonly fetchImpl: typeof fetch;
@@ -146,7 +177,10 @@ export class CommercialPortalBridgeService {
     }
   }
 
-  async mint(input: unknown) {
+  async mint(input: unknown, global: VerifiedGlobalSession) {
+    if (!global?.sessionId || !global.userId) {
+      throw Object.assign(new Error("GLOBAL_SESSION_REQUIRED"), { status: 401 });
+    }
     const body = CommercialPortalMintRequestSchema.parse(input);
     const claim = await this.store.claimJti({
       jti: body.jti,
@@ -163,18 +197,19 @@ export class CommercialPortalBridgeService {
     await this.store.putSession({
       tokenHash: sha256(accessToken),
       role: "SUPERADMIN_GLOBAL",
-      subjectId: body.subjectId,
+      subjectId: global.userId,
       tenantId: "global",
       authority: "GLOBAL",
       expiresAt,
       revokedAt: null,
+      globalSessionId: global.sessionId,
     });
     return CommercialPortalMintResponseSchema.parse({
       accessToken,
       tokenType: "Bearer",
       expiresAt: expiresAt.toISOString(),
       role: "SUPERADMIN_GLOBAL",
-      subjectId: body.subjectId,
+      subjectId: global.userId,
       tenantId: "global",
       authority: "GLOBAL",
     });
@@ -192,6 +227,10 @@ export class CommercialPortalBridgeService {
     const session = await this.store.getSessionByTokenHash(sha256(token));
     if (!session || session.revokedAt || session.expiresAt.getTime() <= Date.now()) {
       return CommercialPortalIntrospectResponseSchema.parse({ active: false });
+    }
+    if (this.config.isGlobalSessionActive) {
+      const live = await this.config.isGlobalSessionActive(session.globalSessionId);
+      if (!live) return CommercialPortalIntrospectResponseSchema.parse({ active: false });
     }
     return CommercialPortalIntrospectResponseSchema.parse({
       active: true,
@@ -217,20 +256,37 @@ export class CommercialPortalBridgeService {
 
     const existing = await this.store.getTrialByTrialId(body.trialId);
     if (existing && existing.contractStatus === "TRIAL" && !existing.revokedAt) {
+      let delivery = existing.activationDelivery ?? "ACTIVATED";
+      if (delivery === "CALLBACK_FAILED" || delivery === "PENDING") {
+        delivery = await this.callbackActivate(existing);
+        existing.activationDelivery = delivery;
+        await this.store.updateTrial(existing);
+      }
       return CommercialTrialIssueResponseSchema.parse({
         centralLicenseRef: existing.centralLicenseRef,
         contractStatus: "TRIAL",
         startsAt: existing.startsAt.toISOString(),
         expiresAt: existing.expiresAt.toISOString(),
         trialHours: 120,
-        commercialActivation: "ALREADY_ACTIVE",
+        commercialActivation: delivery === "ACTIVATED" ? "ALREADY_ACTIVE" : delivery,
         idempotent: true,
       });
     }
 
     const startsAt = new Date();
     const expiresAt = new Date(startsAt.getTime() + 120 * 60 * 60 * 1000);
-    const centralLicenseRef = `CTL-${randomBytes(16).toString("hex")}`;
+    let centralLicenseRef = uuidV7();
+    if (this.config.licenseIssuer) {
+      const issued = await this.config.licenseIssuer.issueTrialLicense({
+        trialId: body.trialId,
+        email: body.email.toLowerCase(),
+        startsAt,
+        expiresAt,
+        ...(body.tenantId ? { tenantId: body.tenantId } : {}),
+        ...(body.planId ? { planId: body.planId } : {}),
+      });
+      centralLicenseRef = issued.licenseId;
+    }
     const trial: TrialLicense = {
       centralLicenseRef,
       trialId: body.trialId,
@@ -240,10 +296,13 @@ export class CommercialPortalBridgeService {
       expiresAt,
       commercialApiOrigin: body.commercialApiOrigin.replace(/\/$/, ""),
       revokedAt: null,
+      activationDelivery: "PENDING",
     };
     await this.store.putTrial(trial);
 
     const activation = await this.callbackActivate(trial);
+    trial.activationDelivery = activation;
+    await this.store.updateTrial(trial);
     return CommercialTrialIssueResponseSchema.parse({
       centralLicenseRef,
       contractStatus: "TRIAL",
@@ -265,7 +324,13 @@ export class CommercialPortalBridgeService {
             "content-type": "application/json",
             [COMMERCIAL_TRIAL_WEBHOOK_KEY_HEADER]: this.config.trialWebhookKey,
           },
-          body: JSON.stringify({ centralLicenseRef: trial.centralLicenseRef }),
+          body: JSON.stringify({
+            centralLicenseRef: trial.centralLicenseRef,
+            startsAt: trial.startsAt.toISOString(),
+            expiresAt: trial.expiresAt.toISOString(),
+            trialHours: 120,
+            offlineGrace: false,
+          }),
           signal: AbortSignal.timeout(15_000),
         },
       );
@@ -285,9 +350,10 @@ export class CommercialPortalBridgeService {
       trial.contractStatus = "REVOKED";
       trial.revokedAt = now;
       await this.store.updateTrial(trial);
+      if (this.config.licenseIssuer) {
+        await this.config.licenseIssuer.revokeTrialLicense(trial.centralLicenseRef, "TRIAL_120H_EXPIRED");
+      }
       revoked += 1;
-      // Offline block: signed expiry/revocation is authoritative for Local Service
-      // capacity gate. Notify commercial CRM expire endpoint with shared webhook key.
       try {
         const res = await this.fetchImpl(`${trial.commercialApiOrigin}/v1/crm/trial/expire-due`, {
           method: "POST",
@@ -299,12 +365,13 @@ export class CommercialPortalBridgeService {
             centralLicenseRef: trial.centralLicenseRef,
             trialId: trial.trialId,
             reason: "TRIAL_120H_EXPIRED",
+            offlineGrace: false,
           }),
           signal: AbortSignal.timeout(15_000),
         });
         if (res.ok) commercialNotified += 1;
       } catch {
-        /* CRM notify best-effort; local revocation already recorded */
+        /* CRM notify best-effort; Central revocation already recorded */
       }
     }
     return CommercialTrialExpireSweepResponseSchema.parse({
@@ -319,26 +386,23 @@ export class CommercialPortalBridgeService {
       throw Object.assign(new Error("IDEMPOTENCY_KEY_REQUIRED"), { status: 400 });
     }
     const body = CommercialProvisioningRequestSchema.parse(input);
+    const payloadHash = sha256(JSON.stringify(body));
     const existing = await this.store.getProvisioningByIdempotency(idempotencyKey);
     if (existing) {
+      if (existing.payloadHash !== payloadHash) {
+        throw Object.assign(new Error("IDEMPOTENCY_PAYLOAD_CONFLICT"), { status: 409 });
+      }
       return CommercialProvisioningResponseSchema.parse({
         status: "DUPLICATE",
         provisioningId: existing.provisioningId,
         idempotencyKey: existing.idempotencyKey,
         licenseUnits: existing.licenseUnits,
         cajaRule: "ONE_LICENSE_ONE_CAJA",
-        fulfillment: "ALREADY_QUEUED",
+        fulfillment: existing.fulfillment === "ISSUED" || existing.fulfillment === "ALREADY_ISSUED"
+          ? "ALREADY_ISSUED"
+          : "ALREADY_QUEUED",
+        licenseIds: existing.licenseIds ?? [],
       });
-    }
-    // Bind idempotency to payload hash to reject key reuse with different body.
-    const payloadHash = sha256(JSON.stringify(body));
-    const expectedKeyMaterial = createHmac("sha256", this.config.bridgeKey)
-      .update(`provision:${body.orderId}:${payloadHash}`)
-      .digest("hex");
-    // Accept commercial's sha256(provision:orderId) OR HMAC binding — commercial sends sha256(provision:orderId).
-    const commercialDefault = sha256(`provision:${body.orderId}`);
-    if (idempotencyKey !== commercialDefault && idempotencyKey !== expectedKeyMaterial) {
-      // Still accept opaque keys ≥16 once claimed — prevents breaking current commercial outbox.
     }
     const claim = await this.store.claimJti({
       jti: idempotencyKey,
@@ -349,24 +413,49 @@ export class CommercialPortalBridgeService {
     if (claim === "REPLAY") {
       const again = await this.store.getProvisioningByIdempotency(idempotencyKey);
       if (again) {
+        if (again.payloadHash !== payloadHash) {
+          throw Object.assign(new Error("IDEMPOTENCY_PAYLOAD_CONFLICT"), { status: 409 });
+        }
         return CommercialProvisioningResponseSchema.parse({
           status: "DUPLICATE",
           provisioningId: again.provisioningId,
           idempotencyKey: again.idempotencyKey,
           licenseUnits: again.licenseUnits,
           cajaRule: "ONE_LICENSE_ONE_CAJA",
-          fulfillment: "ALREADY_QUEUED",
+          fulfillment: again.fulfillment === "ISSUED" || again.fulfillment === "ALREADY_ISSUED"
+            ? "ALREADY_ISSUED"
+            : "ALREADY_QUEUED",
+          licenseIds: again.licenseIds ?? [],
         });
       }
       throw Object.assign(new Error("COMMERCIAL_BRIDGE_REPLAY"), { status: 409 });
     }
+
+    let licenseIds: string[] = [];
+    let fulfillment: "QUEUED" | "ISSUED" = "QUEUED";
+    if (this.config.licenseIssuer && body.tenantId && body.planId) {
+      const issued = await this.config.licenseIssuer.issueProvisioningLicenses({
+        orderId: body.orderId,
+        licenseUnits: body.licenseUnits,
+        tenantId: body.tenantId,
+        planId: body.planId,
+        payloadHash,
+      });
+      licenseIds = issued.licenseIds;
+      fulfillment = "ISSUED";
+    }
+
     const row: ProvisioningRecord = {
       provisioningId: `CPV-${randomBytes(12).toString("hex")}`,
       idempotencyKey,
       orderId: body.orderId,
       licenseUnits: body.licenseUnits,
       payload: body,
+      payloadHash,
       createdAt: new Date(),
+      tenantId: body.tenantId ?? null,
+      licenseIds,
+      fulfillment,
     };
     await this.store.putProvisioning(row);
     return CommercialProvisioningResponseSchema.parse({
@@ -375,7 +464,8 @@ export class CommercialPortalBridgeService {
       idempotencyKey,
       licenseUnits: body.licenseUnits,
       cajaRule: "ONE_LICENSE_ONE_CAJA",
-      fulfillment: "QUEUED",
+      fulfillment,
+      licenseIds,
     });
   }
 }

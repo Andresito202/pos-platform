@@ -6,6 +6,9 @@
  * - COMMERCIAL_BRIDGE_KEY (≥32)
  * - CENTRAL_TRIAL_WEBHOOK_KEY (≥32)
  * - COMMERCIAL_BRIDGE_PORT (default 18443)
+ * - CENTRAL_BRIDGE_TEST_GATE=1 required for mint (ExplicitTestGlobalSessionGate)
+ *
+ * Uses in-memory store only — not commercial evidence of PostgreSQL durability.
  */
 import { createServer } from "node:http";
 import {
@@ -13,6 +16,7 @@ import {
   MemoryCommercialPortalBridgeStore,
 } from "./bridge-service.js";
 import { createCommercialPortalBridgeHandler } from "./bridge-http.js";
+import { ExplicitTestGlobalSessionGate, type GlobalSessionGate } from "./global-session-gate.js";
 
 if (process.env.NODE_ENV === "production") {
   console.error("standalone commercial bridge refused in production — use central-authority TLS");
@@ -23,11 +27,24 @@ const bridgeKey = process.env.COMMERCIAL_BRIDGE_KEY ?? "";
 const trialWebhookKey = process.env.CENTRAL_TRIAL_WEBHOOK_KEY ?? "";
 const port = Number(process.env.COMMERCIAL_BRIDGE_PORT ?? "18443");
 
-const bridge = new CommercialPortalBridgeService(new MemoryCommercialPortalBridgeStore(), {
+const store = new MemoryCommercialPortalBridgeStore();
+const gate: GlobalSessionGate =
+  process.env.CENTRAL_BRIDGE_TEST_GATE === "1"
+    ? new ExplicitTestGlobalSessionGate()
+    : {
+        async verifyForMint() {
+          return null;
+        },
+        async isSessionActive() {
+          return false;
+        },
+      };
+const bridge = new CommercialPortalBridgeService(store, {
   bridgeKey,
   trialWebhookKey,
+  isGlobalSessionActive: (sessionId) => gate.isSessionActive(sessionId),
 });
-const handle = createCommercialPortalBridgeHandler(bridge);
+const handle = createCommercialPortalBridgeHandler(bridge, gate);
 
 const server = createServer(async (req, res) => {
   if (req.method === "GET" && (req.url === "/health" || req.url?.startsWith("/health?"))) {
