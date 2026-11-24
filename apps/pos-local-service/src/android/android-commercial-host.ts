@@ -12,12 +12,18 @@ import { LocalOperatorSessionRegistry } from "../security/local-operator-session
 import { AndroidKeystoreKeyProvider } from "../security/android-keystore-key-provider.js";
 import { EncryptedFileSecretStore } from "../security/encrypted-secret-store.js";
 import { LicenseCapacityGate, type OperationalLicenseInformation, readLicenseCapacityProvision } from "../security/license-capacity-gate.js";
+import { LocalSecurityComponent } from "../security/local-security-component.js";
 import { parseServiceConfig, type ServiceConfig } from "../config.js";
 import {
   AndroidBusinessNativeCentralClient,
   AndroidNativeRequestMaterialSchema,
   AndroidTokenExchangeMaterialSchema,
 } from "./android-business-native-central.js";
+import {
+  androidSecurityDirectory,
+  createAndroidBusinessNativeCentralClient,
+  type AndroidNativeCentralDeps,
+} from "./android-commercial-native-composition.js";
 import { ANDROID_TRIAL_CAPACITY_POLICY } from "./android-trial-capacity-policy.js";
 
 export type AndroidHostStatus = {
@@ -40,6 +46,7 @@ export type AndroidHostStatus = {
 export class AndroidCommercialHost {
   private readonly database: LocalDatabaseComponent;
   private readonly lifecycle: ServiceLifecycle;
+  private localSecurity: LocalSecurityComponent | undefined;
   private durableSync: DurableSyncComponent | undefined;
   private commercial: CommercialComponent | undefined;
   private handler: CommercialRequestHandler | undefined;
@@ -61,12 +68,14 @@ export class AndroidCommercialHost {
     private readonly provider: AndroidKeystoreKeyProvider,
     private readonly now: () => Date = () => new Date(),
     /**
-     * Optional DeviceProof client when enrollment + Central HTTPS are present.
+     * Optional DeviceProof client override (tests). Production default composes
+     * LocalSecurity + enrolled Device Trust + Android commercial provision.
      * Returning null keeps native-request / token exchange fail-closed.
      */
-    private readonly resolveNativeCentral: (
+    private readonly resolveNativeCentral?: (
       config: ServiceConfig,
-    ) => AndroidBusinessNativeCentralClient | null = () => null,
+      deps: AndroidNativeCentralDeps,
+    ) => AndroidBusinessNativeCentralClient | null,
   ) {
     this.database = new LocalDatabaseComponent(directory);
     this.lifecycle = new ServiceLifecycle([this.database]);
@@ -104,10 +113,22 @@ export class AndroidCommercialHost {
       // Android commercial never elevates local-operator into CommercialRequestHandler.
       // SSA/session.activate is the only commercial authority path.
       this.config = parseServiceConfig(env);
+      const securityDirectory = androidSecurityDirectory(this.directory);
+      this.localSecurity = new LocalSecurityComponent(
+        this.database,
+        {
+          installationId: this.config.installation_id,
+          deviceId: this.config.device_id,
+        },
+        this.provider,
+        securityDirectory,
+        this.now,
+      );
+      await this.localSecurity.start();
+      modules.push("local-security");
       this.durableSync = new DurableSyncComponent(this.database);
       await this.durableSync.start();
       modules.push("durable-sync");
-      const securityDirectory = join(this.directory, "..", "security");
       const fiscalStore = new EncryptedFileSecretStore(
         securityDirectory,
         this.provider,
@@ -163,7 +184,17 @@ export class AndroidCommercialHost {
       security = "PROVISIONED";
       access = "BUSINESS_READY";
       if (this.config.central_base_url) {
-        const client = this.resolveNativeCentral(this.config);
+        const deps: AndroidNativeCentralDeps = {
+          config: this.config,
+          database: this.database,
+          security: this.localSecurity,
+          keyProvider: this.provider,
+          securityDirectory,
+          now: this.now,
+        };
+        const client = this.resolveNativeCentral
+          ? this.resolveNativeCentral(this.config, deps)
+          : createAndroidBusinessNativeCentralClient(deps);
         if (client) {
           this.nativeCentral = client;
           modules.push("business-native-central");
@@ -183,8 +214,11 @@ export class AndroidCommercialHost {
 
   async stop(): Promise<void> {
     this.operators?.clear();
+    this.nativeCentral = undefined;
     await this.commercial?.stop();
     await this.durableSync?.stop();
+    await this.localSecurity?.stop();
+    this.localSecurity = undefined;
     await this.lifecycle.stop();
     this.statusValue = {
       ...this.statusValue,

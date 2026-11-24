@@ -1,52 +1,83 @@
 # M60WL — instalación, enrolamiento y pruebas (PR #136)
 
-Package: `co.camachopos.colombia` · minSdk 28 · APK firmada de prueba (PKCS12 lab).
+Package: `co.camachopos.colombia` · minSdk 28 (Android 9) · APK firmada de prueba (PKCS12 lab).
 
 ## 1. Precondiciones en el PC
 
 1. APK firmada del HEAD definitivo de PR #136 (ver manifiesto de integridad).
-2. `adb` con el M60WL en modo depuración USB (device, no offline).
-3. Central HTTPS alcanzable desde el terminal (`https://central.camachoposcolombia.com`).
-4. DAL publicada en `/.well-known/assetlinks.json` con el SHA-256 del firmante **de release** (el artefacto `android-assetlinks-prepared-not-published.json` es preparación; `publication_status: NOT_PUBLISHED` hasta publicación real).
-5. Dispositivo enrolado Device Trust (credencial ACTIVE) y aprovisionamiento local con `POS_CENTRAL_BASE_URL` + `POS_LICENSE_CAPACITY_PROVISION_FILE` cuando haya capacidad firmada (trial 120h de PR #135).
+2. `adb` con el M60WL en modo depuración USB (`adb devices` → `device`).
+3. Central HTTPS alcanzable (`https://central.camachoposcolombia.com`) con:
+   - `CENTRAL_COMMERCIAL_PROVISION_FILE` + SSA/SAS trust publicados
+   - migraciones Identity 008–016 aplicadas
+4. DAL publicada en `/.well-known/assetlinks.json` con el SHA-256 del firmante instalado (el JSON `android-assetlinks-prepared-not-published.json` es preparación; no acredita publicación).
+5. Dispositivo enrolado Device Trust y aprovisionamiento local con `POS_CENTRAL_BASE_URL` + `POS_ANDROID_COMMERCIAL_PROVISION_FILE` (`CAMACHO_ANDROID_COMMERCIAL_V2`) (+ capacidad firmada trial 120h de PR #135 cuando exista).
 
-## 2. Instalación
+## 2. Actualización segura (sin desinstalar)
+
+Conservar datos, Keystore, identidad Device Trust y licencias locales:
 
 ```bash
 # Verificar digests del manifiesto antes de instalar
 sha256sum camacho-pos-colombia.apk
 
-adb uninstall co.camachopos.colombia || true
+# Actualización in-place. NO usar adb uninstall.
 adb install -r camacho-pos-colombia.apk
-adb shell dumpsys package co.camachopos.colombia | rg -n 'versionName|versionCode|signatures|pkgFlags'
+
+# Si -r falla por firma distinta, NO desinstalar a ciegas: detener y reconciliar
+# el firmante. Borrar el paquete elimina Keystore/datos/licencias locales.
+
+adb shell dumpsys package co.camachopos.colombia | grep -E 'versionName|versionCode|signatures|pkgFlags|dataDir'
 ```
 
 Confirmar `versionName` / `versionCode` del manifiesto. Firma test ≠ Play production.
 
 ## 3. Enrolamiento DeviceProof
 
-1. Completar enrolamiento Device Trust del M60WL contra Central (ruta existente `/v1/device-enrollment`) con binding tenant/company/installation/device del aprovisionamiento.
+1. Completar enrolamiento Device Trust del M60WL contra `/v1/device-enrollment` con binding tenant/company/installation/device del aprovisionamiento.
 2. Verificar en el servicio local: credencial ACTIVE, auditoría `DEVICE_ENROLLMENT_COMPLETED`, key local = public key certificada.
-3. Sin este paso, `android.business.native_request` permanece `BUSINESS_NATIVE_REQUEST_UNAVAILABLE` (fail-closed; no se simula).
+3. Sin este paso, el host no puede firmar DeviceProof hacia native-requests/token (fail-closed; no se simula).
 
-## 4. App Links
+## 4. App Links en Android 9 (API 28)
+
+`pm get-app-links` / `pm verify-app-links` son de Android 12+ y **no** deben usarse como evidencia en M60WL.
+
+### 4.1 Publicar DAL
+
+Publicar `https://central.camachoposcolombia.com/.well-known/assetlinks.json` con:
+
+- `package_name`: `co.camachopos.colombia`
+- `sha256_cert_fingerprints`: fingerprint del APK instalado (no el de preparación si el release cambia)
+
+### 4.2 Comprobaciones compatibles con API 28
 
 ```bash
-adb shell pm get-app-links co.camachopos.colombia
-# Tras publicar DAL con el fingerprint real:
-adb shell pm verify-app-links --re-verify co.camachopos.colombia
-adb shell pm get-app-links co.camachopos.colombia
+# 1) Intent-filter autoVerify presente en el paquete instalado
+adb shell dumpsys package co.camachopos.colombia | grep -A2 -E 'android.intent.action.VIEW|autoVerify|camachoposcolombia'
+
+# 2) Estado de dominio / verificación del Intent Filter (Android 9)
+adb shell dumpsys package d | grep -A20 'co.camachopos.colombia' || true
+adb shell dumpsys package domain-preferred-apps | grep -A10 'co.camachopos.colombia' || true
+
+# 3) Simular el callback HTTPS (debe abrir BusinessAuthorizationCallbackActivity, no el navegador)
+adb shell am start -a android.intent.action.VIEW \
+  -c android.intent.category.BROWSABLE \
+  -d 'https://central.camachoposcolombia.com/android/callback?code=TEST&state=TEST'
+
+# 4) Log de verificación de App Links del Package Manager (si el OEM lo emite)
+adb logcat -d | grep -iE 'IntentFilterIntentOp|Verification|digital.?asset|StatementService' | tail -50
 ```
 
-El fetch HTTPS de `assetlinks.json` en la app **no** acredita verificación OS. En Android 9 del M60WL hay que observar `verified` / dominio `central.camachoposcolombia.com`.
+El fetch HTTPS de `assetlinks.json` dentro de la app **no** acredita verificación OS. En Android 9 hay que observar dominio asociado / autoVerify en `dumpsys` y que el VIEW HTTPS abra la Activity de callback.
+
+Si el dominio no queda verificado tras publicar DAL: reiniciar el terminal, esperar la reconsulta del Package Manager, o borrar datos de red/caché del sistema **sin** desinstalar la app comercial.
 
 ## 5. Login BUSINESS
 
 1. Abrir Camacho POS Colombia → **Ingresar con BUSINESS**.
-2. La app verifica DAL → prepara PKCE → registra native-request con DeviceProof → abre navegador con `?request=` (43 chars).
-3. Completar MFA BUSINESS en el navegador del sistema.
-4. El callback App Link vuelve a la app → canje `/v1/commercial/token` → `session.activate` con SSA.
-5. Si Central aún no activó las rutas nativas, el mensaje debe ser fail-closed (no acceso falso).
+2. App verifica DAL → PKCE → `POST /v1/commercial/native-request-challenges` → DeviceProof `POST /v1/commercial/native-requests` → navegador `?request=` (43 chars).
+3. Completar MFA BUSINESS en el navegador del sistema (`/v1/commercial/login` + authorize).
+4. Callback App Link → DeviceProof `POST /v1/commercial/token` → `POST /v1/business-session/assertions` (SSA) → `session.activate`.
+5. Sin provision commercial Central / DeviceProof / DAL, el acceso permanece fail-closed (no acceso falso).
 
 ## 6. Pruebas funcionales (sin simular hardware)
 
@@ -72,14 +103,15 @@ No simular. En el M60WL:
 ## 8. Evidencia a capturar
 
 - Screenshot login BUSINESS (fail-closed o éxito real).
-- `adb shell pm get-app-links` post-verify.
-- SHA-256 del APK instalado = manifiesto.
+- Salida `dumpsys package` / dominio App Links en API 28.
+- SHA-256 del APK instalado = manifiesto (tras `adb install -r`).
 - Una venta offline + sync cuando Central esté disponible.
 - Lectura CH340 / ticket impreso cuando el hardware esté conectado.
 
-## No acreditado por este documento
+## Bloqueos reales restantes
 
-- Publicación productiva de DAL.
-- Emisor SSA/SAS productivo si las rutas Central siguen `NATIVE_BUSINESS_ROUTE_NOT_ACTIVATED`.
-- Firma Play / MSIX.
-- Cajón eléctrico sin perfil verificado.
+- Publicación DAL en el host Central productivo y verificación OS en el M60WL.
+- Despliegue Central con `CENTRAL_COMMERCIAL_PROVISION_FILE` + claves SSA/SAS + DB 008–016.
+- Enrolamiento DeviceProof en el terminal físico.
+- CH340 / PRINT / perfil eléctrico del cajón.
+- Firma Play (fuera de alcance de esta APK de prueba).

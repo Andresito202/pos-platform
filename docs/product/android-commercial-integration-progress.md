@@ -2,29 +2,31 @@
 
 Branch: `cursor/android-commercial-integration-c53a` · PR #136
 
-## Completed in this wave
+## Completed
 
 | Item | Evidence |
 |---|---|
-| Node/SQLite engine packaged via approved lab pipeline | `prepare-runtime` → verify → extract → NDK compile → `package-runtime-assets`; commercial `runtime-service.mjs` from `AndroidCommercialHost` |
-| BUSINESS entry (no local.operator commercial auth) | `EntryActivity` → App Links verify → PKCE prepare → `android.business.native_request` → browser V2 `?request=` → callback → token exchange → `session.activate` / `session.recover` |
-| Commercial handler SSA-only | `AndroidCommercialHost` no longer passes local-operator into `CommercialRequestHandler` |
-| IPC Zod fail-closed on Android | After host-only `android.business.*`, `IpcRequestSchema.safeParse`; unknown types → `INVALID_REQUEST`; authorization path unchanged |
-| DeviceProof native-request client composition | `AndroidBusinessNativeCentralClient` (challenge → DeviceProof POST → selector); host uses it only when `resolveNativeCentral` supplies enrolled credential + HTTPS origin |
-| Central reserved native routes | `main.ts` returns 503 `NATIVE_BUSINESS_ROUTE_NOT_ACTIVATED` / `ANDROID_ASSET_LINKS_NOT_PUBLISHED` (not a parallel stack) |
-| App Links preparation | `docs/product/android-assetlinks-prepared-not-published.json` via `prepareAndroidAssociation` · status `NOT_PUBLISHED` |
-| Functional surfaces | Caja, carrito/ventas, catálogo, inventario, clientes, pagos (efectivo/Nequi/FACTUS Pay), hardware, licencia/trial, capacidades |
-| Hardware adapters reused | `UsbHostTransport` / `HardwareCore`; drawer gated until electrical profile verified |
-| Trial 120h / zero grace (PR #135 connection) | `TrialCapacityBridge` + `OfflineExpiryPolicy` + `ANDROID_TRIAL_CAPACITY_POLICY`; gate remains `LicenseCapacityGate` (no mint in APK) |
-| Signed APK | `gradle commercialApk` → v2-signed test PKCS12 · see integrity manifest |
+| Node/SQLite engine packaged | Lab pipeline → commercial `runtime-service.mjs` |
+| BUSINESS entry (no local.operator commercial auth) | App Links → PKCE → DeviceProof native-request → browser → token → SSA assertions → `session.activate` |
+| IPC Zod fail-closed on Android | `IpcRequestSchema.safeParse` after host-only `android.business.*` |
+| Central commercial composition | `prepareCentralCommercialRuntime` mounts native-requests/token/login/assertions when `CENTRAL_COMMERCIAL_PROVISION_FILE` + SSA/SAS trust present; otherwise fail-closed 503 |
+| Android registration | Provision `platform: ANDROID` + App Link package/fingerprint via `validateCommercialPosRegistration` |
+| DeviceProof client composition | `createAndroidBusinessNativeCentralClient` + `AndroidBusinessNativeCentralClient` (challenges → native-requests → token → `/v1/business-session/assertions`) |
+| App Links prep | `android-assetlinks-prepared-not-published.json` (`NOT_PUBLISHED`) |
+| Trial 120h / zero grace | PR #135 observation + `LicenseCapacityGate` |
+| M60WL runbook (API 28) | Safe `adb install -r` (no uninstall); App Links via `dumpsys` / VIEW intent (no Android 12+ pm commands) |
+| Signed APK 0.3.2 | Integrity manifest · SHA-256 `b7668d36042edb472dd11b9dbe94145a48af3e19d4a75646dd9109125a6e387d` (supersedes eb1528ce APK) |
 
-## Explicit non-claims / M60WL + Central-deploy blockers
+## Real blockers remaining (infra / hardware)
 
-1. **OS App Links verification** on Android 9 (DAL must be published with release cert; metadata prepare ≠ OS verify).
-2. **Central activation** of native-request / token handlers on migration 016 (routes reserved 503 until authorized activation + DeviceProof enrollment).
-3. **Live CH340 / PRINT / drawer electrical** on the physical terminal.
-4. **Install + operator observation** of BUSINESS login + sale on M60WL.
+1. Live Central deploy with commercial provision + SSA/SAS keys + DB 008–016.
+2. DAL published with the installed APK fingerprint + OS verify on M60WL Android 9.
+3. DeviceProof enrollment on the physical terminal (`POS_ANDROID_COMMERCIAL_PROVISION_FILE` + Device Trust).
+4. CH340 / PRINT / drawer electrical profile on M60WL.
+5. Play production signing (out of scope for test PKCS12).
 
-## Operator runbook
+## Operator docs
 
-See `docs/product/android-m60wl-install-enroll-test.md`.
+- `docs/product/android-m60wl-install-enroll-test.md`
+- `docs/product/android-commercial-integrity-manifest-20261124.json`
+- `docs/product/android-commercial-apk-evidence-20261124.md`

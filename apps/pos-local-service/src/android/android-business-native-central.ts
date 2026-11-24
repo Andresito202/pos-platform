@@ -1,6 +1,10 @@
-import { randomUUID } from "node:crypto";
 import * as z from "zod";
-import { validateCommercialHttpsOrigin } from "@pos-platform/contracts";
+import {
+  CommercialAccessClaimsSchema,
+  CommercialHttpV2,
+  uuidV7,
+  validateCommercialHttpsOrigin,
+} from "@pos-platform/contracts";
 import type { CommercialDeviceCredentialProvider } from "../security/commercial-device-credential.js";
 
 const Opaque43 = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
@@ -134,33 +138,60 @@ export class AndroidBusinessNativeCentralClient {
       client_id: material.client_id,
       redirect_uri: material.redirect_uri,
     });
+    // Historical Central contract: /token returns device-bound access/refresh;
+    // SSA is issued separately via /v1/business-session/assertions.
     const token = await this.postJson<{
-      session_assertion?: unknown;
+      accessToken?: string;
+      refreshToken?: string;
       access_token?: string;
       refresh_token?: string;
     }>("/v1/commercial/token", body, true);
-    if (token.session_assertion === undefined || token.session_assertion === null) {
+    const accessToken = token.accessToken ?? token.access_token;
+    const refreshToken = token.refreshToken ?? token.refresh_token;
+    if (typeof accessToken !== "string" || typeof refreshToken !== "string") {
+      throw new Error("CENTRAL_TOKEN_CREDENTIALS_REJECTED");
+    }
+    const payload = accessToken.split(".")[1];
+    if (!payload) throw new Error("CENTRAL_ACCESS_TOKEN_REJECTED");
+    const claims = CommercialAccessClaimsSchema.parse(
+      JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
+    );
+    const assertionBody = JSON.stringify({ session_id: claims.sid });
+    const assertion = await this.postJson<unknown>(
+      "/v1/business-session/assertions",
+      assertionBody,
+      true,
+      { [CommercialHttpV2.accessHeader]: accessToken },
+    );
+    if (assertion === null || assertion === undefined) {
       throw new Error("CENTRAL_TOKEN_SSA_MISSING");
     }
     return {
-      session_assertion: token.session_assertion,
-      ...(typeof token.access_token === "string" ? { access_token: token.access_token } : {}),
-      ...(typeof token.refresh_token === "string" ? { refresh_token: token.refresh_token } : {}),
+      session_assertion: assertion,
+      access_token: accessToken,
+      refresh_token: refreshToken,
     };
   }
 
   private async postJson<T>(
-    path: "/v1/commercial/native-request-challenges" | "/v1/commercial/native-requests" | "/v1/commercial/token",
+    path:
+      | "/v1/commercial/native-request-challenges"
+      | "/v1/commercial/native-requests"
+      | "/v1/commercial/token"
+      | "/v1/business-session/assertions",
     body: string,
     requireDeviceProof: boolean,
+    extraHeaders: Record<string, string> = {},
   ): Promise<T> {
-    const requestId = randomUUID();
-    const correlationId = randomUUID();
+    // Central commercial HTTPS requires UUID request ids and UUID v7 correlation.
+    const requestId = uuidV7();
+    const correlationId = uuidV7();
     const headers: Record<string, string> = {
       "content-type": "application/json",
       "cache-control": "no-store",
       "x-request-id": requestId,
       "x-correlation-id": correlationId,
+      ...extraHeaders,
     };
     if (requireDeviceProof) {
       headers.authorization = await this.credential.authorization({

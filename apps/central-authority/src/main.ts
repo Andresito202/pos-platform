@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { createServer } from "node:https";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
@@ -8,13 +9,14 @@ import { GlobalAdministrationProvisionSchema } from "@pos-platform/contracts";
 import { prepareGlobalAdministrationRuntime } from "./global-administration-runtime.js";
 import { prepareLicenseCapacityRuntime } from "./license-capacity-runtime.js";
 import { parseCentralDeploymentConfiguration, verifyCentralRuntimeDatabase, verifyCentralTlsIdentity } from "./central-deployment-configuration.js";
-import { SessionTrustPublication } from "./session-trust-publication.js";
+import { AuthorizationTrustPublication, SessionTrustPublication } from "./session-trust-publication.js";
 import { prepareFactusPayRuntime } from "./factus-pay-runtime.js";
 import { FACTUS_PAY_COLLECTION_WEBHOOK_PATH } from "./factus-pay-webhook-handler.js";
 import { prepareBusinessAdministrationRuntime } from "./business-administration-runtime.js";
 import { prepareSubscriptionFulfillmentRuntime } from "./subscription-fulfillment-runtime.js";
 import { prepareSubscriptionFactusPayGateway } from "./subscription-factus-pay-gateway-runtime.js";
 import { createCentralRouter } from "./central-router.js";
+import { prepareCentralCommercialRuntime } from "./central-commercial-runtime.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -92,7 +94,10 @@ function protocolContext(request: IncomingMessage, requestId: string, correlatio
 const databaseUrl = required("CENTRAL_DATABASE_URL");
 const globalProvision = process.env.CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE;
 const businessProvision = process.env.CENTRAL_BUSINESS_PROVISION_FILE;
-const deployment = globalProvision || businessProvision !== undefined ? parseCentralDeploymentConfiguration(process.env) : null;
+const commercialProvision = process.env.CENTRAL_COMMERCIAL_PROVISION_FILE;
+const deployment = globalProvision || businessProvision !== undefined || commercialProvision !== undefined
+  ? parseCentralDeploymentConfiguration(process.env)
+  : null;
 const transportToken = deployment === null
   ? required("D3_ENROLLMENT_TRANSPORT_TOKEN")
   : secretFromFile("D3_ENROLLMENT_TRANSPORT_TOKEN_FILE");
@@ -105,6 +110,39 @@ const sessionTrustPublication = process.env.SESSION_TRUST_ARTIFACT_FILE === unde
 const sessionTrustTransportToken = process.env.SESSION_TRUST_TRANSPORT_TOKEN_FILE === undefined
   ? null
   : secretFromFile("SESSION_TRUST_TRANSPORT_TOKEN_FILE");
+const sasConfigured = process.env.AUTHORIZATION_TRUST_ARTIFACT_FILE !== undefined
+  || process.env.AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE !== undefined;
+if (sasConfigured && !deployment) throw Error("SAS_EXPLICIT_CENTRAL_DEPLOYMENT_REQUIRED");
+if (sasConfigured) {
+  const path = required("AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE");
+  if (!isAbsolute(path)) throw Error("SAS_MANAGED_TOKEN_ABSOLUTE_FILE_REQUIRED");
+  const stat = lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096) throw Error("SAS_MANAGED_TOKEN_FILE_REJECTED");
+}
+const authorizationTrustPublication = sasConfigured
+  ? new AuthorizationTrustPublication(
+    required("AUTHORIZATION_TRUST_ARTIFACT_FILE"),
+    {
+      issuer: deployment!.origin,
+      ...(deployment!.environment === "LOCAL" ? {} : { environment: deployment!.environment }),
+    },
+  )
+  : null;
+const authorizationTrustTransportToken = sasConfigured
+  ? secretFromFile("AUTHORIZATION_TRUST_TRANSPORT_TOKEN_FILE")
+  : null;
+if (
+  authorizationTrustTransportToken !== null
+  && (
+    authorizationTrustTransportToken.length < 32
+    || Buffer.byteLength(authorizationTrustTransportToken) > 4096
+    || /[\r\n]/.test(authorizationTrustTransportToken)
+    || constantTimeEqual(authorizationTrustTransportToken, transportToken)
+    || (sessionTrustTransportToken !== null && constantTimeEqual(authorizationTrustTransportToken, sessionTrustTransportToken))
+  )
+) {
+  throw Error("SAS_SEPARATE_MANAGED_TRANSPORT_TOKEN_REQUIRED");
+}
 const pool = createPostgresPool(databaseUrl, 10, "pos-platform-central-authority");
 
 try {
@@ -211,6 +249,25 @@ const businessHandler = await (async () => {
   catch (error) { await pool.end(); throw error; }
 })();
 
+if (commercialProvision && (!deployment || deployment.environment === "LOCAL" || !sessionTrustPublication || !authorizationTrustPublication)) {
+  await pool.end();
+  throw Error("COMMERCIAL_REAL_DEPLOYMENT_TRUST_REQUIRED");
+}
+const commercialHandler = commercialProvision
+  ? await prepareCentralCommercialRuntime({
+    pool,
+    provisionFile: commercialProvision,
+    origin: deployment!.origin,
+    environment: deployment!.environment as "PREPRODUCTION" | "PRODUCTION",
+    tls: { key: tlsKey, cert: tlsCert },
+    publishedSsaFile: required("SESSION_TRUST_ARTIFACT_FILE"),
+    publishedSasFile: required("AUTHORIZATION_TRUST_ARTIFACT_FILE"),
+  }).catch(async (error) => {
+    await pool.end();
+    throw error;
+  })
+  : undefined;
+
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, createCentralRouter(async (request, response) => {
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
@@ -232,20 +289,81 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   }
 
   if (request.method === "GET" && request.url === "/health") {
-    send(response, 200, { status: "OK", service: "central-authority", protocol_version: "1.0.0" });
+    send(response, 200, {
+      status: "OK",
+      service: "central-authority",
+      protocol_version: "1.0.0",
+      commercial_auth: commercialHandler ? "CONFIGURED" : "NOT_ACTIVATED",
+    });
     return;
   }
 
-  // Reserved Android/Windows BUSINESS native surface (migration 016 + DeviceProof
-  // allowlist). Explicitly fail-closed until D3 registration, DAL publication and
-  // native request activation are authorized. Do not invent an alternate stack.
-  const commercialNativePath = request.url?.split("?", 1)[0] ?? "";
+  if (request.method === "GET" && (request.url === "/v1/session-trust" || request.url === "/v1/authorization-trust")) {
+    const sas = request.url === "/v1/authorization-trust";
+    const publication = sas ? authorizationTrustPublication : sessionTrustPublication;
+    const token = sas ? authorizationTrustTransportToken : sessionTrustTransportToken;
+    const prefix = sas ? "AUTHORIZATION_TRUST" : "SESSION_TRUST";
+    if (!limiter.allow(`${remote}:${sas ? "authorization-trust" : "session-trust"}`)) {
+      send(response, 429, {
+        status: "REJECTED",
+        result_code: `${prefix}_RATE_LIMITED`,
+        request_id: requestId,
+        correlation_id: correlationId,
+      }, { "retry-after": "60" });
+      return;
+    }
+    const authorization = request.headers.authorization ?? null;
+    const authorized = publication !== null
+      && token !== null
+      && authorization !== null
+      && authorization.startsWith("Bearer ")
+      && constantTimeEqual(authorization.slice(7), token);
+    if (!authorized) {
+      send(response, 401, {
+        status: "REJECTED",
+        result_code: `${prefix}_UNAUTHORIZED`,
+        request_id: requestId,
+        correlation_id: correlationId,
+      });
+      return;
+    }
+    try {
+      const bundle = publication.load();
+      send(response, 200, bundle as Record<string, unknown>, {
+        "x-request-id": requestId,
+        "x-correlation-id": correlationId,
+      });
+    } catch {
+      send(response, 503, {
+        status: "REJECTED",
+        result_code: `${prefix}_UNAVAILABLE`,
+        request_id: requestId,
+        correlation_id: correlationId,
+      });
+    }
+    return;
+  }
+
+  const commercialPath = request.url?.split("?", 1)[0] ?? "";
   if (
-    commercialNativePath === "/v1/commercial/native-request-challenges"
-    || commercialNativePath === "/v1/commercial/native-requests"
-    || commercialNativePath === "/v1/commercial/token"
-    || commercialNativePath === "/v1/commercial/login"
-    || commercialNativePath === "/.well-known/assetlinks.json"
+    commercialHandler
+    && (commercialPath.startsWith("/v1/commercial/") || commercialPath.startsWith("/v1/business-session/"))
+  ) {
+    commercialHandler(request, response);
+    return;
+  }
+
+  // Fail-closed reservation when commercial composition is not provisioned.
+  if (
+    commercialPath === "/v1/commercial/native-request-challenges"
+    || commercialPath === "/v1/commercial/native-requests"
+    || commercialPath === "/v1/commercial/token"
+    || commercialPath === "/v1/commercial/refresh"
+    || commercialPath === "/v1/commercial/authorize"
+    || commercialPath === "/v1/commercial/login"
+    || commercialPath.startsWith("/v1/commercial/browser/")
+    || commercialPath.startsWith("/v1/business-session/")
+    || commercialPath === "/.well-known/assetlinks.json"
   ) {
     if (!limiter.allow(`${remote}:commercial-native`)) {
       send(response, 429, {
@@ -258,7 +376,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     }
     send(response, 503, {
       status: "REJECTED",
-      result_code: commercialNativePath === "/.well-known/assetlinks.json"
+      result_code: commercialPath === "/.well-known/assetlinks.json"
         ? "ANDROID_ASSET_LINKS_NOT_PUBLISHED"
         : "NATIVE_BUSINESS_ROUTE_NOT_ACTIVATED",
       request_id: requestId,
@@ -274,30 +392,6 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       return;
     }
     await factusPayHandler(request, response);
-    return;
-  }
-
-  if (request.method === "GET" && request.url === "/v1/session-trust") {
-    const authorization = request.headers.authorization ?? null;
-    const authorized = sessionTrustPublication !== null
-      && sessionTrustTransportToken !== null
-      && authorization !== null
-      && authorization.startsWith("Bearer ")
-      && constantTimeEqual(authorization.slice(7), sessionTrustTransportToken);
-    if (!authorized) {
-      send(response, 401, { status: "REJECTED", result_code: "SESSION_TRUST_UNAUTHORIZED", request_id: requestId, correlation_id: correlationId });
-      return;
-    }
-    if (!limiter.allow(`${remote}:session-trust`)) {
-      send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
-      return;
-    }
-    try {
-      const bundle = sessionTrustPublication.load();
-      send(response, 200, bundle, { "x-request-id": requestId, "x-correlation-id": correlationId });
-    } catch {
-      send(response, 503, { status: "REJECTED", result_code: "SESSION_TRUST_UNAVAILABLE", request_id: requestId, correlation_id: correlationId });
-    }
     return;
   }
 
