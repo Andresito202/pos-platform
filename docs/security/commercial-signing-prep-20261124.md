@@ -19,6 +19,7 @@ Nunca generar, committear ni publicar claves privadas de Central, SSA, SAS, Devi
 |---|---|
 | PKCS12 lab `camacho-android-test.p12` | Sólo laboratorio; no Play |
 | Fingerprint DAL | Prep `NOT_PUBLISHED` en PR #136 |
+| R8 / D8 | D8 default; R8 `--release` opcional (`-PcommercialR8Shrink=true`) en `cursor/android-r8-hardening-c53a` |
 | Play App Signing | Fuera de alcance lab; upload key / Play Console fuera de Git |
 | Firma release | Operador suministra keystore fuera del árbol; CI usa secret store |
 

@@ -20,7 +20,7 @@ No se repitieron suites ya aprobadas de PR #135/#136 (host 8 PASS, CI 11 SUCCESS
 
 ## Controles nuevos / corregidos
 
-1. **Rate limit:** main.ts ya no desaloja presupuestos activos; `DurableFixedWindowRateLimiter` + `CENTRAL_RATE_LIMIT_STATE_FILE` (single-node). Multi-nodo = residual.
+1. **Rate limit:** default `CENTRAL_RATE_LIMIT_BACKEND=postgres` → `PostgresFixedWindowRateLimiter` + migration `035_central_rate_limit_counters` (atomic upsert, multi-instance). Fallbacks: `file` (single-node) / `memory`.
 2. **Electron Fuses / ASAR integrity:** `electron-builder.yml` + `ELECTRON_FUSES_POLICY` + test de no debilitamiento.
 3. **Android BUSINESS integrity:** debugger/Frida/root artifacts; digest verify del motor embebido.
 4. **Docs:** auditoría, prep firma comercial, prep privatización (repos siguen public).
