@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+      - cursor/android-commercial-integration-c53a
   workflow_dispatch:
     inputs:
       run_factus_sandbox_exceptional:

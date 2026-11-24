@@ -6,7 +6,7 @@ on:
       - main
       - claude/pos-camacho-bloque-4c-ld43py
   pull_request:
-    branches: [main]
+    branches: [main, cursor/android-commercial-integration-c53a]
   workflow_dispatch:
 
 permissions:

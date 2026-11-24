@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+      - cursor/android-commercial-integration-c53a
   schedule:
     - cron: "23 5 * * 3"
   workflow_dispatch:
