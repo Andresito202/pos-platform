@@ -3,8 +3,9 @@
  * Verified SQLite backup via LocalDatabase.createVerifiedBackup.
  * Usage: node infra/ops/backup-sqlite.mjs --data-dir /absolute/path
  */
-import { isAbsolute, resolve } from "node:path";
-import { LocalDatabase } from "@pos-platform/database-sqlite";
+import { lstatSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
+import { LocalDatabase } from "../../packages/database-sqlite/src/index.ts";
 
 function arg(name) {
   const i = process.argv.indexOf(name);
@@ -12,8 +13,10 @@ function arg(name) {
   return process.argv[i + 1];
 }
 
-const dataDir = resolve(arg("--data-dir"));
+const dataDir = arg("--data-dir");
 if (!isAbsolute(dataDir)) throw new Error("--data-dir must be absolute");
+
+if (!lstatSync(join(dataDir, "pos-local.db")).isFile()) throw new Error("source must be an existing regular database");
 
 const label = process.argv.includes("--label")
   ? arg("--label")

@@ -1,86 +1,83 @@
-/**
- * k6 load script — Central Authority commercial capacity profile.
- *
- * Usage (operator machine with k6 installed):
- *   k6 run -e BASE_URL=https://central.example:9443 \
- *          -e TRANSPORT_TOKEN=*** \
- *          -e PROFILE=infra/k6/profiles/commercial-initial.json \
- *          infra/k6/central-commercial.js
- *
- * Does not print fabricated results. Thresholds are targets for the initial
- * 10 companies / 30 registers / 3000 sales/day profile.
- */
 import http from "k6/http";
-import { check, sleep } from "k6";
-import { Rate, Trend } from "k6/metrics";
+import { check } from "k6";
+import exec from "k6/execution";
+import { Counter } from "k6/metrics";
 
-const denied = new Rate("central_rate_limited");
-const latency = new Trend("central_request_ms");
+const profile = JSON.parse(open(__ENV.PROFILE || "./profiles/commercial-initial.json"));
+const fixtures = JSON.parse(open(__ENV.SYNC_FIXTURE_FILE || ""));
+const base = (__ENV.SYNC_BASE_URL || "").replace(/\/+$/, "");
+if (__ENV.K6_ENVIRONMENT !== "authorized-staging" || !base.startsWith("https://")) {
+  throw new Error("HTTPS staging and K6_ENVIRONMENT=authorized-staging are required");
+}
+const { companies, cash_registers_total: registers } = profile.tenancy;
+const batchesPerDevice = fixtures[0]?.batches.length;
+const operations = new Set();
+const deviceIds = new Set();
+const companyIds = new Set();
+let sales = 0;
+for (const device of fixtures) {
+  deviceIds.add(device.deviceId);
+  companyIds.add(device.companyId);
+  if (device.batches.length !== batchesPerDevice) throw new Error("equal batch counts required per device");
+  for (const fixture of device.batches) {
+    const batch = JSON.parse(fixture.body).payload;
+    if (batch.device_id !== device.deviceId || batch.company_id !== device.companyId ||
+        typeof fixture.headers.authorization !== "string") throw new Error("device proof fixture mismatch");
+    for (const operation of batch.operations) {
+      if (operations.has(operation.operation_id)) throw new Error("operations must be unique per drill");
+      operations.add(operation.operation_id);
+      if (operation.operation_type === "SALE_CREATED") sales += 1;
+    }
+  }
+}
+if (fixtures.length !== registers || deviceIds.size !== registers || companyIds.size !== companies ||
+    !batchesPerDevice || operations.size !== profile.throughput.sync_burst_outbox_events ||
+    sales !== profile.throughput.sales_per_day) {
+  throw new Error("fixture corpus does not match the commercial profile");
+}
 
-const BASE = __ENV.BASE_URL || "https://127.0.0.1:9443";
-const TOKEN = __ENV.TRANSPORT_TOKEN || "";
-
-/** ~3000 sales/day ⇒ ~0.035 rps average; peak VU set models sync + auth bursts. */
+const committed = new Counter("sync_unique_operations_acknowledged");
+const saleEvents = new Counter("sync_sale_events_acknowledged");
+const targets = profile.thresholds_targets;
 export const options = {
   scenarios: {
-    steady_auth_boundary: {
-      executor: "constant-arrival-rate",
-      rate: 2,
-      timeUnit: "1s",
-      duration: "2m",
-      preAllocatedVUs: 20,
-      maxVUs: 50,
-      exec: "sessionTrust",
-    },
-    rate_limit_probe: {
-      executor: "constant-arrival-rate",
-      rate: 40,
-      timeUnit: "1s",
-      duration: "30s",
-      startTime: "2m",
-      preAllocatedVUs: 40,
-      maxVUs: 80,
-      exec: "sessionTrust",
-    },
-    sync_burst: {
-      executor: "ramping-vus",
-      startTime: "2m30s",
-      stages: [
-        { duration: "10s", target: 30 },
-        { duration: "30s", target: 30 },
-        { duration: "10s", target: 0 },
-      ],
-      exec: "health",
+    authenticated_sync: {
+      executor: "per-vu-iterations",
+      vus: profile.throughput.sync_burst_concurrency,
+      iterations: batchesPerDevice,
+      maxDuration: "10m",
     },
   },
   thresholds: {
-    http_req_failed: ["rate<0.01"],
-    http_req_duration: ["p(95)<500", "p(99)<1500"],
+    checks: ["rate==1"],
+    http_req_failed: [targets.http_req_failed],
+    http_req_duration: [
+      `p(95)<${targets.http_req_duration_p95_ms}`,
+      `p(99)<${targets.http_req_duration_p99_ms}`,
+    ],
+    sync_unique_operations_acknowledged: [`count==${operations.size}`],
+    sync_sale_events_acknowledged: [`count==${sales}`],
   },
-  insecureSkipTLSVerify: true,
 };
 
-function headers() {
-  const h = { Accept: "application/json" };
-  if (TOKEN) h.Authorization = `Bearer ${TOKEN}`;
-  return h;
-}
-
-export function health() {
-  const res = http.get(`${BASE}/health`, { headers: headers() });
-  latency.add(res.timings.duration);
-  check(res, { "health 200": (r) => r.status === 200 });
-  sleep(0.05);
-}
-
-export function sessionTrust() {
-  const res = http.get(`${BASE}/v1/session-trust`, { headers: headers() });
-  latency.add(res.timings.duration);
-  const limited = res.status === 429;
-  denied.add(limited);
-  check(res, {
-    "session-trust authorized or rate-limited": (r) =>
-      r.status === 200 || r.status === 401 || r.status === 429,
+export default function () {
+  const f = fixtures[exec.vu.idInTest - 1].batches[exec.vu.iterationInScenario];
+  const expected = JSON.parse(f.body).payload;
+  const response = http.post(`${base}/v1/sync/batches`, f.body, {
+    headers: f.headers,
+    redirects: 0,
+    tags: { name: "POST /v1/sync/batches" },
   });
-  sleep(0.02);
+  const result = response.status === 200 ? response.json("result") : null;
+  const expectedIds = new Set(expected.operations.map((op) => op.operation_id));
+  if (check(response, {
+    "all operations durably accepted": () => result?.batch_id === expected.batch_id &&
+      result.device_id === expected.device_id && result.tenant_id === expected.tenant_id &&
+      Array.isArray(result.results) && result.results.length === expectedIds.size &&
+      result.results.every((op) => expectedIds.delete(op.operation_id) &&
+        op.server_status === "SERVER_ACCEPTED" && op.committed_at_server !== null),
+  })) {
+    committed.add(expected.operations.length);
+    saleEvents.add(expected.operations.filter((op) => op.operation_type === "SALE_CREATED").length);
+  }
 }

@@ -7,14 +7,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
   && rm -rf /var/lib/apt/lists/* \
   && useradd --system --uid 10001 --create-home pos
 
-# Expect a pre-built workspace context (pnpm deploy or CI artifact). Copy lock+manifests first.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Build the workspace from the locked source tree.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/central-authority ./apps/central-authority
 COPY packages ./packages
 COPY tools/target-migrations ./tools/target-migrations
+COPY apps/pos-local-service/package.json ./apps/pos-local-service/package.json
+COPY apps/pos-desktop/package.json ./apps/pos-desktop/package.json
 
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate \
-  && pnpm install --frozen-lockfile --filter @pos-platform/central-authority... \
+  && pnpm install --frozen-lockfile --filter @pos-platform/central-authority... --filter @pos-platform/target-migrations... \
   && chown -R pos:pos /app
 
 USER pos
@@ -22,5 +24,6 @@ ENV NODE_ENV=production \
     CENTRAL_AUTHORITY_PORT=8443 \
     OTEL_ENABLE_API=0
 
+WORKDIR /app/apps/central-authority
 EXPOSE 8443
-CMD ["pnpm", "--filter", "@pos-platform/central-authority", "start"]
+CMD ["node", "--import", "tsx", "src/main.ts"]

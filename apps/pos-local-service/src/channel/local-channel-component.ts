@@ -1,3 +1,4 @@
+import type { SecuritySignalKind, TelemetryBundle } from "@pos-platform/observability";
 import { randomUUID } from "node:crypto";
 import type { LocalOperatorSessionRegistry } from "../security/local-operator-session-registry.js";
 import {
@@ -60,6 +61,7 @@ export class LocalChannelComponent implements RuntimeComponent {
     private readonly localOperatorSessions?: () => LocalOperatorSessionRegistry,
     private readonly scmCentralDependencies?: () => { credentials: DeviceCredentialProvider; store: EncryptedFileSecretStore },
     private readonly onScmAuthorityLost?: (reason: string) => void,
+    private readonly telemetry?: TelemetryBundle,
   ) {
     this.commercialHandler = new CommercialRequestHandler(
       config,
@@ -68,6 +70,41 @@ export class LocalChannelComponent implements RuntimeComponent {
     );
     const endpoint = localChannelEndpoint(config.installation_id);
     this.endpoint = config.windows_scm_handoff_file === undefined ? endpoint : `${endpoint}-scm`;
+  }
+
+  private async handleObservedCommercialRequest(
+    request: Parameters<CommercialRequestHandler["handle"]>[0],
+    connectionId: string,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const telemetry = this.telemetry;
+    if (!telemetry) return this.commercialHandler.handle(request, connectionId, signal);
+    const operation = request.message_type;
+    const started = performance.now();
+    const span = telemetry.tracer.startSpan("pos.commercial.operation", { operation });
+    try {
+      const result = await this.commercialHandler.handle(request, connectionId, signal);
+      if (result !== null && typeof result === "object" && "status" in result && "result_code" in result &&
+          typeof result.status === "string" && typeof result.result_code === "string") {
+        const status = result.status;
+        const code = result.result_code;
+        const attributes = { operation, status };
+        span.setAttribute("outcome", status);
+        telemetry.metrics.counter("pos.commercial.operations", 1, attributes);
+        telemetry.metrics.histogram("pos.commercial.duration_ms", performance.now() - started, attributes);
+        if (status === "REJECTED") {
+          const kind: SecuritySignalKind | undefined = code.startsWith("LICENSE_") ? "license.capacity_denied"
+            : code === "UNAUTHORIZED" || code === "PERMISSION_DENIED" ? "fraud.privilege_abuse"
+            : operation.startsWith("payment.") ? "payment.operation_rejected" : undefined;
+          if (kind) telemetry.alerts.emit({ kind, severity: "warn", attributes, correlationId: request.correlation_id });
+        }
+      }
+      span.end("OK");
+      return result;
+    } catch (error) {
+      span.end("ERROR");
+      throw error;
+    }
   }
 
   async start(): Promise<void> {
@@ -282,7 +319,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "sales.receipt.get":
         // La identidad se resuelve por `connectionId`, que asigna el servidor y
         // nunca viaja por el cable. La petición no puede aportarla.
-        return this.commercialHandler.handle(request, context.connectionId, signal);
+        return this.handleObservedCommercialRequest(request, context.connectionId, signal);
 
       case "runtime.handshake": {
         const identityTrusted =

@@ -1,28 +1,22 @@
-# Lab-only compose. Do not deploy to production without owner authorization.
-# TLS certs and secrets must be bind-mounted; nothing sensitive in the image.
+# Isolated rehearsal. Pre-provision roles with the existing migration tools.
 services:
   postgres:
     image: postgres:16.14
     environment:
       POSTGRES_DB: postgres
-      POSTGRES_HOST_AUTH_METHOD: trust
-      POSTGRES_USER: postgres
-    ports:
-      - "55434:5432"
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 12
 
-  # Optional OTLP collector — disabled by default (no cloud export without auth).
-  # otel-collector:
-  #   image: otel/opentelemetry-collector-contrib:0.114.0
-  #   profiles: ["otel"]
-  #   volumes:
-  #     - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
-
   central:
+    image: camacho-pos/central-authority:local
     build:
       context: ../..
       dockerfile: infra/docker/central-authority/Dockerfile
@@ -30,13 +24,31 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    env_file:
+      - path: ${CENTRAL_RUNTIME_ENV_FILE:-./lab-secrets/central.env}
+        required: true
     environment:
       CENTRAL_AUTHORITY_PORT: "8443"
-      CENTRAL_DATABASE_URL: postgres://pos_platform_app@postgres:5432/postgres
+      CENTRAL_BIND_ADDRESS: "0.0.0.0"
+      CENTRAL_TLS_KEY_FILE: /run/tls/server.key
+      CENTRAL_TLS_CERT_FILE: /run/tls/server.crt
       CENTRAL_RATE_LIMIT_BACKEND: postgres
-      OTEL_ENABLE_API: "0"
     ports:
-      - "8443:8443"
+      - "127.0.0.1:8443:8443"
     volumes:
       - ./lab-secrets:/run/secrets:ro
       - ./lab-tls:/run/tls:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_PATH:-./lab-secrets/postgres-password}
+
+volumes:
+  postgres-data:

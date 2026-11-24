@@ -1,6 +1,8 @@
 import { createHash, randomUUID, createPublicKey } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Pool, type PoolClient } from "pg";
+import { createTelemetryBundle, observeHttp } from "@pos-platform/observability";
+import { startOtlpSdk } from "@pos-platform/observability/node";
 import {
   createCentralDeviceHttpRequestSchema,
   createCentralHttpResponseSchema,
@@ -26,6 +28,11 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT m
 if (!Number.isInteger(maxOperations) || maxOperations < 1) throw new Error("SYNC_MAX_OPERATIONS must be a positive integer");
 if (!Number.isInteger(maxBodyBytes) || maxBodyBytes < 1) throw new Error("SYNC_MAX_BODY_BYTES must be a positive integer");
 
+const stopTelemetry = startOtlpSdk("central-sync");
+const telemetry = createTelemetryBundle({
+  serviceName: "central-sync",
+  sink: { write(record) { process.stdout.write(`${JSON.stringify(record)}\n`); } },
+});
 const pool = new Pool({ connectionString: databaseUrl, max: Number(process.env.DB_POOL_MAX ?? 10) });
 const batchSchema = createSyncBatchRequestSchema(maxOperations);
 const requestSchema = createCentralDeviceHttpRequestSchema(batchSchema, {
@@ -381,6 +388,8 @@ const server = createServer(async (request, response) => {
     json(response, 404, { error: "NOT_FOUND" });
     return;
   }
+  observeHttp(telemetry, request, response, "sync.batch",
+    (status) => status === 409 ? "sync.conflict" : status >= 500 ? "sync.dispatch_failed" : undefined);
   const authorization = request.headers.authorization;
   if (typeof authorization !== "string") {
     json(response, 401, { error: "DEVICE_PROOF_REQUIRED" });
@@ -452,6 +461,7 @@ const server = createServer(async (request, response) => {
 
   try {
     const accepted = await acceptBatch(envelope.payload, principal);
+    telemetry.metrics.counter("pos.sync.operations_acknowledged", accepted.result.results.length);
     const responseBody = {
       protocol_version: protocolVersion,
       request_id: requestId,
@@ -529,7 +539,13 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`${signal}: shutting down central sync API`);
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await pool.end();
+  await telemetry.logger.flush();
+  await stopTelemetry?.();
 }
 
-process.once("SIGINT", () => void shutdown("SIGINT"));
-process.once("SIGTERM", () => void shutdown("SIGTERM"));
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => void shutdown(signal).catch(() => {
+    process.stderr.write("CENTRAL_SYNC_SHUTDOWN_FAILED\n");
+    process.exitCode = 1;
+  }));
+}

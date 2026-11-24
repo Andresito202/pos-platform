@@ -20,11 +20,9 @@
     "rate_limit_429_under_normal_load": "rate<0.001"
   },
   "scenarios": [
-    "central_health_and_session_trust",
-    "central_enrollment_auth_boundary",
-    "central_distributed_rate_limit",
-    "portal_auth_and_static",
-    "sync_burst_backlog"
+    "authenticated_sync",
+    "portal_catalog",
+    "central_distributed_rate_limit"
   ],
   "evidence_rule": "Pass/fail only from a real k6 run against an authorized environment. Do not invent metrics."
 }

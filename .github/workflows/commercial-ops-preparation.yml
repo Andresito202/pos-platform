@@ -1,0 +1,47 @@
+name: Commercial operations preparation
+
+on:
+  pull_request:
+    branches:
+      - cursor/security-integral-phase-c53a
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commercial-ops-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  affected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck affected runtimes
+        run: pnpm --filter @pos-platform/observability --filter @pos-platform/central-authority --filter @pos-platform/pos-local-service --filter @pos-platform/target-migrations -r typecheck
+      - name: Focused observability tests and real local OTLP export
+        run: pnpm --filter @pos-platform/observability test
+      - name: Verify touched request boundaries
+        run: |
+          pnpm --filter @pos-platform/central-authority exec vitest run tests/factus-pay-webhook-handler.test.ts
+          pnpm --filter @pos-platform/pos-local-service exec vitest run tests/channel-commercial-vertical.test.ts
+      - name: Check operational script syntax
+        run: |
+          for f in infra/ops/*.sh; do bash -n "$f" || exit; done
+          for f in infra/ops/*.mjs; do node --check "$f" || exit; done
+          for f in infra/k6/*.js; do node --input-type=module --check < "$f" || exit; done

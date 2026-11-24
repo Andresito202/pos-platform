@@ -15,11 +15,13 @@ import { prepareBusinessAdministrationRuntime } from "./business-administration-
 import { createCentralRouter } from "./central-router.js";
 import { isScmCheckpointUrl } from "./scm-checkpoint-http.js";
 import { prepareScmCheckpointRuntime } from "./scm-checkpoint-runtime.js";
-import { createTelemetryBundle } from "@pos-platform/observability";
+import { createTelemetryBundle, observeHttp } from "@pos-platform/observability";
+import { startOtlpSdk } from "@pos-platform/observability/node";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 import { DurableFixedWindowRateLimiter } from "./durable-fixed-window-rate-limiter.js";
 import { PostgresFixedWindowRateLimiter } from "./postgres-fixed-window-rate-limiter.js";
 
+const stopTelemetry = startOtlpSdk("central-authority");
 const telemetry = createTelemetryBundle({
   sink: {
     write(record) {
@@ -85,11 +87,15 @@ function protocolContext(request: IncomingMessage, requestId: string, correlatio
   };
 }
 
-const databaseUrl = required("CENTRAL_DATABASE_URL");
+const databaseUrl = process.env.CENTRAL_DATABASE_URL_FILE
+  ? secretFromFile("CENTRAL_DATABASE_URL_FILE")
+  : required("CENTRAL_DATABASE_URL");
 const globalProvision = process.env.CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE;
 const businessProvision = process.env.CENTRAL_BUSINESS_PROVISION_FILE;
-const deployment = globalProvision || businessProvision !== undefined ? parseCentralDeploymentConfiguration(process.env) : null;
-const transportToken = deployment === null
+const deployment = globalProvision || businessProvision !== undefined
+  ? parseCentralDeploymentConfiguration({ ...process.env, CENTRAL_DATABASE_URL: databaseUrl })
+  : null;
+const transportToken = deployment === null && !process.env.D3_ENROLLMENT_TRANSPORT_TOKEN_FILE
   ? required("D3_ENROLLMENT_TRANSPORT_TOKEN")
   : secretFromFile("D3_ENROLLMENT_TRANSPORT_TOKEN_FILE");
 const issuerPrivateKey = createPrivateKey(secretFromFile("D3_ISSUER_PRIVATE_KEY_FILE"));
@@ -220,7 +226,10 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       send(response, 421, { status: "REJECTED", result_code: "CENTRAL_HOST_REJECTED" });
       return;
     }
-    await (request.url === "/v1/licensing/activations/resolve" ? globalHandler.activation : globalHandler.portal)(request, response);
+    const activation = request.url === "/v1/licensing/activations/resolve";
+    observeHttp(telemetry, request, response, activation ? "licensing.activation" : "platform.administration",
+      (status) => activation && (status === 403 || status === 429) ? "license.activation_rejected" : undefined);
+    await (activation ? globalHandler.activation : globalHandler.portal)(request, response);
     return;
   }
 
@@ -234,6 +243,8 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       send(response, 503, { status: "REJECTED", result_code: "FACTUS_PAY_NOT_PROVISIONED" });
       return;
     }
+    observeHttp(telemetry, request, response, "payment.factus_webhook",
+      (status) => status >= 400 ? "payment.webhook_rejected" : undefined);
     await factusPayHandler(request, response);
     return;
   }
@@ -249,6 +260,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       send(response, 401, { status: "REJECTED", result_code: "SESSION_TRUST_UNAUTHORIZED", request_id: requestId, correlation_id: correlationId });
       return;
     }
+    observeHttp(telemetry, request, response, "security.session_trust");
     if (!(await allowRate(`${remote}:session-trust`))) {
       send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
       return;
@@ -301,8 +313,14 @@ const shutdown = async (signal: string) => {
     limiter.dispose();
   }
   await pool.end();
+  await telemetry.logger.flush();
+  await stopTelemetry?.();
   process.stdout.write(JSON.stringify({ service: "central-authority", status: "STOPPED", signal }) + "\n");
   process.exit(0);
 };
-process.once("SIGTERM", () => void shutdown("SIGTERM"));
-process.once("SIGINT", () => void shutdown("SIGINT"));
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.once(signal, () => void shutdown(signal).catch(() => {
+    process.stderr.write("CENTRAL_SHUTDOWN_FAILED\n");
+    process.exit(1);
+  }));
+}

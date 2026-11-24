@@ -30,8 +30,7 @@ export class OpenTelemetryMetrics implements MetricsPort {
   }
 
   gauge(name: string, value: number, attributes?: MetricAttributes): void {
-    // Sync last-value via up-down counter until a MeterProvider registers observables.
-    metrics.getMeter(this.meterName).createUpDownCounter(name).add(value, attributes);
+    metrics.getMeter(this.meterName).createGauge(name).record(value, attributes);
   }
 }
 
