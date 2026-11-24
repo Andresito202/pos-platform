@@ -1,0 +1,63 @@
+{
+  "pr": 136,
+  "branch": "cursor/android-commercial-integration-c53a",
+  "git_head_at_build_start": "d08f5ae16fc321469d36ddd6b261833bccd7fc00",
+  "prior_apk_from_tree": "eb1528cec1d1dd78a2cb1551ae0fce64ae8e377e",
+  "prior_apk_sha256": "166b48e6875960fe1598aa1ae42bd3b664a18ac9a11b73a1db3f63c9015f6da9",
+  "package_id": "co.camachopos.colombia",
+  "version_name": "0.3.2-central-composition",
+  "version_code": 4,
+  "min_sdk": 28,
+  "signing": {
+    "scheme": "APK Signature Scheme v2",
+    "keystore": "apps/pos-android/signing/camacho-android-test.p12",
+    "cert_sha256_no_colons": "70856d4ea8a9a004e7377d7f88713605f1f6e00dc77d14de740320575125f224",
+    "cert_sha256_colon": "70:85:6D:4E:A8:A9:A0:04:E7:37:7D:7F:88:71:36:05:F1:F6:E0:0D:C7:7D:14:DE:74:03:20:57:51:25:F2:24",
+    "note": "TEST_PKCS12_lab_only_not_Play"
+  },
+  "apk": {
+    "path": "apps/pos-android/build/commercial-apk/camacho-pos-colombia.apk",
+    "artifact_copy": "/opt/cursor/artifacts/camacho-pos-colombia-signed.apk",
+    "sha256": "b7668d36042edb472dd11b9dbe94145a48af3e19d4a75646dd9109125a6e387d",
+    "bytes": 73030482
+  },
+  "runtime": {
+    "files_json_sha256": "79c5a294eb02d1eb00a37ec3df59d69a403361a462a26b0e50e05033ca1513f0",
+    "bundle_id": "5f71ab213cfab8c284fe0b94814845ec1fcd5a0e82a8ffd0ed76d3c64ed5b54e",
+    "commercial_runtime_service_sha256": "8fac015e6f7e8c687da54df5f41d6ef182cb7da0bc23bfdd34d2b2c588ca5df3"
+  },
+  "central_composition": {
+    "mount": "prepareCentralCommercialRuntime when CENTRAL_COMMERCIAL_PROVISION_FILE + SSA/SAS present",
+    "android_client": "AndroidBusinessNativeCentralClient + createAndroidBusinessNativeCentralClient (DeviceProof/PKCE/token\u2192assertions)",
+    "fail_closed_without_provision": "503 NATIVE_BUSINESS_ROUTE_NOT_ACTIVATED"
+  },
+  "app_links_preparation": {
+    "file": "docs/product/android-assetlinks-prepared-not-published.json",
+    "publication_status": "NOT_PUBLISHED",
+    "api28_guide": "docs/product/android-m60wl-install-enroll-test.md (dumpsys/VIEW; no Android 12+ pm)"
+  },
+  "install_policy": {
+    "safe_update": "adb install -r",
+    "mandatory_uninstall": false,
+    "preserves": [
+      "app_data",
+      "Keystore",
+      "DeviceTrust",
+      "licenses"
+    ]
+  },
+  "trial_policy": {
+    "source_pr": 135,
+    "trial_hours": 120,
+    "offline_grace_hours": 0
+  },
+  "non_claims": [
+    "OS App Links verify on M60WL",
+    "Live Central commercial provision deploy",
+    "Physical CH340/PRINT/drawer",
+    "Play production signing",
+    "Simulated BUSINESS login"
+  ],
+  "apk_built_from_tree": "238160656b3768e97e865b87ac397aa1b93713ab",
+  "definitive_head": "238160656b3768e97e865b87ac397aa1b93713ab"
+}

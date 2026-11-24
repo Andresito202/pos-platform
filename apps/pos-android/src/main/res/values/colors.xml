@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Commercial Precision (B) tokens — presentation only; no authority. -->
+<resources>
+  <color name="camacho_brand_yellow">#FFC400</color>
+  <color name="camacho_navy">#10283D</color>
+  <color name="camacho_navy_hover">#203D54</color>
+  <color name="camacho_blue">#2577B0</color>
+  <color name="camacho_blue_text">#123D68</color>
+  <color name="camacho_green">#087052</color>
+  <color name="camacho_surface">#F3F6F8</color>
+  <color name="camacho_card">#FFFFFF</color>
+  <color name="camacho_border">#D6DFE6</color>
+  <color name="camacho_muted">#536475</color>
+  <color name="camacho_ink">#142B3A</color>
+  <color name="camacho_danger">#9F2525</color>
+  <color name="camacho_on_dark">#E7EEF4</color>
+</resources>

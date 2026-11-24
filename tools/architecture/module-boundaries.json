@@ -69,6 +69,12 @@
       "type": "application",
       "scope": "local"
     },
+    "@pos-platform/pos-android": {
+      "root": "apps/pos-android",
+      "layer": "desktop",
+      "type": "application",
+      "scope": "local"
+    },
     "@pos-platform/device-trust": {
       "root": "packages/device-trust",
       "layer": "security",

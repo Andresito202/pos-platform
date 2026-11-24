@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="Theme.CamachoPos" parent="@android:style/Theme.Material.Light.NoActionBar">
+    <item name="android:statusBarColor">@color/camacho_navy</item>
+    <item name="android:navigationBarColor">@color/camacho_navy</item>
+    <item name="android:windowBackground">@color/camacho_brand_yellow</item>
+    <item name="android:colorPrimary">@color/camacho_brand_yellow</item>
+    <item name="android:colorAccent">@color/camacho_navy</item>
+    <item name="android:textColorPrimary">@color/camacho_ink</item>
+    <item name="android:textColorSecondary">@color/camacho_muted</item>
+  </style>
+</resources>
