@@ -48,14 +48,15 @@ export class PostgresPasswordCredentialVerificationRepository {
       const valid = await verify(row?.verifier ?? null);
       if (!row || valid !== true) {
         if (row) {
+          // Lockout counters only — never bump credential version here.
+          // Session proofs bind pwd.version; bumping would let a wrong password kill live sessions.
           await client.query(
             `UPDATE identity.user_credentials SET
                failed_attempt_count = failed_attempt_count + 1,
                locked_until = CASE
                  WHEN failed_attempt_count + 1 >= $2
                  THEN clock_timestamp() + ($3::bigint * interval '1 millisecond')
-                 ELSE locked_until END,
-               version = version + 1
+                 ELSE locked_until END
              WHERE id = $1::uuid AND status = 'ACTIVE' AND revoked_at IS NULL`,
             [row.credential_id, LOCKOUT_AFTER_FAILURES, LOCKOUT_MS],
           );
@@ -67,17 +68,13 @@ export class PostgresPasswordCredentialVerificationRepository {
         }
         return null;
       }
+      // Success bookkeeping must not rotate version; password change/revoke owns that.
       await client.query(
         `UPDATE identity.user_credentials SET
            failed_attempt_count = 0,
            locked_until = NULL,
-           last_used_at = clock_timestamp(),
-           version = version + 1
+           last_used_at = clock_timestamp()
          WHERE id = $1::uuid AND status = 'ACTIVE' AND revoked_at IS NULL`,
-        [row.credential_id],
-      );
-      const refreshed = await client.query<{ credential_version: string }>(
-        `SELECT version::text AS credential_version FROM identity.user_credentials WHERE id = $1::uuid`,
         [row.credential_id],
       );
       await client.query("COMMIT");
@@ -85,7 +82,7 @@ export class PostgresPasswordCredentialVerificationRepository {
       return {
         userId: row.user_id,
         credentialId: row.credential_id,
-        credentialVersion: refreshed.rows[0]?.credential_version ?? row.credential_version,
+        credentialVersion: row.credential_version,
       };
     } catch (error) {
       if (begun) await client.query("ROLLBACK").catch(() => undefined);

@@ -115,13 +115,22 @@ export const GlobalAdministrationProvisionSchema=z.strictObject({
   subscription_collection:z.strictObject({
     tenant_id:UuidSchema,company_id:UuidSchema,branch_id:UuidSchema,integration_id:UuidSchema,
   }).optional(),
-  /** Absolute path to Cloudflare Turnstile secret; when set, login/begin requires turnstileToken. */
+  /** Absolute path to Cloudflare Turnstile secret; paired with turnstile_site_key. */
   turnstile_secret_file:z.string().min(1).max(4096).optional(),
+  /** Public site key for same-origin GLOBAL browser login when Turnstile is enabled. */
+  turnstile_site_key:z.string().min(10).max(128).optional(),
   limits:z.strictObject({challenge_ms:positiveLimit,session_ms:positiveLimit,mfa_age_ms:positiveLimit,reauthentication_ms:positiveLimit,
     browser_ms:positiveLimit,idle_ms:positiveLimit,sql_lock_ms:positiveLimit,sql_statement_ms:positiveLimit,maximum_body_bytes:positiveLimit,
     maximum_pending_flows:positiveLimit,request_window_ms:positiveLimit,requests_per_window:positiveLimit,maximum_buckets:positiveLimit,
     login_window_ms:positiveLimit,maximum_login_per_address:positiveLimit,maximum_login_per_account:positiveLimit}),
-}).refine(p=>p.limits.sql_statement_ms>p.limits.sql_lock_ms,"statement timeout must exceed lock timeout");
+}).superRefine((p,ctx)=>{
+  if(!(p.limits.sql_statement_ms>p.limits.sql_lock_ms)){
+    ctx.addIssue({code:"custom",message:"statement timeout must exceed lock timeout"});
+  }
+  if((p.turnstile_secret_file!==undefined)!==(p.turnstile_site_key!==undefined)){
+    ctx.addIssue({code:"custom",message:"GLOBAL_TURNSTILE_PAIR_REQUIRED"});
+  }
+});
 
 /**
  * Every D-1 administrative operation requires a fully authenticated platform

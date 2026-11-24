@@ -34,9 +34,12 @@ export interface GlobalAdministrationHttpLimits{
 export function createGlobalAdministrationHandler(input:{pool:Pool;policy:GlobalAdministrationPolicy;limits:GlobalAdministrationHttpLimits;
   fulfillmentPolicies?:readonly FulfillmentPolicyReferences[];subscriptionCollection?:SubscriptionCollectionBinding;
   factusPay?:SubscriptionFactusPayGateway|null;licenseAuthority?:LicenseCapacityAuthority;
-  subscriptionFulfillment?:SubscriptionLicenseFulfillment|null;turnstileSecret?:string|null}){
+  subscriptionFulfillment?:SubscriptionLicenseFulfillment|null;turnstileSecret?:string|null;turnstileSiteKey?:string|null}){
   const {policy,limits}=input;
   if(!Object.values(limits).every(n=>Number.isSafeInteger(n)&&n>0))throw Error("GLOBAL_HTTP_EXPLICIT_LIMITS_REQUIRED");
+  const turnstileSecret=input.turnstileSecret??null;
+  const turnstileSiteKey=input.turnstileSiteKey??null;
+  if((turnstileSecret===null)!==(turnstileSiteKey===null))throw Error("GLOBAL_TURNSTILE_PAIR_REQUIRED");
   const sessions=new GlobalAdministrationSessions(input.pool,policy),offers=new LicenseOfferDrafts(input.pool,policy.maximumReauthenticationAgeMs,
     {origin:policy.origin,lockTimeoutMs:policy.lockTimeoutMs,statementTimeoutMs:policy.statementTimeoutMs});
   const limiter=new FixedWindowRateLimiter(limits.requestsPerWindow,limits.maximumBuckets,limits.requestWindowMs);
@@ -51,14 +54,20 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
   const flowCookie=(value:string,age:number)=>`${FLOW}=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${age}`;
   return async(req:IncomingMessage,res:ServerResponse)=>{
     try{
-      if(!(req.socket instanceof TLSSocket)||!req.socket.encrypted||req.headers.host!==new URL(policy.origin).host||
-        req.method!=="POST"||req.headers.origin!==policy.origin||req.headers["sec-fetch-site"]!=="same-origin"){
+      if(!(req.socket instanceof TLSSocket)||!req.socket.encrypted||req.headers.host!==new URL(policy.origin).host){
+        sendCommercialJson(res,403,{code:"GLOBAL_REQUEST_REJECTED"});return;}
+      const path=req.url;
+      if(req.method==="GET"&&path==="/v1/platform/login/public-config"){
+        if(req.headers["sec-fetch-site"]!=="same-origin"){sendCommercialJson(res,403,{code:"GLOBAL_REQUEST_REJECTED"});return;}
+        inspectCommercialHeaders(req);
+        sendCommercialJson(res,200,{turnstileSiteKey});return;
+      }
+      if(req.method!=="POST"||req.headers.origin!==policy.origin||req.headers["sec-fetch-site"]!=="same-origin"){
         sendCommercialJson(res,403,{code:"GLOBAL_REQUEST_REJECTED"});return;}
       inspectCommercialHeaders(req);
       if(!limiter.allow(req.socket.remoteAddress??"unknown")){sendCommercialJson(res,429,{code:"GLOBAL_RATE_LIMITED"});return;}
       for(const [key,value] of pending)if(value.expiresAt<=Date.now())pending.delete(key);
       const {object:b}=await readCommercialJsonBody(req,limits.maximumBodyBytes);
-      const path=req.url;
       if(path==="/v1/platform/login/begin"||path==="/v1/platform/login/complete"){
         const begin=path.endsWith("/begin");
         const beginKeys=exact(b,["email","password"])||exact(b,["email","password","factorId"])
@@ -69,7 +78,6 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
           maximumPerAddress:limits.maximumLoginPerAddress,maximumPerAccount:limits.maximumLoginPerAccount})){
           sendCommercialJson(res,429,{code:"GLOBAL_RATE_LIMITED"});return;}
         if(begin){
-          const turnstileSecret=input.turnstileSecret??null;
           if(turnstileSecret!==null){
             const token=typeof b.turnstileToken==="string"?b.turnstileToken:"";
             const remote=req.socket.remoteAddress;

@@ -15,7 +15,8 @@ on the local password budget.
 | --- | --- | --- |
 | B-RL-MEM | HIGH | BUSINESS login uses durable `spendDurableLoginBudget` (same ledger as GLOBAL) |
 | PW-LOCK-DEAD | HIGH | Password verify writes `failed_attempt_count` / `locked_until` |
-| CAPTCHA | MEDIUM | Optional `turnstile_secret_file` → server-side Turnstile on GLOBAL/BUSINESS begin |
+| CAPTCHA | MEDIUM | Optional paired `turnstile_secret_file` + `turnstile_site_key`; public-config + client token + CSP; server siteverify on begin |
+| PW-VER-KILL | HIGH | Lockout/success bookkeeping no longer bumps `user_credentials.version` (session kill via wrong password) |
 | B-SESS-ACCUM | MEDIUM | BUSINESS issuer revokes prior `__Host-camacho_business` cookie |
 | LOC-02 | MEDIUM | Local password gate fail-closes on clock rollback |
 | CSRF-CMP | LOW | `timingSafeEqual` on login-complete CSRF compare |
@@ -45,6 +46,7 @@ on the local password budget.
 ## Residual risk
 
 - In-memory request `FixedWindowRateLimiter` remains for non-login HTTP flood shaping (single process). Login abuse is durable.
-- Turnstile is **opt-in** via provision file; production must set `turnstile_secret_file`.
+- Turnstile is **opt-in** via provision pair (`turnstile_secret_file` + `turnstile_site_key`); incomplete pair fails closed at boot.
+- Browser clients fetch `/login/public-config` and acquire an invisible Turnstile token before begin when the site key is present.
 - Migration `036_business_login_abuse_budget` indexes BUSINESS ledger reasons; apply with `--login-abuse-budget`.
 - No Windows real-operator login re-run in this environment.

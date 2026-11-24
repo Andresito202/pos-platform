@@ -26,7 +26,11 @@ export function createBusinessAdministrationHandler(
   policy: BusinessAdministrationProvision,
   rejectionVerifier: string,
   turnstileSecret: string | null = null,
+  turnstileSiteKey: string | null = null,
 ) {
+  if ((turnstileSecret === null) !== (turnstileSiteKey === null)) {
+    throw Error("BUSINESS_TURNSTILE_PAIR_REQUIRED");
+  }
   const l = policy.limits;
   const mfa = new BusinessInitialMfaFlow(pool, { origin: policy.origin, rpId: policy.rp_id,
     challengeLifetimeMs: l.challenge_ms, rejectionVerifier, sessionScope: "BUSINESS" });
@@ -50,13 +54,23 @@ export function createBusinessAdministrationHandler(
   }
   return async (req: IncomingMessage, res: ServerResponse) => {
     try {
-      if (!(req.socket instanceof TLSSocket) || !req.socket.encrypted || req.method !== "POST" ||
-          req.headers.host !== new URL(policy.origin).host || req.headers.origin !== policy.origin || req.headers["sec-fetch-site"] !== "same-origin") {
+      if (!(req.socket instanceof TLSSocket) || !req.socket.encrypted ||
+          req.headers.host !== new URL(policy.origin).host) {
+        sendCommercialJson(res, 403, { code: "BUSINESS_ORIGIN_REJECTED" }); return;
+      }
+      const path = req.url?.slice(BUSINESS_API.length);
+      if (req.method === "GET" && path === "login/public-config") {
+        if (req.headers["sec-fetch-site"] !== "same-origin") {
+          sendCommercialJson(res, 403, { code: "BUSINESS_ORIGIN_REJECTED" }); return;
+        }
+        inspectCommercialHeaders(req);
+        sendCommercialJson(res, 200, { turnstileSiteKey }); return;
+      }
+      if (req.method !== "POST" || req.headers.origin !== policy.origin || req.headers["sec-fetch-site"] !== "same-origin") {
         sendCommercialJson(res, 403, { code: "BUSINESS_ORIGIN_REJECTED" }); return;
       }
       inspectCommercialHeaders(req);
       if (!limiter.allow(req.socket.remoteAddress ?? "unknown")) { sendCommercialJson(res, 429, { code: "BUSINESS_RATE_LIMITED" }); return; }
-      const path = req.url?.slice(BUSINESS_API.length);
       if (!["login/begin", "login/complete", "session", "logout", "contexts", "cash-registers/list", "cash-registers/create", "cash-registers/edit", "cash-registers/retire"].includes(path ?? "")) {
         sendCommercialJson(res, 404, { code: "BUSINESS_NOT_FOUND" }); return;
       }

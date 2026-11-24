@@ -45,8 +45,10 @@ export const BusinessAdministrationProvisionSchema = z.strictObject({
   ].map(id => [id, z.string().regex(/^[a-f0-9]{64}$/)])) as Record<string, z.ZodString>),
   license_policy: LicenseActivationPolicySchema,
   renderer: z.strictObject({ directory: z.string().min(1).max(4096), maximum_asset_bytes: positive }),
-  /** Absolute path to Cloudflare Turnstile secret; when set, login/begin requires turnstileToken. */
+  /** Absolute path to Cloudflare Turnstile secret; paired with turnstile_site_key. */
   turnstile_secret_file: z.string().min(1).max(4096).optional(),
+  /** Public site key served to same-origin browser clients when Turnstile is enabled. */
+  turnstile_site_key: z.string().min(10).max(128).optional(),
   limits: z.strictObject({ challenge_ms: positive, session_ms: positive, browser_ms: positive, mfa_age_ms: positive,
     reauthentication_ms: positive, idle_ms: positive, sql_lock_ms: positive, sql_statement_ms: positive,
     maximum_body_bytes: positive, maximum_pending_flows: positive, requests_per_window: positive,
@@ -58,6 +60,9 @@ export const BusinessAdministrationProvisionSchema = z.strictObject({
       l.mfa_age_ms > l.session_ms || l.reauthentication_ms > 300_000 || l.maximum_body_bytes > 65536 ||
       Math.min(l.challenge_ms,l.session_ms,l.browser_ms) < 1000) {
     ctx.addIssue({ code: "custom", message: "BUSINESS_POLICY_INVALID" });
+  }
+  if ((p.turnstile_secret_file !== undefined) !== (p.turnstile_site_key !== undefined)) {
+    ctx.addIssue({ code: "custom", message: "BUSINESS_TURNSTILE_PAIR_REQUIRED" });
   }
 });
 export type BusinessAdministrationProvision = z.infer<typeof BusinessAdministrationProvisionSchema>;
