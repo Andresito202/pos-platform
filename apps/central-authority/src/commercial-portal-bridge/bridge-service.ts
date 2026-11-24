@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { uuidV7 } from "@pos-platform/contracts";
 import {
+  assertSafeCommercialPortalCallbackOrigin,
   CommercialPortalIntrospectRequestSchema,
   CommercialPortalMintRequestSchema,
   CommercialPortalMintResponseSchema,
@@ -316,8 +317,9 @@ export class CommercialPortalBridgeService {
 
   private async callbackActivate(trial: TrialLicense): Promise<"ACTIVATED" | "CALLBACK_FAILED"> {
     try {
+      const origin = assertSafeCommercialPortalCallbackOrigin(trial.commercialApiOrigin);
       const res = await this.fetchImpl(
-        `${trial.commercialApiOrigin}/v1/crm/trial/${encodeURIComponent(trial.trialId)}/activate-from-central`,
+        `${origin}/v1/crm/trial/${encodeURIComponent(trial.trialId)}/activate-from-central`,
         {
           method: "POST",
           headers: {
@@ -355,7 +357,8 @@ export class CommercialPortalBridgeService {
       }
       revoked += 1;
       try {
-        const res = await this.fetchImpl(`${trial.commercialApiOrigin}/v1/crm/trial/expire-due`, {
+        const origin = assertSafeCommercialPortalCallbackOrigin(trial.commercialApiOrigin);
+        const res = await this.fetchImpl(`${origin}/v1/crm/trial/expire-due`, {
           method: "POST",
           headers: {
             "content-type": "application/json",

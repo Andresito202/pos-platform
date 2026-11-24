@@ -5,6 +5,73 @@ import { UuidSchema } from "./primitives.js";
 export const COMMERCIAL_BRIDGE_KEY_HEADER = "x-central-commercial-bridge-key" as const;
 export const COMMERCIAL_TRIAL_WEBHOOK_KEY_HEADER = "x-central-trial-webhook-key" as const;
 
+const BLOCKED_CALLBACK_HOSTS = new Set([
+  "localhost",
+  "127.0.0.1",
+  "0.0.0.0",
+  "::1",
+  "metadata.google.internal",
+  "metadata",
+]);
+
+const PRIVATE_OR_LINK_LOCAL_V4 =
+  /^(?:10\.|127\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
+
+/**
+ * SSRF guard for commercialApiOrigin used as Central→CRM callback base.
+ * Rejects loopback, link-local, cloud metadata, credentials-in-URL, and non-HTTPS
+ * except the unit-test fixture host `commercial.test`.
+ * Returns a normalized origin (no trailing slash / path).
+ */
+export function assertSafeCommercialPortalCallbackOrigin(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error("COMMERCIAL_CALLBACK_ORIGIN_INVALID");
+  }
+  if (url.username || url.password) {
+    throw new Error("COMMERCIAL_CALLBACK_ORIGIN_CREDENTIALS_FORBIDDEN");
+  }
+  if (url.search || url.hash) {
+    throw new Error("COMMERCIAL_CALLBACK_ORIGIN_QUERY_FORBIDDEN");
+  }
+  const host = url.hostname.toLowerCase();
+  if (
+    BLOCKED_CALLBACK_HOSTS.has(host) ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.includes(":") ||
+    PRIVATE_OR_LINK_LOCAL_V4.test(host)
+  ) {
+    throw new Error("COMMERCIAL_CALLBACK_ORIGIN_SSRF_BLOCKED");
+  }
+  const isTestFixture = host === "commercial.test";
+  if (isTestFixture) {
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("COMMERCIAL_CALLBACK_ORIGIN_PROTOCOL");
+    }
+  } else if (url.protocol !== "https:") {
+    throw new Error("COMMERCIAL_CALLBACK_ORIGIN_HTTPS_REQUIRED");
+  }
+  return url.origin;
+}
+
+const CommercialApiOriginSchema = z
+  .string()
+  .url()
+  .superRefine((value, ctx) => {
+    try {
+      assertSafeCommercialPortalCallbackOrigin(value);
+    } catch (err) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: err instanceof Error ? err.message : "COMMERCIAL_CALLBACK_ORIGIN_INVALID",
+      });
+    }
+  })
+  .transform((value) => assertSafeCommercialPortalCallbackOrigin(value));
+
 export const CommercialPortalIntrospectRequestSchema = z.strictObject({
   audience: z.literal("commercial-portal"),
 });
@@ -40,7 +107,7 @@ export const CommercialTrialIssueRequestSchema = z.strictObject({
   email: z.string().email(),
   companyName: z.string().min(1).max(200).optional(),
   trialHours: z.literal(120),
-  commercialApiOrigin: z.string().url(),
+  commercialApiOrigin: CommercialApiOriginSchema,
   jti: z.string().min(8).max(128),
   /** When present with planId, Central writes licensing.licenses TRIAL row. */
   tenantId: UuidSchema.optional(),

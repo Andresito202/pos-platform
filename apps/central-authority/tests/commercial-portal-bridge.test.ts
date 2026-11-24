@@ -176,6 +176,32 @@ describe("commercial portal bridge", () => {
     expect(activations.at(-1)?.body).toMatchObject({ offlineGrace: false });
   });
 
+  it("rejects commercialApiOrigin SSRF targets (loopback / metadata / http non-fixture)", async () => {
+    const blocked = [
+      "http://127.0.0.1",
+      "http://localhost",
+      "https://169.254.169.254",
+      "https://metadata.google.internal",
+      "http://evil.example.com",
+      "https://user:pass@commercial.example.com",
+    ];
+    for (const commercialApiOrigin of blocked) {
+      const denied = await post(
+        "/v1/commercial/trial/issue",
+        {
+          trialId: `trial_ssrf_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+          email: "ssrf@example.com",
+          trialHours: 120,
+          commercialApiOrigin,
+          jti: `jti-ssrf-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        },
+        { [COMMERCIAL_BRIDGE_KEY_HEADER]: BRIDGE_KEY },
+      );
+      expect(denied.status).toBeGreaterThanOrEqual(400);
+      expect(denied.status).toBeLessThan(500);
+    }
+  });
+
   it("accepts provisioning with idempotency and conflicts on payload reuse", async () => {
     const orderId = `ord_${Date.now()}`;
     const payload = {
