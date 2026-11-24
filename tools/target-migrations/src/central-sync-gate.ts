@@ -1,6 +1,7 @@
 import { createHash, randomBytes, generateKeyPairSync } from "node:crypto";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import { Pool } from "pg";
+import { observeCentralRecovery } from "./central-recovery-observation.js";
 import { runIsolatedDeviceEnrollmentGate } from "./central-device-enrollment-gate.js";
 
 
@@ -232,6 +233,28 @@ async function main(): Promise<void> {
     if (row.actor_type !== "USER") throw new Error(`ACTOR_TYPE=${row.actor_type}`);
     if (row.version !== "1") throw new Error(`VERSION=${row.version}`);
     if (!row.received_at_server || !row.committed_at_server) throw new Error("SERVER_TIMESTAMPS_MISSING");
+
+    const reconciliationClient = await pool.connect();
+    try {
+      const accepted = await observeCentralRecovery(reconciliationClient, operation);
+      const absent = await observeCentralRecovery(reconciliationClient, {
+        ...operation, operation_id: uuidV7(), idempotency_key: `recovery-probe-${uuidV7()}`,
+      });
+      const conflicting = await observeCentralRecovery(reconciliationClient, {
+        ...operation, aggregate_id: uuidV7(),
+      });
+      const idempotencyConflict = await observeCentralRecovery(reconciliationClient, {
+        ...operation, operation_id: uuidV7(),
+      });
+      if (accepted !== "ALREADY_ACCEPTED" || absent !== "NOT_OBSERVED"
+        || conflicting !== "CONFLICT_OR_REVIEW_REQUIRED"
+        || idempotencyConflict !== "CONFLICT_OR_REVIEW_REQUIRED") {
+        throw new Error("CENTRAL_RECOVERY_OBSERVATION_FAILED");
+      }
+      console.log("CENTRAL_RECOVERY_OBSERVATION=VERIFIED");
+    } finally {
+      reconciliationClient.release();
+    }
 
     const countBefore = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM sync.sync_operations WHERE tenant_id = $1 AND idempotency_key = $2`,
