@@ -32,6 +32,9 @@ export interface IsolatedSqliteGateInput {
 export interface IsolatedSqliteGateResult {
   operationId: string;
   idempotencyKey: string;
+  saleId: string;
+  payableAmount: string;
+  calculationChecksum: string;
   localCheckpoint: number;
   localInboxRows: number;
   recoveredInterruptedDispatches: number;
@@ -178,7 +181,9 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
     if (persistedSale.payable_amount !== sale.payableAmount || persistedSale.calculation_checksum !== sale.calculationChecksum) {
       throw new Error("SQLITE_COMMERCIAL_TOTAL_CHANGED");
     }
-    return { operationId, idempotencyKey: operation.idempotency_key, localCheckpoint: 1, localInboxRows: 1, recoveredInterruptedDispatches };
+    return { operationId, idempotencyKey: operation.idempotency_key, saleId: sale.saleId,
+      payableAmount: sale.payableAmount, calculationChecksum: sale.calculationChecksum,
+      localCheckpoint: 1, localInboxRows: 1, recoveredInterruptedDispatches };
   } finally {
     database.close();
     rmSync(directory, { recursive: true, force: true });
