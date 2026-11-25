@@ -57,6 +57,19 @@ tasks.register<JavaExec>("commercialIdentityTest") {
     mainClass.set("co.camachopos.colombia.CommercialIdentityTestKt")
 }
 
+// Reject residual laboratory dependencies before compiling production Kotlin.
+val commercialSourceBoundary by tasks.registering {
+    val sources = files(fileTree("src/main/kotlin") { include("**/*.kt") },
+        fileTree("../pos-local-service/native/android-hardware/src/main/kotlin") { include("**/*.kt") })
+    inputs.files(sources)
+    doLast {
+        val forbidden = Regex("\\b(LabAuthorization|LabPolicy|LabDeviceBinding|VerifiedLabJob|HardwareBridgeService)\\b")
+        val violations = sources.files.filter { forbidden.containsMatchIn(it.readText()) }
+        check(violations.isEmpty()) { "COMMERCIAL_SOURCE_BOUNDARY: " + violations.joinToString { it.name } }
+    }
+}
+tasks.named("compileKotlin") { dependsOn(commercialSourceBoundary) }
+
 val commercialHostJar by tasks.registering(Jar::class) {
     dependsOn(tasks.named("compileKotlin"))
     from(sourceSets["main"].output)

@@ -35,7 +35,7 @@ class UsbHostTransport(private val context: Context, private val profile: UsbPri
         } ?: return JobState.FAILED
         val connection = manager.openDevice(device) ?: return JobState.FAILED
         try {
-            if (profile.expectedDescriptorSha256 != null && LabAuthorization.sha256(connection.rawDescriptors) != profile.expectedDescriptorSha256) return JobState.FAILED
+            if (profile.expectedDescriptorSha256 != null && UsbDescriptorIntegrity.sha256(connection.rawDescriptors) != profile.expectedDescriptorSha256) return JobState.FAILED
             if (!connection.claimInterface(usbInterface, false)) return JobState.FAILED
             var offset = 0
             while (offset < bytes.size) {
