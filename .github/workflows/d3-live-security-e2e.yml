@@ -18,8 +18,8 @@ concurrency:
 
 env:
   REVIEWED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-  POSTGRES_ADMIN_URL: postgres://postgres@127.0.0.1:55434/postgres
-  CENTRAL_DATABASE_URL: postgres://pos_platform_app@127.0.0.1:55434/postgres
+  POSTGRES_ADMIN_URL: postgres://postgres@127.0.0.1:55434/camacho_pos
+  CENTRAL_DATABASE_URL: postgres://pos_platform_app@127.0.0.1:55434/camacho_pos
   D3_ENROLLMENT_TRANSPORT_TOKEN: ci-transport-token
 
 jobs:
@@ -30,13 +30,13 @@ jobs:
       postgres:
         image: postgres:16.14
         env:
-          POSTGRES_DB: postgres
+          POSTGRES_DB: camacho_pos
           POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_USER: postgres
         ports:
           - 55434:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-cmd "pg_isready -U postgres -d camacho_pos"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
@@ -84,10 +84,10 @@ jobs:
           '
       - name: Apply PostgreSQL 003 role readiness
         env:
-          POSTGRES_ROLE_READINESS_PROVISIONING_URL: postgres://pos_migrator@127.0.0.1:55434/postgres
-          POSTGRES_ROLE_READINESS_VERIFICATION_URL: postgres://pos_platform_admin@127.0.0.1:55434/postgres
+          POSTGRES_ROLE_READINESS_PROVISIONING_URL: postgres://pos_migrator@127.0.0.1:55434/camacho_pos
+          POSTGRES_ROLE_READINESS_VERIFICATION_URL: postgres://pos_platform_admin@127.0.0.1:55434/camacho_pos
           POSTGRES_ROLE_READINESS_ENVIRONMENT_ID: ci-d3
-          POSTGRES_ROLE_READINESS_EXPECTED_DATABASE: postgres
+          POSTGRES_ROLE_READINESS_EXPECTED_DATABASE: camacho_pos
           ROLE_READINESS_REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
           ROLE_READINESS_OPERATOR_OR_JOB_ID: github-actions-d3
           ROLE_READINESS_RECEIPT_OUTPUT_PATH: ${{ github.workspace }}/artifacts/d3-role-readiness.json
@@ -102,7 +102,7 @@ jobs:
               const { applyPostgres003 } = await import("./src/postgres-003-runner.js");
               const result = await applyPostgres003({
                 adminUrl: process.env.POSTGRES_ADMIN_URL!,
-                expectedDatabase: "postgres",
+                expectedDatabase: "camacho_pos",
                 environmentId: "ci-d3",
                 repositoryCommit: process.env.REVIEWED_SHA!,
                 receiptOutputPath: "artifacts/postgres-003.json",
@@ -112,17 +112,39 @@ jobs:
           '
       - name: Apply PostgreSQL 004
         env:
-          POSTGRES_EXPECTED_DATABASE: postgres
+          POSTGRES_EXPECTED_DATABASE: camacho_pos
           REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
         run: pnpm --filter @pos-platform/target-migrations postgres:004:apply
       - name: Apply PostgreSQL 037 central rate limit counters
         env:
-          POSTGRES_MIGRATOR_URL: postgres://pos_migrator@127.0.0.1:55434/postgres
-          POSTGRES_EXPECTED_DATABASE: postgres
+          POSTGRES_MIGRATOR_URL: postgres://pos_migrator@127.0.0.1:55434/camacho_pos
+          POSTGRES_EXPECTED_DATABASE: camacho_pos
           REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
           POSTGRES_MIGRATION_LOCK_TIMEOUT_MS: "5000"
           POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS: "60000"
         run: pnpm --filter @pos-platform/target-migrations postgres:commercial:apply -- --central-rate-limit
+      - name: Apply canonical commercial schema
+        env:
+          POSTGRES_EXPECTED_DATABASE: camacho_pos
+          REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
+          POSTGRES_MIGRATOR_URL: postgres://pos_migrator@127.0.0.1:55434/camacho_pos
+          POSTGRES_MIGRATION_LOCK_TIMEOUT_MS: "5000"
+          POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS: "60000"
+        run: |
+          set -euo pipefail
+          pnpm --filter @pos-platform/target-migrations postgres:005:apply
+          pnpm --filter @pos-platform/target-migrations exec tsx -e '
+            (async () => {
+              const { applyPostgres006 } = await import("./src/postgres-006-runner.js");
+              const { applyPostgres007 } = await import("./src/postgres-007-runner.js");
+              const config = { adminUrl: process.env.POSTGRES_ADMIN_URL!, expectedDatabase: process.env.POSTGRES_EXPECTED_DATABASE!, repositoryCommit: process.env.REPOSITORY_COMMIT! };
+              await applyPostgres006(config);
+              await applyPostgres007(config);
+            })();
+          '
+          for target in license-catalog cash-register-master commercial-authorization business-owner tenant-initialization cash-register-bindings login-abuse-budget; do
+            pnpm --filter @pos-platform/target-migrations postgres:commercial:apply -- "--$target"
+          done
       - name: Generate ephemeral TLS and issuer keys
         run: |
           set -euo pipefail
