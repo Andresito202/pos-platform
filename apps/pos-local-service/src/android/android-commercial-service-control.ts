@@ -6,6 +6,7 @@ import type { OperationalLicenseInformation } from "../security/license-capacity
  */
 export class AndroidCommercialServiceControl {
   private pending = "";
+  private readonly decoder = new TextDecoder("utf-8",{fatal:true});
   private sequence = 0;
   private closed = false;
   private requestBusy = false;
@@ -19,10 +20,10 @@ export class AndroidCommercialServiceControl {
 
   accept(chunk: Buffer): void {
     if (this.closed) return;
-    if (chunk.length > 65536 || chunk.some((byte) => byte !== 10 && (byte < 32 || byte > 126) && byte !== 9)) {
+    if (chunk.length > 65536 || chunk.some((byte) => byte !== 10 && byte < 32 && byte !== 9)) {
       return this.close(1);
     }
-    this.pending += chunk.toString("ascii");
+    try { this.pending += this.decoder.decode(chunk,{stream:true}); } catch { return this.close(1); }
     void this.drain();
   }
 
@@ -33,7 +34,7 @@ export class AndroidCommercialServiceControl {
   private async drain(): Promise<void> {
     while (!this.closed && this.pending.includes("\n") && !this.requestBusy) {
       const end = this.pending.indexOf("\n");
-      if (end > 65536) return this.close(1);
+      if (Buffer.byteLength(this.pending.slice(0,end),"utf8") > 65536) return this.close(1);
       const line = this.pending.slice(0, end);
       this.pending = this.pending.slice(end + 1);
       if (line === "STOP") return this.close(0);
@@ -81,7 +82,7 @@ export class AndroidCommercialServiceControl {
       }
       return this.close(1);
     }
-    if (this.pending.length > 65536) this.close(1);
+    if (Buffer.byteLength(this.pending,"utf8") > 65536) this.close(1);
   }
 
   private close(code: number): void {

@@ -1,0 +1,10 @@
+{
+  "name": "@pos-platform/pos-android",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:identity": "gradle -p . commercialIdentityTest",
+    "build:apk": "gradle -p . commercialApk"
+  }
+}
