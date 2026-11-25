@@ -168,6 +168,85 @@ jobs:
           for target in license-catalog cash-register-master commercial-authorization business-owner tenant-initialization cash-register-bindings login-abuse-budget; do
             pnpm --filter @pos-platform/target-migrations postgres:commercial:apply -- "--$target"
           done
+      - name: Provision BUSINESS identity and verify real MFA custody
+        env:
+          D3_DISPOSABLE_IDENTITY_GATE: "YES"
+        run: |
+          pnpm --filter @pos-platform/central-authority exec tsx -e '
+            (async () => {
+              const assert = (await import("node:assert/strict")).default;
+              const { randomBytes, generateKeyPairSync, createHash, sign } = await import("node:crypto");
+              const { uuidV7 } = await import("@pos-platform/contracts");
+              const { createPostgresPool } = await import("@pos-platform/database-postgres");
+              const { createPlatformPasswordVerifier } = await import("./src/platform-password-verifier.js");
+              const { BusinessInitialMfaFlow } = await import("./src/business-initial-mfa-flow.js");
+              const { BusinessBrowserSessionIssuer } = await import("./src/business-browser-session-issuer.js");
+              const admin = new URL(process.env.POSTGRES_ADMIN_URL!);
+              const runtime = new URL(process.env.CENTRAL_DATABASE_URL!);
+              for (const [url, role] of [[admin,"postgres"],[runtime,"pos_platform_app"]] as const) {
+                assert.equal(url.hostname,"127.0.0.1");
+                assert.equal(url.port,"55434");
+                assert.equal(url.pathname,"/camacho_pos");
+                assert.equal(url.username,role);
+                assert.equal(url.searchParams.get("sslmode"),"verify-full");
+              }
+              assert.equal(process.env.GITHUB_ACTIONS,"true");
+              assert.equal(process.env.D3_DISPOSABLE_IDENTITY_GATE,"YES");
+              const seed = createPostgresPool(admin.toString(),1);
+              const pool = createPostgresPool(runtime.toString(),2);
+              const ids = {user:uuidV7(),tenant:uuidV7(),company:uuidV7(),branch:uuidV7(),member:uuidV7(),password:uuidV7(),factor:uuidV7(),material:uuidV7(),assignment:uuidV7()};
+              const email = ids.user+"@example.test";
+              const password = randomBytes(32).toString("base64url");
+              const credentialId = randomBytes(32).toString("base64url");
+              const pair = generateKeyPairSync("ec",{namedCurve:"prime256v1"});
+              const jwk = pair.publicKey.export({format:"jwk"});
+              const cose = Buffer.concat([Buffer.from("a5010203262001215820","hex"),Buffer.from(jwk.x!,"base64url"),Buffer.from("225820","hex"),Buffer.from(jwk.y!,"base64url")]);
+              const verifier = await createPlatformPasswordVerifier(password,"owasp-19m-t2-p1");
+              const rejectionVerifier = await createPlatformPasswordVerifier(randomBytes(32).toString("base64url"),"owasp-19m-t2-p1");
+              const origin = "https://127.0.0.1:9443", rpId = "127.0.0.1";
+              try {
+                const connection = await seed.connect();
+                try {
+                  await connection.query("BEGIN");
+                  await connection.query("INSERT INTO identity.users(id,email,email_normalized,full_name,status,created_at,updated_at) VALUES ($1,$2,$2,$3,$4,now(),now())",[ids.user,email,"D3 CI owner","ACTIVE"]);
+                  await connection.query("INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at) VALUES ($1,$2,$3,now(),now())",[ids.tenant,"D3 CI tenant","ACTIVE"]);
+                  await connection.query("INSERT INTO organization.companies(id,tenant_id,trade_name,timezone,currency_code,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,now(),now())",[ids.company,ids.tenant,"D3 CI company","America/Bogota","COP","ACTIVE"]);
+                  await connection.query("INSERT INTO organization.branches(id,tenant_id,company_id,name,timezone,status,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,now(),now())",[ids.branch,ids.tenant,ids.company,"D3 CI branch","America/Bogota","ACTIVE"]);
+                  await connection.query("INSERT INTO tenancy.tenant_memberships(id,tenant_id,user_id,membership_type,status,created_by_actor_type,created_at,activated_at) VALUES ($1,$2,$3,$4,$5,$6,now(),now())",[ids.member,ids.tenant,ids.user,"OWNER","ACTIVE","SYSTEM"]);
+                  await connection.query("INSERT INTO identity.user_credentials(id,user_id,credential_type,verifier,status,created_at) VALUES ($1,$2,$3,$4,$5,now())",[ids.password,ids.user,"PASSWORD",verifier,"ACTIVE"]);
+                  await connection.query("INSERT INTO identity.mfa_factors(id,user_id,factor_type,secret_reference,status,enrolled_at,verified_at) VALUES ($1,$2,$3,$4,$5,now(),now())",[ids.factor,ids.user,"WEBAUTHN","webauthn:v1:"+ids.material,"ACTIVE"]);
+                  await connection.query("INSERT INTO identity.webauthn_credential_material(id,factor_id,credential_id,public_key_cose_base64url) VALUES ($1,$2,$3,$4)",[ids.material,ids.factor,credentialId,cose.toString("base64url")]);
+                  const assignment = await connection.query("INSERT INTO \"authorization\".user_role_assignments(id,tenant_id,tenant_membership_id,role_id,company_id,branch_id,status,valid_from,created_at,created_by_actor_type) SELECT $1,$2,$3,id,$4,$5,$6,now(),now(),$7 FROM \"authorization\".roles WHERE code=$8 AND status=$6",[ids.assignment,ids.tenant,ids.member,ids.company,ids.branch,"ACTIVE","SYSTEM","OWNER"]);
+                  assert.equal(assignment.rowCount,1);
+                  await connection.query("COMMIT");
+                } catch (error) { await connection.query("ROLLBACK"); throw error; }
+                finally { connection.release(); }
+                const flow = new BusinessInitialMfaFlow(pool,{origin,rpId,challengeLifetimeMs:60000,rejectionVerifier,sessionScope:"BUSINESS"});
+                assert.equal(await flow.begin({email,password:"invalid",correlationId:uuidV7()}),null);
+                const begin = await flow.begin({email,password,correlationId:uuidV7()});
+                assert.ok(begin);
+                assert.equal(begin.credentialId,credentialId);
+                const clientData = Buffer.from(JSON.stringify({type:"webauthn.get",challenge:begin.challenge,origin,crossOrigin:false}));
+                const authData = Buffer.alloc(37);
+                createHash("sha256").update(rpId).digest().copy(authData);
+                authData[32]=5;
+                authData.writeUInt32BE(1,33);
+                const signature = sign("sha256",Buffer.concat([authData,createHash("sha256").update(clientData).digest()]),pair.privateKey);
+                const response = {id:credentialId,rawId:credentialId,type:"public-key" as const,clientExtensionResults:{},response:{clientDataJSON:clientData.toString("base64url"),authenticatorData:authData.toString("base64url"),signature:signature.toString("base64url")}};
+                const receipt = await flow.complete({email,password,challenge:begin.challenge,response});
+                assert.ok(receipt);
+                assert.equal(await flow.complete({email,password,challenge:begin.challenge,response}),null);
+                const issuer = new BusinessBrowserSessionIssuer(pool,flow,{origin,sessionLifetimeMs:300000,browserLifetimeMs:300000,maximumMfaAgeMs:60000,lockTimeoutMs:2000,statementTimeoutMs:10000});
+                const session = await issuer.issue(receipt,ids.tenant,ids.member);
+                assert.ok(session.setCookie.startsWith("__Host-camacho_business="));
+                assert.ok(session.csrfToken);
+                await assert.rejects(issuer.issue(receipt,ids.tenant,ids.member),/BUSINESS_MFA_REQUIRED/);
+                const custody = await seed.query("SELECT count(*)::int AS count FROM identity.sessions WHERE user_id=$1 AND tenant_id=$2 AND mfa_status=$3 AND revoked_at IS NULL",[ids.user,ids.tenant,"SATISFIED"]);
+                assert.equal(custody.rows[0]?.count,1);
+                console.log("D3_BUSINESS_IDENTITY_MFA_SESSION_PASS");
+              } finally { await pool.end(); await seed.end(); }
+            })().catch(error => { console.error(error instanceof Error ? error.message : "D3_BUSINESS_GATE_FAILED"); process.exitCode=1; });
+          '
       - name: Generate ephemeral TLS and issuer keys
         run: |
           set -euo pipefail
