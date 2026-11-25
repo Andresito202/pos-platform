@@ -20,7 +20,6 @@ env:
   REVIEWED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   POSTGRES_ADMIN_URL: postgres://postgres@127.0.0.1:55434/camacho_pos
   CENTRAL_DATABASE_URL: postgres://pos_platform_app@127.0.0.1:55434/camacho_pos
-  D3_ENROLLMENT_TRANSPORT_TOKEN: ci-transport-token
 
 jobs:
   d3-live-security-e2e:
@@ -222,7 +221,7 @@ jobs:
                 } catch (error) { await connection.query("ROLLBACK"); throw error; }
                 finally { connection.release(); }
                 const flow = new BusinessInitialMfaFlow(pool,{origin,rpId,challengeLifetimeMs:60000,rejectionVerifier,sessionScope:"BUSINESS"});
-                assert.equal(await flow.begin({email,password:"invalid",correlationId:uuidV7()}),null);
+                assert.equal(await flow.begin({email,password:randomBytes(32).toString("base64url"),correlationId:uuidV7()}),null);
                 const begin = await flow.begin({email,password,correlationId:uuidV7()});
                 assert.ok(begin);
                 assert.equal(begin.credentialId,credentialId);
@@ -254,7 +253,13 @@ jobs:
           umask 077
           openssl req -x509 -newkey rsa:2048 -nodes -keyout artifacts/d3/tls.key -out artifacts/d3/tls.crt -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' -days 1
           openssl genpkey -algorithm ED25519 -out artifacts/d3/issuer.key
-          printf '%s\n' 'ci-session-trust-transport-token' > artifacts/d3/session-trust-transport.token
+          enrollment_token="$(openssl rand -hex 32)"
+          session_token="$(openssl rand -hex 32)"
+          echo "::add-mask::$enrollment_token"
+          echo "::add-mask::$session_token"
+          printf 'D3_ENROLLMENT_TRANSPORT_TOKEN=%s\n' "$enrollment_token" >> "$GITHUB_ENV"
+          printf 'SESSION_TRUST_TRANSPORT_TOKEN=%s\n' "$session_token" >> "$GITHUB_ENV"
+          printf '%s\n' "$session_token" > artifacts/d3/session-trust-transport.token
       - name: Start Central Authority
         env:
           CENTRAL_AUTHORITY_PORT: 9443
@@ -273,8 +278,6 @@ jobs:
           cat artifacts/d3/central-authority.log
           exit 1
       - name: Verify session trust publication boundary
-        env:
-          SESSION_TRUST_TRANSPORT_TOKEN: ci-session-trust-transport-token
         run: |
           set -euo pipefail
           status=$(curl --silent --show-error --cacert artifacts/d3/tls.crt -o artifacts/d3/session-trust-unauthorized.json -w '%{http_code}' \
