@@ -30,7 +30,7 @@ jobs:
         with:
           gradle-version: '8.14'
       - name: Compile commercial Kotlin and test identity
-        run: gradle -p apps/pos-android --no-daemon commercialIdentityTest
+        run: gradle -p apps/pos-android --no-daemon commercialIdentityTest compileCommercialSigner
   unsigned-apk:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
     needs: kotlin

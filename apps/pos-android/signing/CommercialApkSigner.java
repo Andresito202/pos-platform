@@ -26,13 +26,29 @@ public final class CommercialApkSigner {
         for (byte b : bytes) out.append(String.format(Locale.ROOT, "%02x", b & 255));
         return out.toString();
     }
+    private static String fileDigest(File file) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (InputStream stream = Files.newInputStream(file.toPath())) {
+            byte[] buffer = new byte[65536];
+            int n;
+            while ((n = stream.read(buffer)) != -1) digest.update(buffer, 0, n);
+        }
+        StringBuilder out = new StringBuilder();
+        for (byte b : digest.digest()) out.append(String.format(Locale.ROOT, "%02x", b & 255));
+        return out.toString();
+    }
     public static void main(String[] args) throws Exception {
-        if (args.length != 5) throw new IllegalArgumentException("RELEASE_SIGNER_ARGUMENTS");
+        if (args.length != 6) throw new IllegalArgumentException("RELEASE_SIGNER_ARGUMENTS");
         String expected = args[2].replace(":", "").toLowerCase(Locale.ROOT);
         if (!expected.matches("[a-f0-9]{64}")) throw new IllegalArgumentException("RELEASE_CERT_PIN_REQUIRED");
         File output = new File(args[4]);
         File temporary = new File(args[4] + ".partial");
         if (output.exists() || temporary.exists()) throw new IllegalStateException("RELEASE_OUTPUT_EXISTS");
+        File input = new File(args[3]);
+        String expectedInput = args[5];
+        if (!expectedInput.matches("[a-f0-9]{64}") || !input.isFile() || Files.isSymbolicLink(input.toPath()))
+            throw new SecurityException("VERIFIED_UNSIGNED_APK_REQUIRED");
+        if (!fileDigest(input).equals(expectedInput)) throw new SecurityException("UNSIGNED_APK_DIGEST_MISMATCH");
         char[] storePassword = password("CAMACHO_ANDROID_RELEASE_STORE_PASSWORD");
         char[] keyPassword = password("CAMACHO_ANDROID_RELEASE_KEY_PASSWORD");
         try {
@@ -50,13 +66,15 @@ public final class CommercialApkSigner {
             if (!digest(certs.get(0)).equals(expected)) throw new SecurityException("RELEASE_CERT_PIN_MISMATCH");
             ApkSigner.SignerConfig config = new ApkSigner.SignerConfig.Builder("camacho-release", key, certs).build();
             new ApkSigner.Builder(Arrays.asList(config))
-                .setInputApk(new File(args[3])).setOutputApk(temporary)
+                .setInputApk(input).setOutputApk(temporary)
                 .setMinSdkVersion(28).setV1SigningEnabled(false).setV2SigningEnabled(true)
                 .setV3SigningEnabled(true).setV4SigningEnabled(false).build().sign();
             ApkVerifier.Result result = new ApkVerifier.Builder(temporary).setMinCheckedPlatformVersion(28).build().verify();
-            if (!result.isVerified() || !result.isVerifiedUsingV2Scheme() || result.getSignerCertificates().size()!=1
+            if (!result.isVerified() || !result.isVerifiedUsingV2Scheme() || !result.isVerifiedUsingV3Scheme() || result.getSignerCertificates().size()!=1
                 || !digest(result.getSignerCertificates().get(0)).equals(expected)) throw new SecurityException("RELEASE_SIGNATURE_VERIFICATION_FAILED");
+            if (!fileDigest(input).equals(expectedInput)) throw new SecurityException("UNSIGNED_APK_CHANGED_DURING_SIGNING");
             Files.move(temporary.toPath(), output.toPath(), StandardCopyOption.ATOMIC_MOVE);
+            System.out.println("SIGNED_APK_SHA256=" + fileDigest(output));
             System.out.println("RELEASE_CERT_SHA256=" + expected);
         } finally {
             Arrays.fill(storePassword, '\0');

@@ -180,33 +180,40 @@ tasks.register("commercialShellApk") {
     dependsOn("commercialApk")
 }
 
+val releaseSignerClasses = layout.buildDirectory.dir("release-signer/classes")
+val compileCommercialSigner by tasks.registering(JavaCompile::class) {
+    source(file("signing/CommercialApkSigner.java"))
+    classpath = apkSigner
+    destinationDirectory.set(releaseSignerClasses)
+    options.release.set(8)
+}
+
 tasks.register("commercialReleaseApk") {
     group = "build"
-    description = "Sign and verify the commercial APK with the explicitly provisioned release identity."
-    dependsOn("commercialApk")
+    description = "Sign the exact previously verified unsigned commercial APK."
+    dependsOn(compileCommercialSigner)
     doLast {
         fun required(name: String): String = System.getenv(name)?.takeIf { it.isNotBlank() }
             ?: error("RELEASE_CONFIGURATION_REQUIRED: $name")
         val keystore = file(required("CAMACHO_ANDROID_RELEASE_KEYSTORE"))
         val alias = required("CAMACHO_ANDROID_RELEASE_ALIAS")
         val fingerprint = required("CAMACHO_ANDROID_RELEASE_CERT_SHA256")
+        val inputDigest = required("CAMACHO_ANDROID_UNSIGNED_APK_SHA256")
+        val input = file(required("CAMACHO_ANDROID_UNSIGNED_APK"))
         require(fingerprint.replace(":", "").matches(Regex("[a-fA-F0-9]{64}")))
+        require(inputDigest.matches(Regex("[a-f0-9]{64}")))
         required("CAMACHO_ANDROID_RELEASE_STORE_PASSWORD")
         required("CAMACHO_ANDROID_RELEASE_KEY_PASSWORD")
         require(keystore.isFile && !Files.isSymbolicLink(keystore.toPath()))
-        val out = layout.buildDirectory.dir("commercial-apk").get().asFile
-        val classes = file("${out}/release-signer").apply { deleteRecursively(); mkdirs() }
+        require(input.isFile && !Files.isSymbolicLink(input.toPath()))
+        val out = layout.buildDirectory.dir("commercial-release").get().asFile.apply { mkdirs() }
         val apk = file("${out}/camacho-pos-colombia.apk")
-        apk.delete()
-        fun run(vararg args: String) {
-            val p = ProcessBuilder(*args).inheritIO().start()
-            check(p.waitFor() == 0) { "RELEASE_SIGNING_FAILED" }
-        }
         val javaHome = System.getProperty("java.home")
-        run("$javaHome/bin/javac", "-cp", apkSigner.asPath, "-d", classes.path, file("signing/CommercialApkSigner.java").path)
-        run("$javaHome/bin/java", "-cp", apkSigner.asPath + File.pathSeparator + classes.path,
-            "CommercialApkSigner", keystore.path, alias, fingerprint,
-            file("${out}/camacho-pos-colombia-unsigned.apk").path, apk.path)
+        val process = ProcessBuilder("$javaHome/bin/java", "-cp",
+            apkSigner.asPath + File.pathSeparator + releaseSignerClasses.get().asFile.path,
+            "CommercialApkSigner", keystore.path, alias, fingerprint, input.path, apk.path, inputDigest
+        ).inheritIO().start()
+        check(process.waitFor() == 0) { "RELEASE_SIGNING_FAILED" }
         println("VERIFIED_SIGNED_APK=${apk.absolutePath}")
     }
 }
