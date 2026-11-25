@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { uuidV7, UuidSchema, UuidV7Schema, PlatformSecurityEventCode, type NativeClientRegistration } from "@pos-platform/contracts";
-import { PostgresNativeBusinessDeviceProofVerifier, PostgresPlatformSecurityEventRepository, type Pool, type PoolClient, type DeviceProofRequest } from "@pos-platform/database-postgres";
+import { resolveCommercialDeviceBranch, PostgresNativeBusinessDeviceProofVerifier, PostgresPlatformSecurityEventRepository, type Pool, type PoolClient, type DeviceProofRequest } from "@pos-platform/database-postgres";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { TLSSocket } from "node:tls";
 import { inspectCommercialHeaders, readCommercialJsonBody, sendCommercialJson } from "./commercial-https-request-boundary.js";
@@ -71,6 +71,9 @@ export class NativeBusinessRequestRegistration {
           AND dc.status='ACTIVE' AND dc.issued_at<=clock_timestamp() AND dc.expires_at>clock_timestamp() AND d.status='ACTIVE'
         FOR SHARE OF dc,d`,[device.credentialId,device.deviceId,device.installationId,device.tenantId,device.companyId]);
       if (active.rowCount !== 1) return null;
+      await c.query("SELECT set_config('app.tenant_id',$1,true)",[device.tenantId]);
+      await c.query('SELECT "authorization".lock_sas_sources_for_read()');
+      if (!await resolveCommercialDeviceBranch(c,device)) return null;
       const row = await c.query(`UPDATE identity.native_authorization_requests SET request_hash=$1,credential_id=$2,device_id=$3,installation_id=$4,tenant_id=$5,company_id=$6,
         challenge_consumed_at=clock_timestamp(),expires_at=LEAST(clock_timestamp()+($7::bigint*interval '1 millisecond'),$8::timestamptz)
         WHERE id=$9 AND challenge_hash=$10 AND challenge_consumed_at IS NULL AND challenge_expires_at>clock_timestamp()
