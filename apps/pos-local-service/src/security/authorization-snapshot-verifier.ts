@@ -78,6 +78,13 @@ export class AuthorizationSnapshotVerifier {
       return { decision: "SIGNING_KEY_REVOKED", claims: null, evaluatedAt: at };
     }
 
+    const keyTime = evaluatedAt.getTime();
+    if (trustedKey.validFrom !== undefined && keyTime < Date.parse(trustedKey.validFrom)) {
+      return { decision: "NOT_YET_VALID", claims: null, evaluatedAt: at };
+    }
+    if (trustedKey.validUntil != null && keyTime >= Date.parse(trustedKey.validUntil)) {
+      return { decision: "EXPIRED", claims: null, evaluatedAt: at };
+    }
     const valid = verify(
       null,
       Buffer.from(canonicalJson(claims)),
