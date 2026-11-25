@@ -16,6 +16,7 @@ import { prepareBusinessAdministrationRuntime } from "./business-administration-
 import { prepareSubscriptionFulfillmentRuntime } from "./subscription-fulfillment-runtime.js";
 import { prepareSubscriptionFactusPayGateway } from "./subscription-factus-pay-gateway-runtime.js";
 import { createCentralRouter } from "./central-router.js";
+import { createNativeRequestHandler } from "./native-business-request-registration.js";
 import { prepareAndroidAssociationPublication, handleAndroidAssociation } from "./android-association-publication.js";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 import { DurableFixedWindowRateLimiter } from "./durable-fixed-window-rate-limiter.js";
@@ -303,12 +304,15 @@ const androidAssociationPublication = (() => {
   return prepareAndroidAssociationPublication(androidAssociationProvision, deployment);
 })();
 
+// Activation requires the complete native authorization composition, not DAL alone.
+const nativeRequestHandler = createNativeRequestHandler();
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, createCentralRouter(async (request, response) => {
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
 
   if (handleAndroidAssociation(request, response, androidAssociationPublication)) return;
+  if (await nativeRequestHandler(request, response)) return;
 
   if (commercialBridgeHandler) {
     const handled = await commercialBridgeHandler(request, response);

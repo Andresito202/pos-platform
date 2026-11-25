@@ -47,7 +47,7 @@ export function prepareAndroidAssociationPublication(provisionFile: string, depl
   if (Object.keys(registration).sort().join(",") !== "androidPackageId,androidSigningCertificateSha256,authorizationOrigin,clientId,platform,redirectUri")
     throw Error("ANDROID_ASSOCIATION_REGISTRATION_FIELDS_REJECTED");
   const document = createAndroidAssociationDocument(registration as unknown as NativeClientRegistration, managed(p.signing_certificate_file, 16384), deployment);
-  return Object.freeze({ origin: deployment.origin, document });
+  return Object.freeze({ origin: deployment.origin, document, registration: Object.freeze(registration as unknown as NativeClientRegistration) });
 }
 
 export function handleAndroidAssociation(request: IncomingMessage, response: ServerResponse, publication?: { origin: string; document: string }): boolean {
