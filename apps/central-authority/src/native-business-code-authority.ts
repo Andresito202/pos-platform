@@ -7,7 +7,7 @@ import { matchesPkceS256Challenge, validateNativeClientRegistration } from "./na
 const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 const opaque = (s: unknown, length: number): s is string => typeof s === "string" && s.length === length && /^[A-Za-z0-9_-]+$/.test(s) && Buffer.from(s,"base64url").toString("base64url") === s;
 const equal = (a: string, b: string) => { const x=Buffer.from(a), y=Buffer.from(b); return x.length===y.length && timingSafeEqual(x,y); };
-type Binding = Readonly<{sessionId:string;userId:string;tenantId:string;membershipId:string;deviceId:string;installationId:string;companyId:string;credentialId:string}>;
+export type NativeBusinessBinding = Readonly<{sessionId:string;userId:string;tenantId:string;membershipId:string;deviceId:string;installationId:string;companyId:string;credentialId:string}>;
 type Grant = {session_id:string;user_id:string;tenant_id:string;membership_id:string;device_id:string;installation_id:string;company_id:string;credential_id:string;client_id:string;redirect_uri:string;code_challenge:string;state:string};
 const deviceJoin = `JOIN identity.device_registry d ON d.device_id=n.device_id AND d.tenant_id=n.tenant_id AND d.status='ACTIVE'
  JOIN identity.device_credentials dc ON dc.credential_id=n.credential_id AND dc.device_id=d.device_id AND dc.installation_id=d.installation_id
@@ -44,12 +44,12 @@ export class NativeBusinessCodeAuthority {
       const result=await work(c); await c.query("COMMIT"); return result;
     } catch(error){await c.query("ROLLBACK").catch(()=>undefined);throw error;} finally {c.release();}
   }
-  private async event(c:PoolClient,b:Binding,correlation:string,redeemed:boolean){
+  private async event(c:PoolClient,b:NativeBusinessBinding,correlation:string,redeemed:boolean){
     await this.audit.append({user_id:b.userId,session_id:b.sessionId,tenant_id:b.tenantId,
       event_code:redeemed?PlatformSecurityEventCode.AUTHORIZATION_CODE_REDEEMED:PlatformSecurityEventCode.AUTHORIZATION_CODE_ISSUED,
       result:"SUCCEEDED",reason_code:"BUSINESS_NATIVE_PKCE",correlation_id:correlation,occurred_at:new Date().toISOString()},c);
   }
-  private binding(r:Grant):Binding{
+  private binding(r:Grant):NativeBusinessBinding{
     return Object.freeze({sessionId:r.session_id,userId:r.user_id,tenantId:r.tenant_id,membershipId:r.membership_id,
       deviceId:r.device_id,installationId:r.installation_id,companyId:r.company_id,credentialId:r.credential_id});
   }
@@ -93,7 +93,7 @@ export class NativeBusinessCodeAuthority {
   }
   // Internal boundary only: returns a verified binding after commit, not a token.
   // Exact signed raw body is parsed here, so caller cannot substitute PKCE values.
-  async redeem(proof:DeviceProofRequest):Promise<Binding|null>{
+  async redeem<T>(proof:DeviceProofRequest, issue:(c:PoolClient,binding:NativeBusinessBinding,correlationId:string)=>Promise<T>):Promise<T|null>{
     if(!UuidV7Schema.safeParse(proof.correlationId).success)return null;
     let p:Record<string,unknown>;
     try{p=JSON.parse(proof.body);}catch{return null;}
@@ -133,7 +133,7 @@ export class NativeBusinessCodeAuthority {
         await this.audit.append({user_id:binding.userId,session_id:binding.sessionId,tenant_id:binding.tenantId,event_code:PlatformSecurityEventCode.AUTHORIZATION_CODE_REJECTED,result:"REJECTED",reason_code:"BUSINESS_NATIVE_PKCE",correlation_id:proof.correlationId,occurred_at:new Date().toISOString()},c);
         return null;
       }
-      await this.event(c,binding,proof.correlationId,true);return binding;
+      await this.event(c,binding,proof.correlationId,true);return issue(c,binding,proof.correlationId);
     });
   }
 }
