@@ -1,11 +1,16 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { LicenseCapacityClaimsSchema, type LicenseCapacityClaims } from "@pos-platform/contracts";
-import { LicenseCapacityGate, readLicenseCapacityProvision } from "../src/security/license-capacity-gate.js";
+import {
+  LicenseCapacityGate,
+  compositeLicenseCapacitySealStore,
+  fileLicenseCapacitySealStore,
+  readLicenseCapacityProvision,
+} from "../src/security/license-capacity-gate.js";
 import { LocalSecurityLifecycle } from "../src/security/security-lifecycle.js";
 import { unsignedLicenseCapacityBytes } from "../src/security/license-verifier.js";
 
@@ -31,7 +36,7 @@ function fixture(){
     spki_sha256:createHash("sha256").update(pair.publicKey.export({type:"spki",format:"der"})).digest("hex"),status}],artifact:signed(c)});
   const save=(value:unknown)=>writeFileSync(path,JSON.stringify(value));save(provision());
   const gate=()=>new LicenseCapacityGate(db,()=>readLicenseCapacityProvision(path),()=>at);
-  return {get db(){return db;},path,claims,gate,save,provision,setTime:(v:string)=>{at=new Date(v);},
+  return {get db(){return db;},dir,path,claims,gate,save,provision,setTime:(v:string)=>{at=new Date(v);},
     restart:()=>{db.close();db=LocalDatabase.open({dataDirectory:dir});resource.db=db;}};
 }
 
@@ -111,4 +116,83 @@ it("signed capacity stops at the exclusive end of the three-day term, even after
   f.setTime("2026-10-26T23:59:59.999Z");expect(f.gate().authorize(scope,id(8))).toBeNull();
   f.setTime("2026-10-27T00:00:00.000Z");expect(f.gate().authorize(scope,id(8))).toBe("LICENSE_EXPIRED");
   f.restart();expect(f.gate().authorize(scope,id(8))).toBe("LICENSE_EXPIRED");
+});
+
+it("capacity: SQLite wipe with surviving seal denies silent re-accept (anti trial reset)",()=>{
+  const f=fixture();
+  const sealPath=join(f.dir,"license-capacity.seal");
+  const sealedGate=(db:LocalDatabase)=>new LicenseCapacityGate(
+    db,
+    ()=>readLicenseCapacityProvision(f.path),
+    ()=>new Date("2026-10-26T12:00:00Z"),
+    fileLicenseCapacitySealStore(sealPath),
+  );
+  expect(sealedGate(f.db).authorize(scope,id(8))).toBeNull();
+  expect(existsSync(sealPath)).toBe(true);
+  // Append-only audit cannot be deleted in-place: simulate wipe by a fresh DB
+  // while provision + seal files outside the new SQLite file remain.
+  const wipedDir=mkdtempSync(join(tmpdir(),"pos-license-wipe-"));
+  const wiped=LocalDatabase.open({dataDirectory:wipedDir});
+  resources.push({db:wiped,dir:wipedDir});
+  new LocalSecurityLifecycle(wiped).registerInitialDeviceKey("DEVICE_TEST");
+  expect(sealedGate(wiped).authorize(scope,id(8))).toBe("LICENSE_WIPE_RECOVERY_REQUIRED");
+  expect(wiped.native.prepare("SELECT count(*) AS n FROM local_license_activation_state").get()).toEqual({n:0});
+});
+
+it("capacity: deleting SQLite and product seal still denies when sticky machine seal remains",()=>{
+  const f=fixture();
+  const productSeal=join(f.dir,"license-capacity.seal");
+  const stickyDir=mkdtempSync(join(tmpdir(),"pos-license-sticky-"));
+  const stickySeal=join(stickyDir,"license-capacity.seal");
+  const seal=compositeLicenseCapacitySealStore([
+    fileLicenseCapacitySealStore(productSeal),
+    fileLicenseCapacitySealStore(stickySeal),
+  ]);
+  const sealedGate=(db:LocalDatabase)=>new LicenseCapacityGate(
+    db,
+    ()=>readLicenseCapacityProvision(f.path),
+    ()=>new Date("2026-10-26T12:00:00Z"),
+    seal,
+  );
+  expect(sealedGate(f.db).authorize(scope,id(8))).toBeNull();
+  expect(existsSync(productSeal)).toBe(true);
+  expect(existsSync(stickySeal)).toBe(true);
+  rmSync(productSeal,{force:true});
+  const wipedDir=mkdtempSync(join(tmpdir(),"pos-license-wipe-dual-"));
+  const wiped=LocalDatabase.open({dataDirectory:wipedDir});
+  resources.push({db:wiped,dir:wipedDir});
+  new LocalSecurityLifecycle(wiped).registerInitialDeviceKey("DEVICE_TEST");
+  try {
+    expect(sealedGate(wiped).authorize(scope,id(8))).toBe("LICENSE_WIPE_RECOVERY_REQUIRED");
+  } finally {
+    rmSync(stickyDir,{recursive:true,force:true});
+  }
+});
+
+it("capacity: corrupted seal is not treated as missing, even with existing audit", () => {
+  const f = fixture();
+  const sealPath = join(f.dir, "license-capacity.seal");
+  const store = fileLicenseCapacitySealStore(sealPath);
+  const gate = () => new LicenseCapacityGate(f.db, () => readLicenseCapacityProvision(f.path), () => new Date("2026-10-26T12:00:00Z"), store);
+  expect(gate().authorize(scope,id(8))).toBeNull();
+  writeFileSync(sealPath, "{broken");
+  expect(() => store.read()).toThrow("LICENSE_SEAL_INVALID");
+  expect(gate().authorize(scope,id(8))).toBe("LICENSE_CAPACITY_UNAVAILABLE");
+});
+
+it("capacity: atomic replacement, strict paths and composite high-water mark", () => {
+  const f = fixture();
+  expect(() => fileLicenseCapacitySealStore("relative.seal")).toThrow("LICENSE_SEAL_ABSOLUTE_PATH_REQUIRED");
+  const a = fileLicenseCapacitySealStore(join(f.dir, "a.seal"));
+  const b = fileLicenseCapacitySealStore(join(f.dir, "b.seal"));
+  const v1 = { installation_id: scope.installationId, license_id: f.claims.license_id, version: 1, digest: "a".repeat(64) };
+  const v2 = { ...v1, version: 2, digest: "b".repeat(64) };
+  a.write(v1); b.write(v2);
+  const combined = compositeLicenseCapacitySealStore([a,b]);
+  expect(combined.read()).toEqual(v2);
+  expect(new LicenseCapacityGate(f.db, () => readLicenseCapacityProvision(f.path), () => new Date("2026-10-26T12:00:00Z"), combined).authorize(scope,id(8))).toBe("LICENSE_WIPE_RECOVERY_REQUIRED");
+  combined.write(v2);
+  expect(a.read()).toEqual(v2);
+  b.write({...v2,digest:"c".repeat(64)});
+  expect(() => combined.read()).toThrow("LICENSE_SEAL_CONFLICT");
 });

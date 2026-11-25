@@ -12,7 +12,7 @@ import { FetchCentralTransport } from "./sync/fetch-central-transport.js";
 import { SyncDispatcher } from "./sync/sync-dispatcher.js";
 import { UnprovisionedDeviceCredentialProvider } from "./sync/device-credential.js";
 import { OperationConfirmationComponent } from "./operations/operation-confirmation-component.js";
-import { LicenseCapacityGate, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
+import { LicenseCapacityGate, commercialLicenseCapacitySealStore, readLicenseCapacityProvision } from "./security/license-capacity-gate.js";
 import { CommercialComponent } from "./commercial/commercial-component.js";
 import { fiscalCredentialContext } from "./fiscal/fiscal-credential-store.js";
 import { factusPayCredentialContext } from "./payments/factus-pay-credential-store.js";
@@ -169,19 +169,35 @@ try {
     (scope, registerId) => {
       const path = config.license_capacity_provision_file;
       if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
-      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path)).authorize(scope, registerId);
+      const seal = commercialLicenseCapacitySealStore(path, config.installation_id);
+      return new LicenseCapacityGate(
+        localDatabase.database,
+        () => readLicenseCapacityProvision(path),
+        () => new Date(),
+        seal,
+      ).authorize(scope, registerId);
     },
     (scope, entitlement) => {
       const path = config.license_capacity_provision_file;
       if (!path) return "LICENSE_CAPACITY_NOT_PROVISIONED";
-      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path))
-        .authorizeEntitlement(scope, entitlement);
+      const seal = commercialLicenseCapacitySealStore(path, config.installation_id);
+      return new LicenseCapacityGate(
+        localDatabase.database,
+        () => readLicenseCapacityProvision(path),
+        () => new Date(),
+        seal,
+      ).authorizeEntitlement(scope, entitlement);
     },
     (scope) => {
       const path = config.license_capacity_provision_file;
       if (!path) return [];
-      return new LicenseCapacityGate(localDatabase.database, () => readLicenseCapacityProvision(path))
-        .listEntitlements(scope);
+      const seal = commercialLicenseCapacitySealStore(path, config.installation_id);
+      return new LicenseCapacityGate(
+        localDatabase.database,
+        () => readLicenseCapacityProvision(path),
+        () => new Date(),
+        seal,
+      ).listEntitlements(scope);
     },
     factusPaySecretStore,
   );

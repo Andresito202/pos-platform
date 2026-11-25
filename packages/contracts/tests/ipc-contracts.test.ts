@@ -424,6 +424,44 @@ describe("sale.create — la caja es el único selector del turno", () => {
       request(payload({ cash_shift_id: "550e8400-e29b-41d4-a716-446655440024" })),
     ).success).toBe(false);
   });
+
+  /**
+   * Antifraude: el precio lo resuelve la capa confiable contra catálogo.
+   * `z.strictObject` en línea y payload debe rechazar inyección de
+   * `unit_price` / descuentos / totales desde el renderer.
+   */
+  it("rechaza unit_price inyectado en la línea", () => {
+    expect(SaleCreateRequestSchema.safeParse(
+      request(payload({
+        lines: [{
+          product_id: "550e8400-e29b-41d4-a716-446655440021",
+          presentation_id: "550e8400-e29b-41d4-a716-446655440022",
+          quantity: "1.000000",
+          unit_price: "1.000000",
+        }],
+      })),
+    ).success).toBe(false);
+  });
+
+  it("rechaza unit_price_amount y discount en la línea", () => {
+    expect(SaleCreateRequestSchema.safeParse(
+      request(payload({
+        lines: [{
+          product_id: "550e8400-e29b-41d4-a716-446655440021",
+          presentation_id: "550e8400-e29b-41d4-a716-446655440022",
+          quantity: "1.000000",
+          unit_price_amount: "0.010000",
+          discount_amount: "99.000000",
+        }],
+      })),
+    ).success).toBe(false);
+  });
+
+  it("rechaza total_amount inyectado en el payload", () => {
+    expect(SaleCreateRequestSchema.safeParse(
+      request(payload({ total_amount: "0.010000" })),
+    ).success).toBe(false);
+  });
 });
 
 /**
