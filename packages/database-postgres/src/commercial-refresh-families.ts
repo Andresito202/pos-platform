@@ -3,6 +3,7 @@ import type {Pool,PoolClient} from "pg";
 import {PlatformSecurityEventCode,UuidSchema,uuidV7,CommercialRefreshRequestSchema} from "@pos-platform/contracts";
 import type {CommercialPossessionContext} from "@pos-platform/device-trust";
 import {PostgresCommercialPossessionVerifier,type DeviceProofRequest} from "./device-proof-replay-verifier.js";
+import {resolveCommercialDeviceBranch} from "./commercial-device-branch.js";
 import {BUSINESS_SSA_ELIGIBILITY_SQL} from "./business-session-ssa-eligibility-repository.js";
 import {PostgresPlatformSecurityEventRepository} from "./platform-security-event-repository.js";
 
@@ -69,13 +70,14 @@ export class PostgresCommercialRefreshFamilies{
     const query=BUSINESS_SSA_ELIGIBILITY_SQL.replace(" ORDER BY dc.generation DESC",` AND dc.credential_id=$5 AND tm.suspended_at IS NULL AND tm.revoked_at IS NULL
       AND NOT EXISTS(SELECT 1 FROM identity.device_credentials newer WHERE newer.device_id=dc.device_id AND newer.generation>dc.generation)
       AND EXISTS(SELECT 1 FROM identity.user_credentials p WHERE p.user_id=s.user_id AND p.credential_type='PASSWORD' AND p.status='ACTIVE' AND p.revoked_at IS NULL AND (p.locked_until IS NULL OR p.locked_until<=clock_timestamp()))
-      AND EXISTS (SELECT 1 FROM "authorization".user_role_assignments a JOIN "authorization".roles r ON r.id=a.role_id
-        WHERE a.tenant_id=s.tenant_id AND a.tenant_membership_id=s.tenant_membership_id AND a.status='ACTIVE'
-        AND a.valid_from<=clock_timestamp() AND (a.valid_until IS NULL OR a.valid_until>clock_timestamp())
-        AND r.scope_type='BUSINESS' AND r.status='ACTIVE' AND (a.company_id IS NULL OR a.company_id=d.company_id) AND a.branch_id IS NULL)
       ORDER BY dc.generation DESC`)+" FOR SHARE OF u,tm,t,d,company,dc";
-    const found=await c.query<{user_id:string;session_expires_at:Date;credential_expires_at:Date}>(query,[b.sessionId,b.deviceId,b.installationId,this.policy.maximumReauthenticationAgeMs,b.credentialId]);
+    const found=await c.query<{user_id:string;company_id:string;tenant_membership_id:string;session_expires_at:Date;credential_expires_at:Date}>(query,[b.sessionId,b.deviceId,b.installationId,this.policy.maximumReauthenticationAgeMs,b.credentialId]);
     const row=found.rows[0];if(!row)return null;
+    const branch=await resolveCommercialDeviceBranch(c,{...b,companyId:row.company_id});if(!branch)return null;
+    if((await c.query(`SELECT 1 FROM "authorization".user_role_assignments a JOIN "authorization".roles r ON r.id=a.role_id
+      WHERE a.tenant_id=$1 AND a.tenant_membership_id=$2 AND a.status='ACTIVE' AND r.status='ACTIVE' AND r.scope_type='BUSINESS'
+      AND a.valid_from<=clock_timestamp() AND (a.valid_until IS NULL OR a.valid_until>clock_timestamp())
+      AND (a.company_id IS NULL OR a.company_id=$3) AND (a.branch_id IS NULL OR a.branch_id=$4) LIMIT 1`,[b.tenantId,row.tenant_membership_id,row.company_id,branch])).rowCount!==1)return null;
     if(!(await c.query("SELECT id FROM identity.mfa_factors WHERE user_id=$1 AND status='ACTIVE' AND verified_at IS NOT NULL AND revoked_at IS NULL ORDER BY id LIMIT 1 FOR SHARE",[row.user_id])).rowCount)return null;
     const password=await c.query<{id:string;version:string}>("SELECT id::text,version::text FROM identity.user_credentials WHERE user_id=$1 AND credential_type='PASSWORD' AND status='ACTIVE' AND revoked_at IS NULL AND (locked_until IS NULL OR locked_until<=clock_timestamp()) ORDER BY created_at DESC,id DESC LIMIT 1 FOR SHARE",[row.user_id]);
     if(!password.rows[0])return null;

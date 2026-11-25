@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { PlatformSecurityEventCode, UuidV7Schema, type NativeClientRegistration } from "@pos-platform/contracts";
-import { PostgresNativeBusinessDeviceProofVerifier, PostgresPlatformSecurityEventRepository, type DeviceProofRequest, type Pool, type PoolClient } from "@pos-platform/database-postgres";
+import { resolveCommercialDeviceBranch, PostgresNativeBusinessDeviceProofVerifier, PostgresPlatformSecurityEventRepository, type DeviceProofRequest, type Pool, type PoolClient } from "@pos-platform/database-postgres";
 import { BusinessBrowserSessionAuthority, type BusinessBrowserRequest } from "./business-browser-session-authority.js";
 import { matchesPkceS256Challenge, validateNativeClientRegistration } from "./native-authorization-constraints.js";
 
@@ -13,13 +13,6 @@ const deviceJoin = `JOIN identity.device_registry d ON d.device_id=n.device_id A
  JOIN identity.device_credentials dc ON dc.credential_id=n.credential_id AND dc.device_id=d.device_id AND dc.installation_id=d.installation_id
  AND dc.tenant_id=d.tenant_id AND dc.company_id=d.company_id AND dc.device_key_id=d.device_key_id AND dc.trust_key_id=d.trust_key_id
  AND dc.key_purpose='DEVICE_TRUST' AND dc.status='ACTIVE' AND dc.issued_at<=clock_timestamp() AND dc.expires_at>clock_timestamp()`;
-const membershipGate = `EXISTS (SELECT 1 FROM "authorization".user_role_assignments a JOIN "authorization".roles r ON r.id=a.role_id
- WHERE a.tenant_id=s.tenant_id AND a.tenant_membership_id=s.tenant_membership_id AND a.status='ACTIVE'
- AND a.valid_from<=clock_timestamp() AND (a.valid_until IS NULL OR a.valid_until>clock_timestamp())
- AND r.status='ACTIVE' AND r.scope_type='BUSINESS' AND (a.company_id IS NULL OR a.company_id=d.company_id)
- AND a.branch_id IS NULL)`;
-// Branch-scoped users require the canonical device-to-branch recipient resolver.
-// Until that resolver is composed, this gate intentionally denies branch-only grants.
 export class NativeBusinessCodeAuthority {
   private readonly browser: BusinessBrowserSessionAuthority;
   private readonly proof: PostgresNativeBusinessDeviceProofVerifier;
@@ -49,6 +42,13 @@ export class NativeBusinessCodeAuthority {
       event_code:redeemed?PlatformSecurityEventCode.AUTHORIZATION_CODE_REDEEMED:PlatformSecurityEventCode.AUTHORIZATION_CODE_ISSUED,
       result:"SUCCEEDED",reason_code:"BUSINESS_NATIVE_PKCE",correlation_id:correlation,occurred_at:new Date().toISOString()},c);
   }
+  private async authorized(c:PoolClient,b:NativeBusinessBinding){
+    const branch=await resolveCommercialDeviceBranch(c,b);if(!branch)return false;
+    return (await c.query(`SELECT 1 FROM "authorization".user_role_assignments a JOIN "authorization".roles r ON r.id=a.role_id
+      WHERE a.tenant_id=$1 AND a.tenant_membership_id=$2 AND a.status='ACTIVE' AND r.status='ACTIVE' AND r.scope_type='BUSINESS'
+      AND a.valid_from<=clock_timestamp() AND (a.valid_until IS NULL OR a.valid_until>clock_timestamp())
+      AND (a.company_id IS NULL OR a.company_id=$3) AND (a.branch_id IS NULL OR a.branch_id=$4) LIMIT 1`,[b.tenantId,b.membershipId,b.companyId,branch])).rowCount===1;
+  }
   private binding(r:Grant):NativeBusinessBinding{
     return Object.freeze({sessionId:r.session_id,userId:r.user_id,tenantId:r.tenant_id,membershipId:r.membership_id,
       deviceId:r.device_id,installationId:r.installation_id,companyId:r.company_id,credentialId:r.credential_id});
@@ -70,9 +70,9 @@ export class NativeBusinessCodeAuthority {
        WHERE n.request_hash=$1 AND n.tenant_id=$3 AND n.company_id=d.company_id AND n.installation_id=d.installation_id
        AND n.client_id=$4 AND n.redirect_uri=$5 AND n.consumed_at IS NULL AND n.expires_at>clock_timestamp()
        AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.mfa_status='SATISFIED'
-       AND ${membershipGate} FOR UPDATE OF n FOR SHARE OF d,dc`,
+       FOR UPDATE OF n FOR SHARE OF d,dc`,
        [hash(selector),session.sessionId,session.tenantId,this.registration.clientId,this.registration.redirectUri]);
-      const row=result.rows[0];if(result.rowCount!==1||!row)return null;
+      const row=result.rows[0];if(result.rowCount!==1||!row||!await this.authorized(c,this.binding(row)))return null;
       const code=randomBytes(48).toString("base64url");
       const inserted=await c.query(`INSERT INTO identity.native_authorization_codes
        (code_hash,client_id,redirect_uri,code_challenge,state,trusted_binding_id,session_id,device_id,tenant_id,issued_at,expires_at)
@@ -121,11 +121,10 @@ export class NativeBusinessCodeAuthority {
        AND d.installation_id=$5 AND d.company_id=$6 AND n.consumed_at IS NULL AND n.expires_at>clock_timestamp()
        AND s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND s.mfa_status='SATISFIED'
        AND s.last_reauthenticated_at BETWEEN clock_timestamp()-($7::bigint*interval '1 millisecond') AND clock_timestamp()
-       AND ${membershipGate}
        AND EXISTS(SELECT 1 FROM identity.user_credentials pwd WHERE pwd.user_id=u.id AND pwd.credential_type='PASSWORD' AND pwd.status='ACTIVE' AND pwd.revoked_at IS NULL AND (pwd.locked_until IS NULL OR pwd.locked_until<=clock_timestamp()))
        AND EXISTS(SELECT 1 FROM identity.mfa_factors f WHERE f.user_id=u.id AND f.status='ACTIVE' AND f.verified_at IS NOT NULL AND f.revoked_at IS NULL)
        FOR UPDATE OF n FOR SHARE OF s,d,dc,u,m,t`,[codeHash,device.tenantId,device.deviceId,device.credentialId,device.installationId,device.companyId,this.policy.reauthMs]);
-      const row=result.rows[0];if(result.rowCount!==1||!row)return null;
+      const row=result.rows[0];if(result.rowCount!==1||!row||!await this.authorized(c,this.binding(row)))return null;
       const consumed=await c.query("UPDATE identity.native_authorization_codes SET consumed_at=clock_timestamp() WHERE code_hash=$1 AND consumed_at IS NULL AND expires_at>clock_timestamp() RETURNING code_hash",[codeHash]);
       if(consumed.rowCount!==1)return null;
       const binding=this.binding(row);

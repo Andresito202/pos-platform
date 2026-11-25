@@ -57,6 +57,16 @@ export class BusinessClient {
     if (completed.authenticated !== true || completed.scope !== "BUSINESS" || typeof completed.csrfToken !== "string") throw Error("Sesión BUSINESS no confirmada.");
     this.csrf = completed.csrfToken;
   }
+  async authorizeNative(request:string,signal:AbortSignal){
+    if(!this.csrf||!/^[A-Za-z0-9_-]{43}$/.test(request))throw Error("Solicitud Android inválida.");
+    const response=await this.transport(this.origin+"/v1/commercial/native-authorize",{method:"POST",credentials:"same-origin",redirect:"error",cache:"no-store",signal,headers:{"content-type":"application/json","x-csrf-token":this.csrf},body:JSON.stringify({request})});
+    if(!response.ok)throw Error("Central rechazó la autorización Android.");
+    const result=await response.json() as {callback?:unknown};
+    if(typeof result.callback!=="string")throw Error("Callback Android inválido.");
+    const url=new URL(result.callback);
+    if(url.origin!==this.origin||url.pathname!=="/android/callback"||url.username||url.password||url.hash||Array.from(url.searchParams.keys()).sort().join(",")!=="code,state")throw Error("Callback Android inválido.");
+    window.location.replace(url.toString());
+  }
   async contexts() { return BusinessContextsSchema.parse(await this.post("contexts", {})); }
   async list(scope: Scope, after: string | null = null) { return CashRegisterPageSchema.parse(await this.post("cash-registers/list", { ...scope, after })); }
   async create(scope: Scope, input: Omit<CashRegisterCreateRequest,keyof Scope>) {
