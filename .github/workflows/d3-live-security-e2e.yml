@@ -123,11 +123,34 @@ jobs:
           POSTGRES_MIGRATION_LOCK_TIMEOUT_MS: "5000"
           POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS: "60000"
         run: pnpm --filter @pos-platform/target-migrations postgres:commercial:apply -- --central-rate-limit
+      - name: Configure PostgreSQL TLS for commercial migrations
+        env:
+          D3_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec --user postgres "$D3_POSTGRES_CONTAINER" openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/d3-postgres.key -out /tmp/d3-postgres.crt -days 1 -subj /CN=localhost -addext 'subjectAltName=IP:127.0.0.1,DNS:localhost'
+          docker exec --user postgres "$D3_POSTGRES_CONTAINER" chmod 600 /tmp/d3-postgres.key
+          docker exec --user postgres "$D3_POSTGRES_CONTAINER" psql -d camacho_pos -qc "ALTER SYSTEM SET ssl_cert_file='/tmp/d3-postgres.crt'"
+          docker exec --user postgres "$D3_POSTGRES_CONTAINER" psql -d camacho_pos -qc "ALTER SYSTEM SET ssl_key_file='/tmp/d3-postgres.key'"
+          docker exec --user postgres "$D3_POSTGRES_CONTAINER" psql -d camacho_pos -qc "ALTER SYSTEM SET ssl='on'"
+          docker exec --user postgres "$D3_POSTGRES_CONTAINER" psql -d camacho_pos -qc 'SELECT pg_reload_conf()'
+          docker cp "$D3_POSTGRES_CONTAINER:/tmp/d3-postgres.crt" "$RUNNER_TEMP/d3-postgres-ca.crt"
+          tls_query="sslmode=verify-full&sslrootcert=$RUNNER_TEMP/d3-postgres-ca.crt"
+          admin_url="$POSTGRES_ADMIN_URL?$tls_query"
+          for attempt in $(seq 1 15); do
+            if test "$(psql "$admin_url" -XAt -v ON_ERROR_STOP=1 -c 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()')" = t; then break; fi
+            sleep 1
+          done
+          test "$(psql "$admin_url" -XAt -v ON_ERROR_STOP=1 -c 'SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()')" = t
+          {
+            printf 'POSTGRES_ADMIN_URL=%s\n' "$admin_url"
+            printf 'CENTRAL_DATABASE_URL=%s?%s\n' "$CENTRAL_DATABASE_URL" "$tls_query"
+            printf 'POSTGRES_MIGRATOR_URL=postgres://pos_migrator@127.0.0.1:55434/camacho_pos?%s\n' "$tls_query"
+          } >> "$GITHUB_ENV"
       - name: Apply canonical commercial schema
         env:
           POSTGRES_EXPECTED_DATABASE: camacho_pos
           REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
-          POSTGRES_MIGRATOR_URL: postgres://pos_migrator@127.0.0.1:55434/camacho_pos
           POSTGRES_MIGRATION_LOCK_TIMEOUT_MS: "5000"
           POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS: "60000"
         run: |
