@@ -82,7 +82,7 @@ jobs:
           mkdir -p artifacts/ci
           # Reuse the isolated lab runner, including its fixed loopback target,
           # predecessor checks, physical ACL smoke and durable 003 receipts.
-          pnpm --filter @pos-platform/target-migrations exec tsx src/central-sync-lab-migrate.ts 2>&1 | tee artifacts/ci/central-sync-migrations.log
+          pnpm --filter @pos-platform/target-migrations exec tsx tests/fixtures/central-sync-lab-migrate.ts 2>&1 | tee artifacts/ci/central-sync-migrations.log
 
       - name: Start Central Sync service
         run: |

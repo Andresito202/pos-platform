@@ -465,7 +465,7 @@ try {
 
   # --- Negative ACL / forged provision / LocalSystem impersonation checks ---
   Write-Host "PHASE=security_negatives"
-  $negScript = Join-Path $RepoRoot 'tools/operators/windows-nsis-security-negatives.ps1'
+  $negScript = Join-Path $RepoRoot 'tools/operators/tests/windows-nsis-security-negatives.ps1'
   $negExit = 0
   try {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $negScript `
@@ -492,7 +492,7 @@ try {
   # --- G1 native identity on the NSIS-installed SCM virtual account (not Electron commercial handshake) ---
   Write-Host "PHASE=g1_native_on_installed_scm"
   $addonPath = Join-Path $RepoRoot 'packages/local-channel/native/build/Release/camacho_windows_pipe.node'
-  $g1Script = Join-Path $RepoRoot 'tools/operators/windows-nsis-scm-g1-identity.ps1'
+  $g1Script = Join-Path $RepoRoot 'tools/operators/tests/windows-nsis-scm-g1-identity.ps1'
   $g1Status = 'SKIP'
   $g1Detail = [ordered]@{ addonPresent = (Test-Path -LiteralPath $addonPath -PathType Leaf) }
   if (-not (Test-Path -LiteralPath $addonPath -PathType Leaf)) {
@@ -531,7 +531,7 @@ try {
 
   # --- Real SQLite preservation marker (AppData commercial retention path) ---
   New-Item -ItemType Directory -Force -Path $dataDirectory | Out-Null
-  $markerScript = Join-Path $RepoRoot 'tools/operators/windows-nsis-lab-sqlite-marker.mjs'
+  $markerScript = Join-Path $RepoRoot 'tools/operators/tests/windows-nsis-lab-sqlite-marker.mjs'
   $createOut = & node $markerScript create $sqlitePath $markerToken 2>&1 | Out-String
   Write-Host $createOut
   if ($LASTEXITCODE -ne 0) {

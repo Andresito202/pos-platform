@@ -12,17 +12,17 @@ import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "@pos-platform/local-channel";
 import { SyncOperationSchema, type SyncOperation } from "@pos-platform/contracts";
 import { existsSync } from "node:fs";
-import { repairLegacySaleOutbox } from "./outbox-recovery-repair.js";
-import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
-import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
-import { SqliteCashShiftStore } from "../cash/sqlite-cash-shift-store.js";
-import { SqliteSaleStore } from "../sales/sqlite-sale-store.js";
-import { CreateSaleUseCase } from "../sales/create-sale-use-case.js";
-import { CentralTransportError, type CentralTransport } from "./central-transport.js";
-import type { DeviceCredentialProvider } from "./device-credential.js";
-import { DurableSyncStore, type SyncScope } from "./durable-sync-store.js";
-import { FetchCentralTransport } from "./fetch-central-transport.js";
-import { SyncDispatcher } from "./sync-dispatcher.js";
+import { repairLegacySaleOutbox } from "../../src/sync/outbox-recovery-repair.js";
+import { SqliteCatalogStore } from "../../src/catalog/sqlite-catalog-store.js";
+import { SqliteInventoryStore } from "../../src/inventory/sqlite-inventory-store.js";
+import { SqliteCashShiftStore } from "../../src/cash/sqlite-cash-shift-store.js";
+import { SqliteSaleStore } from "../../src/sales/sqlite-sale-store.js";
+import { CreateSaleUseCase } from "../../src/sales/create-sale-use-case.js";
+import { CentralTransportError, type CentralTransport } from "../../src/sync/central-transport.js";
+import type { DeviceCredentialProvider } from "../../src/sync/device-credential.js";
+import { DurableSyncStore, type SyncScope } from "../../src/sync/durable-sync-store.js";
+import { FetchCentralTransport } from "../../src/sync/fetch-central-transport.js";
+import { SyncDispatcher } from "../../src/sync/sync-dispatcher.js";
 
 export interface IsolatedSqliteGateInput {
   scope: SyncScope;

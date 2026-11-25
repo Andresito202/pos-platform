@@ -1,4 +1,4 @@
-# Portable Central Authority image — lab/staging prep only.
+# Portable Central Authority runtime; tests and fixtures are excluded from the build context.
 # Does not publish to a registry. Secrets via runtime env/files, never baked in.
 FROM node:22.19.0-bookworm-slim AS dependencies
 

@@ -21,9 +21,10 @@ for attempt in {1..40}; do
 done
 docker exec "$prefix-db" pg_isready -h 127.0.0.1 -U postgres
 docker run --rm --network host -w /app/tools/target-migrations \
+  -v "$PWD/tools/target-migrations/tests/fixtures/central-sync-lab-migrate.ts:/app/tools/target-migrations/tests/fixtures/central-sync-lab-migrate.ts:ro" \
   -e POSTGRES_ADMIN_URL=postgres://postgres@127.0.0.1:55436/postgres \
   -e CAMACHO_ISOLATED_SYNC_LAB=YES -e REPOSITORY_COMMIT="$REVIEWED_SHA" "$image" \
-  node --import tsx src/central-sync-lab-migrate.ts
+  node --import tsx tests/fixtures/central-sync-lab-migrate.ts
 docker run --rm --network host -w /app/tools/target-migrations \
   -e POSTGRES_MIGRATOR_URL=postgres://pos_migrator@127.0.0.1:55436/postgres \
   -e POSTGRES_EXPECTED_DATABASE=postgres -e REPOSITORY_COMMIT="$REVIEWED_SHA" \

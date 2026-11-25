@@ -117,6 +117,15 @@ jobs:
             --input-type=module -e 'await import("@pos-platform/observability/node"); if (process.getuid() !== 10001) process.exit(1);'
           docker run --rm --network none --workdir /app/tools/target-migrations camacho-pos-central:check \
             node --import tsx --input-type=module -e 'await import("@pos-platform/device-trust"); await import("@pos-platform/observability/node");'
+      - name: Verify test fixtures are absent from runtime image
+        run: |
+          docker run --rm --network none --entrypoint sh camacho-pos-central:check -ec '
+            test ! -e /app/tools/target-migrations/tests
+            test ! -e /app/apps/central-authority/tests
+            test ! -e /app/tools/target-migrations/src/central-sync-lab-migrate.ts
+            test ! -e /app/tools/target-migrations/src/central-sync-gate.ts
+            test ! -e /app/tools/target-migrations/src/central-device-enrollment-gate.ts
+          '
       - name: Start Central and Sync with real PostgreSQL and check HTTPS
         env:
           REVIEWED_SHA: ${{ github.event.pull_request.head.sha }}
