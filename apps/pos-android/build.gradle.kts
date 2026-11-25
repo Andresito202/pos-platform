@@ -96,7 +96,7 @@ tasks.register("commercialApk") {
         val api = configurations.compileClasspath.get().files.single { it.name.startsWith("android-all-") }
         val manifest = file("src/main/AndroidManifest.xml")
         run(aapt.path, "link", "-o", "${out}/resources.apk", "--manifest", manifest.path, "-I", api.path, "-A", assetsDir.path)
-        val dex = file("${out}/dex").apply { mkdirs() }
+        val dex = file("${out}/dex").apply { deleteRecursively(); mkdirs() }
         val stdlib = configurations.runtimeClasspath.get().files.filter {
             it.name.startsWith("kotlin-stdlib-") && !it.name.contains("jdk")
         }
@@ -155,7 +155,7 @@ tasks.register("commercialApk") {
         println("UNSIGNED_APK=${unsigned.absolutePath}")
         val shaProc = ProcessBuilder("sha256sum", apk.absolutePath).redirectErrorStream(true).start()
         val shaLine = shaProc.inputStream.bufferedReader().readText().trim()
-        check(shaProc.waitFor() == 0 && shaLine.startsWith("")) { "APK_SHA256_FAILED" }
+        check(shaProc.waitFor() == 0 && shaLine.substringBefore(' ').matches(Regex("[a-f0-9]{64}"))) { "APK_SHA256_FAILED" }
         println("APK_SHA256=" + shaLine.substringBefore(' '))
     }
 }
@@ -163,4 +163,35 @@ tasks.register("commercialApk") {
 // Backward-compatible alias used by earlier docs.
 tasks.register("commercialShellApk") {
     dependsOn("commercialApk")
+}
+
+tasks.register("commercialReleaseApk") {
+    group = "build"
+    description = "Sign and verify the commercial APK with the explicitly provisioned release identity."
+    dependsOn("commercialApk")
+    doLast {
+        fun required(name: String): String = System.getenv(name)?.takeIf { it.isNotBlank() }
+            ?: error("RELEASE_CONFIGURATION_REQUIRED: $name")
+        val keystore = file(required("CAMACHO_ANDROID_RELEASE_KEYSTORE"))
+        val alias = required("CAMACHO_ANDROID_RELEASE_ALIAS")
+        val fingerprint = required("CAMACHO_ANDROID_RELEASE_CERT_SHA256")
+        require(fingerprint.replace(":", "").matches(Regex("[a-fA-F0-9]{64}")))
+        required("CAMACHO_ANDROID_RELEASE_STORE_PASSWORD")
+        required("CAMACHO_ANDROID_RELEASE_KEY_PASSWORD")
+        require(keystore.isFile && !java.nio.file.Files.isSymbolicLink(keystore.toPath()))
+        val out = layout.buildDirectory.dir("commercial-apk").get().asFile
+        val classes = file("${out}/release-signer").apply { deleteRecursively(); mkdirs() }
+        val apk = file("${out}/camacho-pos-colombia.apk")
+        apk.delete()
+        fun run(vararg args: String) {
+            val p = ProcessBuilder(*args).inheritIO().start()
+            check(p.waitFor() == 0) { "RELEASE_SIGNING_FAILED" }
+        }
+        val javaHome = System.getProperty("java.home")
+        run("$javaHome/bin/javac", "-cp", apkSigner.asPath, "-d", classes.path, file("signing/CommercialApkSigner.java").path)
+        run("$javaHome/bin/java", "-cp", apkSigner.asPath + java.io.File.pathSeparator + classes.path,
+            "CommercialApkSigner", keystore.path, alias, fingerprint,
+            file("${out}/camacho-pos-colombia-unsigned.apk").path, apk.path)
+        println("VERIFIED_SIGNED_APK=${apk.absolutePath}")
+    }
 }

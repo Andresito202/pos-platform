@@ -1,0 +1,67 @@
+name: Android commercial build
+on:
+  pull_request:
+    paths:
+      - 'apps/pos-android/**'
+      - 'apps/pos-local-service/**'
+      - 'packages/**'
+      - 'tools/android-runtime/**'
+      - '.github/workflows/android-commercial-build.yml'
+  workflow_dispatch:
+    inputs:
+      full_apk:
+        description: Build unsigned APK with verified ARM64 runtime
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  kotlin:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14'
+      - run: gradle -p apps/pos-android --no-daemon commercialIdentityTest
+  unsigned-apk:
+    if: github.event_name == 'workflow_dispatch' && inputs.full_apk
+    needs: kotlin
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '9.15.0'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.19.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: |
+          sdkmanager 'ndk;27.3.13750724'
+          node tools/android-runtime/prepare-runtime.mjs
+          python3 tools/android-runtime/verify-runtime-inputs.py tools/android-runtime/build/runtime-inputs
+          python3 tools/android-runtime/extract-runtime.py tools/android-runtime/build/runtime-inputs tools/android-runtime/build/runtime-root
+          python3 tools/android-runtime/compile-runtime-addon.py tools/android-runtime "$ANDROID_HOME/ndk/27.3.13750724"
+          node tools/android-runtime/package-runtime-assets.mjs
+          python3 tools/android-runtime/prepare-installed-runtime.py tools/android-runtime/build/runtime-root tools/android-runtime/build/runtime-assets tools/android-runtime/build/installed-runtime
+          gradle -p apps/pos-android --no-daemon commercialApk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: camacho-pos-android-unsigned
+          path: apps/pos-android/build/commercial-apk/camacho-pos-colombia-unsigned.apk
+          if-no-files-found: error
