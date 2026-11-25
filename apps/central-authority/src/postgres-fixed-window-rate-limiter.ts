@@ -9,6 +9,11 @@ export type PostgresRateLimitClient = {
   ) => Promise<{ rows: Array<{ count: number }> }>;
 };
 
+/** Non-distributed backends are restricted to explicitly local development/testing. */
+export function allowsNonPostgresRateLimit(nodeEnv: string | undefined, environment: string | undefined): boolean {
+  return (nodeEnv === "test" || nodeEnv === "development") && environment === "LOCAL";
+}
+
 export class PostgresFixedWindowRateLimiter {
   constructor(
     private readonly db: PostgresRateLimitClient,
@@ -20,28 +25,26 @@ export class PostgresFixedWindowRateLimiter {
     }
   }
 
-  async allow(key: string, now = Date.now()): Promise<boolean> {
-    if (!Number.isFinite(now) || typeof key !== "string" || !key || key.length > 512) {
+  async allow(key: string): Promise<boolean> {
+    if (typeof key !== "string" || !key.trim() || key.length > 512) {
       return false;
     }
-    const resetAt = new Date(now + this.windowMs);
-    const nowDate = new Date(now);
     try {
       const result = await this.db.query(
         `INSERT INTO platform.central_rate_limit_counters (bucket_key, count, reset_at, updated_at)
-         VALUES ($1, 1, $2, $3)
+         VALUES ($1, 1, statement_timestamp() + ($2::bigint * interval '1 millisecond'), statement_timestamp())
          ON CONFLICT (bucket_key) DO UPDATE SET
            count = CASE
-             WHEN platform.central_rate_limit_counters.reset_at <= $3 THEN 1
+             WHEN platform.central_rate_limit_counters.reset_at <= statement_timestamp() THEN 1
              ELSE platform.central_rate_limit_counters.count + 1
            END,
            reset_at = CASE
-             WHEN platform.central_rate_limit_counters.reset_at <= $3 THEN $2
+             WHEN platform.central_rate_limit_counters.reset_at <= statement_timestamp() THEN EXCLUDED.reset_at
              ELSE platform.central_rate_limit_counters.reset_at
            END,
-           updated_at = $3
+           updated_at = GREATEST(platform.central_rate_limit_counters.updated_at, statement_timestamp())
          RETURNING count`,
-        [key, resetAt, nowDate],
+        [key, this.windowMs],
       );
       const count = result.rows[0]?.count ?? Number.NaN;
       if (!Number.isSafeInteger(count) || count < 1) return false;

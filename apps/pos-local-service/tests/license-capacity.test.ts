@@ -168,3 +168,31 @@ it("capacity: deleting SQLite and product seal still denies when sticky machine 
     rmSync(stickyDir,{recursive:true,force:true});
   }
 });
+
+it("capacity: corrupted seal is not treated as missing, even with existing audit", () => {
+  const f = fixture();
+  const sealPath = join(f.dir, "license-capacity.seal");
+  const store = fileLicenseCapacitySealStore(sealPath);
+  const gate = () => new LicenseCapacityGate(f.db, () => readLicenseCapacityProvision(f.path), () => new Date("2026-10-26T12:00:00Z"), store);
+  expect(gate().authorize(scope,id(8))).toBeNull();
+  writeFileSync(sealPath, "{broken");
+  expect(() => store.read()).toThrow("LICENSE_SEAL_INVALID");
+  expect(gate().authorize(scope,id(8))).toBe("LICENSE_CAPACITY_UNAVAILABLE");
+});
+
+it("capacity: atomic replacement, strict paths and composite high-water mark", () => {
+  const f = fixture();
+  expect(() => fileLicenseCapacitySealStore("relative.seal")).toThrow("LICENSE_SEAL_ABSOLUTE_PATH_REQUIRED");
+  const a = fileLicenseCapacitySealStore(join(f.dir, "a.seal"));
+  const b = fileLicenseCapacitySealStore(join(f.dir, "b.seal"));
+  const v1 = { installation_id: scope.installationId, license_id: f.claims.license_id, version: 1, digest: "a".repeat(64) };
+  const v2 = { ...v1, version: 2, digest: "b".repeat(64) };
+  a.write(v1); b.write(v2);
+  const combined = compositeLicenseCapacitySealStore([a,b]);
+  expect(combined.read()).toEqual(v2);
+  expect(new LicenseCapacityGate(f.db, () => readLicenseCapacityProvision(f.path), () => new Date("2026-10-26T12:00:00Z"), combined).authorize(scope,id(8))).toBe("LICENSE_WIPE_RECOVERY_REQUIRED");
+  combined.write(v2);
+  expect(a.read()).toEqual(v2);
+  b.write({...v2,digest:"c".repeat(64)});
+  expect(() => combined.read()).toThrow("LICENSE_SEAL_CONFLICT");
+});

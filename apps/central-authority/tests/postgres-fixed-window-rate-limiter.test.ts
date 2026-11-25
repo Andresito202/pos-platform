@@ -1,17 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   PostgresFixedWindowRateLimiter,
+  allowsNonPostgresRateLimit,
   type PostgresRateLimitClient,
 } from "../src/postgres-fixed-window-rate-limiter.js";
 
-function memoryPostgres(): PostgresRateLimitClient & { store: Map<string, { count: number; resetAt: number }> } {
+function memoryPostgres(): PostgresRateLimitClient & { store: Map<string, { count: number; resetAt: number }>; setTime: (now: number) => void } {
   const store = new Map<string, { count: number; resetAt: number }>();
+  let now = 1_000_000;
   return {
     store,
-    async query(_text, values = []) {
+    setTime: (value) => { now = value; },
+    async query(sql, values = []) {
+      expect(sql).toContain("statement_timestamp()");
+      expect(values).toHaveLength(2);
       const key = String(values[0]);
-      const resetAt = (values[1] as Date).getTime();
-      const now = (values[2] as Date).getTime();
+      const resetAt = now + Number(values[1]);
       const existing = store.get(key);
       if (!existing || existing.resetAt <= now) {
         store.set(key, { count: 1, resetAt });
@@ -37,11 +41,10 @@ describe("PostgresFixedWindowRateLimiter", () => {
   it("enforces a fixed window without resetting under concurrent-looking increments", async () => {
     const db = memoryPostgres();
     const limiter = new PostgresFixedWindowRateLimiter(db, 3, 60_000);
-    const now = 1_000_000;
-    expect(await limiter.allow("attacker", now)).toBe(true);
-    expect(await limiter.allow("attacker", now + 10)).toBe(true);
-    expect(await limiter.allow("attacker", now + 20)).toBe(true);
-    expect(await limiter.allow("attacker", now + 30)).toBe(false);
+    expect(await limiter.allow("attacker")).toBe(true);
+    expect(await limiter.allow("attacker")).toBe(true);
+    expect(await limiter.allow("attacker")).toBe(true);
+    expect(await limiter.allow("attacker")).toBe(false);
     expect(db.store.get("attacker")?.count).toBe(4);
   });
 
@@ -55,14 +58,27 @@ describe("PostgresFixedWindowRateLimiter", () => {
       5,
       60_000,
     );
-    expect(await limiter.allow("anyone", 1_000)).toBe(false);
+    expect(await limiter.allow("anyone")).toBe(false);
   });
 
   it("opens a new window after reset_at", async () => {
     const db = memoryPostgres();
     const limiter = new PostgresFixedWindowRateLimiter(db, 1, 1_000);
-    expect(await limiter.allow("k", 5_000)).toBe(true);
-    expect(await limiter.allow("k", 5_100)).toBe(false);
-    expect(await limiter.allow("k", 6_100)).toBe(true);
+    db.setTime(5_000);
+    expect(await limiter.allow("k")).toBe(true);
+    db.setTime(5_100);
+    expect(await limiter.allow("k")).toBe(false);
+    db.setTime(6_100);
+    expect(await limiter.allow("k")).toBe(true);
   });
+});
+
+it("restricts non-Postgres backends to explicit local development/test", () => {
+  expect(allowsNonPostgresRateLimit("test", "LOCAL")).toBe(true);
+  expect(allowsNonPostgresRateLimit("development", "LOCAL")).toBe(true);
+  for (const env of ["PRODUCTION", "PREPRODUCTION", undefined]) {
+    expect(allowsNonPostgresRateLimit("development", env)).toBe(false);
+  }
+  expect(allowsNonPostgresRateLimit("production", "LOCAL")).toBe(false);
+  expect(allowsNonPostgresRateLimit(undefined, "LOCAL")).toBe(false);
 });

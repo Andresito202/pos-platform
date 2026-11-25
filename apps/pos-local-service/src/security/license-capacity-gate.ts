@@ -1,5 +1,5 @@
-import { createHash, createPublicKey } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, createPublicKey, randomUUID } from "node:crypto";
+import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import * as z from "zod";
@@ -36,25 +36,41 @@ const SealSchema = z.strictObject({
  * paths under ProgramData / XDG_STATE_HOME work on first accept.
  */
 export function fileLicenseCapacitySealStore(absolutePath: string): LicenseCapacitySealStore {
+  if (!isAbsolute(absolutePath)) throw Error("LICENSE_SEAL_ABSOLUTE_PATH_REQUIRED");
   const path = resolve(absolutePath);
-  if (!isAbsolute(path)) throw Error("LICENSE_SEAL_ABSOLUTE_PATH_REQUIRED");
   return {
     read() {
-      if (!existsSync(path)) return null;
-      const stat = lstatSync(path);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096) return null;
+      let stat: ReturnType<typeof lstatSync>;
+      try { stat = lstatSync(path); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+        throw error;
+      }
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096) throw Error("LICENSE_SEAL_INVALID");
       try {
         return SealSchema.parse(JSON.parse(
           new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path)),
         ));
       } catch {
-        return null;
+        throw Error("LICENSE_SEAL_INVALID");
       }
     },
     write(seal) {
       const parsed = SealSchema.parse(seal);
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-      writeFileSync(path, `${JSON.stringify(parsed)}\n`, { mode: 0o600 });
+      const temporary = `${path}.${randomUUID()}.tmp`;
+      let created = false;
+      try {
+        const fd = openSync(temporary, "wx", 0o600);
+        created = true;
+        try {
+          writeFileSync(fd, `${JSON.stringify(parsed)}\n`);
+          fsyncSync(fd);
+        } finally { closeSync(fd); }
+        renameSync(temporary, path);
+      } finally {
+        if (created) rmSync(temporary, { force: true });
+      }
     },
   };
 }
@@ -66,11 +82,15 @@ export function compositeLicenseCapacitySealStore(
   if (stores.length < 1) throw Error("LICENSE_SEAL_STORE_REQUIRED");
   return {
     read() {
+      let newest: LicenseCapacitySeal | null = null;
       for (const store of stores) {
         const seal = store.read();
-        if (seal) return seal;
+        if (!seal) continue;
+        if (newest && (newest.installation_id !== seal.installation_id || newest.license_id !== seal.license_id ||
+            (newest.version === seal.version && newest.digest !== seal.digest))) throw Error("LICENSE_SEAL_CONFLICT");
+        if (!newest || newest.version < seal.version) newest = seal;
       }
-      return null;
+      return newest;
     },
     write(seal) {
       for (const store of stores) store.write(seal);
@@ -277,12 +297,15 @@ export class LicenseCapacityGate {
     installationId: string,
     previous: { license_id: string; version: number; digest: string } | undefined,
   ): string | null {
-    if (previous || !this.seal) return null;
+    if (!this.seal) return null;
     const sealed = this.seal.read();
     if (!sealed) return null;
-    // Seal outside SQLite survived a DB wipe: refuse silent first-accept (trial/capacity reset).
-    if (sealed.installation_id !== installationId) return "LICENSE_WIPE_RECOVERY_REQUIRED";
-    return "LICENSE_WIPE_RECOVERY_REQUIRED";
+    // Refuse a wiped or restored older DB; a stale seal may be repaired from newer audited state.
+    if (!previous || sealed.installation_id !== installationId || sealed.license_id !== previous.license_id ||
+        sealed.version > previous.version || (sealed.version === previous.version && sealed.digest !== previous.digest)) {
+      return "LICENSE_WIPE_RECOVERY_REQUIRED";
+    }
+    return null;
   }
 
   private persistSeal(

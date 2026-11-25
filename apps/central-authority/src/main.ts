@@ -18,7 +18,7 @@ import { prepareSubscriptionFactusPayGateway } from "./subscription-factus-pay-g
 import { createCentralRouter } from "./central-router.js";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 import { DurableFixedWindowRateLimiter } from "./durable-fixed-window-rate-limiter.js";
-import { PostgresFixedWindowRateLimiter } from "./postgres-fixed-window-rate-limiter.js";
+import { PostgresFixedWindowRateLimiter, allowsNonPostgresRateLimit } from "./postgres-fixed-window-rate-limiter.js";
 import {
   CommercialPortalBridgeService,
   PostgresCommercialPortalBridgeStore,
@@ -179,6 +179,9 @@ if (rateLimitStateFile !== undefined && !isAbsolute(rateLimitStateFile)) {
 const rateLimitBackend = (process.env.CENTRAL_RATE_LIMIT_BACKEND ?? "postgres").trim().toLowerCase();
 if (!["postgres", "file", "memory"].includes(rateLimitBackend)) {
   throw new Error("CENTRAL_RATE_LIMIT_BACKEND_INVALID");
+}
+if (rateLimitBackend !== "postgres" && !allowsNonPostgresRateLimit(process.env.NODE_ENV, deployment?.environment ?? process.env.CENTRAL_DEPLOYMENT_ENVIRONMENT)) {
+  throw new Error("CENTRAL_RATE_LIMIT_POSTGRES_REQUIRED");
 }
 if (rateLimitBackend === "file" && rateLimitStateFile === undefined) {
   throw new Error("CENTRAL_RATE_LIMIT_STATE_FILE_REQUIRED_FOR_FILE_BACKEND");
