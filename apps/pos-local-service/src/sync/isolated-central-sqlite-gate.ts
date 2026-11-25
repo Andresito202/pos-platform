@@ -119,6 +119,37 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
       .get(sale.saleId) as {request_checksum:string};
     database.native.prepare("UPDATE local_sync_outbox SET operation_json=?,payload_checksum=? WHERE operation_id=?")
       .run(canonicalJson({...operation,payload_checksum:request.request_checksum}),request.request_checksum,operationId);
+    const snapshot = () => canonicalJson(database.native.prepare("SELECT * FROM local_sync_outbox WHERE operation_id=?").get(operationId));
+    const originalSnapshot = snapshot();
+    const expectRejected = async (run: () => Promise<unknown>, code: string) => {
+      let rejected = false;
+      try { await run(); } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes(code)) throw error;
+        rejected = true;
+      }
+      if (!rejected || snapshot() !== originalSnapshot || store.checkpoint(scope) !== 0) {
+        throw new Error("SQLITE_RECOVERY_NEGATIVE_MUTATED_STATE:" + code);
+      }
+    };
+    // Exercise refusal paths independently of the successful Central integration.
+    for (const observation of ["ALREADY_ACCEPTED","CONFLICT_OR_REVIEW_REQUIRED"] as const) {
+      await expectRejected(() => repairLegacySaleOutbox(database,scope,operationId,async (_op,apply) => {
+        apply(observation);
+      }),"SYNC_RECOVERY_CENTRAL_REVIEW_REQUIRED");
+    }
+    await expectRejected(() => repairLegacySaleOutbox(database, {...scope,companyId:input.uuidV7()},
+      operationId,input.withCentralExclusion),"SYNC_RECOVERY_EVIDENCE_REQUIRED");
+    // A failure in the append-only audit must roll back the checksum update.
+    database.native.exec(`CREATE TEMP TRIGGER recovery_gate_audit_failure BEFORE INSERT ON local_operation_audit
+      WHEN NEW.action_code='SYNC_OUTBOX_CHECKSUM_REPAIRED'
+      BEGIN SELECT RAISE(ABORT,'RECOVERY_GATE_AUDIT_FAILURE'); END;`);
+    try {
+      await expectRejected(() => repairLegacySaleOutbox(database,scope,operationId,input.withCentralExclusion),
+        "RECOVERY_GATE_AUDIT_FAILURE");
+    } finally {
+      database.native.exec("DROP TRIGGER recovery_gate_audit_failure");
+    }
+    console.log("SQLITE_RECOVERY_REFUSAL_AND_ROLLBACK=VERIFIED");
     const repair = await repairLegacySaleOutbox(database,scope,operationId,input.withCentralExclusion);
     if (!existsSync(repair.backupPath) || store.checkpoint(scope) !== 0) throw new Error("SQLITE_RECOVERY_BACKUP_OR_CHECKPOINT_INVALID");
     const repaired = database.native.prepare("SELECT operation_json,payload_checksum,status FROM local_sync_outbox WHERE operation_id=?")
