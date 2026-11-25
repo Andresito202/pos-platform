@@ -28,7 +28,7 @@ import { SessionTrustKeyVerifier } from "../security/session-trust-key-verifier.
 import { fiscalCredentialContext } from "../fiscal/fiscal-credential-store.js";
 import { factusPayCredentialContext } from "../payments/factus-pay-credential-store.js";
 import { ANDROID_TRIAL_CAPACITY_POLICY } from "./android-trial-capacity-policy.js";
-import { AndroidBusinessSessionActivation } from "./android-business-session-activation.js";
+import { AndroidBusinessSessionActivation, AndroidSessionCustody } from "./android-business-session-activation.js";
 import { resolveAndroidAuthorizationTrust } from "./android-authorization-trust.js";
 import { AuthorizationSnapshotVerifier } from "../security/authorization-snapshot-verifier.js";
 import { TrustedClockGuard } from "../security/trusted-clock.js";
@@ -208,7 +208,7 @@ export class AndroidCommercialHost {
             issuer: config.central_base_url, environment: provision.environment,
             recipient: {tenant_id:config.tenant_id,company_id:config.company_id,branch_id:config.branch_id,installation_id:config.installation_id,device_id:config.device_id},
           }, trustStore, this.now());
-          this.activation = new AndroidBusinessSessionActivation(this.database.database, this.commercial.sessionActivation, this.commercial.authorizationStore, new AuthorizationSnapshotVerifier(keys, new TrustedClockGuard(this.database.database), this.now), this.commercial.bindings, {tenantId:config.tenant_id,companyId:config.company_id,branchId:config.branch_id,installationId:config.installation_id,deviceId:config.device_id});
+          this.activation = new AndroidBusinessSessionActivation(this.database.database, this.commercial.sessionActivation, this.commercial.authorizationStore, new AuthorizationSnapshotVerifier(keys, new TrustedClockGuard(this.database.database), this.now), this.commercial.bindings, {tenantId:config.tenant_id,companyId:config.company_id,branchId:config.branch_id,installationId:config.installation_id,deviceId:config.device_id}, new AndroidSessionCustody(new EncryptedFileSecretStore(securityDirectory, this.provider, `android-business-session:${config.installation_id}:${config.device_id}`)));
           modules.push("business-session-activation");
         } catch { this.activation = undefined; }
         finally { trustStore.destroy(); }
@@ -251,7 +251,7 @@ export class AndroidCommercialHost {
   }
 
   async stop(): Promise<void> {
-    this.activation?.close(this.connectionId);
+    this.activation?.disconnect(this.connectionId);
     this.activation = undefined;
     this.nativeCentral = undefined;
     await this.commercial?.stop();
@@ -322,9 +322,20 @@ export class AndroidCommercialHost {
 
     if (messageType === "android.business.logout") {
       if(this.exchangeInProgress) return this.denied(wire as IpcRequest,"BUSINESS_EXCHANGE_BUSY","Canje en curso.");
-      this.activation?.close(this.connectionId);
       this.statusValue={...this.statusValue,commercial_access:"BLOCKED_PENDING_BUSINESS_AUTHORITY"};
+      try {
+        this.activation?.close(this.connectionId);
+      } catch {
+        return this.denied(wire as IpcRequest,"BUSINESS_LOGOUT_PERSISTENCE_FAILED","No se pudo persistir el cierre de sesión.");
+      }
       return {status:"SUCCEEDED",result_code:"SESSION_CLOSED",result:null};
+    }
+    if (messageType === "android.business.recover") {
+      if(this.exchangeInProgress || this.statusValue.state!=="READY" || !this.activation?.recover(this.connectionId)){
+        return this.denied(wire as IpcRequest,"BUSINESS_RECOVERY_REJECTED","No existe una sesión BUSINESS recuperable y vigente.");
+      }
+      this.statusValue={...this.statusValue,commercial_access:"BUSINESS_READY"};
+      return {status:"SUCCEEDED",result_code:"SESSION_RECOVERED",result:null};
     }
     if (messageType === "android.business.native_request") {
       return this.handleNativeRequest(wire);
@@ -427,9 +438,9 @@ export class AndroidCommercialHost {
     }
     if(this.exchangeInProgress) return this.denied(wire as IpcRequest,"BUSINESS_EXCHANGE_BUSY","Canje en curso.");
     this.exchangeInProgress = true;
-    this.activation?.close(this.connectionId);
     this.statusValue = {...this.statusValue,commercial_access:"BLOCKED_PENDING_BUSINESS_AUTHORITY"};
     try {
+      this.activation?.close(this.connectionId);
       if (!this.activation || this.statusValue.state !== "READY") throw Error("BUSINESS_ACTIVATION_UNAVAILABLE");
       const pair = await this.nativeCentral.exchangeToken(material.data);
       if (!this.activation || this.statusValue.state !== "READY") throw Error("BUSINESS_ACTIVATION_UNAVAILABLE");
