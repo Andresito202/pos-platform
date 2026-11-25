@@ -106,13 +106,19 @@ const PERMISSIONS = [
 
 const directories: string[] = [];
 const databases: LocalDatabase[] = [];
+const activeChannels = new Set<() => Promise<void>>();
 
-afterEach(() => {
+afterEach(async () => {
+  // A Vitest timeout does not cancel the original async test. Close its channel
+  // before removing SQLite and before starting the next test.
+  const cleanup = await Promise.allSettled([...activeChannels].map(close => close()));
   for (const database of databases.splice(0)) {
     try { database.close(); } catch { /* no debe ocultar el fallo real */ }
   }
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
-});
+  const errors = cleanup.filter(result => result.status === "rejected");
+  if (errors.length) throw new AggregateError(errors.map(result => result.reason), "Vertical channel cleanup failed");
+}, 20_000);
 
 async function directory(): Promise<string> {
   const value = await mkdtemp(join(tmpdir(), "pos-vertical-"));
@@ -293,7 +299,7 @@ async function withRealChannel(
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
 
-  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
+  const endpoint = localChannelEndpoint(randomUUID(), process.platform, dir);
   const secret = randomBytes(32);
 
   const server = new LocalChannelServer(
@@ -332,18 +338,26 @@ async function withRealChannel(
     { min: "1.0.0", max: "1.0.0" },
   );
 
+  let cleanupPromise: Promise<void> | undefined;
+  const close = () => cleanupPromise ??= (async () => {
+    try {
+      try { await client.close(); } finally { await server.stop(); }
+    } finally {
+      try { await commercial.stop(); } finally { secret.fill(0); activeChannels.delete(close); }
+    }
+  })();
+  activeChannels.add(close);
   try {
     await server.start();
+    if (cleanupPromise) throw new Error("VERTICAL_CHANNEL_TEST_CANCELLED");
     await client.connect(handshakeRequest());
+    if (cleanupPromise) throw new Error("VERTICAL_CHANNEL_TEST_CANCELLED");
     await run(
       async (request) => await client.request(request) as ChannelResponse,
       database,
     );
   } finally {
-    await client.close();
-    await server.stop();
-    await commercial.stop();
-    secret.fill(0);
+    await close();
   }
 }
 
@@ -406,7 +420,7 @@ async function withRealFiscalChannel(
   await commercial.start();
   const handler = new CommercialRequestHandler(fiscalConfig(), commercial);
 
-  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
+  const endpoint = localChannelEndpoint(randomUUID(), process.platform, dir);
   const secret = randomBytes(32);
 
   const server = new LocalChannelServer(
@@ -443,18 +457,26 @@ async function withRealFiscalChannel(
     { min: "1.0.0", max: "1.0.0" },
   );
 
+  let cleanupPromise: Promise<void> | undefined;
+  const close = () => cleanupPromise ??= (async () => {
+    try {
+      try { await client.close(); } finally { await server.stop(); }
+    } finally {
+      try { await commercial.stop(); } finally { secret.fill(0); activeChannels.delete(close); }
+    }
+  })();
+  activeChannels.add(close);
   try {
     await server.start();
+    if (cleanupPromise) throw new Error("VERTICAL_CHANNEL_TEST_CANCELLED");
     await client.connect(handshakeRequest());
+    if (cleanupPromise) throw new Error("VERTICAL_CHANNEL_TEST_CANCELLED");
     await run(
       async (request) => await client.request(request) as ChannelResponse,
       database,
     );
   } finally {
-    await client.close();
-    await server.stop();
-    await commercial.stop();
-    secret.fill(0);
+    await close();
   }
 }
 
