@@ -16,6 +16,7 @@ import { prepareBusinessAdministrationRuntime } from "./business-administration-
 import { prepareSubscriptionFulfillmentRuntime } from "./subscription-fulfillment-runtime.js";
 import { prepareSubscriptionFactusPayGateway } from "./subscription-factus-pay-gateway-runtime.js";
 import { createCentralRouter } from "./central-router.js";
+import { prepareAndroidAssociationPublication, handleAndroidAssociation } from "./android-association-publication.js";
 import { FixedWindowRateLimiter } from "./fixed-window-rate-limiter.js";
 import { DurableFixedWindowRateLimiter } from "./durable-fixed-window-rate-limiter.js";
 import { PostgresFixedWindowRateLimiter, allowsNonPostgresRateLimit } from "./postgres-fixed-window-rate-limiter.js";
@@ -100,7 +101,8 @@ const databaseUrl = process.env.CENTRAL_DATABASE_URL_FILE
   : required("CENTRAL_DATABASE_URL");
 const globalProvision = process.env.CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE;
 const businessProvision = process.env.CENTRAL_BUSINESS_PROVISION_FILE;
-const deployment = globalProvision || businessProvision !== undefined
+const androidAssociationProvision = process.env.CENTRAL_ANDROID_ASSOCIATION_PROVISION_FILE;
+const deployment = globalProvision || businessProvision !== undefined || androidAssociationProvision !== undefined
   ? parseCentralDeploymentConfiguration({ ...process.env, CENTRAL_DATABASE_URL: databaseUrl })
   : null;
 const transportToken = deployment === null && !process.env.D3_ENROLLMENT_TRANSPORT_TOKEN_FILE
@@ -294,10 +296,19 @@ const commercialBridgeHandler = (() => {
   return createCommercialPortalBridgeHandler(bridge, gate);
 })();
 
+const androidAssociationPublication = (() => {
+  if (androidAssociationProvision === undefined) return undefined;
+  if (!deployment || deployment.environment === "LOCAL") throw Error("ANDROID_ASSOCIATION_REAL_DEPLOYMENT_REQUIRED");
+  verifyCentralTlsIdentity(deployment, tlsCert, createPrivateKey(tlsKey));
+  return prepareAndroidAssociationPublication(androidAssociationProvision, deployment);
+})();
+
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, createCentralRouter(async (request, response) => {
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
+
+  if (handleAndroidAssociation(request, response, androidAssociationPublication)) return;
 
   if (commercialBridgeHandler) {
     const handled = await commercialBridgeHandler(request, response);

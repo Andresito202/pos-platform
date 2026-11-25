@@ -1,0 +1,5 @@
+# Android commercial association
+
+Central serves the exact GET /.well-known/assetlinks.json route only when CENTRAL_ANDROID_ASSOCIATION_PROVISION_FILE is supplied in a validated non-LOCAL deployment. The absolute managed JSON file has profile CAMACHO_ANDROID_ASSOCIATION_V1, registration (the canonical Android native client registration, exact package co.camachopos.colombia and callback https://central.camachoposcolombia.com/android/callback), and signing_certificate_file (absolute path to the actual public release X.509 certificate, never its private key). The registration fingerprint must match the certificate. TLS identity is checked before publication. Unconfigured publication returns 503.
+
+This public association establishes no session, DeviceProof, tenant, role, token or SSA/SAS authority. The native request and token routes still require separate integration and certification. Use the same approved registration and certificate when composing that runtime; do not provision independent identities.
