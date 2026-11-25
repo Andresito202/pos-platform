@@ -15,6 +15,13 @@ import { prepareBusinessAdministrationRuntime } from "./business-administration-
 import { prepareSubscriptionFulfillmentRuntime } from "./subscription-fulfillment-runtime.js";
 import { prepareSubscriptionFactusPayGateway } from "./subscription-factus-pay-gateway-runtime.js";
 import { createCentralRouter } from "./central-router.js";
+import {
+  CommercialPortalBridgeService,
+  PostgresCommercialPortalBridgeStore,
+  createCommercialPortalBridgeHandler,
+} from "./commercial-portal-bridge/index.js";
+import { prepareCommercialBridgeGlobalGate } from "./commercial-portal-bridge/prepare-global-gate.js";
+import { PostgresCommercialLicenseIssuer } from "./commercial-portal-bridge/trial-license-issuer.js";
 
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
@@ -211,10 +218,48 @@ const businessHandler = await (async () => {
   catch (error) { await pool.end(); throw error; }
 })();
 
+const commercialBridgeHandler = (() => {
+  const bridgeKey = process.env.COMMERCIAL_BRIDGE_KEY?.trim() ?? "";
+  const trialWebhookKey = process.env.CENTRAL_TRIAL_WEBHOOK_KEY?.trim() ?? "";
+  if (!bridgeKey || !trialWebhookKey) return null;
+  if (bridgeKey.length < 32 || trialWebhookKey.length < 32) {
+    throw new Error("COMMERCIAL_BRIDGE_KEYS_TOO_SHORT");
+  }
+  // Production/main TLS listener always uses PostgreSQL — never process-local memory.
+  const store = new PostgresCommercialPortalBridgeStore(pool);
+  const issuer = new PostgresCommercialLicenseIssuer(pool);
+  const bridge = new CommercialPortalBridgeService(store, {
+    bridgeKey,
+    trialWebhookKey,
+    licenseIssuer: issuer,
+    isGlobalSessionActive: async (sessionId) => {
+      const found = await pool.query(
+        `SELECT 1 FROM identity.sessions
+          WHERE id=$1::uuid AND revoked_at IS NULL AND expires_at>clock_timestamp()
+            AND tenant_id IS NULL AND tenant_membership_id IS NULL`,
+        [sessionId],
+      );
+      return found.rowCount === 1;
+    },
+  });
+  // Mint: bridge key = service hop only. GLOBAL MFA cookie+CSRF via GlobalAdministrationSessionGate
+  const gate = prepareCommercialBridgeGlobalGate({
+    pool,
+    origin: deployment?.origin ?? null,
+    provisionFile: globalProvision ?? null,
+  });
+  return createCommercialPortalBridgeHandler(bridge, gate);
+})();
+
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, createCentralRouter(async (request, response) => {
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
   const remote = request.socket.remoteAddress ?? "unknown";
+
+  if (commercialBridgeHandler) {
+    const handled = await commercialBridgeHandler(request, response);
+    if (handled) return;
+  }
 
   if (request.url === "/v1/licensing/activations/resolve" ||
       request.url === "/platform" || request.url?.startsWith("/platform/") ||

@@ -40,3 +40,4 @@ export * from "./platform-webauthn-credential-reference.js";
 export * from "./subscription-quote.js";
 export * from "./subscription-fulfillment.js";
 export * from "./business-administration.js";
+export * from "./commercial-portal-bridge.js";
