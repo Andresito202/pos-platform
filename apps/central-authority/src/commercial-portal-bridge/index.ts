@@ -8,7 +8,6 @@ export {
 export { PostgresCommercialPortalBridgeStore } from "./postgres-store.js";
 export { createCommercialPortalBridgeHandler } from "./bridge-http.js";
 export {
-  ExplicitTestGlobalSessionGate,
   GlobalAdministrationSessionGate,
   type GlobalSessionGate,
   type VerifiedGlobalSession,

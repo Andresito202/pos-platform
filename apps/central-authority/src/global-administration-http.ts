@@ -4,7 +4,7 @@ import { requireLicenseAdministrator } from "./license-administration.js";
 
 import type {IncomingMessage,ServerResponse} from "node:http";
 import {TLSSocket} from "node:tls";
-import {createHash,randomBytes} from "node:crypto";
+import {createHash,randomBytes,timingSafeEqual} from "node:crypto";
 import {CanonicalPermission,CentralAdministrationOperation,UuidSchema,uuidV7} from "@pos-platform/contracts";
 import type {Pool} from "@pos-platform/database-postgres";
 import {GlobalAdministrationSessions,type GlobalAdministrationPolicy} from "./global-administration-sessions.js";
@@ -13,6 +13,7 @@ import {FixedWindowRateLimiter} from "./fixed-window-rate-limiter.js";
 import {SubscriptionLicenseContracts,type FulfillmentPolicyReferences} from "./subscription-license-contracts.js";
 import {SubscriptionQuoteContracts} from "./subscription-quote-contracts.js";
 import {readCommercialJsonBody,inspectCommercialHeaders,validateCommercialAssertion,sendCommercialJson} from "./commercial-https-request-boundary.js";
+import {verifyTurnstileToken} from "./turnstile-siteverify.js";
 import type {LicenseCapacityAuthority} from "./license-capacity-authority.js";
 import type {SubscriptionCollectionBinding} from "@pos-platform/contracts";
 import type {SubscriptionFactusPayGateway} from "./subscription-factus-pay-gateway.js";
@@ -21,6 +22,7 @@ import type {SubscriptionLicenseFulfillment} from "./subscription-license-fulfil
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 const exact=(o:Record<string,unknown>,keys:string[])=>Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
 const text=(v:unknown,max:number):v is string=>typeof v==="string"&&v.length>0&&v.length<=max;
+const csrfEqual=(a:string,b:string)=>{const left=Buffer.from(a),right=Buffer.from(b);return left.length===right.length&&timingSafeEqual(left,right);};
 const FLOW="__Host-camacho_platform_flow";
 export interface GlobalAdministrationHttpLimits{
   maximumBodyBytes:number;maximumPendingFlows:number;requestsPerWindow:number;maximumBuckets:number;requestWindowMs:number;
@@ -32,9 +34,12 @@ export interface GlobalAdministrationHttpLimits{
 export function createGlobalAdministrationHandler(input:{pool:Pool;policy:GlobalAdministrationPolicy;limits:GlobalAdministrationHttpLimits;
   fulfillmentPolicies?:readonly FulfillmentPolicyReferences[];subscriptionCollection?:SubscriptionCollectionBinding;
   factusPay?:SubscriptionFactusPayGateway|null;licenseAuthority?:LicenseCapacityAuthority;
-  subscriptionFulfillment?:SubscriptionLicenseFulfillment|null}){
+  subscriptionFulfillment?:SubscriptionLicenseFulfillment|null;turnstileSecret?:string|null;turnstileSiteKey?:string|null}){
   const {policy,limits}=input;
   if(!Object.values(limits).every(n=>Number.isSafeInteger(n)&&n>0))throw Error("GLOBAL_HTTP_EXPLICIT_LIMITS_REQUIRED");
+  const turnstileSecret=input.turnstileSecret??null;
+  const turnstileSiteKey=input.turnstileSiteKey??null;
+  if((turnstileSecret===null)!==(turnstileSiteKey===null))throw Error("GLOBAL_TURNSTILE_PAIR_REQUIRED");
   const sessions=new GlobalAdministrationSessions(input.pool,policy),offers=new LicenseOfferDrafts(input.pool,policy.maximumReauthenticationAgeMs,
     {origin:policy.origin,lockTimeoutMs:policy.lockTimeoutMs,statementTimeoutMs:policy.statementTimeoutMs});
   const limiter=new FixedWindowRateLimiter(limits.requestsPerWindow,limits.maximumBuckets,limits.requestWindowMs);
@@ -49,22 +54,36 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
   const flowCookie=(value:string,age:number)=>`${FLOW}=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${age}`;
   return async(req:IncomingMessage,res:ServerResponse)=>{
     try{
-      if(!(req.socket instanceof TLSSocket)||!req.socket.encrypted||req.headers.host!==new URL(policy.origin).host||
-        req.method!=="POST"||req.headers.origin!==policy.origin||req.headers["sec-fetch-site"]!=="same-origin"){
+      if(!(req.socket instanceof TLSSocket)||!req.socket.encrypted||req.headers.host!==new URL(policy.origin).host){
+        sendCommercialJson(res,403,{code:"GLOBAL_REQUEST_REJECTED"});return;}
+      const path=req.url;
+      if(req.method==="GET"&&path==="/v1/platform/login/public-config"){
+        if(req.headers["sec-fetch-site"]!=="same-origin"){sendCommercialJson(res,403,{code:"GLOBAL_REQUEST_REJECTED"});return;}
+        inspectCommercialHeaders(req);
+        sendCommercialJson(res,200,{turnstileSiteKey});return;
+      }
+      if(req.method!=="POST"||req.headers.origin!==policy.origin||req.headers["sec-fetch-site"]!=="same-origin"){
         sendCommercialJson(res,403,{code:"GLOBAL_REQUEST_REJECTED"});return;}
       inspectCommercialHeaders(req);
       if(!limiter.allow(req.socket.remoteAddress??"unknown")){sendCommercialJson(res,429,{code:"GLOBAL_RATE_LIMITED"});return;}
       for(const [key,value] of pending)if(value.expiresAt<=Date.now())pending.delete(key);
       const {object:b}=await readCommercialJsonBody(req,limits.maximumBodyBytes);
-      const path=req.url;
       if(path==="/v1/platform/login/begin"||path==="/v1/platform/login/complete"){
         const begin=path.endsWith("/begin");
-        if(!(begin?(exact(b,["email","password"])||exact(b,["email","password","factorId"])):exact(b,["email","password","challenge","response"]))||!text(b.email,320)||!text(b.password,1024)||
+        const beginKeys=exact(b,["email","password"])||exact(b,["email","password","factorId"])
+          ||exact(b,["email","password","turnstileToken"])||exact(b,["email","password","factorId","turnstileToken"]);
+        if(!(begin?beginKeys:exact(b,["email","password","challenge","response"]))||!text(b.email,320)||!text(b.password,1024)||
           (begin?b.factorId!==undefined&&!UuidSchema.safeParse(b.factorId).success:!text(b.challenge,128)||!validateCommercialAssertion(b.response))){sendCommercialJson(res,400,{code:"GLOBAL_REQUEST_REJECTED"});return;}
         if(!await sessions.spendLoginBudget(req.socket.remoteAddress??"unknown",b.email,{windowMs:limits.loginWindowMs,
           maximumPerAddress:limits.maximumLoginPerAddress,maximumPerAccount:limits.maximumLoginPerAccount})){
           sendCommercialJson(res,429,{code:"GLOBAL_RATE_LIMITED"});return;}
         if(begin){
+          if(turnstileSecret!==null){
+            const token=typeof b.turnstileToken==="string"?b.turnstileToken:"";
+            const remote=req.socket.remoteAddress;
+            if(!await verifyTurnstileToken({secret:turnstileSecret,token,...(remote?{remoteip:remote}:{})})){
+              sendCommercialJson(res,401,{code:"GLOBAL_TURNSTILE_REJECTED"});return;}
+          }
           if(pending.size+starting>=limits.maximumPendingFlows){sendCommercialJson(res,429,{code:"GLOBAL_RATE_LIMITED"});return;}
           starting++;
           let challenge;try{challenge=await sessions.begin({email:b.email,password:b.password,...(b.factorId===undefined?{}:{factorId:String(b.factorId)}),correlationId:uuidV7()});}
@@ -78,7 +97,7 @@ export function createGlobalAdministrationHandler(input:{pool:Pool;policy:Global
         const token=values.length===1?values[0]!.slice(FLOW.length+1):"",key=hash(token),flow=pending.get(key);pending.delete(key);
         const csrf=req.headers["x-csrf-token"];
         if(!/^[A-Za-z0-9_-]{43}$/.test(token)||!flow||flow.expiresAt<=Date.now()||flow.email!==b.email.trim().toLowerCase()||flow.challenge!==b.challenge||
-          typeof csrf!=="string"||hash(csrf)!==flow.csrf){sendCommercialJson(res,401,{code:"GLOBAL_AUTHENTICATION_REJECTED"},flowCookie("",0));return;}
+          typeof csrf!=="string"||!csrfEqual(hash(csrf),flow.csrf)){sendCommercialJson(res,401,{code:"GLOBAL_AUTHENTICATION_REJECTED"},flowCookie("",0));return;}
         const result=await sessions.complete({email:b.email,password:b.password,challenge:String(b.challenge),response:b.response as Parameters<GlobalAdministrationSessions["complete"]>[0]["response"]},req.headers.cookie??null);
         if(!result){sendCommercialJson(res,401,{code:"GLOBAL_AUTHENTICATION_REJECTED"},flowCookie("",0));return;}
         res.setHeader("set-cookie",[result.setCookie,flowCookie("",0)]);

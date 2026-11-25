@@ -40,3 +40,7 @@
 - No se habilitó Factus PRODUCTION.
 - No se creó otro POS ni otra rama paralela.
 - No se fusionó a `main`.
+
+## Reconciliation note
+
+The evidence above refers to historical migration 036. The proposed integration uses 038 with unchanged SQL bytes. The old standalone authentication path is removed from the real runtime; the new integration requires exact-HEAD CI and verification of any previously applied 036 portal migration before deployment.

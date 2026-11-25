@@ -11,8 +11,7 @@
     "benchmark:kdf": "node --import tsx benchmarks/password-kdf.ts",
     "deployment:preflight": "tsx src/central-certification-preflight-cli.ts",
     "android:prepare-app-links": "tsx src/prepare-android-app-links-cli.ts",
-    "login:preflight": "tsx src/central-login-preflight-cli.ts",
-    "commercial-bridge:standalone": "tsx src/commercial-portal-bridge/standalone-server.ts"
+    "login:preflight": "tsx src/central-login-preflight-cli.ts"
   },
   "dependencies": {
     "@pos-platform/application": "workspace:^",

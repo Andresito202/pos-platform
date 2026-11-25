@@ -1,4 +1,5 @@
 import {LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseAllocationRequestSchema,LicenseActivationPageSchema,LicenseActivationPageRequestSchema,UuidSchema,LicenseOfferDraftSchema,SubscriptionQuoteRequestSchema,SubscriptionPaymentVerifyRequestSchema,SubscriptionBankManualConfirmRequestSchema,type LicenseOfferDraft} from "@pos-platform/contracts";
+import {acquireTurnstileToken} from "./turnstile-token.js";
 export class PlatformRequestError extends Error { constructor(message:string,readonly status:number){super(message);this.name="PlatformRequestError";} }
 export type PublishedOffer=LicenseOfferDraft&{
   version:number;status:"DRAFT"|"ACTIVE";published_at?:string|null;
@@ -35,9 +36,22 @@ export class PlatformClient{
     }
     return await response.json() as Record<string,unknown>;
   }
+  private async loginPublicConfig(signal:AbortSignal):Promise<{turnstileSiteKey:string|null}>{
+    const response=await this.transport(this.location.origin+"/v1/platform/login/public-config",{
+      method:"GET",credentials:"same-origin",cache:"no-store",redirect:"error",...(signal?{signal}:{}),
+    });
+    if(!response.ok)throw new PlatformRequestError("Central no publicó la configuración de login.",response.status);
+    const body=await response.json() as {turnstileSiteKey?:unknown};
+    const key=body.turnstileSiteKey;
+    if(key===null||key===undefined)return{turnstileSiteKey:null};
+    if(typeof key!=="string"||key.length<10||key.length>128)throw Error("Configuración Turnstile inválida.");
+    return{turnstileSiteKey:key};
+  }
   async login(email:string,password:string,signal:AbortSignal){
     this.csrf=null;
-    const start=await this.post("login/begin",{email,password},signal);
+    const {turnstileSiteKey}=await this.loginPublicConfig(signal);
+    const turnstileToken=turnstileSiteKey===null?undefined:await acquireTurnstileToken(turnstileSiteKey,signal);
+    const start=await this.post("login/begin",{email,password,...(turnstileToken?{turnstileToken}:{})},signal);
     if(typeof start.challenge!=="string"||typeof start.credentialId!=="string"||typeof start.csrfToken!=="string")throw Error("Respuesta de autenticación inválida.");
     const credential=await navigator.credentials.get({publicKey:{challenge:decode(start.challenge),
       rpId:new URL(this.location.origin).hostname,allowCredentials:[{type:"public-key",id:decode(start.credentialId)}],userVerification:"required"},signal});

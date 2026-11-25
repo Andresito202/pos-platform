@@ -243,7 +243,6 @@ const commercialBridgeHandler = (() => {
     },
   });
   // Mint: bridge key = service hop only. GLOBAL MFA cookie+CSRF via GlobalAdministrationSessionGate
-  // (or ExplicitTestGlobalSessionGate when CENTRAL_BRIDGE_TEST_GATE=1 and not production).
   const gate = prepareCommercialBridgeGlobalGate({
     pool,
     origin: deployment?.origin ?? null,

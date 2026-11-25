@@ -4,7 +4,6 @@ import { GlobalAdministrationProvisionSchema, isSupportedPlatformPasswordVerifie
 import type { Pool } from "@pos-platform/database-postgres";
 import { GlobalAdministrationSessions } from "../global-administration-sessions.js";
 import {
-  ExplicitTestGlobalSessionGate,
   GlobalAdministrationSessionGate,
   type GlobalSessionGate,
 } from "./global-session-gate.js";
@@ -20,7 +19,6 @@ function managed(path: string, max: number): string {
 
 /**
  * Bridge mint gate:
- * - Lab: ExplicitTestGlobalSessionGate when CENTRAL_BRIDGE_TEST_GATE=1 and not production.
  * - Deployment: GlobalAdministrationSessionGate (cookie+CSRF+LICENSE_ISSUE MFA).
  * - Otherwise fail-closed (bridge key alone never grants GLOBAL).
  */
@@ -29,9 +27,6 @@ export function prepareCommercialBridgeGlobalGate(input: {
   origin: string | null;
   provisionFile: string | null;
 }): GlobalSessionGate {
-  if (process.env.NODE_ENV !== "production" && process.env.CENTRAL_BRIDGE_TEST_GATE === "1") {
-    return new ExplicitTestGlobalSessionGate();
-  }
   if (!input.provisionFile || !input.origin) {
     return {
       async verifyForMint() {

@@ -1,3 +1,4 @@
+import { ExplicitTestGlobalSessionGate } from "./commercial-portal-test-gate.js";
 import { createServer } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { COMMERCIAL_BRIDGE_KEY_HEADER, uuidV7 } from "@pos-platform/contracts";
@@ -5,7 +6,6 @@ import {
   CommercialPortalBridgeService,
   MemoryCommercialPortalBridgeStore,
   createCommercialPortalBridgeHandler,
-  ExplicitTestGlobalSessionGate,
 } from "../src/commercial-portal-bridge/index.js";
 
 const BRIDGE_KEY = "bridge-key-for-tests-min-32-characters!!";

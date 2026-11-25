@@ -17,9 +17,9 @@
 
 ## Reuse (no duplicate identity DB)
 
-- Bridge key authenticates the **service hop only**. Mint requires a verified GLOBAL MFA session (cookie+CSRF+`LICENSE_ISSUE` via `GlobalAdministrationSessionGate`, or lab `ExplicitTestGlobalSessionGate` when `CENTRAL_BRIDGE_TEST_GATE=1`).
+- Bridge key authenticates the **service hop only**. Mint requires a verified GLOBAL MFA session (cookie+CSRF+`LICENSE_ISSUE` via `GlobalAdministrationSessionGate`).
 - Introspect keeps Bearer active only while the underlying `identity.sessions` row remains live (join in Postgres store; revoke → inactive).
-- Durable PG tables (migration `036_commercial_portal_bridge`): bridge sessions, JTIs, trial grants (exact 120h, no grace), provisioning receipts.
+- Durable PG tables (migration `038_commercial_portal_bridge`): bridge sessions, JTIs, trial grants (exact 120h, no grace), provisioning receipts.
 - Main TLS mount always uses `PostgresCommercialPortalBridgeStore` + `PostgresCommercialLicenseIssuer` — never process-local memory.
 - Trial/provisioning write `licensing.licenses` when `tenantId`+`planId` are supplied (`grace_policy_reference=NULL`, trial window exact 120h).
 - Offline trial block: Local Service fail-closes on signed capacity expiry (`offline_grace_until=null`) + `TrustedClockGuard` (no fraudulent clock rollback); expire-sweep marks REVOKED and notifies CRM with `offlineGrace:false`.
@@ -30,12 +30,9 @@
 ```bash
 COMMERCIAL_BRIDGE_KEY=<≥32>
 CENTRAL_TRIAL_WEBHOOK_KEY=<≥32>   # must match commercial CENTRAL_TRIAL_WEBHOOK_KEY
-# Lab only (never production):
-CENTRAL_BRIDGE_TEST_GATE=1
 ```
 
-Standalone (non-production): `pnpm --filter @pos-platform/central-authority commercial-bridge:standalone`  
-Requires `CENTRAL_BRIDGE_TEST_GATE=1` for mint. Memory store is **not** commercial durability evidence.
+The production composition has no standalone test-authentication entrypoint. Test gates are isolated to tests.
 
 Apply migration: commercial CLI `--commercial-portal-bridge`.
 
@@ -45,3 +42,7 @@ Apply migration: commercial CLI `--commercial-portal-bridge`.
 - Does not merge repositories or replace POS Local Service.
 - Lab ExplicitTest headers are not product GLOBAL login.
 - Provisioning without tenant/plan remains `QUEUED` (durable receipt); with tenant/plan it returns `ISSUED` + `licenseIds`.
+
+## Migration reconciliation
+
+038 reserves a distinct identifier from 036 BUSINESS login and 037 Central rate limits. Before deployment, inspect the migration ledger and database for any prior 036_commercial_portal_bridge application; if present, do not apply 038 until an explicit checksum-preserving adoption plan is reviewed. No production ledger was inspected during this reconciliation.
