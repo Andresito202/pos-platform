@@ -41,3 +41,6 @@ artifacts/
 # Artefactos de ejecucion de Playwright (trazas y capturas de un fallo).
 test-results/
 playwright-report/
+
+# Generated web build cache must never be tracked.
+.next/

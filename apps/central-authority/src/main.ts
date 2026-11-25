@@ -27,6 +27,19 @@ import {
 import { prepareCommercialBridgeGlobalGate } from "./commercial-portal-bridge/prepare-global-gate.js";
 import { PostgresCommercialLicenseIssuer } from "./commercial-portal-bridge/trial-license-issuer.js";
 
+import { createTelemetryBundle, observeHttp } from "@pos-platform/observability";
+import { startOtlpSdk } from "@pos-platform/observability/node";
+const stopTelemetry = startOtlpSdk("central-authority");
+const telemetry = createTelemetryBundle({
+  sink: {
+    write(record) {
+      process.stdout.write(`${JSON.stringify(record)}\n`);
+    },
+  },
+  serviceName: "central-authority",
+  enableOtelApi: process.env.OTEL_ENABLE_API === "1",
+});
+
 const PORT = Number(process.env.CENTRAL_AUTHORITY_PORT ?? "8443");
 const MAX_BODY_BYTES = Number(process.env.D3_ENROLLMENT_MAX_BODY_BYTES ?? String(16 * 1024));
 const MAX_CREDENTIAL_LIFETIME_MS = Number(process.env.D3_CREDENTIAL_LIFETIME_MS ?? String(24 * 60 * 60 * 1000));
@@ -82,11 +95,15 @@ function protocolContext(request: IncomingMessage, requestId: string, correlatio
   };
 }
 
-const databaseUrl = required("CENTRAL_DATABASE_URL");
+const databaseUrl = process.env.CENTRAL_DATABASE_URL_FILE
+  ? secretFromFile("CENTRAL_DATABASE_URL_FILE")
+  : required("CENTRAL_DATABASE_URL");
 const globalProvision = process.env.CENTRAL_GLOBAL_ADMINISTRATION_PROVISION_FILE;
 const businessProvision = process.env.CENTRAL_BUSINESS_PROVISION_FILE;
-const deployment = globalProvision || businessProvision !== undefined ? parseCentralDeploymentConfiguration(process.env) : null;
-const transportToken = deployment === null
+const deployment = globalProvision || businessProvision !== undefined
+  ? parseCentralDeploymentConfiguration({ ...process.env, CENTRAL_DATABASE_URL: databaseUrl })
+  : null;
+const transportToken = deployment === null && !process.env.D3_ENROLLMENT_TRANSPORT_TOKEN_FILE
   ? required("D3_ENROLLMENT_TRANSPORT_TOKEN")
   : secretFromFile("D3_ENROLLMENT_TRANSPORT_TOKEN_FILE");
 const issuerPrivateKey = createPrivateKey(secretFromFile("D3_ISSUER_PRIVATE_KEY_FILE"));
@@ -198,7 +215,19 @@ const limiter = rateLimitBackend === "postgres"
   : new FixedWindowRateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_BUCKETS_MAX, RATE_LIMIT_WINDOW_MS);
 
 async function allowRate(key: string): Promise<boolean> {
-  return await Promise.resolve(limiter.allow(key));
+  const allowed = await Promise.resolve(limiter.allow(key));
+  const route = key.includes("session-trust") ? "session-trust" : "device-enrollment";
+  if (allowed) {
+    telemetry.metrics.counter("pos.rate_limit.allowed", 1, { route });
+  } else {
+    telemetry.metrics.counter("pos.rate_limit.denied", 1, { route });
+    telemetry.alerts.emit({
+      kind: "security.rate_limited",
+      severity: "warn",
+      attributes: { route },
+    });
+  }
+  return allowed;
 }
 
 const factusPayProvision = process.env.CENTRAL_FACTUS_PAY_PROVISION_FILE;
@@ -286,7 +315,10 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       send(response, 421, { status: "REJECTED", result_code: "CENTRAL_HOST_REJECTED" });
       return;
     }
-    await (request.url === "/v1/licensing/activations/resolve" ? globalHandler.activation : globalHandler.portal)(request, response);
+    const activation = request.url === "/v1/licensing/activations/resolve";
+    observeHttp(telemetry, request, response, activation ? "licensing.activation" : "platform.administration",
+      (status) => activation && (status === 403 || status === 429) ? "license.activation_rejected" : undefined);
+    await (activation ? globalHandler.activation : globalHandler.portal)(request, response);
     return;
   }
 
@@ -300,6 +332,8 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       send(response, 503, { status: "REJECTED", result_code: "FACTUS_PAY_NOT_PROVISIONED" });
       return;
     }
+    observeHttp(telemetry, request, response, "payment.factus_webhook",
+      (status) => status >= 400 ? "payment.webhook_rejected" : undefined);
     await factusPayHandler(request, response);
     return;
   }
@@ -315,6 +349,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       send(response, 401, { status: "REJECTED", result_code: "SESSION_TRUST_UNAUTHORIZED", request_id: requestId, correlation_id: correlationId });
       return;
     }
+    observeHttp(telemetry, request, response, "security.session_trust");
     if (!(await allowRate(`${remote}:session-trust`))) {
       send(response, 429, { status: "REJECTED", result_code: "SESSION_TRUST_RATE_LIMITED", request_id: requestId, correlation_id: correlationId }, { "retry-after": "60" });
       return;
@@ -367,8 +402,14 @@ const shutdown = async (signal: string) => {
     limiter.dispose();
   }
   await pool.end();
+  await telemetry.logger.flush();
+  await stopTelemetry?.();
   process.stdout.write(JSON.stringify({ service: "central-authority", status: "STOPPED", signal }) + "\n");
   process.exit(0);
 };
-process.once("SIGTERM", () => void shutdown("SIGTERM"));
-process.once("SIGINT", () => void shutdown("SIGINT"));
+for (const signal of ["SIGTERM", "SIGINT"] as const) {
+  process.once(signal, () => void shutdown(signal).catch(() => {
+    process.stderr.write("CENTRAL_SHUTDOWN_FAILED\n");
+    process.exit(1);
+  }));
+}

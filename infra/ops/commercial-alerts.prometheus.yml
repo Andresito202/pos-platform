@@ -1,0 +1,13 @@
+groups:
+  - name: camacho-commercial-signals
+    rules:
+      - alert: CamachoCommercialSecuritySignal
+        expr: |
+          sum by (kind) (
+            increase(pos_security_signal_total{kind=~"fraud\\..+|license\\..+|payment\\..+|sync\\..+"}[5m])
+          ) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Señales operativas del POS en cinco minutos"
+          description: "Revisar el tipo {{ $labels.kind }} y consultar el registro estructurado correspondiente."

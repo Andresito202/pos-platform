@@ -2,10 +2,14 @@ services:
   central-sync:
     build:
       context: ../..
-      dockerfile: infra/central-sync/Dockerfile
+      dockerfile: infra/docker/central-authority/Dockerfile
+    working_dir: /app/tools/target-migrations
+    command: ["node", "--import", "tsx", "src/central-sync-server.ts"]
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       PORT: "8787"
+      OTEL_ENABLE_API: ${OTEL_ENABLE_API:-0}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     expose:
       - "8787"
     networks:
