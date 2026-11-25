@@ -1,3 +1,5 @@
+import java.io.File
+import java.nio.file.Files
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -178,7 +180,7 @@ tasks.register("commercialReleaseApk") {
         require(fingerprint.replace(":", "").matches(Regex("[a-fA-F0-9]{64}")))
         required("CAMACHO_ANDROID_RELEASE_STORE_PASSWORD")
         required("CAMACHO_ANDROID_RELEASE_KEY_PASSWORD")
-        require(keystore.isFile && !java.nio.file.Files.isSymbolicLink(keystore.toPath()))
+        require(keystore.isFile && !Files.isSymbolicLink(keystore.toPath()))
         val out = layout.buildDirectory.dir("commercial-apk").get().asFile
         val classes = file("${out}/release-signer").apply { deleteRecursively(); mkdirs() }
         val apk = file("${out}/camacho-pos-colombia.apk")
@@ -189,7 +191,7 @@ tasks.register("commercialReleaseApk") {
         }
         val javaHome = System.getProperty("java.home")
         run("$javaHome/bin/javac", "-cp", apkSigner.asPath, "-d", classes.path, file("signing/CommercialApkSigner.java").path)
-        run("$javaHome/bin/java", "-cp", apkSigner.asPath + java.io.File.pathSeparator + classes.path,
+        run("$javaHome/bin/java", "-cp", apkSigner.asPath + File.pathSeparator + classes.path,
             "CommercialApkSigner", keystore.path, alias, fingerprint,
             file("${out}/camacho-pos-colombia-unsigned.apk").path, apk.path)
         println("VERIFIED_SIGNED_APK=${apk.absolutePath}")
