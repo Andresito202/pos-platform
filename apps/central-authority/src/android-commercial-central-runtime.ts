@@ -3,7 +3,7 @@ import {isAbsolute,join} from "node:path";
 import {createPrivateKey,createPublicKey,createHash} from "node:crypto";
 import {TLSSocket} from "node:tls";
 import type {IncomingMessage,ServerResponse} from "node:http";
-import {BusinessAdministrationProvisionSchema,CommercialHttpV2,CommercialRefreshRequestSchema,UuidSchema,UuidV7Schema,uuidV7,
+import {AndroidCommercialProvisionSchema,ANDROID_COMMERCIAL_MIGRATION_IDS,BusinessAdministrationProvisionSchema,CommercialHttpV2,CommercialRefreshRequestSchema,UuidSchema,UuidV7Schema,uuidV7,
  SignedSessionAssertionOperationalKeySchema,SignedAuthorizationTrustSchema,type NativeClientRegistration} from "@pos-platform/contracts";
 import type {Pool} from "@pos-platform/database-postgres";
 import {NativeBusinessCodeAuthority} from "./native-business-code-authority.js";
@@ -12,7 +12,6 @@ import {CommercialNativeCredentialAuthority} from "./commercial-native-credentia
 import {CommercialSessionArtifacts} from "./commercial-session-artifacts.js";
 import {inspectCommercialHeaders,readCommercialJsonBody,sendCommercialJson} from "./commercial-https-request-boundary.js";
 import {PostgresFixedWindowRateLimiter} from "./postgres-fixed-window-rate-limiter.js";
-import * as z from "zod";
 const managed=(path:string,max=65536)=>{
  if(!isAbsolute(path))throw Error("ANDROID_COMMERCIAL_MANAGED_PATH_REQUIRED");
  const fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW);
@@ -20,24 +19,14 @@ const managed=(path:string,max=65536)=>{
  const bytes=readFileSync(fd);if(bytes.length!==s.size)throw Error("ANDROID_COMMERCIAL_FILE_CHANGED");return new TextDecoder("utf-8",{fatal:true}).decode(bytes);}
  finally{closeSync(fd);}
 };
-const ids=["011_session_assertion_sequences","012_device_request_proof_replays","013_business_browser_sessions","014_commercial_refresh_binding","015_authorization_snapshot_sequences","016_native_business_authorization","022_license_activations","029_cash_register_master","033_cash_register_license_bindings","036_business_login_abuse_budget"];
-const positive=z.number().int().positive().max(2147483647);
-const file=z.string().min(1).max(4096);
-const pin=z.string().regex(/^[a-f0-9]{64}$/);
-const policySchema=z.strictObject({profile:z.literal("CAMACHO_ANDROID_CENTRAL_V1"),origin:z.url(),environment:z.enum(["PREPRODUCTION","PRODUCTION"]),
- migration_checksums:z.record(z.string(),pin),audience:z.string().min(1).max(128),
- access_private:file,access_public:file,access_key_id:z.string().min(1).max(96),access_valid_from:z.iso.datetime(),access_valid_until:z.iso.datetime(),
- ssa_private:file,ssa_root:file,ssa_root_pin:pin,ssa_operational:file,sas_private:file,sas_root:file,sas_root_pin:pin,sas_recipient_directory:file,
- challenge_ms:positive,request_ms:positive,challenges_per_minute:positive,code_ms:positive,access_ms:positive,refresh_ms:positive,artifact_ms:positive,
- proof_skew_ms:positive,rotation_window_ms:positive,rotations_per_window:positive,requests_per_address:positive});
 const paths=new Set(["/v1/commercial/token","/v1/business-session/assertions","/v1/business-session/authorization","/v1/commercial/native-authorize","/v1/commercial/login"]);
 export async function prepareAndroidCommercialRuntime(input:{pool:Pool;provisionFile:string;businessProvision:string;origin:string;environment:"PREPRODUCTION"|"PRODUCTION";registration:NativeClientRegistration}){
  const {pool,registration,origin}=input;
- const p=policySchema.parse(JSON.parse(managed(input.provisionFile))),business=BusinessAdministrationProvisionSchema.parse(JSON.parse(managed(input.businessProvision)));
- if(p.origin!==origin||business.origin!==origin||p.environment!==input.environment||registration.authorizationOrigin!==origin||registration.platform!=="ANDROID"||Object.keys(p.migration_checksums).length!==ids.length||!ids.every(id=>p.migration_checksums[id]))throw Error("ANDROID_COMMERCIAL_POLICY_REJECTED");
+ const p=AndroidCommercialProvisionSchema.parse(JSON.parse(managed(input.provisionFile))),business=BusinessAdministrationProvisionSchema.parse(JSON.parse(managed(input.businessProvision)));
+ if(p.origin!==origin||business.origin!==origin||p.environment!==input.environment||registration.authorizationOrigin!==origin||registration.platform!=="ANDROID"||Object.keys(p.migration_checksums).length!==ANDROID_COMMERCIAL_MIGRATION_IDS.length||!ANDROID_COMMERCIAL_MIGRATION_IDS.every(id=>p.migration_checksums[id]))throw Error("ANDROID_COMMERCIAL_POLICY_REJECTED");
  const role=(await pool.query("SELECT current_database() AS db,current_user='pos_platform_app' AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreatedb AND NOT rolcreaterole AS eligible FROM pg_roles WHERE rolname=current_user")).rows[0];
  if(role?.db!=="camacho_pos"||role.eligible!==true)throw Error("ANDROID_COMMERCIAL_DATABASE_REJECTED");
- for(const id of ids){const rows=(await pool.query("SELECT encode(checksum,'hex') AS checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED'",[id])).rows;if(rows.length!==1||rows[0].checksum!==p.migration_checksums[id])throw Error("ANDROID_COMMERCIAL_SCHEMA_REJECTED");}
+ for(const id of ANDROID_COMMERCIAL_MIGRATION_IDS){const rows=(await pool.query("SELECT encode(checksum,'hex') AS checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED'",[id])).rows;if(rows.length!==1||rows[0].checksum!==p.migration_checksums[id])throw Error("ANDROID_COMMERCIAL_SCHEMA_REJECTED");}
  const root=(path:string,digest:string)=>{const key=createPublicKey(managed(path));if(key.asymmetricKeyType!=="ed25519"||createHash("sha256").update(key.export({type:"spki",format:"der"})).digest("hex")!==digest)throw Error("ANDROID_COMMERCIAL_ROOT_REJECTED");return key;};
  const ssaPrivate=createPrivateKey(managed(p.ssa_private)),sasPrivate=createPrivateKey(managed(p.sas_private)),accessPrivate=managed(p.access_private);
  const fingerprints=[ssaPrivate,sasPrivate,createPrivateKey(accessPrivate)].map(k=>createPublicKey(k).export({type:"spki",format:"der"}).toString("hex"));
