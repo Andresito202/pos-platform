@@ -30,7 +30,7 @@ jobs:
           gradle-version: '8.14'
       - run: gradle -p apps/pos-android --no-daemon commercialIdentityTest
   unsigned-apk:
-    if: github.event_name == 'workflow_dispatch' && inputs.full_apk
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
     needs: kotlin
     runs-on: ubuntu-24.04
     timeout-minutes: 45
