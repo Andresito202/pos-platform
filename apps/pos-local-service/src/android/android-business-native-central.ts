@@ -58,6 +58,7 @@ export class AndroidBusinessNativeCentralClient {
     private readonly credential: CommercialDeviceCredentialProvider,
     private readonly transport: typeof fetch = fetch,
     private readonly timeoutMs = 15_000,
+    private readonly registration?: { clientId: string; redirectUri: string; audience: string },
   ) {
     this.origin = validateCommercialHttpsOrigin(origin);
     if (!(credential instanceof Object) || typeof credential.authorization !== "function") {
@@ -70,6 +71,7 @@ export class AndroidBusinessNativeCentralClient {
 
   async registerNativeRequest(raw: unknown): Promise<AndroidNativeRequestResult> {
     const material = AndroidNativeRequestMaterialSchema.parse(raw);
+    this.assertRegistration(material);
     const challengeBody = JSON.stringify({
       client_id: material.client_id,
       redirect_uri: material.redirect_uri,
@@ -131,6 +133,7 @@ export class AndroidBusinessNativeCentralClient {
 
   async exchangeToken(raw: unknown): Promise<AndroidTokenExchangeResult> {
     const material = AndroidTokenExchangeMaterialSchema.parse(raw);
+    this.assertRegistration(material);
     const body = JSON.stringify({
       grant_type: "authorization_code",
       code: material.code,
@@ -158,7 +161,7 @@ export class AndroidBusinessNativeCentralClient {
       JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
     );
     const assertionBody = JSON.stringify({ session_id: claims.sid });
-    if (claims.iss !== this.origin || claims.client_id !== material.client_id || claims.exp <= Math.floor(Date.now() / 1000)) throw new Error("CENTRAL_ACCESS_BINDING_REJECTED");
+    if (claims.iss !== this.origin || claims.aud !== this.registration?.audience || claims.client_id !== material.client_id || claims.exp <= Math.floor(Date.now() / 1000)) throw new Error("CENTRAL_ACCESS_BINDING_REJECTED");
     const assertion = await this.postJson<unknown>(
       "/v1/business-session/assertions",
       assertionBody,
@@ -177,6 +180,10 @@ export class AndroidBusinessNativeCentralClient {
       session_assertion: SignedSessionAssertionSchema.parse(z.object({session_assertion: z.unknown()}).parse(assertion).session_assertion),
       authorization_snapshot: SignedAuthorizationSnapshotSchema.parse(z.object({authorization_snapshot: z.unknown()}).parse(snapshot).authorization_snapshot),
     };
+  }
+
+  private assertRegistration(material: {client_id: string; redirect_uri: string}): void {
+    if (!this.registration || material.client_id !== this.registration.clientId || material.redirect_uri !== this.registration.redirectUri) throw new Error("ANDROID_NATIVE_REGISTRATION_MISMATCH");
   }
 
   private async postJson<T>(
