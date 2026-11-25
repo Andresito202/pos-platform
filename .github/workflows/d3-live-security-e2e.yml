@@ -127,7 +127,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/d3
-          openssl req -x509 -newkey rsa:2048 -nodes -keyout artifacts/d3/tls.key -out artifacts/d3/tls.crt -subj '/CN=localhost' -days 1
+          umask 077
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout artifacts/d3/tls.key -out artifacts/d3/tls.crt -subj '/CN=localhost' -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' -days 1
           openssl genpkey -algorithm ED25519 -out artifacts/d3/issuer.key
           printf '%s\n' 'ci-session-trust-transport-token' > artifacts/d3/session-trust-transport.token
       - name: Start Central Authority
@@ -142,7 +143,7 @@ jobs:
           set -euo pipefail
           nohup pnpm --filter @pos-platform/central-authority start > artifacts/d3/central-authority.log 2>&1 &
           for attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error --insecure https://127.0.0.1:9443/health > artifacts/d3/health.json; then exit 0; fi
+            if curl --fail --silent --show-error --cacert artifacts/d3/tls.crt https://127.0.0.1:9443/health > artifacts/d3/health.json; then exit 0; fi
             sleep 1
           done
           cat artifacts/d3/central-authority.log
@@ -152,10 +153,10 @@ jobs:
           SESSION_TRUST_TRANSPORT_TOKEN: ci-session-trust-transport-token
         run: |
           set -euo pipefail
-          status=$(curl --silent --show-error --insecure -o artifacts/d3/session-trust-unauthorized.json -w '%{http_code}' \
+          status=$(curl --silent --show-error --cacert artifacts/d3/tls.crt -o artifacts/d3/session-trust-unauthorized.json -w '%{http_code}' \
             https://127.0.0.1:9443/v1/session-trust)
           test "$status" = "401"
-          status=$(curl --silent --show-error --insecure -o artifacts/d3/session-trust.json -w '%{http_code}' \
+          status=$(curl --silent --show-error --cacert artifacts/d3/tls.crt -o artifacts/d3/session-trust.json -w '%{http_code}' \
             -H "Authorization: Bearer ${SESSION_TRUST_TRANSPORT_TOKEN}" \
             https://127.0.0.1:9443/v1/session-trust)
           test "$status" = "200"
@@ -164,7 +165,7 @@ jobs:
       - name: Verify unauthenticated enrollment rejection
         run: |
           set -euo pipefail
-          status=$(curl --silent --show-error --insecure -o artifacts/d3/unauthorized.json -w '%{http_code}' \
+          status=$(curl --silent --show-error --cacert artifacts/d3/tls.crt -o artifacts/d3/unauthorized.json -w '%{http_code}' \
             -X POST https://127.0.0.1:9443/v1/device-enrollment \
             -H 'content-type: application/json' --data '{}')
           test "$status" = "401"
@@ -172,13 +173,16 @@ jobs:
       - name: Execute live enrollment, persistence and replay gate
         env:
           D3_ENROLLMENT_URL: https://127.0.0.1:9443/v1/device-enrollment
-          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+          NODE_EXTRA_CA_CERTS: ${{ github.workspace }}/artifacts/d3/tls.crt
         run: pnpm --filter @pos-platform/central-authority exec tsx tests/live-enrollment-e2e.ts
       - name: Upload D-3 evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: d3-live-security-e2e-${{ env.REVIEWED_SHA }}
-          path: artifacts
+          path: |
+            artifacts
+            !artifacts/d3/*.key
+            !artifacts/d3/*.token
           if-no-files-found: error
           retention-days: 90
