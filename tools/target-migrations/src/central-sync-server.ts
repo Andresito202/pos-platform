@@ -1,6 +1,8 @@
 import { createHash, randomUUID, createPublicKey } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { Pool, type PoolClient } from "pg";
+import { createTelemetryBundle, observeHttp } from "@pos-platform/observability";
+import { startOtlpSdk } from "@pos-platform/observability/node";
 import {
   createCentralDeviceHttpRequestSchema,
   createCentralHttpResponseSchema,
@@ -26,6 +28,11 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("PORT m
 if (!Number.isInteger(maxOperations) || maxOperations < 1) throw new Error("SYNC_MAX_OPERATIONS must be a positive integer");
 if (!Number.isInteger(maxBodyBytes) || maxBodyBytes < 1) throw new Error("SYNC_MAX_BODY_BYTES must be a positive integer");
 
+const stopTelemetry = startOtlpSdk("central-sync");
+const telemetry = createTelemetryBundle({
+  serviceName: "central-sync",
+  sink: { write(record) { process.stdout.write(`${JSON.stringify(record)}\n`); } },
+});
 const pool = new Pool({ connectionString: databaseUrl, max: Number(process.env.DB_POOL_MAX ?? 10) });
 const batchSchema = createSyncBatchRequestSchema(maxOperations);
 const requestSchema = createCentralDeviceHttpRequestSchema(batchSchema, {
@@ -104,8 +111,20 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
     payload_checksum: Buffer;
     idempotency_key: string;
     operation_type: string;
+    company_id: string | null;
+    branch_id: string | null;
+    actor_id: string | null;
+    aggregate_type: string;
+    aggregate_id: string;
+    correlation_id: string;
+    causation_id: string | null;
+    authority_policy: string;
+    expected_version: string | null;
+    schema_version: number;
   }>(
-    `SELECT id, payload_checksum, idempotency_key, operation_type
+    `SELECT id, payload_checksum, idempotency_key, operation_type,
+            company_id, branch_id, actor_id, aggregate_type, aggregate_id,
+            correlation_id, causation_id, authority_policy, expected_version::text, schema_version
        FROM sync.sync_operations
       WHERE tenant_id = $1 AND id = $2
       FOR UPDATE`,
@@ -121,7 +140,13 @@ async function persistOperation(client: PoolClient, operation: SyncOperation, re
     if (storedChecksum !== operation.payload_checksum) {
       throw Object.assign(new Error("operation_id replay has a different checksum"), { code: "SYNC.OPERATION_CHECKSUM_CONFLICT" });
     }
-    if (row.idempotency_key !== operation.idempotency_key || row.operation_type !== operation.operation_type) {
+    if (row.idempotency_key !== operation.idempotency_key || row.operation_type !== operation.operation_type
+      || row.company_id !== operation.company_id || row.branch_id !== operation.branch_id
+      || row.actor_id !== operation.actor_id || row.aggregate_type !== operation.aggregate_type
+      || row.aggregate_id !== operation.aggregate_id || row.correlation_id !== operation.correlation_id
+      || row.causation_id !== operation.causation_id || row.authority_policy !== operation.authority_policy
+      || row.expected_version !== (operation.expected_version === null ? null : String(operation.expected_version))
+      || row.schema_version !== schemaMajor(operation.payload_schema_version)) {
       throw Object.assign(new Error("operation_id replay has different immutable identity"), { code: "SYNC.OPERATION_IDENTITY_CONFLICT" });
     }
     return;
@@ -381,6 +406,8 @@ const server = createServer(async (request, response) => {
     json(response, 404, { error: "NOT_FOUND" });
     return;
   }
+  observeHttp(telemetry, request, response, "sync.batch",
+    (status) => status === 409 ? "sync.conflict" : status >= 500 ? "sync.dispatch_failed" : undefined);
   const authorization = request.headers.authorization;
   if (typeof authorization !== "string") {
     json(response, 401, { error: "DEVICE_PROOF_REQUIRED" });
@@ -452,6 +479,7 @@ const server = createServer(async (request, response) => {
 
   try {
     const accepted = await acceptBatch(envelope.payload, principal);
+    telemetry.metrics.counter("pos.sync.operations_acknowledged", accepted.result.results.length);
     const responseBody = {
       protocol_version: protocolVersion,
       request_id: requestId,
@@ -529,7 +557,13 @@ async function shutdown(signal: string): Promise<void> {
   console.log(`${signal}: shutting down central sync API`);
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await pool.end();
+  await telemetry.logger.flush();
+  await stopTelemetry?.();
 }
 
-process.once("SIGINT", () => void shutdown("SIGINT"));
-process.once("SIGTERM", () => void shutdown("SIGTERM"));
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => void shutdown(signal).catch(() => {
+    process.stderr.write("CENTRAL_SYNC_SHUTDOWN_FAILED\n");
+    process.exitCode = 1;
+  }));
+}

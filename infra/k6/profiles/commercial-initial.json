@@ -1,0 +1,28 @@
+{
+  "profile_id": "commercial-initial-v1",
+  "description": "Initial commercial capacity target — script parameters only; not a measured result.",
+  "tenancy": {
+    "companies": 10,
+    "cash_registers_total": 30,
+    "registers_per_company_typical": 3
+  },
+  "throughput": {
+    "sales_per_day": 3000,
+    "sales_per_second_average": 0.0347,
+    "sales_per_second_peak_assumed": 2.0,
+    "sync_burst_outbox_events": 5000,
+    "sync_burst_concurrency": 30
+  },
+  "thresholds_targets": {
+    "http_req_failed": "rate<0.01",
+    "http_req_duration_p95_ms": 500,
+    "http_req_duration_p99_ms": 1500,
+    "rate_limit_429_under_normal_load": "rate<0.001"
+  },
+  "scenarios": [
+    "authenticated_sync",
+    "portal_catalog",
+    "central_distributed_rate_limit"
+  ],
+  "evidence_rule": "Pass/fail only from a real k6 run against an authorized environment. Do not invent metrics."
+}

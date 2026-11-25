@@ -1,6 +1,8 @@
 import { createHash, randomBytes, generateKeyPairSync } from "node:crypto";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import { Pool } from "pg";
+import { observeCentralRecovery, type CentralRecoveryObservation } from "./central-recovery-observation.js";
+import type { SyncOperation } from "@pos-platform/contracts";
 import { runIsolatedDeviceEnrollmentGate } from "./central-device-enrollment-gate.js";
 
 
@@ -154,7 +156,7 @@ async function main(): Promise<void> {
     payload: batch,
   };
 
-  const requestHeaders = (value: typeof envelope, body: string) => ({
+  const requestHeaders = (value: Pick<typeof envelope, "request_id" | "correlation_id">, body: string) => ({
     authorization: createDeviceRequestAuthorization({
       method: "POST" as const, path: "/v1/sync/batches",
       requestId: value.request_id, correlationId: value.correlation_id,
@@ -233,6 +235,28 @@ async function main(): Promise<void> {
     if (row.version !== "1") throw new Error(`VERSION=${row.version}`);
     if (!row.received_at_server || !row.committed_at_server) throw new Error("SERVER_TIMESTAMPS_MISSING");
 
+    const reconciliationClient = await pool.connect();
+    try {
+      const accepted = await observeCentralRecovery(reconciliationClient, operation);
+      const absent = await observeCentralRecovery(reconciliationClient, {
+        ...operation, operation_id: uuidV7(), idempotency_key: `recovery-probe-${uuidV7()}`,
+      });
+      const conflicting = await observeCentralRecovery(reconciliationClient, {
+        ...operation, aggregate_id: uuidV7(),
+      });
+      const idempotencyConflict = await observeCentralRecovery(reconciliationClient, {
+        ...operation, operation_id: uuidV7(),
+      });
+      if (accepted !== "ALREADY_ACCEPTED" || absent !== "NOT_OBSERVED"
+        || conflicting !== "CONFLICT_OR_REVIEW_REQUIRED"
+        || idempotencyConflict !== "CONFLICT_OR_REVIEW_REQUIRED") {
+        throw new Error("CENTRAL_RECOVERY_OBSERVATION_FAILED");
+      }
+      console.log("CENTRAL_RECOVERY_OBSERVATION=VERIFIED");
+    } finally {
+      reconciliationClient.release();
+    }
+
     const countBefore = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM sync.sync_operations WHERE tenant_id = $1 AND idempotency_key = $2`,
       [tenantId, operation.idempotency_key],
@@ -249,6 +273,41 @@ async function main(): Promise<void> {
     console.log(`REPLAY_STATUS=${replay.status}`);
     console.log(replayText);
     if (replay.status !== 200) throw new Error("REPLAY_FAILED");
+
+    // Fresh DeviceProof for each attempt: exercise persisted identity, not nonce replay.
+    const mutations = [
+      { label: "AGGREGATE", operation: { ...operation, aggregate_id: uuidV7() } },
+      { label: "ACTOR", operation: { ...operation, actor_id: uuidV7() } },
+      { label: "CORRELATION", operation: { ...operation, correlation_id: uuidV7() } },
+      { label: "BRANCH", operation: { ...operation, branch_id: uuidV7() } },
+      { label: "CAUSATION", operation: { ...operation, causation_id: uuidV7() } },
+    ];
+    for (const mutation of mutations) {
+      const changed = { ...envelope, request_id: uuidV7(), correlation_id: uuidV7(),
+        payload: { ...batch, batch_id: uuidV7(), branch_id: mutation.operation.branch_id,
+          operations: [mutation.operation] } };
+      const body = JSON.stringify(changed);
+      const response = await fetch(`${BASE}/v1/sync/batches`, {
+        method: "POST", headers: requestHeaders(changed, body), body,
+      });
+      const result = await response.json() as { result_code?: string };
+      if (response.status !== 409 || result.result_code !== "SYNC.OPERATION_IDENTITY_CONFLICT") {
+        throw new Error(`REPLAY_IDENTITY_${mutation.label}_NOT_REJECTED:${response.status}:${result.result_code}`);
+      }
+      console.log(`REPLAY_IDENTITY_${mutation.label}=REJECTED`);
+    }
+    const tampered = { ...envelope, request_id: uuidV7(), correlation_id: uuidV7(),
+      payload: { ...batch, batch_id: uuidV7(), operations: [{ ...operation,
+        payload: { ...payload, altered: true } }] } };
+    const tamperedBody = JSON.stringify(tampered);
+    const tamperedResponse = await fetch(`${BASE}/v1/sync/batches`, {
+      method: "POST", headers: requestHeaders(tampered, tamperedBody), body: tamperedBody,
+    });
+    const tamperedResult = await tamperedResponse.json() as { result_code?: string };
+    if (tamperedResponse.status !== 422 || tamperedResult.result_code !== "SYNC.PAYLOAD_CHECKSUM_MISMATCH") {
+      throw new Error("ALTERED_PAYLOAD_NOT_REJECTED");
+    }
+    console.log("ALTERED_PAYLOAD=REJECTED");
 
     const countAfter = await pool.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM sync.sync_operations WHERE tenant_id = $1 AND idempotency_key = $2`,
@@ -498,28 +557,43 @@ async function main(): Promise<void> {
           scope: { tenantId: string; companyId: string; branchId: string; deviceId: string; installationId: string };
           baseUrl: string;
           uuidV7(): string;
+          withCentralExclusion(operation: SyncOperation, apply: (observation: CentralRecoveryObservation) => void): Promise<void>;
           authorization(context: {
             method: "POST"; path: string; requestId: string; correlationId: string; body: string;
           }): Promise<string>;
-        }): Promise<{ operationId: string; idempotencyKey: string; localCheckpoint: number; localInboxRows: number; recoveredInterruptedDispatches: number }>;
+        }): Promise<{ operationId: string; idempotencyKey: string; saleId: string; payableAmount: string; calculationChecksum: string; localCheckpoint: number; localInboxRows: number; recoveredInterruptedDispatches: number }>;
       };
       const sqlite = await fixture.runIsolatedSqliteGate({
         scope: { tenantId, companyId, branchId, deviceId, installationId },
         baseUrl: BASE!,
         uuidV7,
+        withCentralExclusion: async (operation, apply) => {
+          const client = await pool.connect();
+          try {
+            await observeCentralRecovery(client, operation, apply);
+          } finally {
+            client.release();
+          }
+        },
         authorization: async (context) => createDeviceRequestAuthorization({
           ...context, credentialId,
         }, deviceKeyPair.privateKey),
       });
       const durableSqliteOperation = await pool.query<{ count: string }>(
         `SELECT count(*)::text AS count FROM sync.sync_operations
-         WHERE tenant_id=$1 AND id=$2 AND idempotency_key=$3 AND sync_status='SERVER_ACCEPTED'`,
-        [tenantId, sqlite.operationId, sqlite.idempotencyKey],
+         WHERE tenant_id=$1 AND id=$2 AND idempotency_key=$3 AND sync_status='SERVER_ACCEPTED'
+           AND company_id=$4 AND branch_id=$5 AND aggregate_type='SALE'
+           AND aggregate_id=$6 AND operation_type='SALE_CREATED'
+           AND payload->>'sale_id'=$6::text AND payload->>'payable_amount'=$7
+           AND payload->>'calculation_checksum'=$8`,
+        [tenantId, sqlite.operationId, sqlite.idempotencyKey, companyId, branchId,
+          sqlite.saleId, sqlite.payableAmount, sqlite.calculationChecksum],
       );
       if (durableSqliteOperation.rows[0]?.count !== "1") {
         throw new Error("SQLITE_CENTRAL_POSTGRES_DEDUPLICATION_FAILED");
       }
       console.log("SQLITE_OUTBOX_CENTRAL_POSTGRES=VERIFIED");
+      console.log("SQLITE_COMMERCIAL_SALE_IDENTITY_AND_TOTALS=VERIFIED");
       console.log(`SQLITE_CHECKPOINT=${sqlite.localCheckpoint}`);
       console.log(`SQLITE_INBOX_ROW_COUNT=${sqlite.localInboxRows}`);
       console.log("SQLITE_RESPONSE_LOSS_RECOVERY=VERIFIED");

@@ -1,7 +1,8 @@
 import { createPublicKey } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { StructuredLogger } from "@pos-platform/observability";
+import { createTelemetryBundle } from "@pos-platform/observability";
+import { startOtlpSdk } from "@pos-platform/observability/node";
 import { parseServiceConfig } from "./config.js";
 import { ServiceLifecycle, type RuntimeComponent } from "./lifecycle.js";
 import { LocalDatabaseComponent } from "./local-database-component.js";
@@ -30,7 +31,8 @@ import {
 } from "./security/index.js";
 import { assertWindowsScmCommercialCertification } from "./security/windows-commercial-host-identity.js";
 
-const logger = new StructuredLogger({
+const stopTelemetry = startOtlpSdk("pos-local-service");
+const telemetry = createTelemetryBundle({ serviceName: "pos-local-service", sink: {
   write: (record) => new Promise<void>((resolve, reject) => {
     const onError = (error: Error) => {
       process.stdout.off("error", onError);
@@ -42,7 +44,8 @@ const logger = new StructuredLogger({
       resolve();
     });
   }),
-});
+} });
+const { logger } = telemetry;
 
 /** Cadencia fija de despacho del outbox (`D-2`). */
 const CENTRAL_SYNC_INTERVAL_MS = 30_000;
@@ -71,6 +74,7 @@ function terminate(reason: string, exitCode: number, error?: unknown): Promise<v
 
     try {
       await logger.flush();
+      await stopTelemetry?.();
     } catch {
       exitCode = 1;
     }
@@ -253,6 +257,7 @@ try {
           localDatabase.database,
           config.local_operator_auth_store!,
         )),
+      telemetry,
     );
     components.push(localChannel);
   }

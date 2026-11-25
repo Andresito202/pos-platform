@@ -1,0 +1,134 @@
+name: Commercial operations preparation
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: commercial-ops-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  affected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 9.15.0
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck affected runtimes
+        run: pnpm --filter @pos-platform/observability --filter @pos-platform/central-authority --filter @pos-platform/pos-local-service --filter @pos-platform/target-migrations -r typecheck
+      - name: Outbox checksum regression
+        run: pnpm --filter @pos-platform/pos-local-service exec vitest run tests/sync-store.test.ts tests/bloque5-offline-sync-e2e.test.ts tests/sync-dispatcher.test.ts tests/sale.test.ts
+      - name: Architecture, contracts and repository policy
+        run: |
+          pnpm architecture:check
+          pnpm test:contracts
+          pnpm ci:repository-policy
+      - name: Dependency security audit
+        run: pnpm ci:vulnerability-audit
+      - name: Check operational script syntax
+        run: |
+          for f in infra/ops/*.sh; do bash -n "$f" || exit; done
+          for f in infra/ops/*.mjs; do node --check "$f" || exit; done
+          for f in infra/k6/*.js; do node --input-type=module --check < "$f" || exit; done
+
+  recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Replay real PostgreSQL WAL to a point between commits
+        run: |
+          docker run --rm -i --network none --user postgres \
+            -v "$PWD/infra/ops:/ops:ro" postgres:16.14 bash -se <<'DRILL'
+          set -euo pipefail
+          root="$(mktemp -d)"
+          mkdir "$root/archive" "$root/socket" "$root/drills"
+          initdb -D "$root/primary" --auth=trust --no-locale > /dev/null
+          printf "archive_mode = on\narchive_command = 'cp \"%%p\" \"%s/%%f\"'\n" "$root/archive" >> "$root/primary/postgresql.conf"
+          pg_ctl -D "$root/primary" -l "$root/primary.log" -o "-h '' -k $root/socket -p 5442" -w start
+          trap 'result=$?; if (( result )); then tail -n 100 "$root/primary.log" >&2; fi; pg_ctl -D "$root/primary" -m fast -w stop >/dev/null 2>&1 || true' EXIT
+          export PGHOST="$root/socket" PGPORT=5442 PGUSER=postgres PGDATABASE=postgres
+          psql -Xq -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA platform;
+          CREATE TABLE platform.target_migration_executions (marker int PRIMARY KEY);
+          SQL
+          pg_basebackup -D "$root/base" -Fp -X stream --checkpoint=fast
+          psql -Xq -v ON_ERROR_STOP=1 -c 'INSERT INTO platform.target_migration_executions VALUES (1)'
+          sleep 2
+          target="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          sleep 2
+          psql -Xq -v ON_ERROR_STOP=1 -c 'INSERT INTO platform.target_migration_executions VALUES (2)'
+          sleep 2
+          later="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          sleep 2
+          psql -Xq -v ON_ERROR_STOP=1 -c 'INSERT INTO platform.target_migration_executions VALUES (3)'
+          incident="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          wal="$(psql -XAt -v ON_ERROR_STOP=1 -c 'SELECT pg_walfile_name(pg_current_wal_insert_lsn())')"
+          psql -Xq -v ON_ERROR_STOP=1 -c 'SELECT pg_switch_wal()' > /dev/null
+          for retry in {1..60}; do
+            [[ -s "$root/archive/$wal" ]] && break
+            sleep 1
+          done
+          [[ -s "$root/archive/$wal" ]]
+          verify_at() {
+            printf 'SELECT array_agg(marker ORDER BY marker) = ARRAY[%s] FROM platform.target_migration_executions;\n' "$2" > "$root/verify.sql"
+            printf 'PITR_EXPECTED_MARKERS=%s\n' "$2"
+            PITR_BASE_BACKUP="$root/base" PITR_WAL_ARCHIVE="$root/archive" PITR_DRILL_PARENT="$root/drills" \
+              PITR_TARGET_UTC="$1" PITR_INCIDENT_UTC="$incident" PITR_DB_USER=postgres \
+              PITR_DATABASE=postgres PITR_VERIFY_SQL_FILE="$root/verify.sql" bash /ops/pitr-postgres-drill.sh
+          }
+          verify_at "$target" 1
+          verify_at "$later" 1,2
+          DRILL
+
+  portable-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Build portable Central image and check its runtime imports
+        run: |
+          docker build -f infra/docker/central-authority/Dockerfile -t camacho-pos-central:check .
+          docker run --rm --network none camacho-pos-central:check node --import tsx \
+            --input-type=module -e 'await import("@pos-platform/observability/node"); if (process.getuid() !== 10001) process.exit(1);'
+          docker run --rm --network none --workdir /app/tools/target-migrations camacho-pos-central:check \
+            node --import tsx --input-type=module -e 'await import("@pos-platform/device-trust"); await import("@pos-platform/observability/node");'
+      - name: Start Central and Sync with real PostgreSQL and check HTTPS
+        env:
+          REVIEWED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash infra/ops/check-portable-image.sh camacho-pos-central:check
+
+  alert-delivery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Evaluate Prometheus rules and verify Alertmanager webhook delivery
+        run: bash infra/ops/check-commercial-alert-delivery.sh
