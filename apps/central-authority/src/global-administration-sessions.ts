@@ -2,6 +2,7 @@ import {createHash,randomBytes,timingSafeEqual} from "node:crypto";
 import {uuidV7,PlatformSecurityEventCode,validateCommercialHttpsOrigin} from "@pos-platform/contracts";
 import {PostgresPlatformAdministrationSessionRepository,PostgresPlatformSecurityEventRepository,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {BusinessInitialMfaFlow} from "./business-initial-mfa-flow.js";
+import {spendDurableLoginBudget} from "./login-abuse-budget.js";
 
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 const random=()=>randomBytes(32).toString("base64url");
@@ -153,21 +154,8 @@ export class GlobalAdministrationSessions{
     });
   }
 
-  /** Durable fixed-window spending on the existing append-only security ledger.
-   * Both attempted successes and failures consume address/account budgets. */
+  /** Durable fixed-window spending on the existing append-only security ledger. */
   spendLoginBudget(address:string,email:string,policy:{windowMs:number;maximumPerAddress:number;maximumPerAccount:number}){
-    if(![policy.windowMs,policy.maximumPerAddress,policy.maximumPerAccount].every(n=>Number.isSafeInteger(n)&&n>0)||
-      typeof address!=="string"||address.length>256||typeof email!=="string"||email.length>320)throw Error("GLOBAL_ADMIN_ABUSE_POLICY_REQUIRED");
-    return this.transaction(async c=>{
-      const keys=[{reason:"GLOBAL_LOGIN_ACCOUNT",digest:hash(email.trim().toLowerCase()),max:policy.maximumPerAccount},
-        {reason:"GLOBAL_LOGIN_ADDRESS",digest:hash(address),max:policy.maximumPerAddress}];
-      for(const k of keys)await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[k.reason+":"+k.digest]);
-      for(const k of keys){const n=(await c.query(`SELECT count(*)::int AS n FROM identity.security_events WHERE event_code=$1 AND reason_code=$2
-        AND evidence_checksum=$3 AND server_recorded_at>clock_timestamp()-$4*interval '1 millisecond'`,
-        [PlatformSecurityEventCode.MFA_REQUIRED,k.reason,k.digest,policy.windowMs])).rows[0].n;if(n>=k.max)return false;}
-      for(const k of keys)await c.query(`INSERT INTO identity.security_events(id,event_code,result,reason_code,evidence_checksum,correlation_id,occurred_at,server_recorded_at)
-        VALUES($1,$2,'CHALLENGE_REQUIRED',$3,$4,$5,clock_timestamp(),clock_timestamp())`,[uuidV7(),PlatformSecurityEventCode.MFA_REQUIRED,k.reason,k.digest,uuidV7()]);
-      return true;
-    });
+    return spendDurableLoginBudget(this.pool,"GLOBAL",address,email,policy);
   }
 }

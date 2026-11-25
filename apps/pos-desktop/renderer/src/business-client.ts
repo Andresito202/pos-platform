@@ -1,6 +1,7 @@
 import { BUSINESS_API, BusinessContextsSchema, CashRegisterPageSchema, CashRegisterMasterRowSchema,
   BusinessScopeSchema, type CashRegisterMasterRow, type CashRegisterCreateRequest, uuidV7 } from "@pos-platform/contracts";
 import type * as z from "zod";
+import { acquireTurnstileToken } from "./turnstile-token.js";
 type Scope = z.infer<typeof BusinessScopeSchema>;
 const decode = (s: string) => Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")), c => c.charCodeAt(0));
 const encode = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
@@ -28,9 +29,23 @@ export class BusinessClient {
     }
     return await response.json() as Record<string, unknown>;
   }
+  private async loginPublicConfig(signal: AbortSignal): Promise<{ turnstileSiteKey: string | null }> {
+    const response = await this.transport(this.origin + BUSINESS_API + "login/public-config", {
+      method: "GET", credentials: "same-origin", redirect: "error", cache: "no-store",
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) throw new BusinessHttpRejection(response.status, "Central no publicó la configuración de login.");
+    const body = await response.json() as { turnstileSiteKey?: unknown };
+    const key = body.turnstileSiteKey;
+    if (key === null || key === undefined) return { turnstileSiteKey: null };
+    if (typeof key !== "string" || key.length < 10 || key.length > 128) throw Error("Configuración Turnstile inválida.");
+    return { turnstileSiteKey: key };
+  }
   async login(email: string, password: string, tenantId: string, membershipId: string, signal: AbortSignal) {
     this.csrf = null;
-    const start = await this.post("login/begin", { email, password }, signal);
+    const { turnstileSiteKey } = await this.loginPublicConfig(signal);
+    const turnstileToken = turnstileSiteKey === null ? undefined : await acquireTurnstileToken(turnstileSiteKey, signal);
+    const start = await this.post("login/begin", { email, password, ...(turnstileToken ? { turnstileToken } : {}) }, signal);
     if (typeof start.challenge !== "string" || typeof start.credentialId !== "string" || typeof start.csrfToken !== "string") throw Error("Desafío BUSINESS inválido.");
     const credential = await navigator.credentials.get({ publicKey: { challenge: decode(start.challenge), rpId: new URL(this.origin).hostname,
       allowCredentials: [{ type: "public-key", id: decode(start.credentialId) }], userVerification: "required" }, signal });
