@@ -309,7 +309,7 @@ const androidAssociationPublication = (() => {
 // Activation requires the complete native authorization composition, not DAL alone.
 const androidCommercial=await (async()=>{
  if(androidCommercialProvision===undefined)return undefined;
- if(!deployment||deployment.environment==="LOCAL"||!androidAssociationPublication||!businessProvision||!businessHandler)throw Error("ANDROID_COMMERCIAL_DEPENDENCIES_REQUIRED");
+ if(!deployment||deployment.environment==="LOCAL"||!androidAssociationPublication||!businessProvision||!businessHandler||!globalHandler?.activation)throw Error("ANDROID_COMMERCIAL_DEPENDENCIES_REQUIRED");
  return prepareAndroidCommercialRuntime({pool,provisionFile:androidCommercialProvision,businessProvision,origin:deployment.origin,environment:deployment.environment,registration:androidAssociationPublication.registration});
 })();
 const nativeRequestHandler = createNativeRequestHandler();
