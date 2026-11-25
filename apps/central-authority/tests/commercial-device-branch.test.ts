@@ -11,4 +11,10 @@ describe("canonical device branch resolution",()=>{
   query.mockResolvedValue({rows:[]});
   expect(await resolveCommercialDeviceBranch({query} as unknown as PoolClient,binding)).toBeNull();
  });
+ it("requires current license, signed activation term, entitlement and latest device credential in the canonical query",async()=>{
+  const query=vi.fn().mockResolvedValue({rows:[]});
+  expect(await resolveCommercialDeviceBranch({query} as unknown as PoolClient,binding)).toBeNull();
+  const sql=String(query.mock.calls[0]?.[0]);
+  for(const predicate of ["e.enabled=true","l.not_before<=clock_timestamp()","l.expires_at+interval '72 hours'","l.deployment_mode='LOCAL_PERPETUAL' AND l.contract_status='ACTIVE'","(a.canonical_payload->>'not_before')::timestamptz<=clock_timestamp()","(a.canonical_payload->>'expires_at')::timestamptz>clock_timestamp()","dc.expires_at>clock_timestamp()","newer.generation>dc.generation","dc.device_key_id=d.device_key_id","a.revoked_at IS NULL"])expect(sql).toContain(predicate);
+ });
 });
