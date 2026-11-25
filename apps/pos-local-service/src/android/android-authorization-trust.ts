@@ -1,3 +1,7 @@
+import { lstatSync, readFileSync } from "node:fs";
+import * as z from "zod";
+import { canonicalSessionTrustJson } from "@pos-platform/contracts";
+import type { EncryptedFileSecretStore } from "../security/encrypted-secret-store.js";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { SignedAuthorizationTrustSchema, unsignedAuthorizationTrustBytes, type AuthorizationTrustClaims } from "@pos-platform/contracts";
 import type { TrustedSigningKey } from "../security/license-verifier.js";
@@ -35,4 +39,31 @@ export function verifyAndroidAuthorizationTrust(input: unknown, policy: AndroidA
       validUntil:new Date(Math.min(Date.parse(c.valid_until),Date.parse(record.valid_until))).toISOString()});
   }
   return {signed,keys};
+}
+
+const ProvisionSchema = z.strictObject({
+  profile:z.literal("CAMACHO_ANDROID_SAS_PROVISION_V1"),
+  root_public_key_pem:z.string().min(80).max(4096),
+  root_spki_sha256:z.string().regex(/^[a-f0-9]{64}$/),
+  authority_id:z.string().min(1).max(96),
+  bundle:SignedAuthorizationTrustSchema,
+});
+/** Installer-controlled root; protect accepted generations outside SQLite. */
+export function resolveAndroidAuthorizationTrust(path:string, expected:Pick<AndroidAuthorizationTrustPolicy,"issuer"|"environment"|"recipient">, store:EncryptedFileSecretStore, now:Date) {
+  if (store.protection !== "OS_BOUND") throw Error("ANDROID_SAS_OS_CUSTODY_REQUIRED");
+  const stat=lstatSync(path);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size>1024*1024) throw Error("ANDROID_SAS_PROVISION_REJECTED");
+  const p=ProvisionSchema.parse(JSON.parse(readFileSync(path,"utf8")));
+  const policy={...expected,rootPublicKeyPem:p.root_public_key_pem,rootSpkiSha256:p.root_spki_sha256,authorityId:p.authority_id};
+  const candidate=verifyAndroidAuthorizationTrust(p.bundle,policy,now);
+  const name="android-sas-trust";
+  if(store.has(name)){
+    const prior=z.strictObject({root:z.string(),bundle:SignedAuthorizationTrustSchema}).parse(JSON.parse(store.read(name).toString("utf8")));
+    if(prior.root!==policy.rootSpkiSha256) throw Error("ANDROID_SAS_ROOT_CHANGE_REJECTED");
+    if(candidate.signed.claims.generation<prior.bundle.claims.generation) throw Error("ANDROID_SAS_GENERATION_ROLLBACK");
+    if(candidate.signed.claims.generation===prior.bundle.claims.generation &&
+       canonicalSessionTrustJson(candidate.signed)!==canonicalSessionTrustJson(prior.bundle)) throw Error("ANDROID_SAS_GENERATION_CONFLICT");
+  }
+  store.write(name,Buffer.from(JSON.stringify({root:policy.rootSpkiSha256,bundle:candidate.signed})));
+  return candidate.keys;
 }

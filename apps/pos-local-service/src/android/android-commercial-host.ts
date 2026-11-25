@@ -28,13 +28,19 @@ import { SessionTrustKeyVerifier } from "../security/session-trust-key-verifier.
 import { fiscalCredentialContext } from "../fiscal/fiscal-credential-store.js";
 import { factusPayCredentialContext } from "../payments/factus-pay-credential-store.js";
 import { ANDROID_TRIAL_CAPACITY_POLICY } from "./android-trial-capacity-policy.js";
+import { AndroidBusinessSessionActivation } from "./android-business-session-activation.js";
+import { resolveAndroidAuthorizationTrust } from "./android-authorization-trust.js";
+import { AuthorizationSnapshotVerifier } from "../security/authorization-snapshot-verifier.js";
+import { TrustedClockGuard } from "../security/trusted-clock.js";
+import { readAndroidCommercialProvision } from "./android-commercial-native-composition.js";
 import { verifyAndroidEmbeddedRuntimeIntegrity } from "./android-runtime-integrity.js";
 
 export type AndroidHostStatus = {
   readonly state: "STARTING" | "READY" | "STOPPED" | "FAILED";
   readonly commercial_access:
     | "BLOCKED_PENDING_TRUSTED_PROVISIONING"
-    | "BLOCKED_PENDING_BUSINESS_AUTHORITY";
+    | "BLOCKED_PENDING_BUSINESS_AUTHORITY"
+    | "BUSINESS_READY";
   readonly local_security: "NOT_PROVISIONED" | "PROVISIONED";
   readonly external_channel: "CLOSED";
   readonly engine: "EMBEDDED_NODE_SQLITE";
@@ -54,6 +60,8 @@ export class AndroidCommercialHost {
   private handler: CommercialRequestHandler | undefined;
   private config: ServiceConfig | undefined;
   private nativeCentral: AndroidBusinessNativeCentralClient | undefined;
+  private activation: AndroidBusinessSessionActivation | undefined;
+  private exchangeInProgress = false;
   private connectionId = randomUUID();
   private statusValue: AndroidHostStatus = {
     state: "STARTING",
@@ -192,6 +200,19 @@ export class AndroidCommercialHost {
         factusPayStore,
       );
       await this.commercial.start();
+      if (sessionTrust.decision === "VALID" && config.authorization_trust_provision_file && config.android_commercial_provision_file && config.central_base_url && this.localSecurity.protection === "OS_BOUND") {
+        const trustStore = new EncryptedFileSecretStore(securityDirectory, this.provider, `android-sas-trust:${config.installation_id}:${config.device_id}`);
+        try {
+          const provision = readAndroidCommercialProvision(config.android_commercial_provision_file, config.central_base_url);
+          const keys = resolveAndroidAuthorizationTrust(config.authorization_trust_provision_file, {
+            issuer: config.central_base_url, environment: provision.environment,
+            recipient: {tenant_id:config.tenant_id,company_id:config.company_id,branch_id:config.branch_id,installation_id:config.installation_id,device_id:config.device_id},
+          }, trustStore, this.now());
+          this.activation = new AndroidBusinessSessionActivation(this.database.database, this.commercial.sessionActivation, this.commercial.authorizationStore, new AuthorizationSnapshotVerifier(keys, new TrustedClockGuard(this.database.database), this.now), this.commercial.bindings, {tenantId:config.tenant_id,companyId:config.company_id,branchId:config.branch_id,installationId:config.installation_id,deviceId:config.device_id});
+          modules.push("business-session-activation");
+        } catch { this.activation = undefined; }
+        finally { trustStore.destroy(); }
+      }
       this.handler = new CommercialRequestHandler(
         this.config,
         this.commercial,
@@ -230,6 +251,8 @@ export class AndroidCommercialHost {
   }
 
   async stop(): Promise<void> {
+    this.activation?.close(this.connectionId);
+    this.activation = undefined;
     this.nativeCentral = undefined;
     await this.commercial?.stop();
     await this.durableSync?.stop();
@@ -244,6 +267,9 @@ export class AndroidCommercialHost {
   }
 
   status(): AndroidHostStatus {
+    if(this.statusValue.commercial_access === "BUSINESS_READY" && !this.activation?.authorize(this.connectionId)) {
+      this.statusValue = {...this.statusValue,commercial_access:"BLOCKED_PENDING_BUSINESS_AUTHORITY"};
+    }
     return this.statusValue;
   }
 
@@ -294,6 +320,12 @@ export class AndroidCommercialHost {
     }
     const messageType = wire.message_type;
 
+    if (messageType === "android.business.logout") {
+      if(this.exchangeInProgress) return this.denied(wire as IpcRequest,"BUSINESS_EXCHANGE_BUSY","Canje en curso.");
+      this.activation?.close(this.connectionId);
+      this.statusValue={...this.statusValue,commercial_access:"BLOCKED_PENDING_BUSINESS_AUTHORITY"};
+      return {status:"SUCCEEDED",result_code:"SESSION_CLOSED",result:null};
+    }
     if (messageType === "android.business.native_request") {
       return this.handleNativeRequest(wire);
     }
@@ -327,8 +359,10 @@ export class AndroidCommercialHost {
       );
     }
 
-    // Until the paired SSA/SAS activation path is certified, no commercial IPC is admitted.
-    return this.denied(request, "BUSINESS_AUTHORITY_REQUIRED", "Se requiere autorización BUSINESS firmada.");
+    if (request.message_type === "session.activate" || request.message_type === "session.recover" || !this.activation?.authorize(this.connectionId) || this.exchangeInProgress) {
+      return this.denied(request, "BUSINESS_AUTHORITY_REQUIRED", "Se requiere autorización BUSINESS firmada.");
+    }
+    return this.handler.handle(request as never, this.connectionId);
   }
 
   private async handleNativeRequest(wire: {
@@ -391,8 +425,17 @@ export class AndroidCommercialHost {
         "El canje de token BUSINESS con DeviceProof no está disponible sin Central y credencial enrolada.",
       );
     }
+    if(this.exchangeInProgress) return this.denied(wire as IpcRequest,"BUSINESS_EXCHANGE_BUSY","Canje en curso.");
+    this.exchangeInProgress = true;
+    this.activation?.close(this.connectionId);
+    this.statusValue = {...this.statusValue,commercial_access:"BLOCKED_PENDING_BUSINESS_AUTHORITY"};
     try {
-      const result = await this.nativeCentral.exchangeToken(material.data);
+      if (!this.activation || this.statusValue.state !== "READY") throw Error("BUSINESS_ACTIVATION_UNAVAILABLE");
+      const pair = await this.nativeCentral.exchangeToken(material.data);
+      if (!this.activation || this.statusValue.state !== "READY") throw Error("BUSINESS_ACTIVATION_UNAVAILABLE");
+      this.activation.activate(pair,this.connectionId);
+      this.statusValue = {...this.statusValue,commercial_access:"BUSINESS_READY"};
+      const result = {session_id:pair.session_assertion.claims.session_id,offline_valid_until:pair.session_assertion.claims.offline_valid_until};
       return {
         protocol_version: wire.protocol_version ?? "1.0.0",
         request_id: wire.request_id ?? randomUUID(),
@@ -414,7 +457,7 @@ export class AndroidCommercialHost {
         code === "CENTRAL_NATIVE_ROUTE_NOT_ACTIVATED" ? "BUSINESS_TOKEN_EXCHANGE_UNAVAILABLE" : code,
         "Central rechazó o no activó el canje de token BUSINESS.",
       );
-    }
+    } finally { this.exchangeInProgress = false; }
   }
 
   private denied(request: IpcRequest | undefined, code: string, message: string) {

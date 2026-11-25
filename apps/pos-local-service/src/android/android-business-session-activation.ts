@@ -14,6 +14,27 @@ export class AndroidBusinessSessionActivation {
     private readonly bindings: SessionBindingRegistry,
     private readonly scope: {installationId:string;deviceId:string;tenantId:string;companyId:string;branchId:string}) {}
 
+  /** Revalidate both persisted signatures for every privileged request. */
+  authorize(connectionId: string): boolean {
+    try {
+      const identity=this.bindings.resolve(connectionId);
+      if(!identity) return false;
+      const binding={userId:identity.userId,installationId:this.scope.installationId,deviceId:this.scope.deviceId};
+      const session=this.sessions.recover(binding);
+      const snapshot=this.snapshots.loadActive(binding);
+      if(session.kind!=="ACTIVE" || session.session.claims.session_id!==identity.ssaSessionId || !snapshot) throw Error("ANDROID_SESSION_INVALID");
+      if(this.verifier.verify({claims:snapshot.claims,signature:snapshot.signature},binding).decision!=="VALID") throw Error("ANDROID_SAS_REJECTED");
+      return true;
+    } catch {
+      this.bindings.release(connectionId);
+      return false;
+    }
+  }
+
+  close(connectionId:string):void {
+    this.bindings.release(connectionId);
+  }
+
   activate(pair: AndroidTokenExchangeResult, connectionId: string): void {
     this.bindings.release(connectionId);
     const ssa = pair.session_assertion;
