@@ -1,7 +1,7 @@
-import {type DeviceProofRequest,PostgresCommercialRefreshFamilies,type Pool} from "@pos-platform/database-postgres";
+import {type DeviceProofRequest,PostgresCommercialRefreshFamilies,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {CommercialBusinessAccessAuthority,type CommercialAccessPolicy} from "./commercial-business-access-authority.js";
 import {NativeBusinessCodeAuthority} from "./native-business-code-authority.js";
-import type {NativeClientRegistration} from "@pos-platform/contracts";
+import type {CommercialAccessClaims,NativeClientRegistration} from "@pos-platform/contracts";
 import type {CommercialRefreshPolicy} from "@pos-platform/database-postgres";
 
 export class CommercialNativeCredentialAuthority {
@@ -21,6 +21,7 @@ export class CommercialNativeCredentialAuthority {
       return {accessToken,refreshToken:family.refreshToken};
     });
   }
+  currentInTransaction(c:PoolClient,claims:CommercialAccessClaims){return this.access.currentInTransaction(c,claims);}
   refresh(raw:string,proof:DeviceProofRequest){return this.access.refresh(raw,proof);}
   verifyAndConsume(token:string,proof:DeviceProofRequest,operation:"SESSION_ASSERTION"|"AUTHORIZATION_SNAPSHOT"){
     return this.access.verifyAndConsume(token,proof,operation);

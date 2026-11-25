@@ -16,3 +16,5 @@ export * from "./platform-webauthn-factor-reference-repository.js";
 
 export * from "./business-session-ssa-eligibility-repository.js";
 export * from "./commercial-refresh-families.js";
+
+export * from "./commercial-device-branch.js";
