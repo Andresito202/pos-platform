@@ -16,8 +16,8 @@ import {
   type LicenseCapacityClaims,
 } from "@pos-platform/contracts";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
-import { LicenseCapacityGate, readLicenseCapacityProvision } from "../src/security/license-capacity-gate.js";
-import { unsignedLicenseCapacityBytes } from "../src/security/license-verifier.js";
+import { LicenseCapacityGate, readLicenseCapacityProvision } from "../../src/security/license-capacity-gate.js";
+import { unsignedLicenseCapacityBytes } from "../../src/security/license-verifier.js";
 
 function fail(code: string): never {
   process.stderr.write(`${code}\n`);

@@ -51,7 +51,7 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
   // Signed sector capacity via LicenseCapacityGate (Bloque 4 mechanism) — no bypass.
   const provision = spawnSync(process.execPath, [
     requireService.resolve("tsx/cli"),
-    join(serviceRoot, "scripts", "provision-lab-sector-license.ts"),
+    join(serviceRoot, "tests","fixtures","provision-lab-sector-license.ts"),
     "--data-directory", dataDirectory,
     "--tenant-id", ids.tenant,
     "--company-id", ids.company,
@@ -121,7 +121,7 @@ test("real Electron login -> backend RBAC -> SQLite catalogue -> logout -> cashi
     service=undefined;
     const activated=spawnSync(process.execPath,[
       requireService.resolve("tsx/cli"),
-      join(serviceRoot,"scripts","provision-lab-sector-license.ts"),
+      join(serviceRoot,"tests","fixtures","provision-lab-sector-license.ts"),
       "--activate",
       "--data-directory",dataDirectory,
       "--tenant-id",ids.tenant,

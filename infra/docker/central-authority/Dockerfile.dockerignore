@@ -40,3 +40,17 @@
 **/*.log
 **/test-results
 **/playwright-report
+
+# Tests and test-only credentials are never packaged in the runtime image.
+**/tests
+**/tests/**
+**/test
+**/test/**
+**/fixtures
+**/fixtures/**
+**/e2e
+**/e2e/**
+**/*.test.ts
+**/*.spec.ts
+**/*.test.mjs
+**/*.spec.mjs

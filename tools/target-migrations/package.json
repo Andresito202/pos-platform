@@ -9,7 +9,7 @@
     "role-readiness:003:apply": "tsx src/postgres-003-role-readiness-cli.ts apply",
     "role-readiness:003:revert": "tsx src/postgres-003-role-readiness-cli.ts revert",
     "central-sync:start": "tsx src/central-sync-server.ts",
-    "central-sync:gate": "tsx src/central-sync-gate.ts",
+    "central-sync:gate": "tsx tests/central-sync-gate.ts",
     "postgres:commercial:apply": "tsx src/postgres-commercial-cli.ts",
     "postgres:004:apply": "tsx src/postgres-004-cli.ts",
     "typecheck": "tsc -p tsconfig.json",

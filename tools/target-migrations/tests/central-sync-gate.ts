@@ -1,7 +1,7 @@
 import { createHash, randomBytes, generateKeyPairSync } from "node:crypto";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import { Pool } from "pg";
-import { observeCentralRecovery, type CentralRecoveryObservation } from "./central-recovery-observation.js";
+import { observeCentralRecovery, type CentralRecoveryObservation } from "../src/central-recovery-observation.js";
 import type { SyncOperation } from "@pos-platform/contracts";
 import { runIsolatedDeviceEnrollmentGate } from "./central-device-enrollment-gate.js";
 
@@ -549,7 +549,7 @@ async function main(): Promise<void> {
       // Lazy-load the cross-package laboratory fixture. A static source import
       // would bring apps/pos-local-service outside target-migrations rootDir.
       const localGateUrl = new URL(
-        "../../../apps/pos-local-service/src/sync/isolated-central-sqlite-gate.ts",
+        "../../../apps/pos-local-service/tests/fixtures/isolated-central-sqlite-gate.ts",
         import.meta.url,
       );
       const fixture = await import(localGateUrl.href) as {

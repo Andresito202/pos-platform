@@ -3,11 +3,11 @@
  * The operator wrapper uses only loopback port 55436 and a disposable Docker
  * container, and checks those boundaries before invoking this command.
  */
-import { applyPostgres001, applyPostgres002 } from "./postgres.js";
-import { applyPostgres003 } from "./postgres-003-runner.js";
-import { applyPostgres004 } from "./postgres-004-runner.js";
-import { applyPostgres028 } from "./postgres-028-runner.js";
-import { applyRoleReadiness, checkRoleReadiness } from "./postgres-003-role-readiness.js";
+import { applyPostgres001, applyPostgres002 } from "../../src/postgres.js";
+import { applyPostgres003 } from "../../src/postgres-003-runner.js";
+import { applyPostgres004 } from "../../src/postgres-004-runner.js";
+import { applyPostgres028 } from "../../src/postgres-028-runner.js";
+import { applyRoleReadiness, checkRoleReadiness } from "../../src/postgres-003-role-readiness.js";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

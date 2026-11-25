@@ -133,10 +133,10 @@ $got = Return-CommaArray
 Assert-True (($got -is [array]) -and ($got.Count -eq 2)) 'comma_return_count'
 
 # --- install-camacho-local-service.ps1: ban parameter named $args ---
-$helperPath = Join-Path (Split-Path $PSScriptRoot -Parent) 'apps/pos-desktop/packaging/install-camacho-local-service.ps1'
+$helperPath = Join-Path (Split-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) -Parent) 'apps/pos-desktop/packaging/install-camacho-local-service.ps1'
 if (-not (Test-Path -LiteralPath $helperPath)) {
   # Repo layout: tools/operators -> ../../apps/...
-  $helperPath = Join-Path $PSScriptRoot '..\..\apps\pos-desktop\packaging\install-camacho-local-service.ps1'
+  $helperPath = Join-Path $PSScriptRoot '..\..\..\apps\pos-desktop\packaging\install-camacho-local-service.ps1'
 }
 $helperPath = [IO.Path]::GetFullPath($helperPath)
 Assert-True (Test-Path -LiteralPath $helperPath) 'helper_present' $helperPath
@@ -154,7 +154,7 @@ Assert-True ($helperSrc -match 'CAMACHO_SERVICE_LOGDIR|logDirectory') 'winsw_log
 Assert-True ($helperSrc -match 'RedirectStandardError') 'captures_winsw_stderr'
 Assert-True ($helperSrc -match 'sc\.exe queryex') 'scm_diagnostics_on_failure'
 
-$stagePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\apps\pos-desktop\scripts\stage-nsis-service-payload.mjs'))
+$stagePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\apps\pos-desktop\scripts\stage-nsis-service-payload.mjs'))
 Assert-True (Test-Path -LiteralPath $stagePath) 'stage_script_present' $stagePath
 $stageSrc = Get-Content -LiteralPath $stagePath -Raw
 Assert-True ($stageSrc -match '<logpath>') 'stage_template_has_logpath'
