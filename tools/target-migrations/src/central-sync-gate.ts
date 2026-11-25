@@ -1,7 +1,8 @@
 import { createHash, randomBytes, generateKeyPairSync } from "node:crypto";
 import { createDeviceRequestAuthorization } from "@pos-platform/device-trust";
 import { Pool } from "pg";
-import { observeCentralRecovery } from "./central-recovery-observation.js";
+import { observeCentralRecovery, type CentralRecoveryObservation } from "./central-recovery-observation.js";
+import type { SyncOperation } from "@pos-platform/contracts";
 import { runIsolatedDeviceEnrollmentGate } from "./central-device-enrollment-gate.js";
 
 
@@ -556,6 +557,7 @@ async function main(): Promise<void> {
           scope: { tenantId: string; companyId: string; branchId: string; deviceId: string; installationId: string };
           baseUrl: string;
           uuidV7(): string;
+          withCentralExclusion(operation: SyncOperation, apply: (observation: CentralRecoveryObservation) => void): Promise<void>;
           authorization(context: {
             method: "POST"; path: string; requestId: string; correlationId: string; body: string;
           }): Promise<string>;
@@ -565,6 +567,14 @@ async function main(): Promise<void> {
         scope: { tenantId, companyId, branchId, deviceId, installationId },
         baseUrl: BASE!,
         uuidV7,
+        withCentralExclusion: async (operation, apply) => {
+          const client = await pool.connect();
+          try {
+            await observeCentralRecovery(client, operation, apply);
+          } finally {
+            client.release();
+          }
+        },
         authorization: async (context) => createDeviceRequestAuthorization({
           ...context, credentialId,
         }, deviceKeyPair.privateKey),
