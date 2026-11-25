@@ -35,4 +35,32 @@ export class FixedWindowRateLimiter {
     existing.count += 1;
     return true;
   }
+
+  /** Active budgets only; used by durable wrappers. Not an auth decision. */
+  exportActiveBuckets(now=Date.now()):ReadonlyArray<readonly [string,{readonly count:number;readonly startedAt:number}]>{
+    if(!Number.isFinite(now))return [];
+    this.pruneExpired(now);
+    return [...this.buckets.entries()].map(([key,bucket])=>[key,{count:bucket.count,startedAt:bucket.startedAt}] as const);
+  }
+
+  /** Restore budgets from durable storage. Never raises a key's remaining allowance. */
+  importActiveBuckets(entries:ReadonlyArray<readonly [string,{readonly count:number;readonly startedAt:number}]>,now=Date.now()):void{
+    if(!Number.isFinite(now)||!Array.isArray(entries))return;
+    for(const entry of entries){
+      if(!Array.isArray(entry)||entry.length!==2)continue;
+      const [key,bucket]=entry;
+      if(typeof key!=="string"||!key||key.length>256||!bucket||!Number.isSafeInteger(bucket.count)||
+        !Number.isFinite(bucket.startedAt)||bucket.count<1||bucket.count>this.maximum||
+        now-bucket.startedAt>=this.windowMs||now<bucket.startedAt)continue;
+      const existing=this.buckets.get(key);
+      if(!existing){
+        if(this.buckets.size>=this.capacity)continue;
+        this.buckets.set(key,{count:bucket.count,startedAt:bucket.startedAt});
+        continue;
+      }
+      // Keep the stricter (higher) count and older window start when merging.
+      existing.count=Math.max(existing.count,bucket.count);
+      existing.startedAt=Math.min(existing.startedAt,bucket.startedAt);
+    }
+  }
 }

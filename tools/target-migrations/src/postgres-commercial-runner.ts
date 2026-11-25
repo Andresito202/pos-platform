@@ -1,6 +1,7 @@
 import {isSupportedMigrationPostgresVersion} from "./postgres-compatibility.js";
 import {Pool,type PoolClient} from "pg";
 import { POSTGRES_003_DESCRIPTOR, type MigrationDescriptor } from "./contract.js";
+import { POSTGRES_004_DESCRIPTOR } from "./postgres-004-contract.js";
 import {POSTGRES_007_DESCRIPTOR} from "./postgres-007-contract.js";
 import {POSTGRES_006_DESCRIPTOR} from "./postgres-006-contract.js";
 import {POSTGRES_008_DESCRIPTOR} from "./postgres-008-platform-roles-contract.js";
@@ -81,8 +82,11 @@ export const POSTGRES_038_DESCRIPTOR=descriptor("038_commercial_portal_bridge",P
   ["identity.commercial_bridge_sessions","identity.commercial_bridge_jtis","licensing.commercial_trial_grants","licensing.commercial_provisioning_receipts"],
   "identity");
 
-type CommercialMigrationTarget="COMMERCIAL_PORTAL_BRIDGE"|"LOGIN_ABUSE_BUDGET"|"SUBSCRIPTION_FULFILLMENT"|"REPORTING_PERMISSIONS"|"CASH_REGISTER_BINDINGS"|"TENANT_INITIALIZATION"|"BUSINESS_OWNER"|"COMMERCIAL_AUTHORIZATION"|"CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
+export const POSTGRES_037_DESCRIPTOR=descriptor("037_central_rate_limit_counters",POSTGRES_004_DESCRIPTOR.migrationId,["platform.central_rate_limit_counters"],"platform");
+
+type CommercialMigrationTarget="CENTRAL_RATE_LIMIT"|"COMMERCIAL_PORTAL_BRIDGE"|"LOGIN_ABUSE_BUDGET"|"SUBSCRIPTION_FULFILLMENT"|"REPORTING_PERMISSIONS"|"CASH_REGISTER_BINDINGS"|"TENANT_INITIALIZATION"|"BUSINESS_OWNER"|"COMMERCIAL_AUTHORIZATION"|"CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="CENTRAL_RATE_LIMIT")return [POSTGRES_037_DESCRIPTOR];
   if(target==="COMMERCIAL_PORTAL_BRIDGE")return [POSTGRES_038_DESCRIPTOR];
   if(target==="LOGIN_ABUSE_BUDGET")return [POSTGRES_036_DESCRIPTOR];
   if(target==="SUBSCRIPTION_FULFILLMENT")return [POSTGRES_035_DESCRIPTOR];
@@ -113,6 +117,11 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
     // 014 extends the existing Identity-central table, whose 001 contract uses
     // role grants rather than tenant RLS. It must not change that boundary.
     check(result.rows[0]?.owner==="pos_schema_owner"&&(d===POSTGRES_014_DESCRIPTOR||result.rows[0].rls&&result.rows[0].forced),`Commercial migration ownership/RLS mismatch: ${table}`);
+  }
+  if(d===POSTGRES_037_DESCRIPTOR){
+    for(const role of ["pos_app","pos_worker","pos_reporting","pos_platform_admin"])
+      check(!(await c.query("SELECT has_table_privilege($1,'platform.central_rate_limit_counters','SELECT,INSERT,UPDATE,DELETE') AS allowed",[role])).rows[0].allowed,"Central rate counters exposed outside Central");
+    check((await c.query("SELECT has_table_privilege('pos_platform_app','platform.central_rate_limit_counters','SELECT,INSERT,UPDATE,DELETE') AS allowed")).rows[0].allowed,"Central rate counters must be writable by pos_platform_app");
   }
   if(d===POSTGRES_032_DESCRIPTOR){
     const grants=(await c.query(`
@@ -342,7 +351,7 @@ export async function applyCommercialMigrations(input:{migratorUrl:string;expect
         const predecessor=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_003_DESCRIPTOR.migrationId])).rows[0];
         check(predecessor&&Buffer.from(predecessor.checksum).equals(sha256(await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact))),"Factus Pay 003 predecessor mismatch");
       }
-      let predecessor=input.target==="COMMERCIAL_PORTAL_BRIDGE"?POSTGRES_021_DESCRIPTOR:input.target==="LOGIN_ABUSE_BUDGET"?POSTGRES_021_DESCRIPTOR:input.target==="SUBSCRIPTION_FULFILLMENT"?POSTGRES_023_DESCRIPTOR:input.target==="REPORTING_PERMISSIONS"?POSTGRES_033_DESCRIPTOR:input.target==="CASH_REGISTER_BINDINGS"?POSTGRES_032_DESCRIPTOR:input.target==="TENANT_INITIALIZATION"?POSTGRES_031_DESCRIPTOR:input.target==="BUSINESS_OWNER"?POSTGRES_030_DESCRIPTOR:input.target==="COMMERCIAL_AUTHORIZATION"?POSTGRES_029_DESCRIPTOR:input.target==="CASH_REGISTER_MASTER"?POSTGRES_023_DESCRIPTOR:POSTGRES_007_DESCRIPTOR;
+      let predecessor=input.target==="CENTRAL_RATE_LIMIT"?POSTGRES_004_DESCRIPTOR:input.target==="COMMERCIAL_PORTAL_BRIDGE"?POSTGRES_021_DESCRIPTOR:input.target==="LOGIN_ABUSE_BUDGET"?POSTGRES_021_DESCRIPTOR:input.target==="SUBSCRIPTION_FULFILLMENT"?POSTGRES_023_DESCRIPTOR:input.target==="REPORTING_PERMISSIONS"?POSTGRES_033_DESCRIPTOR:input.target==="CASH_REGISTER_BINDINGS"?POSTGRES_032_DESCRIPTOR:input.target==="TENANT_INITIALIZATION"?POSTGRES_031_DESCRIPTOR:input.target==="BUSINESS_OWNER"?POSTGRES_030_DESCRIPTOR:input.target==="COMMERCIAL_AUTHORIZATION"?POSTGRES_029_DESCRIPTOR:input.target==="CASH_REGISTER_MASTER"?POSTGRES_023_DESCRIPTOR:POSTGRES_007_DESCRIPTOR;
       for(const d of selected){
         const checksum=sha256(await readArtifact(d.upArtifact)),prior=sha256(await readArtifact(predecessor.upArtifact));
         const history=(await c.query("SELECT execution_id,checksum,status FROM platform.target_migration_executions WHERE migration_id=$1 ORDER BY started_at",[d.migrationId])).rows;

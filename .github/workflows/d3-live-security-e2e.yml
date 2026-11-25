@@ -115,6 +115,14 @@ jobs:
           POSTGRES_EXPECTED_DATABASE: postgres
           REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
         run: pnpm --filter @pos-platform/target-migrations postgres:004:apply
+      - name: Apply PostgreSQL 037 central rate limit counters
+        env:
+          POSTGRES_MIGRATOR_URL: postgres://pos_migrator@127.0.0.1:55434/postgres
+          POSTGRES_EXPECTED_DATABASE: postgres
+          REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
+          POSTGRES_MIGRATION_LOCK_TIMEOUT_MS: "5000"
+          POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS: "60000"
+        run: pnpm --filter @pos-platform/target-migrations postgres:commercial:apply -- --central-rate-limit
       - name: Generate ephemeral TLS and issuer keys
         run: |
           set -euo pipefail
