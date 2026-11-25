@@ -14,13 +14,23 @@ export type CentralRecoveryObservation =
 export async function observeCentralRecovery(
   client: PoolClient,
   input: unknown,
+  applyUnderExclusion?: (observation: CentralRecoveryObservation) => void,
 ): Promise<CentralRecoveryObservation> {
   const op = SyncOperationSchema.parse(input);
   const canonicalChecksum = createHash("sha256").update(canonicalJson(op.payload)).digest("hex");
-  await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+  await client.query(applyUnderExclusion ? "BEGIN ISOLATION LEVEL READ COMMITTED" : "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
   try {
     const primary = await client.query<{ standby: boolean }>("SELECT pg_is_in_recovery() AS standby");
     if (primary.rows[0]?.standby !== false) throw new Error("SYNC_RECOVERY_PRIMARY_REQUIRED");
+    if (applyUnderExclusion) {
+      // Administrative maintenance only. The table lock conflicts with all
+      // INSERT/UPDATE/DELETE writers, including Central Sync and other services.
+      // READ COMMITTED ensures the observation is taken AFTER waiting for writers.
+      await client.query("SET LOCAL lock_timeout = '5s'");
+      await client.query("SET LOCAL statement_timeout = '15s'");
+      await client.query("SET LOCAL row_security = off");
+      await client.query("LOCK TABLE sync.sync_operations IN SHARE ROW EXCLUSIVE MODE");
+    }
     await client.query("SELECT set_config('app.tenant_id',$1,true)", [op.tenant_id]);
     const result = await client.query<{ exact: boolean }>(
       `SELECT COALESCE(
@@ -39,10 +49,18 @@ export async function observeCentralRecovery(
         op.correlation_id,op.causation_id,op.authority_policy,op.expected_version,
         Number(op.payload_schema_version.split(".")[0]),canonicalChecksum,JSON.stringify(op.payload)],
     );
+    let observation: CentralRecoveryObservation = result.rows.length === 0 ? "NOT_OBSERVED"
+      : result.rows.length === 1 && result.rows[0]?.exact === true ? "ALREADY_ACCEPTED"
+      : "CONFLICT_OR_REVIEW_REQUIRED";
+    if (applyUnderExclusion && observation === "NOT_OBSERVED") {
+      // operation_id is globally unique; tenant RLS must not hide a collision.
+      const collision = await client.query("SELECT 1 FROM sync.sync_operations WHERE id=$1", [op.operation_id]);
+      if (collision.rowCount) observation = "CONFLICT_OR_REVIEW_REQUIRED";
+    }
+    // Synchronous callback: no async work can outlive the held exclusion.
+    applyUnderExclusion?.(observation);
     await client.query("COMMIT");
-    if (result.rows.length === 0) return "NOT_OBSERVED";
-    if (result.rows.length === 1 && result.rows[0]?.exact === true) return "ALREADY_ACCEPTED";
-    return "CONFLICT_OR_REVIEW_REQUIRED";
+    return observation;
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
