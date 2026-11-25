@@ -10,7 +10,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
 import { canonicalJson } from "@pos-platform/local-channel";
-import { SyncOperationSchema } from "@pos-platform/contracts";
+import { SyncOperationSchema, type SyncOperation } from "@pos-platform/contracts";
+import { existsSync } from "node:fs";
+import { repairLegacySaleOutbox } from "./outbox-recovery-repair.js";
 import { SqliteCatalogStore } from "../catalog/sqlite-catalog-store.js";
 import { SqliteInventoryStore } from "../inventory/sqlite-inventory-store.js";
 import { SqliteCashShiftStore } from "../cash/sqlite-cash-shift-store.js";
@@ -26,6 +28,7 @@ export interface IsolatedSqliteGateInput {
   scope: SyncScope;
   baseUrl: string;
   uuidV7(): string;
+  withCentralExclusion(operation: SyncOperation, apply: (observation: "NOT_OBSERVED" | "ALREADY_ACCEPTED" | "CONFLICT_OR_REVIEW_REQUIRED") => void): Promise<void>;
   authorization(context: { method: "POST"; path: string; requestId: string; correlationId: string; body: string }): Promise<string>;
 }
 
@@ -110,6 +113,22 @@ export async function runIsolatedSqliteGate(input: IsolatedSqliteGateInput): Pro
     database.close();
     database = LocalDatabase.open({dataDirectory:directory});
     store = new DurableSyncStore(database,policy,now);
+
+    // Reproduce the historical writer defect using the actual request checksum.
+    const request = database.native.prepare("SELECT request_checksum FROM sales_sales WHERE id=?")
+      .get(sale.saleId) as {request_checksum:string};
+    database.native.prepare("UPDATE local_sync_outbox SET operation_json=?,payload_checksum=? WHERE operation_id=?")
+      .run(canonicalJson({...operation,payload_checksum:request.request_checksum}),request.request_checksum,operationId);
+    const repair = await repairLegacySaleOutbox(database,scope,operationId,input.withCentralExclusion);
+    if (!existsSync(repair.backupPath) || store.checkpoint(scope) !== 0) throw new Error("SQLITE_RECOVERY_BACKUP_OR_CHECKPOINT_INVALID");
+    const repaired = database.native.prepare("SELECT operation_json,payload_checksum,status FROM local_sync_outbox WHERE operation_id=?")
+      .get(operationId) as {operation_json:string;payload_checksum:string;status:string};
+    if (repaired.operation_json !== canonicalJson(operation) || repaired.payload_checksum !== operation.payload_checksum
+      || repaired.status !== "PENDING") throw new Error("SQLITE_RECOVERY_CONTENT_CHANGED");
+    const audit = database.native.prepare("SELECT count(*) AS count FROM local_operation_audit WHERE action_code='SYNC_OUTBOX_CHECKSUM_REPAIRED' AND resource_id=?")
+      .get(operationId) as {count:number};
+    if (audit.count !== 1) throw new Error("SQLITE_RECOVERY_AUDIT_MISSING");
+    console.log("SQLITE_LEGACY_REPAIR_WITH_CENTRAL_EXCLUSION=VERIFIED");
 
     const credentials: DeviceCredentialProvider = {
       isProvisioned: () => true,
