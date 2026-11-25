@@ -6,6 +6,7 @@ on:
       - 'apps/pos-local-service/**'
       - 'packages/**'
       - 'tools/android-runtime/**'
+      - 'pnpm-lock.yaml'
       - '.github/workflows/android-commercial-build.yml'
   workflow_dispatch:
     inputs:
@@ -28,7 +29,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.14'
-      - run: gradle -p apps/pos-android --no-daemon commercialIdentityTest
+      - name: Compile commercial Kotlin and test identity
+        run: gradle -p apps/pos-android --no-daemon commercialIdentityTest
   unsigned-apk:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
     needs: kotlin
@@ -50,9 +52,8 @@ jobs:
         with:
           node-version: '22.19.0'
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
       - name: Provision Android SDK and pinned NDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
         with:
           cmdline-tools-version: '11076708'
           packages: 'platform-tools ndk;27.3.13750724'
@@ -62,38 +63,32 @@ jobs:
           set -euo pipefail
           command -v sdkmanager
           sdkmanager --version
-          test -n "${ANDROID_HOME:-}"
+          test -d "$ANDROID_HOME"
           ndk="$ANDROID_HOME/ndk/27.3.13750724"
-          grep -Eq '^Pkg.Revision[[:space:]]*=[[:space:]]*27\.3\.13750724[[:space:]]*
-          node tools/android-runtime/prepare-runtime.mjs
-          python3 tools/android-runtime/verify-runtime-inputs.py tools/android-runtime/build/runtime-inputs
-          python3 tools/android-runtime/extract-runtime.py tools/android-runtime/build/runtime-inputs tools/android-runtime/build/runtime-root
-          python3 tools/android-runtime/compile-runtime-addon.py tools/android-runtime "$ANDROID_HOME/ndk/27.3.13750724"
-          node tools/android-runtime/package-runtime-assets.mjs
-          python3 tools/android-runtime/prepare-installed-runtime.py tools/android-runtime/build/runtime-root tools/android-runtime/build/runtime-assets tools/android-runtime/build/installed-runtime
-          gradle -p apps/pos-android --no-daemon commercialApk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: camacho-pos-android-unsigned
-          path: apps/pos-android/build/commercial-apk/camacho-pos-colombia-unsigned.apk
-          if-no-files-found: error
- "$ndk/source.properties"
+          grep -Eq '^Pkg\.Revision[[:space:]]*=[[:space:]]*27\.3\.13750724[[:space:]]*$' "$ndk/source.properties"
           "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang" --version
           "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang++" --version
           command -v gpgv
           command -v ar
           python3 --version
-      - name: Build verified commercial runtime and unsigned APK
-        run: |
-          set -euo pipefail
-          node tools/android-runtime/prepare-runtime.mjs
-          python3 tools/android-runtime/verify-runtime-inputs.py tools/android-runtime/build/runtime-inputs
-          python3 tools/android-runtime/extract-runtime.py tools/android-runtime/build/runtime-inputs tools/android-runtime/build/runtime-root
-          python3 tools/android-runtime/compile-runtime-addon.py tools/android-runtime "$ANDROID_HOME/ndk/27.3.13750724"
-          node tools/android-runtime/package-runtime-assets.mjs
-          python3 tools/android-runtime/prepare-installed-runtime.py tools/android-runtime/build/runtime-root tools/android-runtime/build/runtime-assets tools/android-runtime/build/installed-runtime
-          gradle -p apps/pos-android --no-daemon commercialApk
-      - uses: actions/upload-artifact@v4
+      - name: Install locked workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Prepare pinned runtime inputs
+        run: node tools/android-runtime/prepare-runtime.mjs
+      - name: Verify signed runtime metadata and packages
+        run: python3 tools/android-runtime/verify-runtime-inputs.py tools/android-runtime/build/runtime-inputs
+      - name: Extract verified runtime
+        run: python3 tools/android-runtime/extract-runtime.py tools/android-runtime/build/runtime-inputs tools/android-runtime/build/runtime-root
+      - name: Compile native SQLite addon
+        run: python3 tools/android-runtime/compile-runtime-addon.py tools/android-runtime "$ANDROID_HOME/ndk/27.3.13750724"
+      - name: Package commercial runtime assets
+        run: node tools/android-runtime/package-runtime-assets.mjs
+      - name: Derive verified installed ARM64 libraries
+        run: python3 tools/android-runtime/prepare-installed-runtime.py tools/android-runtime/build/runtime-root tools/android-runtime/build/runtime-assets tools/android-runtime/build/installed-runtime
+      - name: Assemble unsigned commercial APK
+        run: gradle -p apps/pos-android --no-daemon commercialApk
+      - name: Publish unsigned build artifact
+        uses: actions/upload-artifact@v4
         with:
           name: camacho-pos-android-unsigned
           path: apps/pos-android/build/commercial-apk/camacho-pos-colombia-unsigned.apk
