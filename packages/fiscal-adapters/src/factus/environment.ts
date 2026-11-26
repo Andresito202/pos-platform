@@ -33,6 +33,9 @@ export const FACTUS_PATH = {
   validateBill: "/v2/bills/validate",
   /** Crear y validar nota crédito — documentación oficial FACTUS v2. */
   validateCreditNote: "/v2/credit-notes/validate",
+  validateDebitNote: "/v2/debit-notes/validate",
+  validateSupportDocument: "/v2/support-documents/validate",
+  validateSupportAdjustment: "/v2/adjustment-notes/validate",
   numberingRanges: "/v2/numbering-ranges",
   dianNumberingRanges: "/v2/numbering-ranges/dian",
 } as const;

@@ -111,6 +111,43 @@ describe("validación del payload congelado, antes de transmitir", () => {
 });
 
 describe("emisión: evidencia, fallo técnico e incertidumbre", () => {
+  const supplier = { identification_document_code: "31", identification: "12345", legal_organization_code: "2",
+    names: "Proveedor de prueba", address: "Dirección de prueba", country_code: "CO" };
+  const items = [{ code_reference: "ITEM" }];
+  it.each([
+    ["DEBIT_NOTE", "/v2/debit-notes/validate", { ...PAYLOAD, bill_number: "FV1", correction_concept_code: "1", items }],
+    ["SUPPORT_DOCUMENT", "/v2/support-documents/validate", { ...PAYLOAD, provider: supplier, items }],
+    ["SUPPORT_DOCUMENT_ADJUSTMENT_NOTE", "/v2/adjustment-notes/validate",
+      { ...PAYLOAD, support_document_number: "DS1", correction_concept_code: "2", provider: supplier, items }],
+  ] as const)("envía %s al endpoint específico y verifica su identidad", async (documentType, path, payload) => {
+    const { adapter: subject, transport } = adapter(() => json(201, {
+      data: { reference_code: ISSUE.idempotencyKey, number: "DOC1", is_validated: true },
+    }));
+    const document = { documentType, payload, checksumSha256: createHash("sha256").update(JSON.stringify(payload)).digest("hex") };
+    expect(await subject.issue({ ...ISSUE, document }, signal)).toMatchObject({ kind: "EVIDENCED", normalizedResult: "ACCEPTED" });
+    expect(transport.requests.at(-1)?.url).toBe(`https://api-sandbox.factus.com.co${path}`);
+  });
+
+  it("rechaza tipos sin soporte, payload incorrecto y entornos incompatibles antes de OAuth", async () => {
+    const { adapter: subject, transport } = adapter(() => json(500, {}));
+    const invalid = { ...ISSUE.document, documentType: "DEBIT_NOTE" as const };
+    const unsupported = { ...ISSUE.document, documentType: "POS_ELECTRONIC" as typeof ISSUE.document.documentType };
+    expect(await subject.issue({ ...ISSUE, document: invalid }, signal)).toMatchObject({
+      kind: "TECHNICAL_FAILURE", diagnostic: { code: "FACTUS_DOCUMENT_PAYLOAD_INVALID" },
+    });
+    expect(await subject.issue({ ...ISSUE, document: unsupported }, signal)).toMatchObject({
+      kind: "TECHNICAL_FAILURE", diagnostic: { code: "FACTUS_DOCUMENT_TYPE_UNSUPPORTED" },
+    });
+    expect(await subject.issue({ ...ISSUE, environment: "PRODUCTION" }, signal)).toMatchObject({
+      kind: "TECHNICAL_FAILURE", diagnostic: { code: "FACTUS_ENVIRONMENT_MISMATCH" },
+    });
+    const production = new FactusAdapter(transport, new FakeCredentialResolver(), "PRODUCTION", clock);
+    expect(await production.issue({ ...ISSUE, environment: "PRODUCTION", document: invalid }, signal)).toMatchObject({
+      kind: "TECHNICAL_FAILURE", diagnostic: { code: "FACTUS_DOCUMENT_TYPE_NOT_CERTIFIED_FOR_PRODUCTION" },
+    });
+    expect(transport.requests).toHaveLength(0);
+  });
+
   it("`is_validated: true` produce evidencia ACCEPTED con identidad externa", async () => {
     // Forma documentada oficialmente para `POST /v2/bills/validate`: los campos
     // van directamente bajo `data`, y la evidencia es el booleano
@@ -243,8 +280,8 @@ describe("emisión: evidencia, fallo técnico e incertidumbre", () => {
     expect(outcome.kind).toBe("TECHNICAL_FAILURE");
     if (outcome.kind !== "TECHNICAL_FAILURE") throw new Error("rama imposible");
     expect(outcome.diagnostic.code).toBe("REFERENCE_CODE_DOES_NOT_MATCH_IDEMPOTENCY_KEY");
-    // Sólo el token; la factura no se transmitió.
-    expect(transport.requests).toHaveLength(1);
+    // Los errores locales se rechazan antes de pedir el token.
+    expect(transport.requests).toHaveLength(0);
   });
 
   it("rechaza en validación un cuerpo sin `reference_code`", async () => {
@@ -329,6 +366,62 @@ describe("consulta V2 por referencia", () => {
     const result = await subject.queryStatus({ reference: { by: "NUMBER", prefix: "SETP", number: "123" }, environment: "SANDBOX", credential: FAKE_REFERENCE }, signal);
     expect(result.kind).toBe("INDETERMINATE");
     expect(authorizesReissue(result)).toBe(false);
+  });
+});
+
+describe("recuperación documental FACTUS", () => {
+  it.each([
+    ["CREDIT_NOTE", "/v2/credit-notes", "CreditNote"],
+    ["DEBIT_NOTE", "/v2/debit-notes", "DebitNote"],
+    ["SUPPORT_DOCUMENT", "/v2/support-documents", "Invoice"],
+    ["SUPPORT_DOCUMENT_ADJUSTMENT_NOTE", "/v2/adjustment-notes", "CreditNote"],
+  ] as const)("resuelve y descarga XML de %s desde su propio recurso", async (documentType, resource, root) => {
+    const xml = Buffer.from(`<${root}></${root}>`).toString("base64");
+    const { adapter: subject, transport } = adapter((request) => {
+      const url = new URL(request.url);
+      if (url.pathname === resource && url.searchParams.get("filter[reference_code]") === "POS-1") {
+        return json(200, { data: { data: [observedBill] } });
+      }
+      if (url.pathname === (documentType === "DEBIT_NOTE" ? resource + "/reference/POS-1" : resource + "/SETP123")) {
+        return json(200, { data: observedBill });
+      }
+      if (url.pathname === resource + "/SETP123/download-xml") {
+        const field = documentType === "SUPPORT_DOCUMENT" ? "pdf_base_64_encoded" : "xml_base_64_encoded";
+        return json(200, { data: { [field]: xml } });
+      }
+      return json(500, {});
+    });
+
+    const result = await subject.fetchArtifact({
+      electronicDocumentId: "doc-1", providerOperationId: "POS-1",
+      artifactType: "XML", documentType, environment: "SANDBOX", credential: FAKE_REFERENCE,
+    }, signal);
+
+    expect(result.kind).toBe("RETRIEVED");
+    expect(transport.requests.at(-1)?.url).toContain(resource + "/SETP123/download-xml");
+    expect(transport.requests.filter((request) => request.url.includes("/v2/bills"))).toHaveLength(0);
+  });
+
+  it("una respuesta de débito con referencia distinta queda indeterminada", async () => {
+    const { adapter: subject } = adapter(() => json(200, { data: { ...observedBill, reference_code: "POS-2" } }));
+    const result = await subject.queryStatus({
+      documentType: "DEBIT_NOTE", reference: { by: "EXTERNAL", providerOperationId: "POS-1" },
+      environment: "SANDBOX", credential: FAKE_REFERENCE,
+    }, signal);
+    expect(result).toMatchObject({ kind: "INDETERMINATE", reasonCode: "DOCUMENT_IDENTITY_MISMATCH" });
+    expect(authorizesReissue(result)).toBe(false);
+  });
+
+  it("rechaza consultas y descargas entre entornos sin autenticar", async () => {
+    const { adapter: subject, transport } = adapter(() => json(500, {}));
+    const identity = { environment: "PRODUCTION", credential: FAKE_REFERENCE } as const;
+    expect(await subject.queryStatus({
+      ...identity, reference: { by: "EXTERNAL", providerOperationId: "POS-1" },
+    }, signal)).toMatchObject({ kind: "INDETERMINATE", reasonCode: "FACTUS_ENVIRONMENT_MISMATCH" });
+    expect(await subject.fetchArtifact({
+      ...identity, electronicDocumentId: "doc-1", providerOperationId: "POS-1", artifactType: "PDF",
+    }, signal)).toMatchObject({ kind: "UNAVAILABLE", reasonCode: "FACTUS_ENVIRONMENT_MISMATCH" });
+    expect(transport.requests).toHaveLength(0);
   });
 });
 

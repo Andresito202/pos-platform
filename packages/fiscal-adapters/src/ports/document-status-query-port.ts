@@ -1,3 +1,4 @@
+import type { FiscalDocumentType } from "../capability.js";
 import type { CredentialReference } from "../credential.js";
 import type { FiscalEnvironment } from "../provider.js";
 import type {
@@ -27,6 +28,8 @@ export type DocumentStatusQueryReference =
 
 export interface DocumentStatusQuery {
   readonly reference: DocumentStatusQueryReference;
+  /** Defaults to SALES_INVOICE for pre-existing callers. */
+  readonly documentType?: FiscalDocumentType;
   readonly environment: FiscalEnvironment;
   readonly credential: CredentialReference;
 }
