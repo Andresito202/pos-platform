@@ -11,6 +11,7 @@ import { DurableSyncStore } from "../src/sync/durable-sync-store.js";
 import { SqliteCashShiftStore } from "../src/cash/sqlite-cash-shift-store.js";
 import { SqliteInventoryStore } from "../src/inventory/sqlite-inventory-store.js";
 import { SqlitePaymentStore } from "../src/payments/sqlite-payment-store.js";
+import { ConfirmTransferPaymentUseCase } from "../src/payments/confirm-transfer-payment-use-case.js";
 import { RegisterFactusPayCollectionUseCase } from "../src/payments/register-factus-pay-collection-use-case.js";
 import { VerifyFactusPayCollectionUseCase } from "../src/payments/verify-factus-pay-collection-use-case.js";
 import { ResumeFactusPayCollectionUseCase } from "../src/payments/resume-factus-pay-collection-use-case.js";
@@ -266,14 +267,26 @@ describe("Factus Pay Caja collections", () => {
     expect(read.kind).toBe("FOUND");
     if (read.kind !== "FOUND") throw new Error(`expected FOUND, got ${read.kind}`);
 
-    const confirmed = await verify.execute(SCOPE, SESSION, auth(), {
+    expect(paymentStore.get({ ...SCOPE, branchId: randomUUID() }, collected.paymentId)).toEqual({ kind: "NOT_FOUND" });
+    expect(paymentStore.get({ ...SCOPE, companyId: randomUUID() }, collected.paymentId)).toEqual({ kind: "NOT_FOUND" });
+    const confirmationRequest = {
       paymentId: collected.paymentId,
       expectedVersion: read.payment.version,
       idempotencyKey: randomUUID(),
       correlationId: randomUUID(),
       causationId: null,
-    });
+    };
+    const manual = new ConfirmTransferPaymentUseCase(paymentStore, () => NOW);
+    const manualResult = manual.execute(SCOPE, SESSION, auth(["PAYMENTS_TRANSFER_CONFIRM"]), confirmationRequest);
+    expect(manualResult.kind).toBe("PAYMENT_NOT_CONFIRMABLE");
+
+    const confirmed = await verify.execute(SCOPE, SESSION, auth(), confirmationRequest);
     expect(confirmed.kind).toBe("CONFIRMED");
+    expect(database.native.prepare(
+      "SELECT status, authority_type, manual_confirmation_actor_id FROM payments_payment_attempts WHERE payment_id=?",
+    ).get(collected.paymentId)).toEqual({
+      status: "CONFIRMED", authority_type: "EXTERNAL_PROVIDER_AUTHORITATIVE", manual_confirmation_actor_id: null,
+    });
   });
 
   it("rejects verify when provider collection is not paid", async () => {

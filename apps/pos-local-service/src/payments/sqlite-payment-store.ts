@@ -42,6 +42,7 @@ interface PaymentRow {
   id: string;
   payment_group_id: string;
   payment_method: string;
+  authority_type: string;
   status: string;
   expected_amount: string;
   confirmed_amount: string;
@@ -296,8 +297,9 @@ export class SqlitePaymentStore {
               g.collection_subject_id
        FROM payments_payments p
        JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
-       WHERE p.tenant_id=? AND p.id=?`,
-    ).get(scope.tenantId, paymentId) as
+        AND g.company_id = p.company_id AND g.branch_id = p.branch_id
+       WHERE p.tenant_id=? AND p.company_id=? AND p.branch_id=? AND p.id=?`,
+    ).get(scope.tenantId, scope.companyId, scope.branchId, paymentId) as
       | {
           id: string; payment_method: string; status: string; expected_amount: string;
           confirmed_amount: string; currency_code: string; version: number;
@@ -337,11 +339,11 @@ export class SqlitePaymentStore {
     return rows.reduce((total, row) => total + scale6ToBigInt(row.amount), 0n);
   }
 
-  private loadSale(tenantId: string, saleId: string): SaleRow | undefined {
+  private loadSale(scope: SyncScope, saleId: string): SaleRow | undefined {
     return this.database.native.prepare(
       `SELECT status, currency_code, payable_amount, cash_shift_id, version
-       FROM sales_sales WHERE tenant_id=? AND id=?`,
-    ).get(tenantId, saleId) as SaleRow | undefined;
+       FROM sales_sales WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?`,
+    ).get(scope.tenantId, scope.companyId, scope.branchId, saleId) as SaleRow | undefined;
   }
 
   // ── Escrituras auxiliares ───────────────────────────────────────────────────
@@ -617,8 +619,8 @@ export class SqlitePaymentStore {
         // produjo. La fila conserva su clave de registro para siempre (`D-1`).
         const existing = this.database.native.prepare(
           `SELECT id FROM payments_payments
-           WHERE tenant_id=? AND origin_device_id=? AND idempotency_key=?`,
-        ).get(input.scope.tenantId, input.scope.deviceId, input.idempotencyKey) as
+           WHERE tenant_id=? AND company_id=? AND branch_id=? AND origin_device_id=? AND idempotency_key=?`,
+        ).get(input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.scope.deviceId, input.idempotencyKey) as
           | { id: string } | undefined;
 
         // Sin fila de pago, la clave la consumió otra clase de operación con
@@ -628,7 +630,7 @@ export class SqlitePaymentStore {
       }
 
       // 2. Venta
-      const sale = this.loadSale(input.scope.tenantId, input.saleId);
+      const sale = this.loadSale(input.scope, input.saleId);
       if (sale === undefined) return { kind: "SALE_NOT_FOUND" };
       if (sale.status === "COMPLETED") return { kind: "SALE_ALREADY_COMPLETED" };
       if (!PAYABLE_SALE_STATUSES.has(sale.status)) return { kind: "SALE_NOT_PAYABLE" };
@@ -829,6 +831,19 @@ export class SqlitePaymentStore {
    * puede completar la venta.
    */
   confirmTransfer(input: ConfirmTransferInput): ConfirmTransferOutcome {
+    return this.confirm(input, "MANUAL_ATTESTATION");
+  }
+
+  /** Only the provider verification use case calls this path. */
+  confirmFactusPay(input: ConfirmTransferInput): ConfirmTransferOutcome {
+    return this.confirm(input, "EXTERNAL_PROVIDER_AUTHORITATIVE");
+  }
+
+  private confirm(
+    input: ConfirmTransferInput,
+    authority: "MANUAL_ATTESTATION" | "EXTERNAL_PROVIDER_AUTHORITATIVE",
+  ): ConfirmTransferOutcome {
+    const manual = authority === "MANUAL_ATTESTATION";
     const nowIso = this.now().toISOString();
     this.deferredPharmacyReconciliation = null;
 
@@ -838,15 +853,19 @@ export class SqlitePaymentStore {
         if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
 
         const payment = this.database.native.prepare(
-          `SELECT p.id, p.payment_group_id, p.payment_method, p.status, p.expected_amount,
+          `SELECT p.id, p.payment_group_id, p.payment_method, p.authority_type, p.status, p.expected_amount,
                   p.confirmed_amount, p.currency_code, p.version, p.request_checksum,
                   g.collection_subject_id
            FROM payments_payments p
            JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
-           WHERE p.tenant_id=? AND p.id=?`,
-        ).get(input.scope.tenantId, input.paymentId) as PaymentRow | undefined;
+        AND g.company_id = p.company_id AND g.branch_id = p.branch_id
+           WHERE p.tenant_id=? AND p.company_id=? AND p.branch_id=? AND p.id=?`,
+        ).get(input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.paymentId) as PaymentRow | undefined;
 
         if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+        if (payment.authority_type !== authority || payment.payment_method !== (manual ? "TRANSFER" : "QR")) {
+          return { kind: "PAYMENT_NOT_CONFIRMABLE" };
+        }
 
         // Reintento de esta misma confirmación. Se resuelve antes de mirar el
         // estado: tras confirmar, el pago ya no es `CREATED` y la comprobación de
@@ -857,7 +876,7 @@ export class SqlitePaymentStore {
         if (payment.version !== input.expectedVersion) return { kind: "VERSION_CONFLICT" };
 
         const saleId = payment.collection_subject_id;
-        const sale = this.loadSale(input.scope.tenantId, saleId);
+        const sale = this.loadSale(input.scope, saleId);
         if (sale === undefined) return { kind: "PAYMENT_NOT_FOUND" };
         if (sale.status === "COMPLETED") return { kind: "SALE_ALREADY_COMPLETED" };
 
@@ -893,7 +912,7 @@ export class SqlitePaymentStore {
           `UPDATE payments_payment_attempts
            SET status='CONFIRMED', confirmed_at=?, manual_confirmation_actor_id=?, version=version+1
            WHERE tenant_id=? AND payment_id=? AND attempt_number=1`,
-        ).run(nowIso, input.operatorUserId, input.scope.tenantId, input.paymentId);
+        ).run(nowIso, manual ? input.operatorUserId : null, input.scope.tenantId, input.paymentId);
 
         this.insertAllocation(
           input.scope.tenantId, input.allocationId, payment.payment_group_id, input.paymentId,
@@ -906,7 +925,7 @@ export class SqlitePaymentStore {
           amount: payment.expected_amount, method: payment.payment_method,
           payment_id: input.paymentId, sale_id: saleId,
         };
-        this.writeAudit(input, "PAYMENT_CONFIRMED", "PAYMENT", input.paymentId, details, nowIso);
+        this.writeAudit(input, "PAYMENT_CONFIRMED", "PAYMENT", input.paymentId, { ...details, confirmation_authority: authority }, nowIso);
         this.enqueue(
           input, input.operationId, input.idempotencyKey,
           "PAYMENT", input.paymentId, "PAYMENT_CONFIRMED", details, input.requestChecksum, nowIso,
@@ -947,13 +966,14 @@ export class SqlitePaymentStore {
       if (operation === "CONFLICT") return { kind: "IDEMPOTENCY_CONFLICT" };
 
       const payment = this.database.native.prepare(
-        `SELECT p.id, p.payment_group_id, p.payment_method, p.status, p.expected_amount,
+        `SELECT p.id, p.payment_group_id, p.payment_method, p.authority_type, p.status, p.expected_amount,
                 p.confirmed_amount, p.currency_code, p.version, p.request_checksum,
                 g.collection_subject_id
          FROM payments_payments p
          JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
-         WHERE p.tenant_id=? AND p.id=?`,
-      ).get(input.scope.tenantId, input.paymentId) as PaymentRow | undefined;
+        AND g.company_id = p.company_id AND g.branch_id = p.branch_id
+         WHERE p.tenant_id=? AND p.company_id=? AND p.branch_id=? AND p.id=?`,
+      ).get(input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.paymentId) as PaymentRow | undefined;
 
       if (payment === undefined) return { kind: "PAYMENT_NOT_FOUND" };
       if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
@@ -1003,11 +1023,13 @@ export class SqlitePaymentStore {
       `SELECT p.id, p.status, p.expected_amount, p.version, p.provider_reference
        FROM payments_payments p
        JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
-       WHERE p.tenant_id=? AND g.collection_subject_id=? AND p.payment_method='QR'
+        AND g.company_id = p.company_id AND g.branch_id = p.branch_id
+       WHERE p.tenant_id=? AND p.company_id=? AND p.branch_id=?
+         AND g.collection_subject_id=? AND p.payment_method='QR'
          AND p.provider_code=? AND p.status='CREATED'
        ORDER BY p.created_at DESC
        LIMIT 1`,
-    ).get(scope.tenantId, saleId, providerCode) as
+    ).get(scope.tenantId, scope.companyId, scope.branchId, saleId, providerCode) as
       | {
         id: string;
         status: string;
