@@ -111,6 +111,43 @@ describe("validación del payload congelado, antes de transmitir", () => {
 });
 
 describe("emisión: evidencia, fallo técnico e incertidumbre", () => {
+  const supplier = { identification_document_code: "31", identification: "12345", legal_organization_code: "2",
+    names: "Proveedor de prueba", address: "Dirección de prueba", country_code: "CO" };
+  const items = [{ code_reference: "ITEM" }];
+  it.each([
+    ["DEBIT_NOTE", "/v2/debit-notes/validate", { ...PAYLOAD, bill_number: "FV1", correction_concept_code: "1", items }],
+    ["SUPPORT_DOCUMENT", "/v2/support-documents/validate", { ...PAYLOAD, provider: supplier, items }],
+    ["SUPPORT_DOCUMENT_ADJUSTMENT_NOTE", "/v2/adjustment-notes/validate",
+      { ...PAYLOAD, support_document_number: "DS1", correction_concept_code: "2", provider: supplier, items }],
+  ] as const)("envía %s al endpoint específico y verifica su identidad", async (documentType, path, payload) => {
+    const { adapter: subject, transport } = adapter(() => json(201, {
+      data: { reference_code: ISSUE.idempotencyKey, number: "DOC1", is_validated: true },
+    }));
+    const document = { documentType, payload, checksumSha256: createHash("sha256").update(JSON.stringify(payload)).digest("hex") };
+    expect(await subject.issue({ ...ISSUE, document }, signal)).toMatchObject({ kind: "EVIDENCED", normalizedResult: "ACCEPTED" });
+    expect(transport.requests.at(-1)?.url).toBe(`https://api-sandbox.factus.com.co${path}`);
+  });
+
+  it("rechaza tipos sin soporte, payload incorrecto y entornos incompatibles antes de OAuth", async () => {
+    const { adapter: subject, transport } = adapter(() => json(500, {}));
+    const invalid = { ...ISSUE.document, documentType: "DEBIT_NOTE" as const };
+    const unsupported = { ...ISSUE.document, documentType: "POS_ELECTRONIC" as typeof ISSUE.document.documentType };
+    expect(await subject.issue({ ...ISSUE, document: invalid }, signal)).toMatchObject({
+      kind: "TECHNICAL_FAILURE", diagnostic: { code: "FACTUS_DOCUMENT_PAYLOAD_INVALID" },
+    });
+    expect(await subject.issue({ ...ISSUE, document: unsupported }, signal)).toMatchObject({
+      kind: "TECHNICAL_FAILURE", diagnostic: { code: "FACTUS_DOCUMENT_TYPE_UNSUPPORTED" },
+    });
+    expect(await subject.issue({ ...ISSUE, environment: "PRODUCTION" }, signal)).toMatchObject({
+      kind: "TECHNICAL_FAILURE", diagnostic: { code: "FACTUS_ENVIRONMENT_MISMATCH" },
+    });
+    const production = new FactusAdapter(transport, new FakeCredentialResolver(), "PRODUCTION", clock);
+    expect(await production.issue({ ...ISSUE, environment: "PRODUCTION", document: invalid }, signal)).toMatchObject({
+      kind: "TECHNICAL_FAILURE", diagnostic: { code: "FACTUS_DOCUMENT_TYPE_NOT_CERTIFIED_FOR_PRODUCTION" },
+    });
+    expect(transport.requests).toHaveLength(0);
+  });
+
   it("`is_validated: true` produce evidencia ACCEPTED con identidad externa", async () => {
     // Forma documentada oficialmente para `POST /v2/bills/validate`: los campos
     // van directamente bajo `data`, y la evidencia es el booleano
@@ -243,8 +280,8 @@ describe("emisión: evidencia, fallo técnico e incertidumbre", () => {
     expect(outcome.kind).toBe("TECHNICAL_FAILURE");
     if (outcome.kind !== "TECHNICAL_FAILURE") throw new Error("rama imposible");
     expect(outcome.diagnostic.code).toBe("REFERENCE_CODE_DOES_NOT_MATCH_IDEMPOTENCY_KEY");
-    // Sólo el token; la factura no se transmitió.
-    expect(transport.requests).toHaveLength(1);
+    // Los errores locales se rechazan antes de pedir el token.
+    expect(transport.requests).toHaveLength(0);
   });
 
   it("rechaza en validación un cuerpo sin `reference_code`", async () => {
