@@ -3,6 +3,7 @@ import { lstatSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import * as z from "zod";
 import {
+  UuidSchema,
   validateCommercialHttpsOrigin,
   validateCommercialPosRegistration,
   type NativeClientRegistration,
@@ -14,6 +15,14 @@ import { CommercialDeviceCredentialProvider } from "../security/commercial-devic
 import { DeviceTrustCredentialStore } from "../security/device-trust-credential-store.js";
 import { EncryptedFileSecretStore, type SecretStoreKeyProvider } from "../security/encrypted-secret-store.js";
 import { LocalSecurityComponent } from "../security/local-security-component.js";
+import { downloadLicenseCapacity } from "../security/license-capacity-download.js";
+import {
+  commercialLicenseCapacitySealStore,
+  LicenseCapacityGate,
+  LicenseCapacityProvisionSchema,
+  parseLicenseCapacityKeys,
+  readLicenseCapacityProvision,
+} from "../security/license-capacity-gate.js";
 import { TrustedClockGuard } from "../security/trusted-clock.js";
 import { AndroidBusinessNativeCentralClient } from "./android-business-native-central.js";
 
@@ -38,6 +47,11 @@ export const AndroidCommercialProvisionSchema = z.strictObject({
   device_trust_root_spki_sha256: z.string().regex(/^[a-f0-9]{64}$/),
   device_trust_operational_keys: z.array(z.unknown()).min(1).max(32),
   request_timeout_ms: ms,
+  license_activation: z.strictObject({
+    activation_id: UuidSchema,
+    register_id: UuidSchema,
+    keys: LicenseCapacityProvisionSchema.shape.keys,
+  }).optional(),
 });
 
 export type AndroidCommercialProvision = z.infer<typeof AndroidCommercialProvisionSchema>;
@@ -159,17 +173,70 @@ export function createAndroidBusinessNativeCentralClient(
     );
     // Force fail-closed check before returning a live client.
     provider.requireVerifiedCredentialId();
+    const activation = provision.license_activation;
+    const licensePath = deps.config.license_capacity_provision_file;
+    if (activation && !licensePath) {
+      credentialSecrets.destroy();
+      return null;
+    }
+    const acceptLicense = activation && licensePath
+      ? managedLicenseAcceptance(deps, provider, origin, licensePath, activation, provision.request_timeout_ms)
+      : undefined;
     return new AndroidBusinessNativeCentralClient(
       origin,
       provider,
       fetch,
       provision.request_timeout_ms,
       { clientId: provision.registration.clientId, redirectUri: provision.registration.redirectUri, audience: provision.audience },
+      acceptLicense,
     );
   } catch {
     credentialSecrets.destroy();
     return null;
   }
+}
+
+function managedLicenseAcceptance(
+  deps: AndroidNativeCentralDeps,
+  provider: CommercialDeviceCredentialProvider,
+  origin: string,
+  provisionFile: string,
+  activation: NonNullable<AndroidCommercialProvision["license_activation"]>,
+  timeoutMs: number,
+): () => Promise<void> {
+  parseLicenseCapacityKeys(activation.keys);
+  const database = deps.database.database;
+  const scope = {
+    tenantId: deps.config.tenant_id,
+    companyId: deps.config.company_id,
+    branchId: deps.config.branch_id,
+    installationId: deps.config.installation_id,
+    deviceId: deps.config.device_id,
+  };
+  const gate = new LicenseCapacityGate(
+    database,
+    () => readLicenseCapacityProvision(provisionFile),
+    deps.now,
+    commercialLicenseCapacitySealStore(provisionFile, scope.installationId),
+  );
+  return async () => {
+    const result = await downloadLicenseCapacity({
+      origin,
+      activationId: activation.activation_id,
+      provisionFile,
+      trustKeys: activation.keys,
+      binding: scope,
+      allocation: { branchId: scope.branchId, registerId: activation.register_id },
+      database,
+      provider,
+      timeoutMs,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (result.status === "REVOKED") throw new Error("LICENSE_REVOKED");
+    if (!result.usableNow) throw new Error("LICENSE_NOT_YET_VALID");
+    const denied = gate.authorize(scope, activation.register_id);
+    if (denied) throw new Error(denied);
+  };
 }
 
 export function androidSecurityDirectory(dataDirectory: string): string {

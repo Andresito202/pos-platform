@@ -13,7 +13,9 @@ import {LocalSecurityLifecycle} from "./security-lifecycle.js";
  * Public artifacts are replaced atomically; credentials remain in OS custody. */
 export async function downloadLicenseCapacity(input:{origin:string;activationId:string;provisionFile:string;trustKeys:unknown;
   binding:{tenantId:string;companyId:string;installationId:string;deviceId:string};database:LocalDatabase;
-  provider:CommercialDeviceCredentialProvider;timeoutMs:number;signal:AbortSignal},transport:typeof fetch=fetch){
+  allocation?:{branchId:string;registerId:string};
+  provider:Pick<CommercialDeviceCredentialProvider,"licenseActivationAuthorization"|"requireVerifiedCredentialId">;
+  timeoutMs:number;signal:AbortSignal},transport:typeof fetch=fetch){
   validateCommercialHttpsOrigin(input.origin);
   if(!isAbsolute(input.provisionFile)||!Number.isSafeInteger(input.timeoutMs)||input.timeoutMs<=0)throw Error("LICENSE_DOWNLOAD_MANAGED_CONFIGURATION_REQUIRED");
   const trustKeys=LicenseCapacityProvisionSchema.shape.keys.parse(input.trustKeys);
@@ -48,6 +50,12 @@ export async function downloadLicenseCapacity(input:{origin:string;activationId:
   const p=LicenseCapacityProvisionSchema.parse({profile:"CAMACHO_LICENSE_CAPACITY_PROVISION_V2",keys:trustKeys,artifact:remote.artifact}),parsed=parseLicenseCapacityProvision(p);
   const checked=new LicenseVerifier(parsed.keys,new TrustedClockGuard(input.database)).verifyCapacity(p.artifact,input.binding,true),c=checked.claims;
   if(!["VALID","NOT_YET_VALID"].includes(checked.decision)||!c||c.tenant_id!==input.binding.tenantId||c.company_id!==input.binding.companyId)throw Error("LICENSE_DOWNLOAD_SIGNATURE_OR_BINDING_REJECTED");
+  const allocation = input.allocation;
+  if (allocation && !c.cash_register_capacity.allocations.some(
+    (entry) => entry.branch_id === allocation.branchId && entry.register_id === allocation.registerId,
+  )) {
+    throw Error("LICENSE_DOWNLOAD_ALLOCATION_REJECTED");
+  }
   const digest=(v:unknown)=>createHash("sha256").update(canonicalSessionTrustJson(v)).digest("hex");
   try{const stat=await lstat(input.provisionFile);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>262144)throw Error("LICENSE_DOWNLOAD_DESTINATION_REJECTED");
     const old=LicenseCapacityProvisionSchema.parse(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(await readFile(input.provisionFile)))).artifact.claims;

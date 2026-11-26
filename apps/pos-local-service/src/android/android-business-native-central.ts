@@ -59,6 +59,7 @@ export class AndroidBusinessNativeCentralClient {
     private readonly transport: typeof fetch = fetch,
     private readonly timeoutMs = 15_000,
     private readonly registration?: { clientId: string; redirectUri: string; audience: string },
+    private readonly acceptManagedLicense?: () => Promise<void>,
   ) {
     this.origin = validateCommercialHttpsOrigin(origin);
     if (!(credential instanceof Object) || typeof credential.authorization !== "function") {
@@ -72,6 +73,7 @@ export class AndroidBusinessNativeCentralClient {
   async registerNativeRequest(raw: unknown): Promise<AndroidNativeRequestResult> {
     const material = AndroidNativeRequestMaterialSchema.parse(raw);
     this.assertRegistration(material);
+    await this.acceptManagedLicense?.();
     const challengeBody = JSON.stringify({
       client_id: material.client_id,
       redirect_uri: material.redirect_uri,
