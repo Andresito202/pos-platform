@@ -84,6 +84,18 @@ jobs:
           # predecessor checks, physical ACL smoke and durable 003 receipts.
           pnpm --filter @pos-platform/target-migrations exec tsx tests/fixtures/central-sync-lab-migrate.ts 2>&1 | tee artifacts/ci/central-sync-migrations.log
 
+      - name: Verify fiscal document package ledger against PostgreSQL 16.14
+        env:
+          REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
+          POSTGRES_MIGRATOR_URL: postgres://pos_migrator@127.0.0.1:55436/postgres
+          POSTGRES_EXPECTED_DATABASE: postgres
+          POSTGRES_MIGRATION_LOCK_TIMEOUT_MS: "3000"
+          POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS: "30000"
+          POSTGRES_FISCAL_PACKAGE_TEST_URL: postgres://postgres@127.0.0.1:55436/postgres
+        run: |
+          pnpm --filter @pos-platform/target-migrations postgres:commercial:apply --fiscal-document-packages
+          pnpm --filter @pos-platform/target-migrations exec vitest run tests/postgres-039-fiscal-document-packages-physical.test.ts
+
       - name: Start Central Sync service
         run: |
           set -euo pipefail
