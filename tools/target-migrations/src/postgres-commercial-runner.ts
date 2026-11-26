@@ -88,9 +88,13 @@ export const POSTGRES_039_DESCRIPTOR = descriptor("039_fiscal_document_packages"
   ["fiscal.document_package_offers", "fiscal.document_package_purchases", "fiscal.document_package_reservations",
     "fiscal.document_package_movements", "fiscal.document_package_alerts"], "fiscal");
 
+export const POSTGRES_040_DESCRIPTOR = descriptor(
+  "040_fiscal_package_reconciliation", POSTGRES_039_DESCRIPTOR.migrationId, [], "fiscal",
+);
+
 type CommercialMigrationTarget="FISCAL_DOCUMENT_PACKAGES"|"CENTRAL_RATE_LIMIT"|"COMMERCIAL_PORTAL_BRIDGE"|"LOGIN_ABUSE_BUDGET"|"SUBSCRIPTION_FULFILLMENT"|"REPORTING_PERMISSIONS"|"CASH_REGISTER_BINDINGS"|"TENANT_INITIALIZATION"|"BUSINESS_OWNER"|"COMMERCIAL_AUTHORIZATION"|"CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
 function migrations(target:CommercialMigrationTarget){
-  if(target==="FISCAL_DOCUMENT_PACKAGES")return [POSTGRES_039_DESCRIPTOR];
+  if(target==="FISCAL_DOCUMENT_PACKAGES")return [POSTGRES_039_DESCRIPTOR, POSTGRES_040_DESCRIPTOR];
   if(target==="CENTRAL_RATE_LIMIT")return [POSTGRES_037_DESCRIPTOR];
   if(target==="COMMERCIAL_PORTAL_BRIDGE")return [POSTGRES_038_DESCRIPTOR];
   if(target==="LOGIN_ABUSE_BUDGET")return [POSTGRES_036_DESCRIPTOR];
@@ -117,6 +121,16 @@ export async function commercialMigrationManifest(target:CommercialMigrationTarg
 const check:(ok:unknown,message:string)=>asserts ok=(ok,message)=>{if(!ok)throw new MigrationInvariantError(message);};
 
 async function smoke(c:PoolClient,d:MigrationDescriptor){
+  if (d === POSTGRES_040_DESCRIPTOR) {
+    const { rows: [functionCheck] } = await c.query(`
+      SELECT to_regprocedure('fiscal.pending_document_package_reconciliation(uuid,uuid,integer)') IS NOT NULL AS present,
+             has_function_privilege('pos_platform_app','fiscal.pending_document_package_reconciliation(uuid,uuid,integer)','EXECUTE') AS permitted,
+             has_function_privilege('pos_app','fiscal.pending_document_package_reconciliation(uuid,uuid,integer)','EXECUTE') AS exposed
+    `);
+    check(functionCheck?.present && functionCheck.permitted && !functionCheck.exposed,
+      "Fiscal package reconciliation function privilege drift");
+  }
+
   for(const table of d.ownedTables){
     const result=await c.query("SELECT r.rolname AS owner,c.relrowsecurity AS rls,c.relforcerowsecurity AS forced FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE c.oid=to_regclass($1)",[table]);
     // 014 extends the existing Identity-central table, whose 001 contract uses

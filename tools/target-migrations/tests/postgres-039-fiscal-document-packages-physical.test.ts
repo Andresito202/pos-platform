@@ -79,15 +79,47 @@ describe.skipIf(!url)("PostgreSQL 039 document package ledger", () => {
     expect(concurrent.find((result) => result.status === "rejected")).toMatchObject({ reason: expect.objectContaining({ message: "FISCAL_PACKAGE_QUOTA_UNAVAILABLE" }) });
 
     expect(await inCompany(company, (client) => move(client, docs[1]!, uuidV7(), "RELEASE"))).toBe("RELEASED");
+    for (const nextStatus of ["READY", "QUEUED", "SUBMITTING"]) {
+      await pool.query(
+        "UPDATE fiscal.electronic_documents SET status=$1,updated_at=clock_timestamp(),version=version+1 WHERE id=ANY($2::uuid[])",
+        [nextStatus, [docs[0], docs[2]]],
+      );
+    }
+    await pool.query(
+      "UPDATE fiscal.electronic_documents SET status='UNKNOWN_OUTCOME',updated_at=clock_timestamp(),version=version+1 WHERE id=$1",
+      [docs[0]],
+    );
+    await expect(inCompany(company, (client) => move(client, docs[0]!, uuidV7(), "RELEASE")))
+      .rejects.toThrow("FISCAL_PACKAGE_DOCUMENT_EVIDENCE_REQUIRED");
+    await pool.query(
+      "UPDATE fiscal.electronic_documents SET status='ACCEPTED',legal_identifier='accepted-legal-id',updated_at=clock_timestamp(),version=version+1 WHERE id=$1",
+      [docs[2]],
+    );
+    const pending = (holder: string) => inCompany(holder, async (client) => (
+      await client.query(
+        "SELECT document_id, reconciliation_action FROM fiscal.pending_document_package_reconciliation($1, NULL, 500)",
+        [purchase],
+      )
+    ).rows);
+    expect(await pending(otherCompany)).toEqual([]);
+    expect(await pending(company)).toEqual(expect.arrayContaining([
+      { document_id: docs[0], reconciliation_action: "HOLD_FOR_RECONCILIATION" },
+      { document_id: docs[2], reconciliation_action: "CONSUME_WITH_EVIDENCE" },
+    ]));
+    expect(await inCompany(company, (client) => move(client, docs[2]!, uuidV7(), "CONSUME"))).toBe("CONSUMED");
+    const unresolved = await pending(company);
+    expect(unresolved).toContainEqual({ document_id: docs[0], reconciliation_action: "HOLD_FOR_RECONCILIATION" });
+    expect(unresolved.some((row) => row.document_id === docs[1] || row.document_id === docs[2])).toBe(false);
     await pool.query("UPDATE organization.companies SET tax_id='90003', tax_id_normalized='90003' WHERE id=$1", [company]);
     await expect(inCompany(company, (client) => move(client, docs[1]!, uuidV7(), "RESERVE"))).rejects.toThrow("FISCAL_PACKAGE_HOLDER_REJECTED");
+    expect(await pending(company)).toEqual([]);
     await inCompany(company, async (client) => {
       expect((await client.query("SELECT assigned,reserved,consumed,available FROM fiscal.document_package_balances")).rows)
-        .toEqual([{ assigned: 150, reserved: 149, consumed: 0, available: 1 }]);
+        .toEqual([{ assigned: 150, reserved: 148, consumed: 1, available: 1 }]);
       expect((await client.query("SELECT threshold_percent FROM fiscal.document_package_alerts ORDER BY threshold_percent")).rows)
         .toEqual([5, 10, 20].map((threshold_percent) => ({ threshold_percent })));
       expect((await client.query("SELECT count(*)::int AS movements FROM fiscal.document_package_movements")).rows[0])
-        .toEqual({ movements: 151 });
+        .toEqual({ movements: 152 });
     });
   }, 30_000);
 });
