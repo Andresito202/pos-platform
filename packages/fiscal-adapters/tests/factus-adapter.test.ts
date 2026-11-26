@@ -369,6 +369,62 @@ describe("consulta V2 por referencia", () => {
   });
 });
 
+describe("recuperación documental FACTUS", () => {
+  it.each([
+    ["CREDIT_NOTE", "/v2/credit-notes", "CreditNote"],
+    ["DEBIT_NOTE", "/v2/debit-notes", "DebitNote"],
+    ["SUPPORT_DOCUMENT", "/v2/support-documents", "Invoice"],
+    ["SUPPORT_DOCUMENT_ADJUSTMENT_NOTE", "/v2/adjustment-notes", "CreditNote"],
+  ] as const)("resuelve y descarga XML de %s desde su propio recurso", async (documentType, resource, root) => {
+    const xml = Buffer.from(`<${root}></${root}>`).toString("base64");
+    const { adapter: subject, transport } = adapter((request) => {
+      const url = new URL(request.url);
+      if (url.pathname === resource && url.searchParams.get("filter[reference_code]") === "POS-1") {
+        return json(200, { data: { data: [observedBill] } });
+      }
+      if (url.pathname === (documentType === "DEBIT_NOTE" ? resource + "/reference/POS-1" : resource + "/SETP123")) {
+        return json(200, { data: observedBill });
+      }
+      if (url.pathname === resource + "/SETP123/download-xml") {
+        const field = documentType === "SUPPORT_DOCUMENT" ? "pdf_base_64_encoded" : "xml_base_64_encoded";
+        return json(200, { data: { [field]: xml } });
+      }
+      return json(500, {});
+    });
+
+    const result = await subject.fetchArtifact({
+      electronicDocumentId: "doc-1", providerOperationId: "POS-1",
+      artifactType: "XML", documentType, environment: "SANDBOX", credential: FAKE_REFERENCE,
+    }, signal);
+
+    expect(result.kind).toBe("RETRIEVED");
+    expect(transport.requests.at(-1)?.url).toContain(resource + "/SETP123/download-xml");
+    expect(transport.requests.filter((request) => request.url.includes("/v2/bills"))).toHaveLength(0);
+  });
+
+  it("una respuesta de débito con referencia distinta queda indeterminada", async () => {
+    const { adapter: subject } = adapter(() => json(200, { data: { ...observedBill, reference_code: "POS-2" } }));
+    const result = await subject.queryStatus({
+      documentType: "DEBIT_NOTE", reference: { by: "EXTERNAL", providerOperationId: "POS-1" },
+      environment: "SANDBOX", credential: FAKE_REFERENCE,
+    }, signal);
+    expect(result).toMatchObject({ kind: "INDETERMINATE", reasonCode: "DOCUMENT_IDENTITY_MISMATCH" });
+    expect(authorizesReissue(result)).toBe(false);
+  });
+
+  it("rechaza consultas y descargas entre entornos sin autenticar", async () => {
+    const { adapter: subject, transport } = adapter(() => json(500, {}));
+    const identity = { environment: "PRODUCTION", credential: FAKE_REFERENCE } as const;
+    expect(await subject.queryStatus({
+      ...identity, reference: { by: "EXTERNAL", providerOperationId: "POS-1" },
+    }, signal)).toMatchObject({ kind: "INDETERMINATE", reasonCode: "FACTUS_ENVIRONMENT_MISMATCH" });
+    expect(await subject.fetchArtifact({
+      ...identity, electronicDocumentId: "doc-1", providerOperationId: "POS-1", artifactType: "PDF",
+    }, signal)).toMatchObject({ kind: "UNAVAILABLE", reasonCode: "FACTUS_ENVIRONMENT_MISMATCH" });
+    expect(transport.requests).toHaveLength(0);
+  });
+});
+
 describe("artefactos", () => {
   it("decodifica XML Base64 por CUFE y calcula checksum de los bytes, no del JSON", async () => {
     const bytes = Buffer.from("<Invoice></Invoice>");

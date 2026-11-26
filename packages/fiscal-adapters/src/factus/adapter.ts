@@ -129,6 +129,22 @@ const issuanceProfiles = {
   },
 } satisfies Record<FiscalDocumentType, { path: string; body: z.ZodType; productionEligible: boolean }>;
 
+const documentXmlRoots = {
+  SALES_INVOICE: "Invoice",
+  CREDIT_NOTE: "CreditNote",
+  DEBIT_NOTE: "DebitNote",
+  SUPPORT_DOCUMENT: "Invoice",
+  SUPPORT_DOCUMENT_ADJUSTMENT_NOTE: "CreditNote",
+} satisfies Record<FiscalDocumentType, string>;
+
+const documentResources = {
+  SALES_INVOICE: "/v2/bills",
+  CREDIT_NOTE: "/v2/credit-notes",
+  DEBIT_NOTE: "/v2/debit-notes",
+  SUPPORT_DOCUMENT: "/v2/support-documents",
+  SUPPORT_DOCUMENT_ADJUSTMENT_NOTE: "/v2/adjustment-notes",
+} satisfies Record<FiscalDocumentType, string>;
+
 /**
  * Cuerpo de emisión, con la forma **documentada oficialmente** por Factus para
  * `POST /v2/bills/validate` (`facturas-crear-y-validar`).
@@ -393,6 +409,14 @@ implements
     query: DocumentStatusQuery,
     signal: AbortSignal,
   ): Promise<DocumentStatusQueryOutcome> {
+    if (query.environment !== this.environment) {
+      return { kind: "INDETERMINATE", reasonCode: "FACTUS_ENVIRONMENT_MISMATCH", providerStatus: null };
+    }
+    const documentType = FiscalDocumentTypeSchema.safeParse(query.documentType ?? "SALES_INVOICE");
+    if (!documentType.success) {
+      return { kind: "INDETERMINATE", reasonCode: "UNSUPPORTED_DOCUMENT_TYPE", providerStatus: null };
+    }
+    const resource = documentResources[documentType.data];
     if (query.reference.by === "INTERNAL") {
       // FACTUS no expone consulta por identidad interna nuestra. Decirlo es
       // obligatorio: un `NOT_FOUND` aquí autorizaría reemitir, y sería falso.
@@ -415,13 +439,16 @@ implements
     const externalReference = query.reference.by === "EXTERNAL"
       ? query.reference.providerOperationId
       : null;
-    let number: string;
+    let number: string | null = null;
+    const usesDebitReferenceLookup = documentType.data === "DEBIT_NOTE" && externalReference !== null;
     const headers = { authorization: `Bearer ${token}`, accept: "application/json" };
-    if (query.reference.by === "EXTERNAL") {
+    if (query.reference.by === "NUMBER") {
+      number = `${query.reference.prefix}${query.reference.number}`;
+    } else if (!usesDebitReferenceLookup) {
       try {
         const listed = await this.transport.send({
           method: "GET",
-          url: `${factusBaseUrl(this.environment)}/v2/bills?filter%5Breference_code%5D=${encodeURIComponent(query.reference.providerOperationId)}`,
+          url: `${factusBaseUrl(this.environment)}${resource}?filter%5Breference_code%5D=${encodeURIComponent(query.reference.providerOperationId)}`,
           headers,
           body: undefined,
           signal,
@@ -443,15 +470,16 @@ implements
       } catch {
         return { kind: "INDETERMINATE", reasonCode: "TRANSPORT_FAILURE", providerStatus: null };
       }
-    } else {
-      number = `${query.reference.prefix}${query.reference.number}`;
     }
 
+    const detailPath = usesDebitReferenceLookup
+      ? `${resource}/reference/${encodeURIComponent(externalReference)}`
+      : `${resource}/${encodeURIComponent(number ?? "")}`;
     let response: HttpResponse;
     try {
       response = await this.transport.send({
         method: "GET",
-        url: `${factusBaseUrl(this.environment)}/v2/bills/${encodeURIComponent(number)}`,
+        url: `${factusBaseUrl(this.environment)}${detailPath}`,
         headers,
         body: undefined,
         signal,
@@ -476,7 +504,7 @@ implements
       providerStatus: parsed.data.status ?? "",
       httpStatus: 200,
     };
-    if (bill?.number !== number || !bill.reference_code ||
+    if (!bill?.number || (number !== null && bill.number !== number) || !bill.reference_code ||
         (externalReference !== null && bill.reference_code !== externalReference)) {
       return { kind: "INDETERMINATE", reasonCode: "DOCUMENT_IDENTITY_MISMATCH", providerStatus };
     }
@@ -504,6 +532,13 @@ implements
     request: DocumentArtifactRequest,
     signal: AbortSignal,
   ): Promise<DocumentArtifactOutcome> {
+    if (request.environment !== this.environment) {
+      return { kind: "UNAVAILABLE", reasonCode: "FACTUS_ENVIRONMENT_MISMATCH" };
+    }
+    const documentType = FiscalDocumentTypeSchema.safeParse(request.documentType ?? "SALES_INVOICE");
+    if (!documentType.success) {
+      return { kind: "UNAVAILABLE", reasonCode: "UNSUPPORTED_DOCUMENT_TYPE" };
+    }
     if (request.artifactType !== "XML" && request.artifactType !== "PDF") {
       return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_TYPE_NOT_OFFERED_BY_PROVIDER" };
     }
@@ -520,17 +555,18 @@ implements
     const identity = await this.queryStatus({
       environment: request.environment,
       credential: request.credential,
+      documentType: documentType.data,
       reference: { by: "EXTERNAL", providerOperationId: request.providerOperationId },
     }, signal);
     if (identity.kind !== "FOUND" || identity.normalizedResult !== "ACCEPTED") {
       return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_DOCUMENT_UNRESOLVED" };
     }
     const isXml = request.artifactType === "XML";
-    const key = isXml ? identity.externalIdentity.cufe : identity.externalIdentity.number;
+    const invoiceXml = isXml && documentType.data === "SALES_INVOICE";
+    const key = invoiceXml ? identity.externalIdentity.cufe : identity.externalIdentity.number;
     if (!key) return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_DOCUMENT_ID_MISSING" };
-    const path = isXml
-      ? `/v2/documents/${encodeURIComponent(key)}/download-xml`
-      : `/v2/bills/${encodeURIComponent(key)}/download-pdf`;
+    const resource = invoiceXml ? "/v2/documents" : documentResources[documentType.data];
+    const path = `${resource}/${encodeURIComponent(key)}/download-${isXml ? "xml" : "pdf"}`;
     let response: HttpResponse;
     try {
       response = await this.transport.send({
@@ -554,7 +590,13 @@ implements
     }
     const parsed = FactusArtifactResponseSchema.safeParse(safeJson(response.body));
     if (!parsed.success) return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_RESPONSE_INVALID" };
-    const encoded = isXml ? parsed.data.data.xml_base_64_encoded : parsed.data.data.pdf_base_64_encoded;
+    const payload = parsed.data.data;
+    // Factus documents the support XML payload under the PDF-named field.
+    // The existing XML content validation still applies to its decoded bytes.
+    const encoded = isXml
+      ? payload.xml_base_64_encoded ??
+        (documentType.data === "SUPPORT_DOCUMENT" ? payload.pdf_base_64_encoded : undefined)
+      : payload.pdf_base_64_encoded;
     if (!encoded || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) {
       return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_BASE64_INVALID" };
     }
@@ -566,7 +608,8 @@ implements
     if (isXml) {
       try {
         const xml = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-        validFormat = /^\s*(?:<\?xml[^?]*\?>\s*)?<(?:[\w.-]+:)?Invoice(?:\s|>)/u.test(xml);
+        const root = /^\s*(?:<\?xml[^?]*\?>\s*)?<(?:[\w.-]+:)?([\w.-]+)(?:\s|>)/u.exec(xml)?.[1];
+        validFormat = root === documentXmlRoots[documentType.data];
       } catch {
         validFormat = false;
       }
