@@ -34,6 +34,17 @@ const telemetry = createTelemetryBundle({
   sink: { write(record) { process.stdout.write(`${JSON.stringify(record)}\n`); } },
 });
 const pool = new Pool({ connectionString: databaseUrl, max: Number(process.env.DB_POOL_MAX ?? 10) });
+const readinessPool = new Pool({
+  connectionString: databaseUrl,
+  application_name: "pos-platform-central-sync-readiness",
+  max: 1,
+  connectionTimeoutMillis: 1_000,
+  statement_timeout: 1_000,
+  query_timeout: 1_500,
+});
+readinessPool.on("error", () => {
+  process.stderr.write("CENTRAL_SYNC_READINESS_CONNECTION_LOST\n");
+});
 const batchSchema = createSyncBatchRequestSchema(maxOperations);
 const requestSchema = createCentralDeviceHttpRequestSchema(batchSchema, {
   maxBodyBytes,
@@ -402,6 +413,28 @@ const server = createServer(async (request, response) => {
     json(response, 200, { status: "ok" });
     return;
   }
+  if (request.method === "GET" && request.url === "/ready") {
+    let ready = false;
+    try {
+      // Check the actual runtime role and required migrations without reading
+      // tenant rows or returning database errors to the probe caller.
+      const result = await readinessPool.query<{ ready: boolean }>(`
+        SELECT has_schema_privilege('sync','USAGE')
+          AND has_schema_privilege('identity','USAGE')
+          AND has_table_privilege('sync.sync_operations','SELECT')
+          AND has_table_privilege('sync.sync_operations','INSERT')
+          AND has_table_privilege('identity.device_registry','SELECT')
+          AND has_table_privilege('identity.device_credentials','SELECT')
+          AND has_table_privilege('identity.device_authentication_events','SELECT')
+          AND has_table_privilege('identity.device_authentication_events','INSERT') AS ready
+      `);
+      ready = result.rows[0]?.ready === true;
+    } catch {
+      // Suspect connectivity, required migrations or runtime grants.
+    }
+    json(response, ready ? 200 : 503, { status: ready ? "ready" : "unavailable" });
+    return;
+  }
   if (request.method !== "POST" || request.url !== "/v1/sync/batches") {
     json(response, 404, { error: "NOT_FOUND" });
     return;
@@ -556,7 +589,7 @@ server.listen(port, bindHost, () => console.log(`central sync API listening on $
 async function shutdown(signal: string): Promise<void> {
   console.log(`${signal}: shutting down central sync API`);
   await new Promise<void>((resolve) => server.close(() => resolve()));
-  await pool.end();
+  await Promise.all([pool.end(), readinessPool.end()]);
   await telemetry.logger.flush();
   await stopTelemetry?.();
 }
