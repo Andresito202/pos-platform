@@ -1,6 +1,8 @@
 package co.camachopos.colombia
 
+import co.camachopos.colombia.runtime.PosClient
 import co.camachopos.hardware.UsbDescriptorIntegrity
+import org.json.JSONObject
 
 fun main() {
     check(CommercialIdentity.APPLICATION_ID == "co.camachopos.colombia")
@@ -14,4 +16,11 @@ fun main() {
     check(UsbDescriptorIntegrity.sha256("abc".toByteArray(Charsets.UTF_8)) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     check(UsbDescriptorIntegrity.sha256(byteArrayOf(1, 2, 3)) != UsbDescriptorIntegrity.sha256(byteArrayOf(1, 2, 4)))
     println("COMMERCIAL_IDENTITY_AND_USB_INTEGRITY_PASS")
+
+    val recovered = JSONObject("""{"status":"SUCCEEDED","result_code":"SESSION_RECOVERED","result":null}""")
+    check(PosClient.isSessionRecovered(recovered))
+    check(!PosClient.isSessionRecovered(JSONObject("""{"status":"FAILED","result_code":"SESSION_RECOVERED"}""")))
+    check(!PosClient.isSessionRecovered(JSONObject("""{"status":"SUCCEEDED","result_code":"SESSION_CLOSED"}""")))
+    check(!PosClient.isSessionRecovered(JSONObject("""{"result":{"outcome":"ACTIVE"}}""")))
+    println("COMMERCIAL_SESSION_RECOVERY_RESPONSE_PASS")
 }

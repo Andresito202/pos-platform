@@ -6,6 +6,12 @@ import java.util.UUID
 /** Thin binder client for Local Service IPC contracts. BUSINESS sessions use
  * privileged native exchange / recovery — never local.operator.login. */
 class PosClient(private val binder: LocalPosService.LocalBinder) {
+    companion object {
+        fun isSessionRecovered(response: JSONObject): Boolean =
+            response.optString("status") == "SUCCEEDED" &&
+                response.optString("result_code") == "SESSION_RECOVERED"
+    }
+
     fun logout(callback: (JSONObject) -> Unit) {
         request("android.business.logout", JSONObject(), callback, idempotent = false)
     }

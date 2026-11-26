@@ -53,13 +53,11 @@ class PosShellActivity : Activity() {
             hardware = CommercialHardwareBridge(this@PosShellActivity)
             client?.recoverSession { result ->
                 runOnUiThread {
-                    val outcome = result.optJSONObject("result")?.optString("outcome")
-                    if (outcome != "ACTIVE") {
+                    if (!PosClient.isSessionRecovered(result)) {
                         startActivity(Intent(this@PosShellActivity, EntryActivity::class.java))
                         finish()
                     } else {
-                        val sessionId = result.optJSONObject("result")?.optString("session_id").orEmpty()
-                        statusLine.text = if (sessionId.isBlank()) "Sesión BUSINESS" else "Sesión · ${sessionId.take(8)}"
+                        statusLine.text = "Sesión BUSINESS"
                         showHome()
                     }
                 }

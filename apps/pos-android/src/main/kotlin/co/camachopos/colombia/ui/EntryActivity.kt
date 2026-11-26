@@ -44,13 +44,12 @@ class EntryActivity : Activity() {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             binder = service as LocalPosService.LocalBinder
             client = PosClient(binder!!)
+            if (resumeExchangeIfPresent()) return
             client?.recoverSession { result ->
                 runOnUiThread {
-                    val outcome = result.optJSONObject("result")?.optString("outcome")
-                    if (outcome == "ACTIVE") openWorkspace()
+                    if (PosClient.isSessionRecovered(result)) openWorkspace()
                 }
             }
-            resumeExchangeIfPresent()
         }
         override fun onServiceDisconnected(name: ComponentName?) {
             binder = null
@@ -215,9 +214,9 @@ class EntryActivity : Activity() {
         }
     }
 
-    private fun resumeExchangeIfPresent() {
-        val exchange = binder?.takeBusinessAuthorizationCode() ?: return
-        val activeBinder = binder ?: return
+    private fun resumeExchangeIfPresent(): Boolean {
+        val activeBinder = binder ?: return false
+        val exchange = activeBinder.takeBusinessAuthorizationCode() ?: return false
         messageView.setTextColor(muted)
         messageView.text = "Código recibido. Canjeando con DeviceProof…"
         activeBinder.depositBusinessExchange(exchange)
@@ -233,9 +232,11 @@ class EntryActivity : Activity() {
                 openWorkspace()
             }
         }
+        return true
     }
 
     private fun openWorkspace() {
+        if (isFinishing || isDestroyed) return
         startActivity(Intent(this, PosShellActivity::class.java))
         finish()
     }
