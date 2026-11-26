@@ -10,6 +10,7 @@ import {
   type DocumentIssuanceOutcome,
   type DocumentIssuancePort,
   type DocumentIssuanceRequest,
+  type DocumentStatusQueryPort,
   type FiscalCustomer,
   type FiscalCustomerResolution,
   type FrozenDocumentPayload,
@@ -391,7 +392,7 @@ function uncertain(): DocumentIssuanceOutcome {
   };
 }
 
-async function buildEnv(port: DocumentIssuancePort) {
+async function buildEnv(port: DocumentIssuancePort & Partial<DocumentStatusQueryPort>) {
   const database = await openDatabase();
   const sync = new DurableSyncStore(database);
   const catalogStore = new SqliteCatalogStore(database, sync, () => NOW);
@@ -738,6 +739,58 @@ describe("IssueElectronicDocumentUseCase — desenlace incierto (regla 5 y 6)", 
     // La prueba que importa: nunca se transmite una segunda vez sin conciliar.
     expect(port.callCount).toBe(1);
   });
+});
+
+describe("IssueElectronicDocumentUseCase — conciliación de FACTUS", () => {
+  it.each(["matching", "wrong reference", "not found"] as const)(
+    "consulta el documento persistido y transmite una sola vez (%s)",
+    async (lookup) => {
+      const queries: Parameters<DocumentStatusQueryPort["queryStatus"]>[0][] = [];
+      const queryStatus: DocumentStatusQueryPort["queryStatus"] = async (request) => {
+        queries.push(request);
+        if (lookup === "not found") return { kind: "NOT_FOUND", providerStatus: null };
+        const providerOperationId = request.reference.by === "EXTERNAL" && lookup === "matching"
+          ? request.reference.providerOperationId : "other-operation";
+        return {
+          kind: "FOUND",
+          normalizedResult: "ACCEPTED",
+          externalIdentity: {
+            providerOperationId, providerDocumentId: "SETP1", prefix: null, number: "SETP1", cufe: "a".repeat(96),
+          },
+          providerStatus: { providerCode: "FACTUS", providerStatus: "OK", httpStatus: 200 },
+        };
+      };
+      const port = Object.assign(new FakeIssuancePort(uncertain()), { queryStatus });
+      const { database, useCase, documentStore } = await buildEnv(port);
+      seedRange(database);
+      const saleId = seedSale(database);
+      seedCatalogLine(database, saleId, 1);
+      seedConfirmedPayment(database, saleId, "CASH", "10000.000000");
+      const input = baseInput(saleId);
+      expect((await useCase.execute(auth(), input, SIGNAL)).kind).toBe("UNCERTAIN");
+
+      const outcomes = await Promise.all([
+        useCase.execute(auth(), input, SIGNAL),
+        useCase.execute(auth(), input, SIGNAL),
+      ]);
+      const idempotencyKey = `${saleId}:${DOCUMENT_TYPE}`;
+      expect(queries).toHaveLength(2);
+      expect(queries[0]).toMatchObject({
+        reference: { by: "EXTERNAL", providerOperationId: idempotencyKey },
+        documentType: DOCUMENT_TYPE, environment: ENVIRONMENT,
+      });
+      const accepted = lookup === "matching";
+      expect(outcomes.map((outcome) => outcome.kind)).toEqual(
+        Array(2).fill(accepted ? "ALREADY_ISSUED" : "REQUIRES_RECONCILIATION"),
+      );
+      expect(documentStore.findByIdempotencyKey(SCOPE, PROVIDER, ENVIRONMENT, idempotencyKey)).toMatchObject({
+        transportStatus: accepted ? "COMPLETED" : "UNKNOWN_OUTCOME",
+        attemptCount: 1,
+        version: accepted ? 4 : 3,
+      });
+      expect(port.callCount).toBe(1);
+    },
+  );
 });
 
 describe("IssueElectronicDocumentUseCase — fallo técnico es retriable", () => {
