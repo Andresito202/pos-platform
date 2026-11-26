@@ -8,10 +8,6 @@ import {
 /**
  * Transporte real sobre `fetch`.
  *
- * **No se usa en CI.** Las pruebas inyectan un doble determinista que implementa
- * `CentralTransport` y nunca llegan aquí. Existe para la ejecución contra una
- * autoridad real, que hoy no existe (`D3` sigue `DOCUMENTED`).
- *
  * Lo único no trivial es decidir si la petición **llegó a salir**. Se resuelve
  * por el lado conservador —ante la duda, `sent = true`— porque ése es el lado
  * que obliga a conciliar en lugar de asumir que no pasó nada. Mismo criterio y
@@ -29,13 +25,15 @@ export class FetchCentralTransport implements CentralTransport {
     const timer = setTimeout(() => deadline.abort(), this.timeoutMs);
     timer.unref?.();
     const abort = (): void => deadline.abort();
-    request.signal.addEventListener("abort", abort, { once: true });
+    if (request.signal.aborted) abort();
+    else request.signal.addEventListener("abort", abort, { once: true });
 
     try {
       const response = await fetch(request.url, {
         method: request.method,
         headers: { ...request.headers },
         body: request.body,
+        redirect: "error",
         signal: deadline.signal,
       });
       return {

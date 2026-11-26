@@ -4,6 +4,9 @@ import { createPublicKey, randomUUID } from "node:crypto";
 import { IpcRequestSchema, type IpcRequest } from "@pos-platform/contracts";
 import { ServiceLifecycle } from "../lifecycle.js";
 import { LocalDatabaseComponent } from "../local-database-component.js";
+import { CentralSyncComponent } from "../sync/central-sync-component.js";
+import { FetchCentralTransport } from "../sync/fetch-central-transport.js";
+import { SyncDispatcher } from "../sync/sync-dispatcher.js";
 import { DurableSyncComponent } from "../sync/durable-sync-component.js";
 import { CommercialComponent } from "../commercial/commercial-component.js";
 import { CommercialRequestHandler } from "../commercial/commercial-request-handler.js";
@@ -19,7 +22,7 @@ import {
 } from "./android-business-native-central.js";
 import {
   androidSecurityDirectory,
-  createAndroidBusinessNativeCentralClient,
+  createAndroidCentralServices,
   type AndroidNativeCentralDeps,
 } from "./android-commercial-native-composition.js";
 import { SessionTrustKeyResolver } from "../security/session-trust-key-resolver.js";
@@ -57,6 +60,8 @@ export class AndroidCommercialHost {
   private readonly lifecycle: ServiceLifecycle;
   private localSecurity: LocalSecurityComponent | undefined;
   private durableSync: DurableSyncComponent | undefined;
+  private centralSync: CentralSyncComponent | undefined;
+  private closeCentralServices: (() => void) | undefined;
   private commercial: CommercialComponent | undefined;
   private handler: CommercialRequestHandler | undefined;
   private config: ServiceConfig | undefined;
@@ -231,9 +236,30 @@ export class AndroidCommercialHost {
           securityDirectory,
           now: this.now,
         };
-        const client = this.resolveNativeCentral
-          ? this.resolveNativeCentral(this.config, deps)
-          : createAndroidBusinessNativeCentralClient(deps);
+        const services = this.resolveNativeCentral ? null : createAndroidCentralServices(deps);
+        const client = this.resolveNativeCentral ? this.resolveNativeCentral(this.config, deps) : services?.client;
+        this.closeCentralServices = services?.destroy;
+        if (services?.sync) {
+          const { origin, credentials } = services.sync;
+          const store = this.durableSync.store;
+          this.centralSync = new CentralSyncComponent(
+            () => new SyncDispatcher(store, new FetchCentralTransport(), credentials, origin, config.protocol_max),
+            {
+              tenantId: config.tenant_id, companyId: config.company_id, branchId: config.branch_id,
+              installationId: config.installation_id, deviceId: config.device_id,
+            },
+            30_000,
+            {
+              onOutcome: (outcome) => {
+                if (outcome.kind !== "IDLE") process.stderr.write(`ANDROID_SYNC_${outcome.kind}\n`);
+              },
+              onLifecycle: (reason) => process.stderr.write(`ANDROID_SYNC_${reason}\n`),
+            },
+          );
+          // Connectivity is optional at boot. The component still tracks the first dispatch for shutdown.
+          void this.centralSync.start().catch(() => process.stderr.write("ANDROID_SYNC_START_FAILED\n"));
+          modules.push("central-sync");
+        }
         if (client) {
           this.nativeCentral = client;
           modules.push("business-native-central");
@@ -256,6 +282,10 @@ export class AndroidCommercialHost {
     this.activation?.disconnect(this.connectionId);
     this.activation = undefined;
     this.nativeCentral = undefined;
+    await this.centralSync?.stop();
+    this.centralSync = undefined;
+    this.closeCentralServices?.();
+    this.closeCentralServices = undefined;
     await this.commercial?.stop();
     await this.durableSync?.stop();
     await this.localSecurity?.stop();

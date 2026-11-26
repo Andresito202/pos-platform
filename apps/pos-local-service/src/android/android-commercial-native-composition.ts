@@ -23,6 +23,7 @@ import {
   parseLicenseCapacityKeys,
   readLicenseCapacityProvision,
 } from "../security/license-capacity-gate.js";
+import type { DeviceCredentialProvider } from "../sync/device-credential.js";
 import { TrustedClockGuard } from "../security/trusted-clock.js";
 import { AndroidBusinessNativeCentralClient } from "./android-business-native-central.js";
 
@@ -47,6 +48,7 @@ export const AndroidCommercialProvisionSchema = z.strictObject({
   device_trust_root_spki_sha256: z.string().regex(/^[a-f0-9]{64}$/),
   device_trust_operational_keys: z.array(z.unknown()).min(1).max(32),
   request_timeout_ms: ms,
+  sync_origin: z.string().optional(),
   license_activation: z.strictObject({
     activation_id: UuidSchema,
     register_id: UuidSchema,
@@ -73,6 +75,7 @@ export function readAndroidCommercialProvision(
   if (!centralOrigin || parsed.registration.authorizationOrigin !== new URL(centralOrigin).origin) {
     throw new Error("ANDROID_COMMERCIAL_CENTRAL_ORIGIN_MISMATCH");
   }
+  if (parsed.sync_origin !== undefined) validateCommercialHttpsOrigin(parsed.sync_origin);
   const root = createPublicKey(parsed.device_trust_root_public_key_pem);
   if (
     root.asymmetricKeyType !== "ed25519"
@@ -105,9 +108,13 @@ export type AndroidNativeCentralDeps = {
  * and enrolled Device Trust are present. Returns null fail-closed otherwise —
  * never invents credentials or SSA.
  */
-export function createAndroidBusinessNativeCentralClient(
+export function createAndroidCentralServices(
   deps: AndroidNativeCentralDeps,
-): AndroidBusinessNativeCentralClient | null {
+): {
+  client: AndroidBusinessNativeCentralClient;
+  sync?: { origin: string; credentials: DeviceCredentialProvider };
+  destroy(): void;
+} | null {
   const path = deps.config.android_commercial_provision_file;
   const origin = deps.config.central_base_url;
   if (!path || !origin) return null;
@@ -182,7 +189,7 @@ export function createAndroidBusinessNativeCentralClient(
     const acceptLicense = activation && licensePath
       ? managedLicenseAcceptance(deps, provider, origin, licensePath, activation, provision.request_timeout_ms)
       : undefined;
-    return new AndroidBusinessNativeCentralClient(
+    const client = new AndroidBusinessNativeCentralClient(
       origin,
       provider,
       fetch,
@@ -190,6 +197,17 @@ export function createAndroidBusinessNativeCentralClient(
       { clientId: provision.registration.clientId, redirectUri: provision.registration.redirectUri, audience: provision.audience },
       acceptLicense,
     );
+    const sync = provision.sync_origin === undefined ? undefined : {
+      origin: provision.sync_origin,
+      credentials: {
+        isProvisioned() {
+          try { return Boolean(provider.requireVerifiedCredentialId()); }
+          catch { return false; }
+        },
+        authorization: provider.syncAuthorization.bind(provider, deps.config.branch_id),
+      },
+    };
+    return { client, ...(sync ? { sync } : {}), destroy: () => credentialSecrets.destroy() };
   } catch {
     credentialSecrets.destroy();
     return null;
