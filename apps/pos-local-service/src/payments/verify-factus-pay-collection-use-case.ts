@@ -92,7 +92,7 @@ export class VerifyFactusPayCollectionUseCase {
     // Confirmed retransmission: resolve via existing idempotency before status gates.
     // Never duplicates movements / coverage / inventory / sale completion.
     if (payment.status === "CONFIRMED") {
-      return this.paymentStore.confirmTransfer({
+      return this.paymentStore.confirmFactusPay({
         scope,
         sessionId,
         operatorUserId,
@@ -124,7 +124,7 @@ export class VerifyFactusPayCollectionUseCase {
       return { kind: "FACTUS_PAY_VERIFICATION_FAILED" };
     }
 
-    return this.paymentStore.confirmTransfer({
+    return this.paymentStore.confirmFactusPay({
       scope,
       sessionId,
       operatorUserId,

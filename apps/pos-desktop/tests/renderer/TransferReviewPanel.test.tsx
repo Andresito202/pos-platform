@@ -32,7 +32,7 @@ describe("transfer supervision without cashier workspace", () => {
     await lookup();
     expect(screen.queryByTestId("cart")).toBeNull();
     expect(screen.getByText("Importe reportado")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar ingreso verificado" }));
+    fireEvent.click(screen.getByRole("button", { name: "Aprobar transferencia manualmente" }));
     await screen.findByText("Venta pagada por completo.");
     expect(service["payment.transfer.confirm"]).toHaveBeenCalledWith(expect.objectContaining({
       payload: { payment_id: id, expected_version: 7 },
@@ -51,13 +51,13 @@ describe("transfer supervision without cashier workspace", () => {
     service["payment.get"]!.mockResolvedValue(found("CONFIRMED"));
     render(<TransferReviewPanel permissions={permissions} />);
     await lookup();
-    expect((screen.getByRole("button", { name: "Confirmar ingreso verificado" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Aprobar transferencia manualmente" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Cancelar pago pendiente" }) as HTMLButtonElement).disabled).toBe(true);
   });
   it("does not offer mutation controls to read-only permissions", async () => {
     render(<TransferReviewPanel permissions={new Set(["PAYMENTS_PAYMENT_READ"])} />);
     await lookup();
-    expect(screen.queryByRole("button", { name: "Confirmar ingreso verificado" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Aprobar transferencia manualmente" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancelar pago pendiente" })).toBeNull();
     await waitFor(() => expect(service["payment.get"]).toHaveBeenCalledTimes(1));
   });

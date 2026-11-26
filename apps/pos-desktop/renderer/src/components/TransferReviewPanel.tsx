@@ -65,7 +65,7 @@ export function TransferReviewPanel({ permissions }: { permissions: ReadonlySet<
       <div className="pos-admin-audit-actions">
         {permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM) && <button type="button"
           className="pos-primary-action"
-          disabled={locked || !pending} onClick={() => void payment.confirmTransfer()}>Confirmar ingreso verificado</button>}
+          disabled={locked || !pending} onClick={() => void payment.confirmTransfer()}>Aprobar transferencia manualmente</button>}
         {permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_CANCEL) && <button type="button"
           className="pos-danger-action"
           disabled={locked || !pending} onClick={() => void payment.cancelTransfer()}>Cancelar pago pendiente</button>}

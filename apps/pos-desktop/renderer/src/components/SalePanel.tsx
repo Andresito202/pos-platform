@@ -582,7 +582,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             onClick={() => { void sale.confirmTransfer(); }}
             disabled={sale.busy || sale.unresolved || sale.transfer.status !== "CREATED"}
           >
-            Confirmar transferencia
+            Aprobar transferencia manualmente
           </button>}
         </div>
       )}
