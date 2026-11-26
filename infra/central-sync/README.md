@@ -38,3 +38,26 @@ This is deployment infrastructure materialization, not production certification.
 5. an end-to-end HTTPS test against the deployed hostname.
 
 Do not use `tls internal` for production clients. Do not disable certificate verification in the POS client.
+
+## Readiness and rollout
+
+Use the runtime database role and apply the Central migrations for the selected
+revision before starting Compose. Keep the connection string in deployment
+secret storage. Point the approved environment DNS record at the HTTPS
+ingress, and publish an AAAA record only when the host has working IPv6 ingress.
+
+Run `docker compose -f infra/central-sync/compose.yaml config --quiet` with the
+deployment environment supplied, then
+`docker compose -f infra/central-sync/compose.yaml up -d --build --wait`.
+Probe `GET /health` for process liveness and `GET /ready` for runtime database
+connectivity and the migration permissions required by Sync. A readiness
+response of 503 calls for checking the database connection, applied migrations,
+and role permissions against the selected revision. Compare it to the internal
+readiness probe before changing DNS or ingress. Validate both endpoints with
+certificate verification enabled on the deployed hostname.
+
+After readiness succeeds, exercise a signed Sync request and confirm durable
+Inbox evidence and ACK before routing commercial clients. Use the repository
+backup and restoration procedure in
+[`docs/ops/backup-rpo-rto-dr-20261124.md`](../../docs/ops/backup-rpo-rto-dr-20261124.md)
+before promoting staging.
