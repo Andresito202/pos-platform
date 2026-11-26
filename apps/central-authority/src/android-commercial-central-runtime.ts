@@ -19,7 +19,7 @@ const managed=(path:string,max=65536)=>{
  const bytes=readFileSync(fd);if(bytes.length!==s.size)throw Error("ANDROID_COMMERCIAL_FILE_CHANGED");return new TextDecoder("utf-8",{fatal:true}).decode(bytes);}
  finally{closeSync(fd);}
 };
-const paths=new Set(["/v1/commercial/token","/v1/business-session/assertions","/v1/business-session/authorization","/v1/commercial/native-authorize","/v1/commercial/login"]);
+const paths=new Set(["/v1/commercial/token","/v1/commercial/refresh","/v1/commercial/revoke","/v1/business-session/assertions","/v1/business-session/authorization","/v1/commercial/native-authorize","/v1/commercial/login"]);
 export async function prepareAndroidCommercialRuntime(input:{pool:Pool;provisionFile:string;businessProvision:string;origin:string;environment:"PREPRODUCTION"|"PRODUCTION";registration:NativeClientRegistration}){
  const {pool,registration,origin}=input;
  const p=AndroidCommercialProvisionSchema.parse(JSON.parse(managed(input.provisionFile))),business=BusinessAdministrationProvisionSchema.parse(JSON.parse(managed(input.businessProvision)));
@@ -65,9 +65,14 @@ export async function prepareAndroidCommercialRuntime(input:{pool:Pool;provision
  if(!requestId.success||!correlationId.success||typeof req.headers.authorization!=="string"){sendCommercialJson(res,400,{code:"NATIVE_PROOF_REQUIRED"});return true;}
  const proof={requestId:requestId.data,correlationId:correlationId.data,authorization:req.headers.authorization,body:raw};
  let result:unknown;
- if(url.pathname==="/v1/commercial/token"){
- if(object.grant_type==="refresh_token"){const parsed=CommercialRefreshRequestSchema.safeParse(object);const rotated=parsed.success?await credentials.refresh(parsed.data.refresh_token,proof):null;result=rotated?.status==="ROTATED"?{accessToken:rotated.access,refreshToken:rotated.refreshToken}:null;}
- else result=await credentials.exchange(proof);
+ if(url.pathname==="/v1/commercial/refresh"||(url.pathname==="/v1/commercial/token"&&object.grant_type==="refresh_token")){
+ const parsed=CommercialRefreshRequestSchema.safeParse(object);
+ const rotated=parsed.success?await credentials.refresh(parsed.data.refresh_token,proof):null;
+ result=rotated?.status==="ROTATED"?{accessToken:rotated.access,refreshToken:rotated.refreshToken}:null;
+ }else if(url.pathname==="/v1/commercial/token"){
+ result=await credentials.exchange(proof);
+ }else if(url.pathname==="/v1/commercial/revoke"){
+ result=await credentials.revoke(proof)?{revoked:true}:null;
  }else{
  const token=req.headers[CommercialHttpV2.accessHeader];result=typeof token==="string"?await artifacts.issue(token,proof,url.pathname==="/v1/business-session/assertions"?"SESSION_ASSERTION":"AUTHORIZATION_SNAPSHOT"):null;
  }

@@ -45,6 +45,7 @@ export type AndroidHostStatus = {
   readonly external_channel: "CLOSED";
   readonly engine: "EMBEDDED_NODE_SQLITE";
   readonly modules: readonly string[];
+  readonly business_client_id?: string | undefined;
 };
 
 /**
@@ -247,6 +248,7 @@ export class AndroidCommercialHost {
       external_channel: "CLOSED",
       engine: "EMBEDDED_NODE_SQLITE",
       modules,
+      business_client_id: this.nativeCentral?.clientId,
     };
   }
 
@@ -328,10 +330,12 @@ export class AndroidCommercialHost {
       } catch {
         return this.denied(wire as IpcRequest,"BUSINESS_LOGOUT_PERSISTENCE_FAILED","No se pudo persistir el cierre de sesión.");
       }
-      return {status:"SUCCEEDED",result_code:"SESSION_CLOSED",result:null};
+      const centralRevocation = await this.revokeClosedBusinessSession();
+      return {status:"SUCCEEDED",result_code:"SESSION_CLOSED",result:{central_revocation:centralRevocation}};
     }
     if (messageType === "android.business.recover") {
-      if(this.exchangeInProgress || this.statusValue.state!=="READY" || !this.activation?.recover(this.connectionId)){
+      if(this.exchangeInProgress || this.statusValue.state!=="READY" ||
+          (!this.activation?.recover(this.connectionId) && !await this.refreshBusinessSession())){
         return this.denied(wire as IpcRequest,"BUSINESS_RECOVERY_REJECTED","No existe una sesión BUSINESS recuperable y vigente.");
       }
       this.statusValue={...this.statusValue,commercial_access:"BUSINESS_READY"};
@@ -370,7 +374,8 @@ export class AndroidCommercialHost {
       );
     }
 
-    if (request.message_type === "session.activate" || request.message_type === "session.recover" || !this.activation?.authorize(this.connectionId) || this.exchangeInProgress) {
+    if (request.message_type === "session.activate" || request.message_type === "session.recover" || this.exchangeInProgress ||
+        !this.activation?.authorize(this.connectionId)) {
       return this.denied(request, "BUSINESS_AUTHORITY_REQUIRED", "Se requiere autorización BUSINESS firmada.");
     }
     return this.handler.handle(request as never, this.connectionId);
@@ -394,6 +399,7 @@ export class AndroidCommercialHost {
       );
     }
     try {
+      if (await this.revokeClosedBusinessSession() === "PENDING") throw Error("BUSINESS_REVOCATION_PENDING");
       const result = await this.nativeCentral.registerNativeRequest(material.data);
       return {
         protocol_version: wire.protocol_version ?? "1.0.0",
@@ -416,6 +422,38 @@ export class AndroidCommercialHost {
         code === "CENTRAL_NATIVE_ROUTE_NOT_ACTIVATED" ? "BUSINESS_NATIVE_REQUEST_UNAVAILABLE" : code,
         "Central rechazó o no activó el registro nativo BUSINESS con DeviceProof.",
       );
+    }
+  }
+
+  private async refreshBusinessSession(): Promise<boolean> {
+    const { activation, nativeCentral } = this;
+    if (!activation || !nativeCentral || this.exchangeInProgress || this.statusValue.state !== "READY") return false;
+    this.exchangeInProgress = true;
+    try {
+      const previous = activation.beginRefresh();
+      if (!previous) return false;
+      const pair = await nativeCentral.refresh(previous.token, previous.sessionId, previous.userId);
+      if (this.activation !== activation || this.statusValue.state !== "READY") return false;
+      activation.activate(pair, this.connectionId);
+      this.statusValue = {...this.statusValue,commercial_access:"BUSINESS_READY"};
+      return true;
+    } catch {
+      return false;
+    } finally {
+      this.exchangeInProgress = false;
+    }
+  }
+
+  private async revokeClosedBusinessSession(): Promise<"NOT_REQUIRED" | "CONFIRMED" | "PENDING"> {
+    try {
+      const token = this.activation?.pendingRevocation();
+      if (!token) return "NOT_REQUIRED";
+      if (!this.nativeCentral) return "PENDING";
+      await this.nativeCentral.revoke(token);
+      this.activation?.confirmRevocation(token);
+      return "CONFIRMED";
+    } catch {
+      return "PENDING";
     }
   }
 
@@ -442,6 +480,7 @@ export class AndroidCommercialHost {
     try {
       this.activation?.close(this.connectionId);
       if (!this.activation || this.statusValue.state !== "READY") throw Error("BUSINESS_ACTIVATION_UNAVAILABLE");
+      if (await this.revokeClosedBusinessSession() === "PENDING") throw Error("BUSINESS_REVOCATION_PENDING");
       const pair = await this.nativeCentral.exchangeToken(material.data);
       if (!this.activation || this.statusValue.state !== "READY") throw Error("BUSINESS_ACTIVATION_UNAVAILABLE");
       this.activation.activate(pair,this.connectionId);

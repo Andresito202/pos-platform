@@ -1,6 +1,6 @@
 import {createHash,randomBytes} from "node:crypto";
 import type {Pool,PoolClient} from "pg";
-import {PlatformSecurityEventCode,UuidSchema,uuidV7,CommercialRefreshRequestSchema} from "@pos-platform/contracts";
+import {PlatformSecurityEventCode,UuidSchema,uuidV7,CommercialRefreshRequestSchema,CommercialRevokeRequestSchema} from "@pos-platform/contracts";
 import type {CommercialPossessionContext} from "@pos-platform/device-trust";
 import {PostgresCommercialPossessionVerifier,type DeviceProofRequest} from "./device-proof-replay-verifier.js";
 import {resolveCommercialDeviceBranch} from "./commercial-device-branch.js";
@@ -101,13 +101,9 @@ export class PostgresCommercialRefreshFamilies{
   async rotate<T=never>(raw:string,input:DeviceProofRequest,issueAccess?:(c:PoolClient,familyId:string)=>Promise<T>){
     if(typeof raw!=="string"||!/^[A-Za-z0-9_-]{64}$/.test(raw))return null;
     try{const request=CommercialRefreshRequestSchema.parse(JSON.parse(input.body));if(request.refresh_token!==raw||request.client_id!==this.policy.clientId)return null;}catch{return null;}
-    // Read only lookup. A stolen token without its key cannot revoke the family.
-    const lookup=await this.pool.query<Row>("SELECT * FROM identity.session_refresh_tokens WHERE token_hash=$1 AND client_id=$2 AND issuer_origin=$3 AND audience=$4",[hash(raw),this.policy.clientId,this.policy.origin,this.policy.audience]);
-    const row=lookup.rows[0];if(!row)return null;
-    const context:CommercialPossessionContext={operation:"REFRESH",origin:this.policy.origin,audience:this.policy.audience,clientId:this.policy.clientId,
-      tenantId:row.tenant_id,installationId:row.installation_id,deviceId:row.device_id,credentialId:row.credential_id,token:raw,requestId:input.requestId,correlationId:input.correlationId,body:input.body};
-    const proof=await this.proofs.verifyRefreshAndConsume(input,context,this.policy.maximumProofSkewMs);if(!proof)return null;
-    const b:Binding={sessionId:row.session_id,tenantId:row.tenant_id,credentialId:row.credential_id,installationId:row.installation_id,deviceId:row.device_id};
+    const verified = await this.verifyTokenPossession(raw, input, "REFRESH");
+    if (!verified) return null;
+    const { row, binding: b } = verified;
     return this.transaction(async c=>{
       const current=await this.eligible(c,b);if(!current)return null;
       const locked=await c.query<Row&{usable:boolean}>(`SELECT *,expires_at>clock_timestamp() AND family_expires_at>clock_timestamp() AS usable FROM identity.session_refresh_tokens WHERE id=$1 FOR UPDATE`,[row.id]);
@@ -134,5 +130,53 @@ export class PostgresCommercialRefreshFamilies{
       const access=issueAccess?await issueAccess(c,token.token_family_id):undefined;
       return {status:"ROTATED" as const,refreshToken:next,...(access===undefined?{}:{access})};
     });
+  }
+
+  async revoke(input: DeviceProofRequest): Promise<boolean> {
+    let request: ReturnType<typeof CommercialRevokeRequestSchema.parse>;
+    try { request = CommercialRevokeRequestSchema.parse(JSON.parse(input.body)); }
+    catch { return false; }
+    if (request.client_id !== this.policy.clientId) return false;
+    const verified = await this.verifyTokenPossession(request.refresh_token, input, "REVOKE");
+    if (!verified) return false;
+    const { row, binding } = verified;
+    return this.transaction(async (c) => {
+      await c.query("SELECT set_config('app.tenant_id',$1,true)", [binding.tenantId]);
+      const session = (await c.query<{user_id:string}>(
+        "SELECT user_id FROM identity.sessions WHERE id=$1 AND tenant_id=$2 FOR UPDATE",
+        [binding.sessionId, binding.tenantId],
+      )).rows[0];
+      if (!session) return false;
+      const changed = await c.query(
+        `UPDATE identity.session_refresh_tokens
+         SET revoked_at=clock_timestamp(),revocation_reason='NATIVE_LOGOUT'
+         WHERE token_family_id=$1 AND session_id=$2 AND tenant_id=$3 AND revoked_at IS NULL`,
+        [row.token_family_id, binding.sessionId, binding.tenantId],
+      );
+      if (changed.rowCount) {
+        await this.event(c, binding, session.user_id, PlatformSecurityEventCode.REFRESH_FAMILY_REVOKED,
+          "NATIVE_LOGOUT", input.correlationId, "REVOKED");
+      }
+      return true;
+    });
+  }
+
+  private async verifyTokenPossession(raw: string, input: DeviceProofRequest, operation: "REFRESH" | "REVOKE") {
+    const { origin, audience, clientId, maximumProofSkewMs } = this.policy;
+    const row = (await this.pool.query<Row>(
+      "SELECT * FROM identity.session_refresh_tokens WHERE token_hash=$1 AND client_id=$2 AND issuer_origin=$3 AND audience=$4",
+      [hash(raw), clientId, origin, audience],
+    )).rows[0];
+    if (!row) return null;
+    const binding: Binding = { sessionId: row.session_id, tenantId: row.tenant_id, credentialId: row.credential_id,
+      installationId: row.installation_id, deviceId: row.device_id };
+    const context: CommercialPossessionContext = {
+      ...binding, origin, audience, clientId, operation, token: raw,
+      requestId: input.requestId, correlationId: input.correlationId, body: input.body,
+    };
+    const proof = operation === "REFRESH"
+      ? await this.proofs.verifyRefreshAndConsume(input, context, maximumProofSkewMs)
+      : await this.proofs.verifyRevokeAndConsume(input, context, maximumProofSkewMs);
+    return proof ? { row, binding } : null;
   }
 }

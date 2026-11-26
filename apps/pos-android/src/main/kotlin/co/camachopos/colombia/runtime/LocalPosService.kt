@@ -85,6 +85,14 @@ class LocalPosService : Service() {
                 return
             }
             var id = 0
+            // Native BUSINESS calls may make multiple bounded HTTPS requests.
+            // Preserve the short timeout for local commercial operations.
+            val timeoutMs = when (payload.optString("message_type")) {
+                "android.business.native_request", "android.business.token_exchange" -> 245_000L
+                "android.business.recover" -> 185_000L
+                "android.business.logout" -> 65_000L
+                else -> 15_000L
+            }
             try {
                 synchronized(pipeLock) {
                     id = requestSeq.incrementAndGet()
@@ -107,7 +115,7 @@ class LocalPosService : Service() {
                                     .put("user_message", "La operación tardó demasiado."),
                             ),
                     )
-                }, 15000)
+                }, timeoutMs)
             } catch (_: Exception) {
                 pendingRequests.remove(id)
                 process.destroy()

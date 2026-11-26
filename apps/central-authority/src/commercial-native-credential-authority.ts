@@ -23,6 +23,7 @@ export class CommercialNativeCredentialAuthority {
   }
   currentInTransaction(c:PoolClient,claims:CommercialAccessClaims){return this.access.currentInTransaction(c,claims);}
   refresh(raw:string,proof:DeviceProofRequest){return this.access.refresh(raw,proof);}
+  revoke(proof:DeviceProofRequest){return this.families.revoke(proof);}
   verifyAndConsume(token:string,proof:DeviceProofRequest,operation:"SESSION_ASSERTION"|"AUTHORIZATION_SNAPSHOT"){
     return this.access.verifyAndConsume(token,proof,operation);
   }

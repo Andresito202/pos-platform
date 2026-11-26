@@ -31,4 +31,21 @@ describe("Android durable session custody",()=>{
     try{expect(()=>new AndroidSessionCustody(store)).toThrow("ANDROID_SESSION_OS_CUSTODY_REQUIRED");}
     finally{store.destroy();rmSync(directory,{recursive:true,force:true});}
   });
+  it("never retries a refresh token after an interrupted rotation, while retaining it for revocation",()=>{
+    const directory=mkdtempSync(join(tmpdir(),"pos-refresh-"));
+    const provider={protection:"OS_BOUND" as const,loadKey:()=>Buffer.alloc(32,7)};
+    const open=()=>new AndroidSessionCustody(new EncryptedFileSecretStore(directory,provider,"android-session:test"));
+    try {
+      const first = open();
+      const marker = {state:"ACTIVE" as const,userId:"11111111-1111-4111-8111-111111111111",
+        sessionId:"22222222-2222-4222-8222-222222222222",ssaSequence:4,sasSequence:9,refreshToken:"r".repeat(64)};
+      first.write(marker);
+      expect(first.beginRefresh()).toEqual({ token: marker.refreshToken, userId: marker.userId, sessionId: marker.sessionId });
+      first.destroy();
+      const reopened = open();
+      expect(reopened.beginRefresh()).toBeNull();
+      expect(reopened.read()).toMatchObject({ state:"ACTIVE",sessionId:marker.sessionId,revocationToken:marker.refreshToken });
+      reopened.destroy();
+    } finally { rmSync(directory,{recursive:true,force:true}); }
+  });
 });
