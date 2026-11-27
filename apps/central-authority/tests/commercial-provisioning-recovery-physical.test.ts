@@ -26,8 +26,6 @@ describe.skipIf(!adminUrl || !runtimeUrl)("commercial provisioning recovery over
   it("preserves the receipt and licenses through a lost receipt update and concurrent retries", async () => {
     const tenantId = uuidV7();
     const planId = uuidV7();
-    await admin.query(`INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at)
-      VALUES($1,'Commercial recovery test','ACTIVE',now(),now())`, [tenantId]);
     await admin.query(`INSERT INTO licensing.plans
       (id,code,name,billing_model,deployment_mode,currency_code,price_minor,status,created_at,updated_at)
       VALUES($1,$2,'Commercial recovery test','PERPETUAL','LOCAL_PERPETUAL','COP',29900,'ACTIVE',now(),now())`,
@@ -64,6 +62,10 @@ describe.skipIf(!adminUrl || !runtimeUrl)("commercial provisioning recovery over
         });
         return { status: response.status, body: await response.json() };
       }
+      expect(await post()).toMatchObject({ status: 400, body: { code: "PROVISION_TENANT_REQUIRED" } });
+      expect(await store.getProvisioningByIdempotency(idempotencyKey)).toBeNull();
+      await admin.query(`INSERT INTO tenancy.tenants(id,name,status,created_at,updated_at)
+      VALUES($1,'Commercial recovery test','ACTIVE',now(),now())`, [tenantId]);
       const initial = await post();
       expect(initial).toMatchObject({ status: 200, body: { status: "ACCEPTED", fulfillment: "QUEUED", licenseIds: [] } });
       const legacyKey = randomBytes(24).toString("hex");
@@ -76,10 +78,25 @@ describe.skipIf(!adminUrl || !runtimeUrl)("commercial provisioning recovery over
       expect((await post(payload, randomBytes(32).toString("hex"))).status).toBe(403);
       expect((await post({ ...payload, customerEmail: "changed@example.com" })).status).toBe(409);
       expect(await post(legacy, bridgeKey, legacyKey)).toMatchObject({ status: 200, body: { fulfillment: "ALREADY_QUEUED" } });
+      const orphanKey = randomBytes(24).toString("hex");
+      await admin.query(`INSERT INTO identity.commercial_bridge_jtis (purpose,jti,used_at,expires_at)
+        VALUES ('provision',$1,now(),now()+INTERVAL '1 day')`, [orphanKey]);
+      expect(await post(payload, bridgeKey, orphanKey)).toMatchObject({
+        status: 409, body: { code: "COMMERCIAL_BRIDGE_REPLAY" },
+      });
+      expect(await store.getProvisioningByIdempotency(orphanKey)).toBeNull();
+
 
       // This receipt predates the plan change. Recovery may not create a recurring license without its term.
       await admin.query("UPDATE licensing.plans SET billing_model='MONTHLY', deployment_mode='HYBRID' WHERE id=$1", [planId]);
       expect(await post()).toMatchObject({ status: 409, body: { code: "PROVISION_SUBSCRIPTION_TERM_REQUIRED" } });
+      const recurringKey = randomBytes(24).toString("hex");
+      expect(await post({ ...payload, orderId: `test-${uuidV7()}` }, bridgeKey, recurringKey))
+        .toMatchObject({ status: 409, body: { code: "PROVISION_SUBSCRIPTION_TERM_REQUIRED" } });
+      expect(await store.getProvisioningByIdempotency(recurringKey)).toMatchObject({ fulfillment: "QUEUED", licenseIds: [] });
+      const recurring = await admin.query("SELECT id FROM licensing.licenses WHERE tenant_id=$1 AND plan_id=$2", [tenantId, planId]);
+      expect(recurring.rowCount).toBe(0);
+
       await admin.query("UPDATE licensing.plans SET billing_model='PERPETUAL', deployment_mode='LOCAL_PERPETUAL' WHERE id=$1", [planId]);
 
       const failure = vi.spyOn(store, "completeQueuedProvisioning")

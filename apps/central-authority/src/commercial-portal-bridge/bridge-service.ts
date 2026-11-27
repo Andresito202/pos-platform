@@ -65,7 +65,7 @@ export interface CommercialPortalBridgeStore {
   getTrialByLicenseRef(ref: string): Promise<TrialLicense | null>;
   listExpiredActiveTrials(now: Date): Promise<TrialLicense[]>;
   updateTrial(trial: TrialLicense): Promise<void>;
-  putProvisioning(row: ProvisioningRecord): Promise<void>;
+  reserveProvisioning(row: ProvisioningRecord): Promise<boolean>;
   getProvisioningByIdempotency(key: string): Promise<ProvisioningRecord | null>;
   completeQueuedProvisioning(key: string, payloadHash: string, licenseIds: string[]): Promise<void>;
   claimJti(record: ReplayRecord): Promise<"CLAIMED" | "REPLAY">;
@@ -88,7 +88,6 @@ export interface CommercialLicenseIssuer {
     tenantId: string;
     planId: string;
     payloadHash: string;
-    recoveringQueued?: boolean;
   }): Promise<{ licenseIds: string[] }>;
 }
 
@@ -135,8 +134,13 @@ export class MemoryCommercialPortalBridgeStore implements CommercialPortalBridge
   async updateTrial(trial: TrialLicense): Promise<void> {
     await this.putTrial(trial);
   }
-  async putProvisioning(row: ProvisioningRecord): Promise<void> {
+  async reserveProvisioning(row: ProvisioningRecord): Promise<boolean> {
+    const nonce = `provision:${row.idempotencyKey}`;
+    if (this.jtis.has(nonce) || this.provisioning.has(row.idempotencyKey)) return false;
+    this.jtis.set(nonce, { purpose: "provision", jti: row.idempotencyKey, usedAt: row.createdAt,
+      expiresAt: new Date(row.createdAt.getTime() + 30 * 24 * 60 * 60 * 1000) });
     this.provisioning.set(row.idempotencyKey, row);
+    return true;
   }
   async getProvisioningByIdempotency(key: string): Promise<ProvisioningRecord | null> {
     return this.provisioning.get(key) ?? null;
@@ -395,21 +399,22 @@ export class CommercialPortalBridgeService {
     });
   }
 
-  private async replayProvisioning(
+  private async resolveProvisioning(
     row: ProvisioningRecord,
     payloadHash: string,
     body: ReturnType<typeof CommercialProvisioningRequestSchema.parse>,
+    accepted = false,
   ) {
     if (row.payloadHash !== payloadHash) {
       throw Object.assign(new Error("IDEMPOTENCY_PAYLOAD_CONFLICT"), { status: 409 });
     }
-    if (this.config.recoverBoundProvisioning && this.config.licenseIssuer &&
+    if ((accepted || this.config.recoverBoundProvisioning) && this.config.licenseIssuer &&
         (row.fulfillment === "QUEUED" || row.fulfillment === "ALREADY_QUEUED") &&
         row.licenseIds?.length === 0 && body.planId && body.tenantId && row.tenantId === body.tenantId) {
       try {
         const issued = await this.config.licenseIssuer.issueProvisioningLicenses({
           orderId: body.orderId, licenseUnits: row.licenseUnits, tenantId: body.tenantId,
-          planId: body.planId, payloadHash, recoveringQueued: true,
+          planId: body.planId, payloadHash,
         });
         const licenseIds = issued.licenseIds.map(id => UuidSchema.parse(id));
         if (licenseIds.length !== row.licenseUnits || new Set(licenseIds).size !== row.licenseUnits) {
@@ -430,50 +435,26 @@ export class CommercialPortalBridgeService {
       }
     }
     return CommercialProvisioningResponseSchema.parse({
-      status: "DUPLICATE",
+      status: accepted ? "ACCEPTED" : "DUPLICATE",
       provisioningId: row.provisioningId,
       idempotencyKey: row.idempotencyKey,
       licenseUnits: row.licenseUnits,
       cajaRule: "ONE_LICENSE_ONE_CAJA",
       fulfillment: row.fulfillment === "ISSUED" || row.fulfillment === "ALREADY_ISSUED"
-        ? "ALREADY_ISSUED" : "ALREADY_QUEUED",
+        ? (accepted ? "ISSUED" : "ALREADY_ISSUED")
+        : (accepted ? "QUEUED" : "ALREADY_QUEUED"),
       licenseIds: row.licenseIds ?? [],
     });
   }
 
   async provision(idempotencyKey: string | undefined, input: unknown) {
-    if (!idempotencyKey || idempotencyKey.length < 16) {
+    if (!idempotencyKey || idempotencyKey.trim().length < 16 || idempotencyKey.length > 128) {
       throw Object.assign(new Error("IDEMPOTENCY_KEY_REQUIRED"), { status: 400 });
     }
     const body = CommercialProvisioningRequestSchema.parse(input);
     const payloadHash = sha256(JSON.stringify(body));
     const existing = await this.store.getProvisioningByIdempotency(idempotencyKey);
-    if (existing) return this.replayProvisioning(existing, payloadHash, body);
-    const claim = await this.store.claimJti({
-      jti: idempotencyKey,
-      purpose: "provision",
-      usedAt: new Date(),
-      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-    });
-    if (claim === "REPLAY") {
-      const again = await this.store.getProvisioningByIdempotency(idempotencyKey);
-      if (again) return this.replayProvisioning(again, payloadHash, body);
-      throw Object.assign(new Error("COMMERCIAL_BRIDGE_REPLAY"), { status: 409 });
-    }
-
-    let licenseIds: string[] = [];
-    let fulfillment: "QUEUED" | "ISSUED" = "QUEUED";
-    if (this.config.licenseIssuer && body.tenantId && body.planId) {
-      const issued = await this.config.licenseIssuer.issueProvisioningLicenses({
-        orderId: body.orderId,
-        licenseUnits: body.licenseUnits,
-        tenantId: body.tenantId,
-        planId: body.planId,
-        payloadHash,
-      });
-      licenseIds = issued.licenseIds;
-      fulfillment = "ISSUED";
-    }
+    if (existing) return this.resolveProvisioning(existing, payloadHash, body);
 
     const row: ProvisioningRecord = {
       provisioningId: `CPV-${randomBytes(12).toString("hex")}`,
@@ -484,18 +465,22 @@ export class CommercialPortalBridgeService {
       payloadHash,
       createdAt: new Date(),
       tenantId: body.tenantId ?? null,
-      licenseIds,
-      fulfillment,
+      licenseIds: [],
+      fulfillment: "QUEUED",
     };
-    await this.store.putProvisioning(row);
-    return CommercialProvisioningResponseSchema.parse({
-      status: "ACCEPTED",
-      provisioningId: row.provisioningId,
-      idempotencyKey,
-      licenseUnits: body.licenseUnits,
-      cajaRule: "ONE_LICENSE_ONE_CAJA",
-      fulfillment,
-      licenseIds,
-    });
+    let reserved: boolean;
+    try {
+      reserved = await this.store.reserveProvisioning(row);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "23503") {
+        throw Object.assign(new Error("PROVISION_TENANT_REQUIRED"), { status: 400 });
+      }
+      throw Object.assign(new Error("COMMERCIAL_PROVISIONING_RESERVATION_UNAVAILABLE", { cause: error }), { status: 503 });
+    }
+    if (reserved) return this.resolveProvisioning(row, payloadHash, body, true);
+    const persisted = await this.store.getProvisioningByIdempotency(idempotencyKey);
+    if (persisted) return this.resolveProvisioning(persisted, payloadHash, body);
+    // A key consumed before atomic reservation has no trusted payload to replay.
+    throw Object.assign(new Error("COMMERCIAL_BRIDGE_REPLAY"), { status: 409 });
   }
 }
