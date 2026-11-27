@@ -533,6 +533,16 @@ describe("SalePanel · transferencia", () => {
     await waitFor(() => { expect(screen.getByTestId("transfer-registered")).toBeTruthy(); });
   }
 
+  it("oculta el reporte cuando la sesión puede crear ventas pero no reportar transferencias", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE", "PAYMENTS_PAYMENT_READ"])} />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    expect(screen.queryByTestId("register-transfer-button")).toBeNull();
+    expect(calls.has("payment.register.transfer")).toBe(false);
+  });
+
   it("reporta un importe parcial y la referencia del comprobante Nequi", async () => {
     await reachSale({
       "payment.register.transfer": registered("REGISTERED"),
@@ -592,7 +602,7 @@ describe("SalePanel · transferencia", () => {
       .mockResolvedValueOnce(responses["sales.receipt.get"])
       .mockResolvedValue(succeeded({ outcome: "FOUND", sale_id: SALE, payable_amount: "3500.000000" }));
 
-    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE", "PAYMENTS_PAYMENT_READ", "SALES_RECEIPT_READ"])} />);
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE", "PAYMENTS_TRANSFER_REPORT", "PAYMENTS_PAYMENT_READ", "SALES_RECEIPT_READ"])} />);
     await openShift();
     await addProduct();
     await createSale();

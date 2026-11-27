@@ -38,6 +38,8 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
   const canReadCustomers = permissions?.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) === true;
   const canRefreshTransfer = permissions === undefined ||
     (permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ) && permissions.has(CanonicalPermission.SALES_RECEIPT_READ));
+  const canReportTransfer = permissions === undefined ||
+    (permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) && permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ));
   const canConfirmTransfer = permissions === undefined || permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM);
   const canCreateSale = permissions === undefined || permissions.has(CanonicalPermission.SALES_SALE_CREATE);
   const sale = useCommercialSale({ canReadCatalog });
@@ -525,7 +527,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             >
               Confirmar cobro en efectivo
             </button>
-            <fieldset className="pos-transfer-report" disabled={transferInputsLocked}>
+            {canReportTransfer && <fieldset className="pos-transfer-report" disabled={transferInputsLocked}>
               <legend>Reporte manual de transferencia</legend>
               <label>Importe de la transferencia
                 <input value={transferAmount} placeholder={remainingAmount ?? ""}
@@ -557,7 +559,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
               >
                 Reportar transferencia
               </button>
-            </fieldset>
+            </fieldset>}
             <button
               data-testid="factus-pay-collect-button"
               onClick={() => { void sale.collectFactusPay(); }}
