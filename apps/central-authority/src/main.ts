@@ -16,6 +16,7 @@ import { prepareBusinessAdministrationRuntime } from "./business-administration-
 import { prepareSubscriptionFulfillmentRuntime } from "./subscription-fulfillment-runtime.js";
 import { prepareSubscriptionFactusPayGateway } from "./subscription-factus-pay-gateway-runtime.js";
 import { createCentralRouter } from "./central-router.js";
+import { createMerchantPaymentNoticeHandler } from "./merchant-payment-notice-ingest.js";
 import { prepareAndroidCommercialRuntime,isAndroidCommercialRoute } from "./android-commercial-central-runtime.js";
 import { createNativeRequestHandler } from "./native-business-request-registration.js";
 import { prepareAndroidAssociationPublication, handleAndroidAssociation } from "./android-association-publication.js";
@@ -313,6 +314,10 @@ const androidCommercial=await (async()=>{
  return prepareAndroidCommercialRuntime({pool,provisionFile:androidCommercialProvision,businessProvision,origin:deployment.origin,environment:deployment.environment,registration:androidAssociationPublication.registration});
 })();
 const nativeRequestHandler = createNativeRequestHandler();
+const merchantPaymentNoticeHandler = deployment?.environment === "PREPRODUCTION" &&
+    process.env.CENTRAL_MERCHANT_PAYMENT_NOTICE_INGEST_ENABLED === "1"
+  ? createMerchantPaymentNoticeHandler(pool, deployment.origin, readBody, allowRate)
+  : null;
 const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" }, createCentralRouter(async (request, response) => {
   const requestId = request.headers["x-request-id"]?.toString() ?? createHash("sha256").update(`${Date.now()}:${Math.random()}`).digest("hex").slice(0, 32);
   const correlationId = request.headers["x-correlation-id"]?.toString() ?? requestId;
@@ -321,6 +326,7 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
   if (handleAndroidAssociation(request, response, androidAssociationPublication)) return;
   if (androidCommercial && await androidCommercial(request,response)) return;
   if (await nativeRequestHandler(request, response)) return;
+  if (merchantPaymentNoticeHandler && await merchantPaymentNoticeHandler(request, response)) return;
   if (isAndroidCommercialRoute(request.url)) {send(response,503,{code:"ANDROID_COMMERCIAL_NOT_PROVISIONED"});return;}
 
   if (commercialBridgeHandler) {

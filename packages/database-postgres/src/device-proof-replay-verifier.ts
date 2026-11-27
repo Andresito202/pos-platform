@@ -1,6 +1,6 @@
 import { createHash, createPublicKey } from "node:crypto";
 import type { Pool } from "pg";
-import { UuidSchema } from "@pos-platform/contracts";
+import { MERCHANT_PAYMENT_NOTICE_PATH, UuidSchema } from "@pos-platform/contracts";
 import {
   parseDeviceRequestAuthorization,
   verifyDeviceRequestAuthorization,
@@ -222,5 +222,12 @@ const MERCHANT_DEVICE_PATHS:Readonly<Record<MerchantDestinationDeviceOperation,s
 export class PostgresMerchantDestinationDeviceProofVerifier extends PostgresDeviceProofReplayVerifier {
   verifyOperationAndConsume(input:DeviceProofRequest,operation:MerchantDestinationDeviceOperation){
     return this.verifyTargetAndConsume(input,MERCHANT_DEVICE_PATHS[operation]);
+  }
+}
+
+/** Device proofs for notices are bound exclusively to the signed ingest path. */
+export class PostgresMerchantPaymentNoticeProofVerifier extends PostgresDeviceProofReplayVerifier {
+  verifyIngestAndConsume(input: DeviceProofRequest) {
+    return this.verifyTargetAndConsume(input, MERCHANT_PAYMENT_NOTICE_PATH);
   }
 }

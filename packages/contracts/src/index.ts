@@ -45,3 +45,5 @@ export * from "./commercial-portal-bridge.js";
 export * from "./authorization-trust.js";
 
 export * from "./android-commercial-provision.js";
+
+export * from "./merchant-payment-notice.js";
