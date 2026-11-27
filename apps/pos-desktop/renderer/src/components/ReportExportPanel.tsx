@@ -84,7 +84,7 @@ export function ReportExportPanel(): React.JSX.Element {
               <thead><tr><th scope="col">Indicador</th><th scope="col">Periodo</th><th scope="col">Valor</th></tr></thead>
               <tbody>{rows.map(([indicator, period, unit, value]) => (
                 <tr key={`${indicator}-${period}`}><th scope="row">{indicator}</th><td>{period}</td>
-                  <td>{unit === "COP" ? `$${formatScale6Display(String(value))}` : value}</td></tr>
+                  <td>{unit === "COP" ? formatScale6Display(String(value)) : value}</td></tr>
               ))}</tbody>
             </table>
           </div>

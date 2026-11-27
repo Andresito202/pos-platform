@@ -48,6 +48,7 @@ describe("ReportExportPanel", () => {
     const read = installIpc();
     render(<ReportExportPanel />);
     fireEvent.click(await screen.findByRole("button", { name: "Descargar CSV" }));
+    expect(screen.getAllByText("$0")).toHaveLength(2);
     await waitFor(() => expect(downloadText).toHaveBeenCalledOnce());
     const [name, csv] = vi.mocked(downloadText).mock.calls[0]!;
     expect(name).toBe("camacho-resumen-local-2026-11-27.csv");
