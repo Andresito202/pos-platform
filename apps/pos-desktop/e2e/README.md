@@ -30,14 +30,18 @@ de `vitest` sobre jsdom:
 Con las 88 unitarias en verde, la aplicación abría una ventana en blanco. Esa
 es la razón de ser de este directorio.
 
-## Qué **no** cubre
+## Validación con el servicio local
 
-La cadena hasta SQLite. `smoke-entry.mjs` es una entrada **de prueba** que
-inyecta un `ServiceChannel` de doble: no hay named pipe ni servicio local
-detrás. La cadena completa
-`renderer → IPC → POS Local Service → Use Case → SQLite` sigue siendo objetivo
-futuro y depende de la entrada de producción de Electron, hoy bloqueada por el
-handshake autorizado.
+`boot.spec.ts` verifica el arranque con un canal de prueba. El recorrido
+`real-channel.spec.ts` abre Electron y el servicio local en procesos
+distintos. Usa un socket POSIX, un canal autenticado, el handler comercial
+y SQLite. El arnés aporta identidades y una SSA firmada para pruebas.
+
+El recorrido de dos transferencias comprueba el saldo pendiente de Caja,
+la aprobación manual y el cobro completo. TARGET publica la captura
+`caja-transferencia-parcial.png` como artefacto del SHA probado. Esta evidencia
+corresponde al servicio local de prueba en Linux. La prueba de DPAPI y
+named pipe usa `local-operator-live.spec.ts` en Windows.
 
 ## Cómo se ejecuta
 

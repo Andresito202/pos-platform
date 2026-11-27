@@ -38,6 +38,8 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
   const canReadCustomers = permissions?.has(CanonicalPermission.CUSTOMERS_CUSTOMER_READ) === true;
   const canRefreshTransfer = permissions === undefined ||
     (permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ) && permissions.has(CanonicalPermission.SALES_RECEIPT_READ));
+  const canReportTransfer = permissions === undefined ||
+    (permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_REPORT) && permissions.has(CanonicalPermission.PAYMENTS_PAYMENT_READ));
   const canConfirmTransfer = permissions === undefined || permissions.has(CanonicalPermission.PAYMENTS_TRANSFER_CONFIRM);
   const canCreateSale = permissions === undefined || permissions.has(CanonicalPermission.SALES_SALE_CREATE);
   const sale = useCommercialSale({ canReadCatalog });
@@ -60,7 +62,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
   const [transferReference, setTransferReference] = useState("");
   const transferCompleted = sale.transferReceiptAmount !== null || sale.transferConfirmation?.sale_completed === true;
   const completed = sale.payment?.sale_completed === true || transferCompleted || sale.factusPayConfirmation?.sale_completed === true;
-  const confirmedCoverage = [sale.payment?.confirmed_coverage, sale.transferConfirmation?.confirmed_coverage, sale.factusPayConfirmation?.confirmed_coverage]
+  const confirmedCoverage = [sale.payment?.confirmed_coverage, sale.transferCoverage, sale.factusPayConfirmation?.confirmed_coverage]
     .reduce<string | null>((max, value) => {
       if (value == null) return max;
       const parsed = parseCopMicros(value);
@@ -68,12 +70,14 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
     }, null);
   const remainingAmount = sale.sale === null ? null : remainingPayableScale6(sale.sale.payableAmount, confirmedCoverage);
   const reportedTransferAmount = transferAmount.trim() ? toScale6(transferAmount) : remainingAmount;
-  const transferInputsLocked = sale.busy || sale.unresolved || completed || sale.transfer !== null;
+  const exceedsTransferBalance = (parseCopMicros(reportedTransferAmount ?? "") ?? 0n) >
+    (parseCopMicros(remainingAmount ?? "") ?? 0n);
+  const transferInputsLocked = sale.busy || sale.unresolved || completed || sale.transfer?.status === "CREATED";
   useEffect(() => {
     setTransferAmount("");
     setTransferProvider("");
     setTransferReference("");
-  }, [sale.sale?.saleId]);
+  }, [sale.sale?.saleId, sale.transfer?.paymentId]);
   useEffect(() => {
     if (confirmedCoverage !== null && remainingAmount !== null && !completed) setPaymentAmount(remainingAmount);
   }, [confirmedCoverage, remainingAmount, completed]);
@@ -523,7 +527,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             >
               Confirmar cobro en efectivo
             </button>
-            <fieldset className="pos-transfer-report" disabled={transferInputsLocked}>
+            {canReportTransfer && <fieldset className="pos-transfer-report" disabled={transferInputsLocked}>
               <legend>Reporte manual de transferencia</legend>
               <label>Importe de la transferencia
                 <input value={transferAmount} placeholder={remainingAmount ?? ""}
@@ -541,6 +545,7 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
                 <input type="text" value={transferReference} maxLength={128}
                   onChange={event => setTransferReference(event.target.value)} />
               </label>
+              {exceedsTransferBalance && <p role="status">El importe reportado supera el saldo pendiente.</p>}
               <button
                 type="button"
                 data-testid="register-transfer-button"
@@ -549,12 +554,12 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
                     reportedTransferAmount ?? undefined, transferProvider || null, transferReference.trim() || null,
                   );
                 }}
-                disabled={transferInputsLocked || (parseCopMicros(reportedTransferAmount ?? "") ?? 0n) <= 0n ||
+                disabled={transferInputsLocked || exceedsTransferBalance || (parseCopMicros(reportedTransferAmount ?? "") ?? 0n) <= 0n ||
                   (transferReference.trim() !== "" && transferProvider === "")}
               >
                 Reportar transferencia
               </button>
-            </fieldset>
+            </fieldset>}
             <button
               data-testid="factus-pay-collect-button"
               onClick={() => { void sale.collectFactusPay(); }}
@@ -601,7 +606,8 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
           <span data-testid="transfer-expected-amount">{sale.transfer.expectedAmount}</span>
           {/* Registrada NO es cobrada: mientras nadie atestigüe, la venta sigue
               sin completarse y no suena nada. */}
-          {sale.transfer.status === "CREATED" && <div data-testid="transfer-pending">Pendiente de confirmación</div>}
+          {sale.transfer.status === "CREATED" && <div data-testid="transfer-pending">Pago pendiente de aprobación manual</div>}
+          {sale.transfer.status === "CONFIRMED" && <div>Aprobación manual registrada</div>}
           {canRefreshTransfer && !completed && (sale.transfer.status === "CREATED" || sale.transfer.status === "CONFIRMED") && (
             <button type="button" onClick={() => { void sale.refreshTransfer(); }} disabled={sale.busy || sale.unresolved}>
               Actualizar estado de la transferencia
@@ -624,8 +630,8 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             {sale.transferReceiptAmount ?? sale.transferConfirmation?.confirmed_coverage}
           </span>
         </div>
-      ) : sale.transferConfirmation !== null || sale.transfer?.status === "CONFIRMED" ? (
-        <div className="pos-result-pending" data-testid="transfer-partial">Transferencia {sale.transferConfirmation?.outcome ?? "confirmada"} · la venta aún no está cobrada</div>
+      ) : !completed && (sale.transferConfirmation !== null || sale.transfer?.status === "CONFIRMED") ? (
+        <div className="pos-result-pending" data-testid="transfer-partial">Pago parcial aprobado manualmente · queda saldo pendiente</div>
       ) : null}
 
       {sale.factusPay !== null && (
@@ -704,7 +710,11 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             ? "No se pudo completar el cobro: el inventario ya no es elegible (p. ej. lote vencido). El pago no se registró."
             : sale.error === "DUPLICATE_TRANSFER_REFERENCE"
               ? "Esta referencia ya fue registrada para el canal indicado."
-              : sale.error}
+              : sale.error === "OVERPAYMENT_NOT_ALLOWED"
+                ? "El pago supera el saldo vigente. Actualiza el estado antes de confirmar."
+                : sale.error === "TRANSFER_COVERAGE_UNAVAILABLE"
+                  ? "Falta comprobar el saldo vigente. Reintenta antes de reportar otro pago."
+                  : sale.error}
           {sale.error === "INSUFFICIENT_STOCK" && sale.sale !== null && (
             <button
               type="button"

@@ -883,7 +883,10 @@ describe("idempotencia anclada en runtime_operations", () => {
     const second = env.confirmTransfer.execute(SCOPE, SESSION, auth(), confirmRequest);
 
     expect(first.kind).toBe("CONFIRMED");
-    expect(second.kind).toBe("IDEMPOTENT");
+    expect(second).toEqual({
+      kind: "IDEMPOTENT", paymentId: registered.paymentId, saleCompleted: false,
+      confirmedCoverage: "4000.000000", payableAmount: "10000.000000",
+    });
   });
 
   it("3. confirmar con la misma clave y distinto checksum es IDEMPOTENCY_CONFLICT", async () => {
@@ -1210,14 +1213,29 @@ describe("Block 2 — mixed tender, transfer overpay, pending restart", () => {
     expect(registered.kind).toBe("REGISTERED");
     if (registered.kind !== "REGISTERED") return;
 
-    const confirmed = env.confirmTransfer.execute(SCOPE, SESSION, auth(), {
+    const read = env.get.execute(SCOPE, auth(), { paymentId: registered.paymentId });
+    expect(read).toMatchObject({
+      kind: "FOUND", payment: { status: "CREATED", saleConfirmedCoverage: "4000.000000" },
+    });
+    expect(env.get.execute({ ...SCOPE, branchId: randomUUID() }, auth(), {
+      paymentId: registered.paymentId,
+    }).kind).not.toBe("FOUND");
+
+    const confirmation = {
       paymentId: registered.paymentId, expectedVersion: 1,
       idempotencyKey: "mix:xfer:confirm", correlationId: randomUUID(), causationId: null,
-    });
+    };
+    const confirmed = env.confirmTransfer.execute(SCOPE, SESSION, auth(), confirmation);
     expect(confirmed.kind).toBe("CONFIRMED");
     if (confirmed.kind !== "CONFIRMED") return;
     expect(confirmed.saleCompleted).toBe(true);
     expect(saleStatus(env.database, saleId).status).toBe("COMPLETED");
+    expect(env.confirmTransfer.execute(SCOPE, SESSION, auth(), confirmation)).toMatchObject({
+      kind: "IDEMPOTENT", saleCompleted: true, confirmedCoverage: "10000.000000",
+    });
+    expect(env.get.execute(SCOPE, auth(), { paymentId: registered.paymentId })).toMatchObject({
+      kind: "FOUND", payment: { status: "CONFIRMED", saleConfirmedCoverage: "10000.000000" },
+    });
   });
 
   it("confirming a transfer that would overpay is rejected without completing the sale", async () => {

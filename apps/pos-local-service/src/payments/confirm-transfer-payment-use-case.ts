@@ -19,13 +19,12 @@ export interface ConfirmTransferPaymentRequest {
 
 export type ConfirmTransferPaymentResult =
   | {
-      readonly kind: "CONFIRMED";
+      readonly kind: "CONFIRMED" | "IDEMPOTENT";
       readonly paymentId: string;
       readonly saleCompleted: boolean;
       readonly confirmedCoverage: string;
       readonly payableAmount: string;
     }
-  | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "PAYMENT_NOT_FOUND" }

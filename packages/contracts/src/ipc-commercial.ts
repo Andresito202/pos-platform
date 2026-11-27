@@ -791,7 +791,7 @@ export const PaymentCancelResponseSchema = createResponseEnvelopeSchema(PaymentC
 // ── payment.get ──────────────────────────────────────────────────────────────
 
 export const PaymentGetRequestSchema = createRequestEnvelopeSchema(
-  z.strictObject({ payment_id: UuidSchema }),
+  z.strictObject({ payment_id: UuidSchema, include_sale_coverage: z.boolean().optional() }),
 ).safeExtend({ message_type: z.literal("payment.get") })
   .superRefine(forbidCallerAssertedIdentity);
 
@@ -803,6 +803,7 @@ export const PaymentGetResultSchema = z.strictObject({
   status: StableCodeSchema.nullable(),
   expected_amount: NonNegativeScale6Schema.nullable(),
   confirmed_amount: NonNegativeScale6Schema.nullable(),
+  sale_confirmed_coverage: NonNegativeScale6Schema.nullable().optional(),
   currency_code: CurrencyCodeSchema.nullable(),
   version: ExpectedVersionSchema.nullable(),
 });

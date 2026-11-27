@@ -458,6 +458,9 @@ describe("SalePanel · cierre de turno", () => {
     // El turno deja de estar abierto y la caja vuelve a admitir apertura.
     expect(screen.queryByTestId("shift-open")).toBeNull();
     expect(screen.getByTestId("shift-close-result")).toBeTruthy();
+
+    await openShift();
+    expect(screen.queryByTestId("shift-close-result")).toBeNull();
   });
 
   it("un cierre rechazado no cierra el turno ni se disfraza de éxito", async () => {
@@ -498,10 +501,12 @@ describe("SalePanel · transferencia", () => {
 
   const registered = (outcome: string) => succeeded({ outcome, payment_id: PAYMENT });
 
-  const fetched = (version: number, status = "CREATED", expectedAmount = "3500.000000") => succeeded({
+  const fetched = (
+    version: number, status = "CREATED", expectedAmount = "3500.000000", coverage?: string,
+  ) => succeeded({
     outcome: "FOUND", payment_id: PAYMENT, sale_id: SALE,
     method: "TRANSFER", status, expected_amount: expectedAmount,
-    confirmed_amount: null, currency_code: "COP", version,
+    confirmed_amount: null, sale_confirmed_coverage: coverage, currency_code: "COP", version,
   });
 
   const confirmed = (outcome: string, saleCompleted: boolean) => succeeded({
@@ -530,6 +535,16 @@ describe("SalePanel · transferencia", () => {
     fireEvent.click(screen.getByTestId("register-transfer-button"));
     await waitFor(() => { expect(screen.getByTestId("transfer-registered")).toBeTruthy(); });
   }
+
+  it("oculta el reporte cuando la sesión puede crear ventas pero no reportar transferencias", async () => {
+    install(BASE_OVERRIDES);
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE", "PAYMENTS_PAYMENT_READ"])} />);
+    await openShift();
+    await addProduct();
+    await createSale();
+    expect(screen.queryByTestId("register-transfer-button")).toBeNull();
+    expect(calls.has("payment.register.transfer")).toBe(false);
+  });
 
   it("reporta un importe parcial y la referencia del comprobante Nequi", async () => {
     await reachSale({
@@ -563,6 +578,19 @@ describe("SalePanel · transferencia", () => {
     expect(report.mock.calls[1]).toEqual(report.mock.calls[0]);
   });
 
+  it("desbloquea el reporte si el reintento recibe un duplicado definitivo", async () => {
+    await reachSale({});
+    const report = vi.spyOn(window.posService, "payment.register.transfer")
+      .mockRejectedValueOnce(new Error("respuesta perdida"))
+      .mockResolvedValueOnce(rejected("DUPLICATE_TRANSFER_REFERENCE"));
+    fireEvent.click(screen.getByTestId("register-transfer-button"));
+    fireEvent.click(await screen.findByRole("button", { name: /reintentar/i }));
+    await waitFor(() => expect(screen.getByTestId("sale-error").textContent).toMatch(/referencia ya fue registrada/));
+    expect(screen.queryByRole("button", { name: /reintentar/i })).toBeNull();
+    expect((screen.getByTestId("register-transfer-button") as HTMLButtonElement).disabled).toBe(false);
+    expect(report.mock.calls[1]).toEqual(report.mock.calls[0]);
+  });
+
   it("consulta una confirmación externa y solo libera Caja al obtener el comprobante de la venta", async () => {
     const responses = {
       "payment.register.transfer": registered("REGISTERED"),
@@ -572,12 +600,12 @@ describe("SalePanel · transferencia", () => {
     install({ ...BASE_OVERRIDES, ...responses });
     const readPayment = vi.spyOn(window.posService, "payment.get")
       .mockResolvedValueOnce(fetched(3))
-      .mockResolvedValue(fetched(4, "CONFIRMED"));
+      .mockResolvedValue(fetched(4, "CONFIRMED", "1000.000000", "1000.000000"));
     vi.spyOn(window.posService, "sales.receipt.get")
       .mockResolvedValueOnce(responses["sales.receipt.get"])
       .mockResolvedValue(succeeded({ outcome: "FOUND", sale_id: SALE, payable_amount: "3500.000000" }));
 
-    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE", "PAYMENTS_PAYMENT_READ", "SALES_RECEIPT_READ"])} />);
+    render(<SalePanel permissions={new Set(["SALES_SALE_CREATE", "PAYMENTS_TRANSFER_REPORT", "PAYMENTS_PAYMENT_READ", "SALES_RECEIPT_READ"])} />);
     await openShift();
     await addProduct();
     await createSale();
@@ -587,13 +615,14 @@ describe("SalePanel · transferencia", () => {
     const refresh = screen.getByRole("button", { name: "Actualizar estado de la transferencia" });
     fireEvent.click(refresh);
     await screen.findByTestId("transfer-partial");
+    await waitFor(() => expect(screen.getByTestId("payment-remaining").textContent).toBe("2500.000000"));
     fireEvent.click(screen.getByTestId("reset-button"));
     expect(screen.getByTestId("sale-error").textContent).toBe("Completa la venta antes de iniciar otra.");
 
     fireEvent.click(refresh);
     await screen.findByTestId("transfer-sale-completed");
     expect(screen.getByTestId("transfer-confirmed-coverage").textContent).toBe("3500.000000");
-    expect(readPayment).toHaveBeenLastCalledWith(expect.objectContaining({ payload: { payment_id: PAYMENT } }));
+    expect(readPayment).toHaveBeenLastCalledWith(expect.objectContaining({ payload: { payment_id: PAYMENT, include_sale_coverage: true } }));
     expect(calls.has("payment.transfer.confirm")).toBe(false);
     expect(chime).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("reset-button"));
@@ -675,13 +704,41 @@ describe("SalePanel · transferencia", () => {
       "payment.get": fetched(1),
       "payment.transfer.confirm": confirmed("CONFIRMED", false),
     });
+    fireEvent.change(screen.getByLabelText("Importe de la transferencia"), { target: { value: "1000" } });
+    fireEvent.change(screen.getByLabelText("Canal de la transferencia"), { target: { value: "NEQUI" } });
+    fireEvent.change(screen.getByLabelText("Referencia del comprobante"), { target: { value: "REP-1" } });
     await registerTransfer();
+    expect((screen.getByTestId("register-transfer-button") as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByTestId("confirm-transfer-button"));
     await waitFor(() => { expect(screen.getByTestId("transfer-partial")).toBeTruthy(); });
     // Cobertura parcial: el dinero entró, la venta no está cobrada.
     expect(chime).not.toHaveBeenCalled();
     expect(screen.queryByTestId("transfer-sale-completed")).toBeNull();
+    expect(screen.getByTestId("payment-remaining").textContent).toBe("2500.000000");
+    expect((screen.getByLabelText("Referencia del comprobante") as HTMLInputElement).value).toBe("");
+    expect((screen.getByTestId("register-transfer-button") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("desbloquea el siguiente cobro con el saldo persistido al recuperar una aprobación parcial", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(1),
+    });
+    const confirm = vi.spyOn(window.posService, "payment.transfer.confirm")
+      .mockRejectedValueOnce(new Error("respuesta perdida"))
+      .mockResolvedValueOnce(confirmed("IDEMPOTENT", false));
+    await registerTransfer();
+
+    fireEvent.click(screen.getByTestId("confirm-transfer-button"));
+    const retry = await screen.findByRole("button", { name: /reintentar/i });
+    expect((screen.getByTestId("register-transfer-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(retry);
+    await screen.findByTestId("transfer-partial");
+    expect(screen.getByTestId("payment-remaining").textContent).toBe("2500.000000");
+    expect((screen.getByTestId("register-transfer-button") as HTMLButtonElement).disabled).toBe(false);
+    expect(confirm.mock.calls[1]).toEqual(confirm.mock.calls[0]);
+    expect(chime).not.toHaveBeenCalled();
   });
 
   it("un IDEMPOTENT en la confirmación no vuelve a sonar", async () => {
