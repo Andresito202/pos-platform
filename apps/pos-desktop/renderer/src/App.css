@@ -376,6 +376,13 @@ button {
   background: var(--camacho-card);
   color: var(--camacho-ink);
 }
+.pos-customer-details {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 8px 12px;
+}
+.pos-customer-details dd { margin: 0; }
+.pos-customer-identifier { overflow-wrap: anywhere; }
 .pos-customer-panel > button {
   max-width: 100%;
   min-height: 42px;

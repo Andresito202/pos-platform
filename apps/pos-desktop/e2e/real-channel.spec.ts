@@ -587,6 +587,8 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   await page.getByTestId("get-customer-button").click();
   await expect(page.getByTestId("customer-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("customer-found-tribute").textContent()).toBe("ZZ");
+  await expect(page.getByTestId("customer-found-name")).toHaveText("Ana Perez");
+  await page.screenshot({ path: test.info().outputPath("clientes-consulta-local.png"), fullPage: true });
 
   expect(await page.getByTestId("catalog-error").count()).toBe(0);
   expect(await page.getByTestId("inventory-error").count()).toBe(0);

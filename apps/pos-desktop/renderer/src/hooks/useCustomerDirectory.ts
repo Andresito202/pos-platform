@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type {
   CustomerReadResult,
   CustomerRegisterResult,
@@ -49,15 +49,19 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
   find(documentCode: string, identification: string): Promise<void>;
   get(customerId: string): Promise<void>;
 } {
+  const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [registered, setRegistered] = useState<CustomerRegisterResult | null>(null);
   const [found, setFound] = useState<CustomerReadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const register = useCallback(async (input: CustomerRegistration): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setRegistered(null);
+    setFound(null);
     try {
       const response = await callCommercial<CustomerRegisterResult>(
         "customer.register",
@@ -88,6 +92,7 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);
@@ -96,9 +101,12 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
     messageType: "customer.find" | "customer.get",
     payload: unknown,
   ): Promise<void> => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     setFound(null);
+    setRegistered(null);
     try {
       const response = await callCommercial<CustomerReadResult>(messageType, payload);
       if (response.result === null) {
@@ -109,6 +117,7 @@ export function useCustomerDirectory(): CustomerDirectoryState & {
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }, []);

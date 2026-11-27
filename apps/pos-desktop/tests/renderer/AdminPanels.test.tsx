@@ -306,7 +306,7 @@ describe("CustomerPanel", () => {
         findings: [],
       },
     });
-    render(<CustomerPanel />);
+    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillCustomer();
     fireEvent.change(screen.getByTestId("customer-responsibilities-input"), {
       target: { value: "R-99-PN, O-13" },
@@ -336,13 +336,31 @@ describe("CustomerPanel", () => {
         findings: [{ code: "TRIBUTE_CODE_UNKNOWN", path: "tribute_code" }],
       },
     });
-    render(<CustomerPanel />);
+    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillCustomer();
     fireEvent.click(screen.getByTestId("register-customer-button"));
 
     await waitFor(() => { expect(screen.getByTestId("customer-rejected")).toBeTruthy(); });
     expect(screen.getByTestId("customer-rejected-outcome").textContent).toBe("INVALID");
     expect(screen.getByTestId("customer-finding").textContent).toContain("TRIBUTE_CODE_UNKNOWN");
+  });
+
+  it("permite consultar sin permiso de alta y limita la consulta por ID a UUID válidos", () => {
+    render(<CustomerPanel permissions={new Set(["CUSTOMERS_CUSTOMER_READ"])} />);
+    expect(screen.queryByTestId("register-customer-button")).toBeNull();
+    expect(screen.queryByTestId("customer-names-input")).toBeNull();
+    expect(screen.getByTestId("find-customer-button")).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "ID del adquiriente" }), { target: { value: "1020304050" } });
+    fireEvent.click(screen.getByTestId("get-customer-button"));
+    expect(calls.get("customer.get")).toBeUndefined();
+    expect(screen.getByText(/introduce un id de adquiriente válido/i)).toBeTruthy();
+  });
+
+  it("mantiene las consultas ocultas a quien solo puede registrar", () => {
+    render(<CustomerPanel permissions={new Set(["CUSTOMERS_CUSTOMER_REGISTER"])} />);
+    expect(screen.getByTestId("register-customer-button")).toBeTruthy();
+    expect(screen.queryByTestId("find-customer-button")).toBeNull();
+    expect(screen.queryByTestId("get-customer-button")).toBeNull();
   });
 
   it("distingue encontrado de no registrado en la búsqueda", async () => {
@@ -368,7 +386,7 @@ describe("CustomerPanel", () => {
         version: null,
       },
     });
-    render(<CustomerPanel />);
+    render(<CustomerPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
     fillCustomer();
     fireEvent.click(screen.getByTestId("find-customer-button"));
 
