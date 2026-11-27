@@ -276,8 +276,8 @@ export class SqliteFiscalDocumentStore {
     }
   }
 
-  /** `IN_PROGRESS → COMPLETED`, con el resultado evidenciado del proveedor. */
-  recordCompleted(input: RecordCompletedInput): void {
+  /** Completes transmission, or reconciles the exact UNKNOWN_OUTCOME revision. */
+  recordCompleted(input: RecordCompletedInput, reconciledVersion?: number): void {
     const at = this.now().toISOString();
     const changes = this.database.native.prepare(`
       UPDATE fiscal_electronic_document
@@ -285,15 +285,18 @@ export class SqliteFiscalDocumentStore {
              provider_operation_id=?, provider_document_id=?, issued_prefix=?, issued_number=?, cufe=?,
              provider_status_code=?, provider_status=?, provider_http_status=?,
              version=version+1, updated_at=?, resolved_at=?
-       WHERE tenant_id=? AND id=? AND transport_status='IN_PROGRESS'
+       WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=?
+         AND transport_status=? AND (? IS NULL OR version=?)
     `).run(
       input.normalizedResult,
       input.providerOperationId, input.providerDocumentId, input.issuedPrefix, input.issuedNumber, input.cufe,
       input.providerStatusCode, input.providerStatus, input.providerHttpStatus,
       at, at,
-      input.scope.tenantId, input.documentId,
+      input.scope.tenantId, input.scope.companyId, input.scope.branchId, input.documentId,
+      reconciledVersion === undefined ? "IN_PROGRESS" : "UNKNOWN_OUTCOME",
+      reconciledVersion ?? null, reconciledVersion ?? null,
     ).changes;
-    if (changes !== 1) throw new Error("fiscal document is not IN_PROGRESS");
+    if (changes !== 1 && reconciledVersion === undefined) throw new Error("fiscal document is not IN_PROGRESS");
   }
 
   /** `IN_PROGRESS → FAILED`. No es terminal: admite un intento posterior. */

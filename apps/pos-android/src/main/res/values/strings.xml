@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Camacho POS Colombia</string>
+  <string name="brand_name">Camacho POS Colombia</string>
+  <string name="entry_subtitle">Punto de venta local-first para Colombia</string>
+  <string name="entry_cta">Continuar</string>
+  <string name="login_title">Acceso comercial</string>
+  <string name="login_hint_user">Usuario</string>
+  <string name="login_hint_password">Contraseña</string>
+  <string name="login_action">Ingresar</string>
+  <string name="login_blocked">Sin aprovisionamiento confiable ni sesión BUSINESS. El acceso permanece cerrado.</string>
+  <string name="runtime_unprovisioned">Servicio local sin aprovisionar. Sin acceso comercial.</string>
+  <string name="status_blocked">Acceso comercial bloqueado</string>
+</resources>

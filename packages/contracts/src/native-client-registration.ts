@@ -48,3 +48,15 @@ export function validateWindowsCommercialRegistration(registration:NativeClientR
     !(new URL(origin).hostname===rpId||new URL(origin).hostname.endsWith("."+rpId)))throw Error("COMMERCIAL_WINDOWS_RP_REGISTRATION_REJECTED");
   return Object.freeze({registration:client,rpId,webauthnOrigin});
 }
+
+/** Windows loopback or Android App Link registration bound to the same RP/origin. */
+export function validateCommercialPosRegistration(registration:NativeClientRegistration,rpId:string,webauthnOrigin:string){
+  const client=validateNativeClientRegistration(registration),origin=validateCommercialHttpsOrigin(client.authorizationOrigin);
+  if(webauthnOrigin!==origin||typeof rpId!=="string"||!rpId.includes(".")||new URL("https://"+rpId).hostname!==rpId||
+    !(new URL(origin).hostname===rpId||new URL(origin).hostname.endsWith("."+rpId)))throw Error("COMMERCIAL_POS_RP_REGISTRATION_REJECTED");
+  if(client.platform==="ANDROID"){
+    if(!client.androidPackageId||!client.androidSigningCertificateSha256)throw Error("COMMERCIAL_ANDROID_REGISTRATION_REJECTED");
+    return Object.freeze({registration:client,rpId,webauthnOrigin});
+  }
+  return validateWindowsCommercialRegistration(client,rpId,webauthnOrigin);
+}

@@ -6,6 +6,8 @@ import { BusinessClient, BusinessHttpRejection } from "../business-client.js";
 type Context = z.infer<typeof BusinessContextsSchema>["contexts"][number];
 export function BusinessCashRegisterPanel(): React.JSX.Element {
   const [client] = useState(() => new BusinessClient());
+  const [nativeRequest] = useState(() => /^#native-request=([A-Za-z0-9_-]{43})$/.exec(window.location.hash)?.[1] ?? null);
+  useEffect(()=>{if(nativeRequest)window.history.replaceState(null,"",window.location.pathname);},[nativeRequest]);
   const [authenticated, setAuthenticated] = useState(false), [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
   const [contexts, setContexts] = useState<Context[]>([]), [selected, setSelected] = useState("");
@@ -35,7 +37,7 @@ export function BusinessCashRegisterPanel(): React.JSX.Element {
     <header className="pos-admin-header">
       <div>
         <span className="pos-admin-eyebrow">ADMINISTRACIÓN</span>
-        <h2>Administración de cajas</h2>
+        <h2>{nativeRequest ? "Autorizar acceso a Camacho POS Android" : "Administración de cajas"}</h2>
         <p>Inicia sesión con tu cuenta empresarial y el autenticador. Usa los datos de organización y membresía entregados con tu alta.</p>
       </div>
     </header>
@@ -43,6 +45,7 @@ export function BusinessCashRegisterPanel(): React.JSX.Element {
       const password = String(data.get("password")); (f.elements.namedItem("password") as HTMLInputElement).value = "";
       void run(async () => { controller.current = new AbortController();
         await client.login(String(data.get("email")), password, String(data.get("tenant")), String(data.get("membership")), controller.current.signal);
+        if(nativeRequest){await client.authorizeNative(nativeRequest,controller.current.signal);return;}
         setAuthenticated(true); const result = await client.contexts(); setContexts(result.contexts);
         const pending = pendingCreate.current;
         if (pending) {

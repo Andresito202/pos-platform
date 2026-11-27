@@ -6,6 +6,7 @@ import {
   numberingDocumentTypeCode,
   type CredentialReference,
   type DocumentIssuancePort,
+  type DocumentStatusQueryPort,
   type FiscalCustomerResolution,
   type FiscalDocumentType,
   type FiscalEnvironment,
@@ -72,12 +73,7 @@ export type IssueElectronicDocumentResult =
   | { readonly kind: "FISCAL_REJECTED"; readonly document: StoredElectronicDocument }
   /** Se transmitió en esta llamada y el proveedor evidenció aceptación. */
   | { readonly kind: "ISSUED"; readonly document: StoredElectronicDocument }
-  /**
-   * Ya existe un documento `IN_PROGRESS` o `UNKNOWN_OUTCOME`. Regla 6-7: antes
-   * de repetir hay que consultar por referencia; este caso de uso no consulta
-   * —eso es `DocumentStatusQueryPort`, fuera de F4— así que se niega a
-   * transmitir de nuevo en vez de arriesgar una segunda factura.
-   */
+  /** El estado del proveedor sigue sin comprobarse. La emisión permanece bloqueada. */
   | { readonly kind: "REQUIRES_RECONCILIATION"; readonly document: StoredElectronicDocument }
   /** La venta no existe en este alcance, o existe pero no está cobrada. */
   | { readonly kind: "NOT_ELIGIBLE" }
@@ -99,7 +95,7 @@ export class IssueElectronicDocumentUseCase {
     private readonly saleSource: SqliteFiscalSaleSource,
     private readonly catalogStore: SqliteCatalogStore,
     private readonly documentStore: SqliteFiscalDocumentStore,
-    private readonly issuancePort: DocumentIssuancePort,
+    private readonly issuancePort: DocumentIssuancePort & Partial<DocumentStatusQueryPort>,
     private readonly credential: CredentialReference,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -129,6 +125,10 @@ export class IssueElectronicDocumentUseCase {
       input.scope, input.provider, input.environment, idempotencyKey,
     ) ?? this.documentStore.findOpenForSale(input.scope, input.saleId, input.documentType);
     if (existing !== null) {
+      if (existing.transportStatus === "UNKNOWN_OUTCOME" && existing.environment === input.environment &&
+          existing.provider === input.provider && this.issuancePort.queryStatus) {
+        return this.reconcileUnknown(existing, input.scope, signal);
+      }
       const resumed = this.resume(existing);
       if (resumed !== null) return resumed;
       // `existing` sigue en CREATED o FAILED: cae al camino normal y reintenta
@@ -264,6 +264,44 @@ export class IssueElectronicDocumentUseCase {
     });
 
     return this.attempt(document, input.scope, signal);
+  }
+
+  private async reconcileUnknown(
+    document: StoredElectronicDocument,
+    scope: DocumentScope,
+    signal: AbortSignal,
+  ): Promise<IssueElectronicDocumentResult> {
+    const unresolved = { kind: "REQUIRES_RECONCILIATION", document } as const;
+    let result;
+    try {
+      result = await this.issuancePort.queryStatus?.({
+        reference: { by: "EXTERNAL", providerOperationId: document.idempotencyKey },
+        documentType: document.documentType,
+        environment: document.environment,
+        credential: this.credential,
+      }, signal);
+    } catch {
+      return unresolved;
+    }
+    if (result?.kind !== "FOUND" || result.normalizedResult !== "ACCEPTED" ||
+        result.externalIdentity.providerOperationId !== document.idempotencyKey ||
+        result.providerStatus.providerCode !== document.provider ||
+        !result.externalIdentity.number) return unresolved;
+
+    this.documentStore.recordCompleted({
+      scope, documentId: document.id,
+      normalizedResult: result.normalizedResult,
+      providerOperationId: result.externalIdentity.providerOperationId,
+      providerDocumentId: result.externalIdentity.providerDocumentId,
+      issuedPrefix: result.externalIdentity.prefix,
+      issuedNumber: result.externalIdentity.number,
+      cufe: result.externalIdentity.cufe,
+      providerStatusCode: result.providerStatus.providerCode,
+      providerStatus: result.providerStatus.providerStatus,
+      providerHttpStatus: result.providerStatus.httpStatus,
+    }, document.version);
+    const current = this.reload(scope, document);
+    return this.resume(current) ?? { kind: "REQUIRES_RECONCILIATION", document: current };
   }
 
   /**

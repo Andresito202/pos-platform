@@ -1,0 +1,7 @@
+/.gradle/
+/build/
+*.apk
+/src/main/assets/runtime/
+/signing/*.p12
+/signing/*.jks
+/signing/*.keystore

@@ -1,0 +1,96 @@
+name: Android commercial build
+on:
+  pull_request:
+    paths:
+      - 'apps/pos-android/**'
+      - 'apps/pos-local-service/**'
+      - 'packages/**'
+      - 'tools/android-runtime/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/android-commercial-build.yml'
+  workflow_dispatch:
+    inputs:
+      full_apk:
+        description: Build unsigned APK with verified ARM64 runtime
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  commercial-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14'
+          cache-read-only: false
+      - name: Compile commercial Kotlin and test identity
+        run: bash tools/android-runtime/gradle-with-network-retry.sh commercialIdentityTest compileCommercialSigner
+      - uses: pnpm/action-setup@v4
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        with:
+          version: '9.15.0'
+      - uses: actions/setup-node@v4
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        with:
+          node-version: '22.19.0'
+          cache: pnpm
+      - name: Provision Android SDK and pinned NDK
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          cmdline-tools-version: '11076708'
+          packages: 'platform-tools ndk;27.3.13750724'
+      - name: Verify Android toolchain
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v sdkmanager
+          sdkmanager --version
+          test -d "$ANDROID_HOME"
+          ndk="$ANDROID_HOME/ndk/27.3.13750724"
+          grep -Eq '^Pkg\.Revision[[:space:]]*=[[:space:]]*27\.3\.13750724[[:space:]]*$' "$ndk/source.properties"
+          "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang" --version
+          "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android28-clang++" --version
+          command -v gpgv
+          command -v ar
+          python3 --version
+      - name: Install locked workspace dependencies
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        run: pnpm install --frozen-lockfile
+      - name: Prepare pinned runtime inputs
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        run: node tools/android-runtime/prepare-runtime.mjs
+      - name: Verify signed runtime metadata and packages
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        run: python3 tools/android-runtime/verify-runtime-inputs.py tools/android-runtime/build/runtime-inputs
+      - name: Extract verified runtime
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        run: python3 tools/android-runtime/extract-runtime.py tools/android-runtime/build/runtime-inputs tools/android-runtime/build/runtime-root
+      - name: Compile native SQLite addon
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        run: python3 tools/android-runtime/compile-runtime-addon.py tools/android-runtime "$ANDROID_HOME/ndk/27.3.13750724"
+      - name: Package commercial runtime assets
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        run: node tools/android-runtime/package-runtime-assets.mjs
+      - name: Derive verified installed ARM64 libraries
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        run: python3 tools/android-runtime/prepare-installed-runtime.py tools/android-runtime/build/runtime-root tools/android-runtime/build/runtime-assets tools/android-runtime/build/installed-runtime
+      - name: Assemble unsigned commercial APK
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        run: bash tools/android-runtime/gradle-with-network-retry.sh commercialApk
+      - name: Publish unsigned build artifact
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        uses: actions/upload-artifact@v4
+        with:
+          name: camacho-pos-android-unsigned
+          path: apps/pos-android/build/commercial-apk/camacho-pos-colombia-unsigned.apk
+          if-no-files-found: error
+

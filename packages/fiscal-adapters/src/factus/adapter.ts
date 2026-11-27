@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
 import * as z from "zod";
+import { FiscalDocumentTypeSchema, type FiscalDocumentType } from "../capability.js";
 import type { CredentialReference } from "../credential.js";
 import type { FiscalEnvironment } from "../provider.js";
 import type {
@@ -86,6 +87,63 @@ import type { FactusCredentialResolver } from "./credential.js";
  * eso la declaración **sigue en `MOCK_TESTED`**: la autenticación está
  * verificada, el adapter completo no.
  */
+
+const requiredText = z.string().trim().min(1);
+const supportProvider = z.object({
+  identification_document_code: requiredText,
+  identification: requiredText,
+  legal_organization_code: requiredText,
+  names: requiredText,
+  address: requiredText,
+  country_code: requiredText,
+}).loose();
+const documentItems = z.array(z.object({}).loose()).min(1);
+const invoiceBody = z.object({ reference_code: requiredText }).loose();
+const issuanceProfiles = {
+  SALES_INVOICE: { path: FACTUS_PATH.validateBill, body: invoiceBody, productionEligible: true },
+  CREDIT_NOTE: { path: FACTUS_PATH.validateCreditNote, body: invoiceBody, productionEligible: true },
+  DEBIT_NOTE: {
+    path: FACTUS_PATH.validateDebitNote,
+    body: invoiceBody.extend({
+      bill_number: requiredText.optional(),
+      customization_id: requiredText.optional(),
+      correction_concept_code: requiredText,
+      items: documentItems,
+    }).refine((note) => note.customization_id === "32" || note.bill_number !== undefined, { path: ["bill_number"] }),
+    productionEligible: false,
+  },
+  SUPPORT_DOCUMENT: {
+    path: FACTUS_PATH.validateSupportDocument,
+    body: invoiceBody.extend({ provider: supportProvider, items: documentItems }),
+    productionEligible: false,
+  },
+  SUPPORT_DOCUMENT_ADJUSTMENT_NOTE: {
+    path: FACTUS_PATH.validateSupportAdjustment,
+    body: invoiceBody.extend({
+      support_document_number: requiredText,
+      correction_concept_code: requiredText,
+      provider: supportProvider,
+      items: documentItems,
+    }),
+    productionEligible: false,
+  },
+} satisfies Record<FiscalDocumentType, { path: string; body: z.ZodType; productionEligible: boolean }>;
+
+const documentXmlRoots = {
+  SALES_INVOICE: "Invoice",
+  CREDIT_NOTE: "CreditNote",
+  DEBIT_NOTE: "DebitNote",
+  SUPPORT_DOCUMENT: "Invoice",
+  SUPPORT_DOCUMENT_ADJUSTMENT_NOTE: "CreditNote",
+} satisfies Record<FiscalDocumentType, string>;
+
+const documentResources = {
+  SALES_INVOICE: "/v2/bills",
+  CREDIT_NOTE: "/v2/credit-notes",
+  DEBIT_NOTE: "/v2/debit-notes",
+  SUPPORT_DOCUMENT: "/v2/support-documents",
+  SUPPORT_DOCUMENT_ADJUSTMENT_NOTE: "/v2/adjustment-notes",
+} satisfies Record<FiscalDocumentType, string>;
 
 /**
  * Cuerpo de emisión, con la forma **documentada oficialmente** por Factus para
@@ -199,6 +257,18 @@ implements
       findings.push({ code: "REFERENCE_CODE_MISSING", path: "reference_code" });
     }
 
+    const documentType = FiscalDocumentTypeSchema.safeParse(document.documentType);
+    if (!documentType.success) {
+      findings.push({ code: "FACTUS_DOCUMENT_TYPE_UNSUPPORTED", path: "documentType" });
+    } else {
+      const payload = issuanceProfiles[documentType.data].body.safeParse(document.payload);
+      if (!payload.success) {
+        for (const issue of payload.error.issues) {
+          findings.push({ code: "FACTUS_DOCUMENT_PAYLOAD_INVALID", path: issue.path.join(".") || "payload" });
+        }
+      }
+    }
+
     return findings.length === 0 ? { kind: "VALID" } : { kind: "INVALID", findings };
   }
 
@@ -206,40 +276,33 @@ implements
     request: DocumentIssuanceRequest,
     signal: AbortSignal,
   ): Promise<DocumentIssuanceOutcome> {
+    const documentType = FiscalDocumentTypeSchema.safeParse(request.document.documentType);
+    const reject = (code: string) => technicalFailure(code, request.electronicDocumentId, null);
+    if (!documentType.success) return reject("FACTUS_DOCUMENT_TYPE_UNSUPPORTED");
+    const profile = issuanceProfiles[documentType.data];
+    if (request.environment !== this.environment) return reject("FACTUS_ENVIRONMENT_MISMATCH");
+    if (this.environment === "PRODUCTION" && !profile.productionEligible) {
+      return reject("FACTUS_DOCUMENT_TYPE_NOT_CERTIFIED_FOR_PRODUCTION");
+    }
+    // The frozen reference is the provider's idempotency key.
+    if (referenceCodeOf(request.document.payload) !== request.idempotencyKey) {
+      return reject("REFERENCE_CODE_DOES_NOT_MATCH_IDEMPOTENCY_KEY");
+    }
+    const validation = await this.validatePayload(request.document);
+    if (validation.kind === "INVALID") return reject(validation.findings[0]?.code ?? "FACTUS_DOCUMENT_PAYLOAD_INVALID");
+
     let token: string;
     try {
       token = await this.authenticator.accessToken(request.credential, signal);
     } catch (error) {
-      // Un fallo de autenticación ocurre **antes** de transmitir el documento.
-      // No hay incertidumbre fiscal: no salió nada.
-      return technicalFailure(
-        error instanceof FactusAuthError ? error.code : "AUTHENTICATION_FAILURE",
-        request.electronicDocumentId,
-        null,
-      );
+      return reject(error instanceof FactusAuthError ? error.code : "AUTHENTICATION_FAILURE");
     }
-
-    // La identidad que FACTUS usa para deduplicar debe ser la misma que la
-    // nuestra. Si divergen, un reintento no sería idempotente para el
-    // proveedor y podría emitir una segunda factura. Se corta antes de salir.
-    const referenceCode = referenceCodeOf(request.document.payload);
-    if (referenceCode !== request.idempotencyKey) {
-      return technicalFailure(
-        "REFERENCE_CODE_DOES_NOT_MATCH_IDEMPOTENCY_KEY",
-        request.electronicDocumentId,
-        null,
-      );
-    }
-
-    const issuancePath = request.document.documentType === "CREDIT_NOTE"
-      ? FACTUS_PATH.validateCreditNote
-      : FACTUS_PATH.validateBill;
 
     let response: HttpResponse;
     try {
       response = await this.transport.send({
         method: "POST",
-        url: `${factusBaseUrl(this.environment)}${issuancePath}`,
+        url: `${factusBaseUrl(this.environment)}${profile.path}`,
         headers: {
           authorization: `Bearer ${token}`,
           "content-type": "application/json",
@@ -257,12 +320,13 @@ implements
         : technicalFailure(transport?.code ?? "TRANSPORT_FAILURE", request.electronicDocumentId, null);
     }
 
-    return this.interpretIssuance(response, request);
+    return this.interpretIssuance(response, request, documentType.data);
   }
 
   private interpretIssuance(
     response: HttpResponse,
     request: DocumentIssuanceRequest,
+    documentType: FiscalDocumentType,
   ): DocumentIssuanceOutcome {
     const retryAfter = parseRetryAfter(response.headers);
 
@@ -315,6 +379,10 @@ implements
     if (bill.reference_code !== undefined && bill.reference_code !== request.idempotencyKey) {
       return uncertain("REFERENCE_CODE_MISMATCH", request.electronicDocumentId);
     }
+    if (documentType !== "SALES_INVOICE" && documentType !== "CREDIT_NOTE" &&
+        (!bill.number || bill.reference_code !== request.idempotencyKey)) {
+      return uncertain("DOCUMENT_IDENTITY_MISMATCH", request.electronicDocumentId);
+    }
     // FACTUS V2 documenta false como pendiente, no como rechazo fiscal.
     if (!bill.is_validated) {
       return uncertain("PROVIDER_VALIDATION_PENDING", request.electronicDocumentId);
@@ -341,6 +409,14 @@ implements
     query: DocumentStatusQuery,
     signal: AbortSignal,
   ): Promise<DocumentStatusQueryOutcome> {
+    if (query.environment !== this.environment) {
+      return { kind: "INDETERMINATE", reasonCode: "FACTUS_ENVIRONMENT_MISMATCH", providerStatus: null };
+    }
+    const documentType = FiscalDocumentTypeSchema.safeParse(query.documentType ?? "SALES_INVOICE");
+    if (!documentType.success) {
+      return { kind: "INDETERMINATE", reasonCode: "UNSUPPORTED_DOCUMENT_TYPE", providerStatus: null };
+    }
+    const resource = documentResources[documentType.data];
     if (query.reference.by === "INTERNAL") {
       // FACTUS no expone consulta por identidad interna nuestra. Decirlo es
       // obligatorio: un `NOT_FOUND` aquí autorizaría reemitir, y sería falso.
@@ -363,13 +439,16 @@ implements
     const externalReference = query.reference.by === "EXTERNAL"
       ? query.reference.providerOperationId
       : null;
-    let number: string;
+    let number: string | null = null;
+    const usesDebitReferenceLookup = documentType.data === "DEBIT_NOTE" && externalReference !== null;
     const headers = { authorization: `Bearer ${token}`, accept: "application/json" };
-    if (query.reference.by === "EXTERNAL") {
+    if (query.reference.by === "NUMBER") {
+      number = `${query.reference.prefix}${query.reference.number}`;
+    } else if (!usesDebitReferenceLookup) {
       try {
         const listed = await this.transport.send({
           method: "GET",
-          url: `${factusBaseUrl(this.environment)}/v2/bills?filter%5Breference_code%5D=${encodeURIComponent(query.reference.providerOperationId)}`,
+          url: `${factusBaseUrl(this.environment)}${resource}?filter%5Breference_code%5D=${encodeURIComponent(query.reference.providerOperationId)}`,
           headers,
           body: undefined,
           signal,
@@ -391,15 +470,16 @@ implements
       } catch {
         return { kind: "INDETERMINATE", reasonCode: "TRANSPORT_FAILURE", providerStatus: null };
       }
-    } else {
-      number = `${query.reference.prefix}${query.reference.number}`;
     }
 
+    const detailPath = usesDebitReferenceLookup
+      ? `${resource}/reference/${encodeURIComponent(externalReference)}`
+      : `${resource}/${encodeURIComponent(number ?? "")}`;
     let response: HttpResponse;
     try {
       response = await this.transport.send({
         method: "GET",
-        url: `${factusBaseUrl(this.environment)}/v2/bills/${encodeURIComponent(number)}`,
+        url: `${factusBaseUrl(this.environment)}${detailPath}`,
         headers,
         body: undefined,
         signal,
@@ -424,7 +504,7 @@ implements
       providerStatus: parsed.data.status ?? "",
       httpStatus: 200,
     };
-    if (bill?.number !== number || !bill.reference_code ||
+    if (!bill?.number || (number !== null && bill.number !== number) || !bill.reference_code ||
         (externalReference !== null && bill.reference_code !== externalReference)) {
       return { kind: "INDETERMINATE", reasonCode: "DOCUMENT_IDENTITY_MISMATCH", providerStatus };
     }
@@ -452,6 +532,13 @@ implements
     request: DocumentArtifactRequest,
     signal: AbortSignal,
   ): Promise<DocumentArtifactOutcome> {
+    if (request.environment !== this.environment) {
+      return { kind: "UNAVAILABLE", reasonCode: "FACTUS_ENVIRONMENT_MISMATCH" };
+    }
+    const documentType = FiscalDocumentTypeSchema.safeParse(request.documentType ?? "SALES_INVOICE");
+    if (!documentType.success) {
+      return { kind: "UNAVAILABLE", reasonCode: "UNSUPPORTED_DOCUMENT_TYPE" };
+    }
     if (request.artifactType !== "XML" && request.artifactType !== "PDF") {
       return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_TYPE_NOT_OFFERED_BY_PROVIDER" };
     }
@@ -468,17 +555,18 @@ implements
     const identity = await this.queryStatus({
       environment: request.environment,
       credential: request.credential,
+      documentType: documentType.data,
       reference: { by: "EXTERNAL", providerOperationId: request.providerOperationId },
     }, signal);
     if (identity.kind !== "FOUND" || identity.normalizedResult !== "ACCEPTED") {
       return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_DOCUMENT_UNRESOLVED" };
     }
     const isXml = request.artifactType === "XML";
-    const key = isXml ? identity.externalIdentity.cufe : identity.externalIdentity.number;
+    const invoiceXml = isXml && documentType.data === "SALES_INVOICE";
+    const key = invoiceXml ? identity.externalIdentity.cufe : identity.externalIdentity.number;
     if (!key) return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_DOCUMENT_ID_MISSING" };
-    const path = isXml
-      ? `/v2/documents/${encodeURIComponent(key)}/download-xml`
-      : `/v2/bills/${encodeURIComponent(key)}/download-pdf`;
+    const resource = invoiceXml ? "/v2/documents" : documentResources[documentType.data];
+    const path = `${resource}/${encodeURIComponent(key)}/download-${isXml ? "xml" : "pdf"}`;
     let response: HttpResponse;
     try {
       response = await this.transport.send({
@@ -502,7 +590,13 @@ implements
     }
     const parsed = FactusArtifactResponseSchema.safeParse(safeJson(response.body));
     if (!parsed.success) return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_RESPONSE_INVALID" };
-    const encoded = isXml ? parsed.data.data.xml_base_64_encoded : parsed.data.data.pdf_base_64_encoded;
+    const payload = parsed.data.data;
+    // Factus documents the support XML payload under the PDF-named field.
+    // The existing XML content validation still applies to its decoded bytes.
+    const encoded = isXml
+      ? payload.xml_base_64_encoded ??
+        (documentType.data === "SUPPORT_DOCUMENT" ? payload.pdf_base_64_encoded : undefined)
+      : payload.pdf_base_64_encoded;
     if (!encoded || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) || encoded.length % 4 !== 0) {
       return { kind: "UNAVAILABLE", reasonCode: "ARTIFACT_BASE64_INVALID" };
     }
@@ -514,7 +608,8 @@ implements
     if (isXml) {
       try {
         const xml = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-        validFormat = /^\s*(?:<\?xml[^?]*\?>\s*)?<(?:[\w.-]+:)?Invoice(?:\s|>)/u.test(xml);
+        const root = /^\s*(?:<\?xml[^?]*\?>\s*)?<(?:[\w.-]+:)?([\w.-]+)(?:\s|>)/u.exec(xml)?.[1];
+        validFormat = root === documentXmlRoots[documentType.data];
       } catch {
         validFormat = false;
       }

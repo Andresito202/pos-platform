@@ -1,7 +1,8 @@
 import {createPublicKey,randomBytes} from "node:crypto";
-import {UuidSchema,CommercialRefreshRequestSchema,CommercialRevokeRequestSchema,CommercialAccessClaimsSchema} from "@pos-platform/contracts";
+import {SyncBatchRequestSchema,UuidSchema,CommercialRefreshRequestSchema,CommercialRevokeRequestSchema,CommercialAccessClaimsSchema} from "@pos-platform/contracts";
 import {DeviceTrustVerifier,commercialPossessionChallenge,type CommercialPossessionContext,type DeviceTrustBinding} from "@pos-platform/device-trust";
 import type {LocalDatabaseComponent} from "../local-database-component.js";
+import {SYNC_BATCH_PATH} from "../sync/sync-dispatcher.js";
 import type {DeviceRequestSigningContext} from "../sync/device-credential.js";
 import {LocalSecurityComponent} from "./local-security-component.js";
 import {DeviceTrustCredentialStore} from "./device-trust-credential-store.js";
@@ -37,6 +38,20 @@ export class CommercialDeviceCredentialProvider {
       throw Error("COMMERCIAL_DEVICE_REQUEST_REJECTED");
     const {identity,credential}=this.requireVerified();
     return identity.signRequestAuthorization({...context,credentialId:credential.claims.credential_id});
+  }
+  async syncAuthorization(branchId: string, context?: DeviceRequestSigningContext): Promise<string> {
+    if (!context || context.method !== "POST" || context.path !== SYNC_BATCH_PATH ||
+        typeof context.body !== "string" || Buffer.byteLength(context.body) > 4 * 1024 * 1024) {
+      throw new Error("COMMERCIAL_SYNC_PROOF_SCOPE_REJECTED");
+    }
+    const batch = SyncBatchRequestSchema.parse(JSON.parse(context.body)?.payload);
+    if (batch.tenant_id !== this.binding.tenantId || batch.company_id !== this.binding.companyId ||
+        batch.installation_id !== this.binding.installationId || batch.device_id !== this.binding.deviceId ||
+        batch.branch_id !== branchId) {
+      throw new Error("COMMERCIAL_SYNC_PROOF_SCOPE_REJECTED");
+    }
+    const { identity, credential } = this.requireVerified();
+    return identity.signRequestAuthorization({ ...context, credentialId: credential.claims.credential_id });
   }
   requireVerifiedCredentialId():string{return this.requireVerified().credential.claims.credential_id;}
   /** Service-only licensing purpose; no caller-selected path or body. */

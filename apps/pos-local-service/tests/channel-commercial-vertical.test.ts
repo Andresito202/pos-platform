@@ -106,13 +106,19 @@ const PERMISSIONS = [
 
 const directories: string[] = [];
 const databases: LocalDatabase[] = [];
+const activeChannels = new Set<() => Promise<void>>();
 
-afterEach(() => {
+afterEach(async () => {
+  // A Vitest timeout does not cancel the original async test. Close its channel
+  // before removing SQLite and before starting the next test.
+  const cleanup = await Promise.allSettled([...activeChannels].map(close => close()));
   for (const database of databases.splice(0)) {
     try { database.close(); } catch { /* no debe ocultar el fallo real */ }
   }
   for (const value of directories.splice(0)) rmSync(value, { recursive: true, force: true });
-});
+  const errors = cleanup.filter(result => result.status === "rejected");
+  if (errors.length) throw new AggregateError(errors.map(result => result.reason), "Vertical channel cleanup failed");
+}, 20_000);
 
 async function directory(): Promise<string> {
   const value = await mkdtemp(join(tmpdir(), "pos-vertical-"));
@@ -293,7 +299,7 @@ async function withRealChannel(
   await commercial.start();
   const handler = new CommercialRequestHandler(config(), commercial);
 
-  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
+  const endpoint = localChannelEndpoint(randomUUID(), process.platform, dir);
   const secret = randomBytes(32);
 
   const server = new LocalChannelServer(
@@ -332,18 +338,26 @@ async function withRealChannel(
     { min: "1.0.0", max: "1.0.0" },
   );
 
+  let cleanupPromise: Promise<void> | undefined;
+  const close = () => cleanupPromise ??= (async () => {
+    try {
+      try { await client.close(); } finally { await server.stop(); }
+    } finally {
+      try { await commercial.stop(); } finally { secret.fill(0); activeChannels.delete(close); }
+    }
+  })();
+  activeChannels.add(close);
   try {
     await server.start();
+    if (cleanupPromise) throw new Error("VERTICAL_CHANNEL_TEST_CANCELLED");
     await client.connect(handshakeRequest());
+    if (cleanupPromise) throw new Error("VERTICAL_CHANNEL_TEST_CANCELLED");
     await run(
       async (request) => await client.request(request) as ChannelResponse,
       database,
     );
   } finally {
-    await client.close();
-    await server.stop();
-    await commercial.stop();
-    secret.fill(0);
+    await close();
   }
 }
 
@@ -373,8 +387,13 @@ async function withRealFiscalChannel(
   outcome: DocumentIssuanceOutcome,
   run: (send: (request: unknown) => Promise<ChannelResponse>, database: LocalDatabase) => Promise<void>,
 ): Promise<void> {
+  const started = performance.now();
+  const timings: string[] = [];
+  const record = (phase: string, since: number) => timings.push(`${phase}=${Math.round(performance.now()-since)}ms`);
   const dir = await directory();
+  const dbStart = performance.now();
   const database = LocalDatabase.open({ dataDirectory: dir });
+  record("sqlite-open-migrate", dbStart);
   databases.push(database);
 
   const keys = new Map<string, TrustedSigningKey>([
@@ -406,7 +425,7 @@ async function withRealFiscalChannel(
   await commercial.start();
   const handler = new CommercialRequestHandler(fiscalConfig(), commercial);
 
-  const endpoint = localChannelEndpoint(INSTALLATION, process.platform, dir);
+  const endpoint = localChannelEndpoint(randomUUID(), process.platform, dir);
   const secret = randomBytes(32);
 
   const server = new LocalChannelServer(
@@ -443,18 +462,40 @@ async function withRealFiscalChannel(
     { min: "1.0.0", max: "1.0.0" },
   );
 
+  let cleanupPromise: Promise<void> | undefined;
+  const close = () => cleanupPromise ??= (async () => {
+    try {
+      try { await client.close(); } finally { await server.stop(); }
+    } finally {
+      try { await commercial.stop(); } finally { secret.fill(0); activeChannels.delete(close); }
+    }
+  })();
+  activeChannels.add(close);
   try {
+    const listenStart = performance.now();
     await server.start();
+    record("listen", listenStart);
+    if (cleanupPromise) throw new Error("VERTICAL_CHANNEL_TEST_CANCELLED");
+    const connectStart = performance.now();
     await client.connect(handshakeRequest());
+    record("connect-handshake", connectStart);
+    if (cleanupPromise) throw new Error("VERTICAL_CHANNEL_TEST_CANCELLED");
     await run(
-      async (request) => await client.request(request) as ChannelResponse,
+      async (request) => {
+        const requestStart = performance.now();
+        try { return await client.request(request) as ChannelResponse; }
+        finally { record(String((request as {message_type?:unknown}).message_type),requestStart); }
+      },
       database,
     );
   } finally {
-    await client.close();
-    await server.stop();
-    await commercial.stop();
-    secret.fill(0);
+    const closeStart=performance.now();
+    try { await close(); }
+    finally {
+      record("close",closeStart);
+      fiscalSecretStore.destroy();
+      if (performance.now()-started>=10_000) console.info("Fiscal vertical phase timings:",timings.join("; "));
+    }
   }
 }
 
@@ -539,7 +580,9 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       expect((issued.result["reasons"] as { code: string }[]).some((r) => r.code === "GENERIC_ACQUIRER_NOT_VERIFIED"))
         .toBe(true);
     });
-  }, 30_000);
+  // Seven real IPC operations plus handshake, database migration and teardown.
+  // Keep the individual 5s client deadlines; allow their aggregate on hosted Windows.
+  }, process.platform === "win32" ? 60_000 : 30_000);
 
   it("adquiriente identificado: ISSUED de extremo a extremo por el canal, con cufe persistido en SQLite", async () => {
     const outcome: DocumentIssuanceOutcome = {

@@ -10,6 +10,16 @@ services:
       PORT: "8787"
       OTEL_ENABLE_API: ${OTEL_ENABLE_API:-0}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/ready', { signal: AbortSignal.timeout(3500) }).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
     expose:
       - "8787"
     networks:
@@ -18,7 +28,8 @@ services:
   caddy:
     image: caddy:2.10-alpine
     depends_on:
-      - central-sync
+      central-sync:
+        condition: service_healthy
     environment:
       CENTRAL_SYNC_DOMAIN: ${CENTRAL_SYNC_DOMAIN:?CENTRAL_SYNC_DOMAIN is required}
     ports:

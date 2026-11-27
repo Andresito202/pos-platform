@@ -1,4 +1,5 @@
 import * as z from "zod";
+import type { FiscalDocumentType } from "../capability.js";
 import type { CredentialReference } from "../credential.js";
 import type { FiscalEnvironment } from "../provider.js";
 
@@ -31,6 +32,8 @@ export interface DocumentArtifactRequest {
   readonly electronicDocumentId: string;
   readonly providerOperationId: string;
   readonly artifactType: FiscalArtifactType;
+  /** Defaults to SALES_INVOICE for pre-existing callers. */
+  readonly documentType?: FiscalDocumentType;
   readonly environment: FiscalEnvironment;
   readonly credential: CredentialReference;
 }

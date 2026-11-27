@@ -86,6 +86,12 @@
       "layer": "runtime",
       "type": "application",
       "scope": "central"
+    },
+    "@pos-platform/pos-android": {
+      "root": "apps/pos-android",
+      "layer": "desktop",
+      "type": "application",
+      "scope": "local"
     }
   },
   "allowedLayerDependencies": {
@@ -149,7 +155,7 @@
     "@pos-platform/application": [
       "authorization",
       "session",
-        "onboarding",
+      "onboarding",
       "index.ts"
     ]
   },

@@ -12,6 +12,7 @@ import {
   readLicenseCapacityProvision,
 } from "../src/security/license-capacity-gate.js";
 import { LocalSecurityLifecycle } from "../src/security/security-lifecycle.js";
+import { downloadLicenseCapacity } from "../src/security/license-capacity-download.js";
 import { unsignedLicenseCapacityBytes } from "../src/security/license-verifier.js";
 
 const id = (n: number) => `018f0000-0000-7000-8000-${n.toString().padStart(12,"0")}`;
@@ -50,6 +51,48 @@ it("capacity: includes one register, permits signed paid extras, rejects duplica
   c.cash_register_capacity.allocations[1]!.register_id=id(8);
   expect(LicenseCapacityClaimsSchema.safeParse(c).success).toBe(false);
   expect(LicenseCapacityClaimsSchema.safeParse({...f.claims,cash_register_capacity:{...f.claims.cash_register_capacity,included:3}}).success).toBe(false);
+});
+
+it("accepts a downloaded signed license only for its assigned branch and register", async () => {
+  const f = fixture();
+  const now = Date.now();
+  const valid = {
+    ...f.claims,
+    issued_at: new Date(now - 60_000).toISOString(),
+    not_before: new Date(now - 60_000).toISOString(),
+    expires_at: new Date(now + 60_000).toISOString(),
+  };
+  const provision = f.provision(valid);
+  rmSync(f.path);
+  const origin = "https://central.example.dev";
+  const activationId = id(20);
+  const provider = {
+    async licenseActivationAuthorization(input: { activationId: string; requestId: string; correlationId: string }) {
+      return { ...input, body: JSON.stringify({ activationId: input.activationId }), authorization: "test-proof" };
+    },
+    requireVerifiedCredentialId: () => id(21),
+  };
+  const transport: typeof fetch = async (url, init) => {
+    expect(String(url)).toBe(`${origin}/v1/licensing/activations/resolve`);
+    expect(init?.body).toBe(JSON.stringify({ activationId }));
+    return Response.json({ artifact: provision.artifact });
+  };
+  const input = {
+    origin, activationId, provisionFile: f.path, trustKeys: provision.keys,
+    binding: scope, database: f.db, provider,
+    timeoutMs: 1_000, signal: new AbortController().signal,
+  };
+  for (const allocation of [{ branchId: id(9), registerId: id(8) }, { branchId: scope.branchId, registerId: id(9) }]) {
+    await expect(downloadLicenseCapacity({ ...input, allocation }, transport))
+      .rejects.toThrow("LICENSE_DOWNLOAD_ALLOCATION_REJECTED");
+    expect(existsSync(f.path)).toBe(false);
+  }
+  await expect(downloadLicenseCapacity({
+    ...input, allocation: { branchId: scope.branchId, registerId: id(8) },
+  }, transport)).resolves.toMatchObject({ status: "STORED", usableNow: true });
+  expect(new LicenseCapacityGate(f.db, () => readLicenseCapacityProvision(f.path)).authorize(scope, id(8))).toBeNull();
+  f.restart();
+  expect(new LicenseCapacityGate(f.db, () => readLicenseCapacityProvision(f.path)).information(scope).status).toBe("CURRENT");
 });
 
 it("capacity: enforces signature, key revocation, tenant/company/branch/device and expiration",()=>{
