@@ -197,6 +197,19 @@ export class PostgresCommercialPortalBridgeStore implements CommercialPortalBrid
     });
   }
 
+  async completeQueuedProvisioning(key: string, payloadHash: string, licenseIds: string[]): Promise<void> {
+    await this.withClient(async c => {
+      await c.query(
+        `UPDATE licensing.commercial_provisioning_receipts
+            SET license_ids=$3::uuid[], fulfillment='ISSUED'
+          WHERE idempotency_key=$1 AND payload_hash=$2
+            AND fulfillment IN ('QUEUED','ALREADY_QUEUED') AND cardinality(license_ids)=0
+            AND license_units=cardinality($3::uuid[])`,
+        [key, payloadHash, licenseIds],
+      );
+    });
+  }
+
   async getProvisioningByIdempotency(key: string): Promise<ProvisioningRecord | null> {
     return this.withClient(async (c) => {
       const found = await c.query<{

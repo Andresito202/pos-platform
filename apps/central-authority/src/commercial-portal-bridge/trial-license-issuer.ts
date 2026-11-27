@@ -111,15 +111,19 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
     tenantId: string;
     planId: string;
     payloadHash: string;
+    recoveringQueued?: boolean;
   }): Promise<{ licenseIds: string[] }> {
     return this.tx(async (c) => {
       await c.query("SELECT set_config('app.tenant_id',$1,true)", [input.tenantId]);
-      const plan = await c.query<{ id: string; deployment_mode: string; version: string }>(
-        `SELECT id::text, deployment_mode, version::text FROM licensing.plans
+      const plan = await c.query<{ id: string; deployment_mode: string; billing_model: string; version: string }>(
+        `SELECT id::text, deployment_mode, billing_model, version::text FROM licensing.plans
           WHERE id=$1::uuid AND status='ACTIVE' FOR SHARE`,
         [input.planId],
       );
       if (plan.rowCount !== 1) throw Object.assign(new Error("PROVISION_PLAN_REQUIRED"), { status: 400 });
+      if (input.recoveringQueued && plan.rows[0]!.billing_model !== "PERPETUAL") {
+        throw Object.assign(new Error("PROVISION_SUBSCRIPTION_TERM_REQUIRED"), { status: 409 });
+      }
       const tenant = await c.query(
         `SELECT 1 FROM tenancy.tenants WHERE id=$1::uuid AND status='ACTIVE' FOR SHARE`,
         [input.tenantId],
@@ -130,11 +134,13 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
       for (let i = 0; i < input.licenseUnits; i += 1) {
         const licenseId = uuidV7();
         const commercialReference = `COMMERCIAL_ORDER:${input.orderId}:${i}:${input.payloadHash.slice(0, 16)}`;
-        await c.query(
+        const inserted = await c.query<{ id: string }>(
           `INSERT INTO licensing.licenses
             (id, tenant_id, plan_id, deployment_mode, contract_status, not_before, expires_at,
              grace_policy_reference, policy_version, commercial_reference, created_at, updated_at)
-           VALUES ($1::uuid,$2::uuid,$3::uuid,$4,'ACTIVE',$5,NULL,NULL,'COMMERCIAL_ORDER_V1',$6,$5,$5)`,
+           VALUES ($1::uuid,$2::uuid,$3::uuid,$4,'ACTIVE',$5,NULL,NULL,'COMMERCIAL_ORDER_V1',$6,$5,$5)
+           ON CONFLICT (commercial_reference) WHERE commercial_reference IS NOT NULL DO NOTHING
+           RETURNING id::text`,
           [
             licenseId,
             input.tenantId,
@@ -144,6 +150,18 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
             commercialReference,
           ],
         );
+        if (inserted.rowCount === 0) {
+          const prior = await c.query<{ id: string }>(
+            `SELECT id::text FROM licensing.licenses
+              WHERE commercial_reference=$1 AND tenant_id=$2::uuid AND plan_id=$3::uuid
+                AND policy_version='COMMERCIAL_ORDER_V1'`,
+            [commercialReference, input.tenantId, input.planId],
+          );
+          const recovered = prior.rows[0];
+          if (!recovered) throw Object.assign(new Error("PROVISION_LICENSE_REFERENCE_CONFLICT"), { status: 409 });
+          licenseIds.push(recovered.id);
+          continue;
+        }
         const entitlements = await c.query<{ capability_code: string; enabled: boolean; limit_type: string; limit_value: string | null }>(
           `SELECT capability_code, enabled, limit_type, limit_value::text
              FROM licensing.plan_entitlements WHERE plan_id=$1::uuid`,

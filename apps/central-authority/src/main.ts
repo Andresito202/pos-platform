@@ -281,6 +281,8 @@ const commercialBridgeHandler = (() => {
     bridgeKey,
     trialWebhookKey,
     licenseIssuer: issuer,
+    recoverBoundProvisioning: deployment?.environment === "PREPRODUCTION" &&
+      process.env.CENTRAL_COMMERCIAL_PROVISIONING_RECOVERY_ENABLED === "1",
     isGlobalSessionActive: async (sessionId) => {
       const found = await pool.query(
         `SELECT 1 FROM identity.sessions
