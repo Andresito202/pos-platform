@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import "./commercial-precision.css";
 import "./workspace.css";
@@ -13,6 +13,7 @@ import { InstitutionalWebsiteLink } from "./components/InstitutionalWebsiteLink.
 import { AdministrativeControlPanel } from "./components/AdministrativeControlPanel.js";
 import { TransferReviewPanel } from "./components/TransferReviewPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
+import { ReportExportPanel } from "./components/ReportExportPanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
 import { HardwarePanel } from "./components/HardwarePanel.js";
 import { CatalogPanel } from "./components/CatalogPanel.js";
@@ -22,7 +23,7 @@ import { FiscalPanel } from "./components/FiscalPanel.js";
 import { bindCatalogMediaSession, clearCatalogMediaCache } from "./catalog-media-cache.js";
 import { useAuthorizationCapabilities } from "./hooks/useAuthorizationCapabilities.js";
 import { useLocalOperatorSession } from "./hooks/useLocalOperatorSession.js";
-import { homeScreenId, orderScreensByRole } from "./roleNavigation.js";
+import { orderScreensByRole } from "./roleNavigation.js";
 
 function hasAny(permissions: ReadonlySet<string>, required: readonly string[]): boolean {
   return required.some((permission) => permissions.has(permission));
@@ -82,7 +83,8 @@ function LocalApp(): React.JSX.Element {
   const settledIdentity = localSession.ready
     ? `${localSession.username ?? ""}:${localSession.role ?? ""}`
     : null;
-  useEffect(() => {
+  const previousIdentity = useRef<string | null>(null);
+  useLayoutEffect(() => {
     if (settledIdentity === null) {
       clearCatalogMediaCache();
       return;
@@ -92,8 +94,11 @@ function LocalApp(): React.JSX.Element {
       role: localSession.role,
       epoch: sessionEpoch,
     });
-    setActiveScreen(null);
-    setVisitedScreens(new Set());
+    if (previousIdentity.current !== settledIdentity) {
+      previousIdentity.current = settledIdentity;
+      setActiveScreen(null);
+      setVisitedScreens(new Set());
+    }
   }, [settledIdentity, localSession.username, localSession.role, sessionEpoch]);
 
   const screens = useMemo<Screen[]>(() => {
@@ -158,6 +163,12 @@ function LocalApp(): React.JSX.Element {
       });
     }
 
+    if (hasAny(permissions, [
+      "REPORTING_SALES_AGGREGATE_READ", "REPORTING_CASH_AGGREGATE_READ", "REPORTING_PAYMENTS_AGGREGATE_READ",
+    ])) {
+      result.push({ id: "reports", label: "Reportes", render: () => <ReportExportPanel /> });
+    }
+
     if (permissions.has("SALES_RECEIPT_READ")) {
       result.push({
         id: "receipts",
@@ -186,12 +197,6 @@ function LocalApp(): React.JSX.Element {
 
     return orderScreensByRole(result, localSession.role);
   }, [authorization, localSession.role, localSession.ready]);
-
-  useEffect(() => {
-    if (activeScreen !== null || screens.length === 0) return;
-    const home = homeScreenId(screens, localSession.role);
-    if (home !== null) setActiveScreen(home);
-  }, [activeScreen, screens, localSession.role]);
 
   if (authorization.phase !== "ready" || !localSession.ready) {
     const loading = authorization.phase === "loading" || (authorization.phase === "ready" && !localSession.ready);
