@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readSheetMatrixFromXlsx } from "../renderer/src/sheet-workbook.js";
+import { unzipXlsxBounded } from "../renderer/src/sheet-workbook.js";
 
 /**
  * El POS de escritorio **real** contra el Camacho POS Colombia Service **real**.
@@ -745,6 +745,9 @@ test("Reportes consulta los agregados reales y exporta sin exponer métricas de 
   expect(readFileSync(csvPath, "utf8")).toMatch(/Ventas completadas;Acumulado;Cantidad;[1-9]/);
   const xlsxPath = test.info().outputPath("resumen-local.xlsx");
   await exportTo("Descargar Excel", xlsxPath);
-  expect(JSON.stringify(readSheetMatrixFromXlsx(readFileSync(xlsxPath)))).toContain("Importe vendido");
+  const workbook = unzipXlsxBounded(readFileSync(xlsxPath));
+  expect(Buffer.from(workbook["xl/workbook.xml"]!).toString("utf8")).toContain('name="Resumen local"');
+  expect(Buffer.from(workbook["xl/sharedStrings.xml"]!).toString("utf8")).toContain("Importe vendido");
+  expect(workbook["xl/worksheets/sheet1.xml"]?.byteLength).toBeGreaterThan(0);
   await page.screenshot({ path: test.info().outputPath("reportes-exportacion-local.png"), fullPage: true });
 });
