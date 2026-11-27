@@ -439,6 +439,7 @@ test("Caja cobra en dos transferencias con aprobación manual y saldo persistido
   await page.getByTestId("opening-amount-input").fill("0");
   await page.getByTestId("open-shift-button").click();
   await expect(page.getByTestId("shift-open")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("shift-close-result")).toHaveCount(0);
 
   await page.getByTestId("barcode-input").fill(BARCODE);
   await page.getByTestId("find-item-button").click();

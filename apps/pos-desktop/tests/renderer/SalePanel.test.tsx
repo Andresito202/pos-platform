@@ -458,6 +458,9 @@ describe("SalePanel · cierre de turno", () => {
     // El turno deja de estar abierto y la caja vuelve a admitir apertura.
     expect(screen.queryByTestId("shift-open")).toBeNull();
     expect(screen.getByTestId("shift-close-result")).toBeTruthy();
+
+    await openShift();
+    expect(screen.queryByTestId("shift-close-result")).toBeNull();
   });
 
   it("un cierre rechazado no cierra el turno ni se disfraza de éxito", async () => {
@@ -715,6 +718,27 @@ describe("SalePanel · transferencia", () => {
     expect(screen.getByTestId("payment-remaining").textContent).toBe("2500.000000");
     expect((screen.getByLabelText("Referencia del comprobante") as HTMLInputElement).value).toBe("");
     expect((screen.getByTestId("register-transfer-button") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("desbloquea el siguiente cobro con el saldo persistido al recuperar una aprobación parcial", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(1),
+    });
+    const confirm = vi.spyOn(window.posService, "payment.transfer.confirm")
+      .mockRejectedValueOnce(new Error("respuesta perdida"))
+      .mockResolvedValueOnce(confirmed("IDEMPOTENT", false));
+    await registerTransfer();
+
+    fireEvent.click(screen.getByTestId("confirm-transfer-button"));
+    const retry = await screen.findByRole("button", { name: /reintentar/i });
+    expect((screen.getByTestId("register-transfer-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(retry);
+    await screen.findByTestId("transfer-partial");
+    expect(screen.getByTestId("payment-remaining").textContent).toBe("2500.000000");
+    expect((screen.getByTestId("register-transfer-button") as HTMLButtonElement).disabled).toBe(false);
+    expect(confirm.mock.calls[1]).toEqual(confirm.mock.calls[0]);
+    expect(chime).not.toHaveBeenCalled();
   });
 
   it("un IDEMPOTENT en la confirmación no vuelve a sonar", async () => {

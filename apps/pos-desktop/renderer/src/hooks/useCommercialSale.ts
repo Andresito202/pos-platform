@@ -304,6 +304,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
           setError(result.outcome);
           return;
         }
+        setClosedShift(null);
         setShift({ shiftId: result.shift_id, cashRegisterId, version: result.version });
       },
     );
@@ -720,16 +721,20 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         expected_version: current.version,
       },
       (result) => {
-        setTransferConfirmation(result);
         if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") {
+          if (sale !== null && result.confirmed_coverage === null) {
+            setError("TRANSFER_COVERAGE_UNAVAILABLE");
+            return false;
+          }
           if (result.confirmed_coverage !== null) setTransferCoverage(result.confirmed_coverage);
           setTransfer({ ...current, status: "CONFIRMED" });
         }
+        setTransferConfirmation(result);
         if (shouldPlayChime(result)) playConfirmationChime();
         if (result.sale_completed === true) void listCatalogItems(catalogQuery.current);
       },
     );
-  }, [transfer, runChange, listCatalogItems]);
+  }, [sale, transfer, runChange, listCatalogItems]);
 
   /**
    * FACTUS Pay — Generar QR. No cobra la venta; sólo crea cobro pendiente

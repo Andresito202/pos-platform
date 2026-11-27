@@ -415,19 +415,13 @@ export class CommercialRequestHandler {
       },
     );
 
-    if (result.kind === "CONFIRMED") {
-      return succeeded(request, "CONFIRMED", {
-        outcome: "CONFIRMED",
+    if (result.kind === "CONFIRMED" || result.kind === "IDEMPOTENT") {
+      return succeeded(request, result.kind, {
+        outcome: result.kind,
         payment_id: result.paymentId,
         sale_completed: result.saleCompleted,
         confirmed_coverage: result.confirmedCoverage,
         payable_amount: result.payableAmount,
-      });
-    }
-    if (result.kind === "IDEMPOTENT") {
-      return succeeded(request, "IDEMPOTENT", {
-        outcome: "IDEMPOTENT", payment_id: result.paymentId, sale_completed: false,
-        confirmed_coverage: null, payable_amount: null,
       });
     }
     return rejected(request, result.kind, {

@@ -712,7 +712,9 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
               ? "Esta referencia ya fue registrada para el canal indicado."
               : sale.error === "OVERPAYMENT_NOT_ALLOWED"
                 ? "El pago supera el saldo vigente. Actualiza el estado antes de confirmar."
-                : sale.error}
+                : sale.error === "TRANSFER_COVERAGE_UNAVAILABLE"
+                  ? "Falta comprobar el saldo vigente. Reintenta antes de reportar otro pago."
+                  : sale.error}
           {sale.error === "INSUFFICIENT_STOCK" && sale.sale !== null && (
             <button
               type="button"

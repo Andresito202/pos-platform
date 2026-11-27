@@ -184,13 +184,12 @@ export type RegisterPaymentOutcome =
 
 export type ConfirmTransferOutcome =
   | {
-      readonly kind: "CONFIRMED";
+      readonly kind: "CONFIRMED" | "IDEMPOTENT";
       readonly paymentId: string;
       readonly saleCompleted: boolean;
       readonly confirmedCoverage: string;
       readonly payableAmount: string;
     }
-  | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
   | { readonly kind: "PAYMENT_NOT_FOUND" }
   | { readonly kind: "PAYMENT_NOT_CONFIRMABLE" }
@@ -891,12 +890,22 @@ export class SqlitePaymentStore {
         // Reintento de esta misma confirmación. Se resuelve antes de mirar el
         // estado: tras confirmar, el pago ya no es `CREATED` y la comprobación de
         // estado devolvería `PAYMENT_NOT_CONFIRMABLE` a una repetición legítima.
-        if (operation === "REPLAY") return { kind: "IDEMPOTENT", paymentId: payment.id };
+        const saleId = payment.collection_subject_id;
+        if (operation === "REPLAY") {
+          const sale = this.loadSale(input.scope, saleId);
+          if (sale === undefined) return { kind: "PAYMENT_NOT_FOUND" };
+          return {
+            kind: "IDEMPOTENT",
+            paymentId: payment.id,
+            saleCompleted: sale.status === "COMPLETED",
+            confirmedCoverage: bigIntToScale6(this.confirmedCoverage(input.scope.tenantId, saleId)),
+            payableAmount: sale.payable_amount,
+          };
+        }
 
         if (payment.status !== "CREATED") return { kind: "PAYMENT_NOT_CONFIRMABLE" };
         if (payment.version !== input.expectedVersion) return { kind: "VERSION_CONFLICT" };
 
-        const saleId = payment.collection_subject_id;
         const sale = this.loadSale(input.scope, saleId);
         if (sale === undefined) return { kind: "PAYMENT_NOT_FOUND" };
         if (sale.status === "COMPLETED") return { kind: "SALE_ALREADY_COMPLETED" };
