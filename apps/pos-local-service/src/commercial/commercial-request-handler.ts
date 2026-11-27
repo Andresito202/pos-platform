@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { scaleQuantity } from "../hardware/scale-quantity.js";
 import {
   createActor,
@@ -6,7 +6,7 @@ import {
   evaluatePermission,
   toRoleAssignments,
 } from "@pos-platform/application";
-import { CanonicalPermission, type ContractError, type ErrorCategory, type IpcRequest , LicenseSectorEntitlement} from "@pos-platform/contracts";
+import { CanonicalPermission, FISCAL_DOWNLOAD_MAX_BYTES, type ContractError, type ErrorCategory, type IpcRequest , LicenseSectorEntitlement} from "@pos-platform/contracts";
 import type { FiscalCustomerResolution, FiscalDocumentType, FiscalEnvironment } from "@pos-platform/fiscal-adapters";
 import type { ServiceConfig } from "../config.js";
 import type { StoredAuthorizationSnapshot } from "../authorization/authorization-snapshot-store.js";
@@ -28,7 +28,7 @@ type CommercialRequest = Extract<
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.factus_pay.collect" | "payment.factus_pay.verify" | "payment.factus_pay.resume" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
-      | "fiscal.document.issue" | "fiscal.document.list" | "fiscal.numbering.sync"
+      | "fiscal.document.issue" | "fiscal.document.list" | "fiscal.document.download" | "fiscal.numbering.sync"
       | "catalog.product.register" | "catalog.product.update" | "catalog.price.publish"
       | "catalog.media.put" | "catalog.media.clear" | "catalog.media.get"
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.list" | "admin.metrics.get"
@@ -256,6 +256,7 @@ export class CommercialRequestHandler {
       case "customer.find": return this.readCustomer(request, connectionId);
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
       case "fiscal.document.list": return this.listFiscalDocuments(request, connectionId);
+      case "fiscal.document.download": return this.downloadFiscalDocument(request, connectionId, signal);
       case "fiscal.numbering.sync": return this.syncNumberingRanges(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.product.update": return this.updateProduct(request, connectionId);
@@ -940,6 +941,45 @@ export class CommercialRequestHandler {
     const history = this.commercial.fiscalDocumentStore.listForSale(scope, saleId);
     if (history.documents.length === 0) return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
     return succeeded(request, "FOUND", { outcome: "FOUND", sale_id: saleId, ...history });
+  }
+
+  private async downloadFiscalDocument(
+    request: Extract<CommercialRequest, { message_type: "fiscal.document.download" }>,
+    connectionId: string,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) return rejected(request, authenticated.rejection, null);
+    const scope = this.scope();
+    const access = evaluatePermission({
+      actor: createActor("USER", authenticated.identity.userId),
+      permission: CanonicalPermission.FISCAL_DOCUMENT_ISSUE,
+      scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+      at: new Date(),
+      assignments: toRoleAssignments(authenticated.snapshot.claims),
+    });
+    if (!access.allowed) return rejected(request, "UNAUTHORIZED", null);
+    const port = this.commercial.fiscalArtifactPort;
+    const credential = this.commercial.fiscalCredentialReference;
+    if (!port || !credential) return rejected(request, "FISCAL_ARTIFACT_NOT_CONFIGURED", null);
+    const { document_id, format } = request.payload;
+    const document = this.commercial.fiscalDocumentStore.findDownloadableDocument(scope, document_id);
+    if (!document) return rejected(request, "FISCAL_ARTIFACT_DOCUMENT_NOT_FOUND", null);
+    const response = await port.fetchArtifact({
+      ...document, electronicDocumentId: document_id, artifactType: format, environment: "SANDBOX", credential,
+    }, signal);
+    if (response.kind !== "RETRIEVED") return rejected(request, "FISCAL_ARTIFACT_UNAVAILABLE", null);
+    const artifact = response.artifact;
+    if (artifact.bytes.byteLength > FISCAL_DOWNLOAD_MAX_BYTES) return rejected(request, "FISCAL_ARTIFACT_TOO_LARGE", null);
+    const sha256 = createHash("sha256").update(artifact.bytes).digest("hex");
+    const mediaType = format === "XML" ? "application/xml" : "application/pdf";
+    if (artifact.byteLength !== artifact.bytes.byteLength || artifact.byteLength === 0 ||
+        artifact.artifactType !== format || artifact.mediaType !== mediaType || sha256 !== artifact.checksumSha256) {
+      return rejected(request, "FISCAL_ARTIFACT_INTEGRITY_REJECTED", null);
+    }
+    return succeeded(request, "RETRIEVED", {
+      document_id, format, sha256, content_base64: Buffer.from(artifact.bytes).toString("base64"),
+    });
   }
 
   private async syncNumberingRanges(

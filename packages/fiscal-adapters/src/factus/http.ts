@@ -13,6 +13,7 @@ export interface HttpRequest {
   readonly headers: Readonly<Record<string, string>>;
   readonly body: string | undefined;
   readonly signal: AbortSignal;
+  readonly maxResponseBytes?: number;
 }
 
 export interface HttpResponse {

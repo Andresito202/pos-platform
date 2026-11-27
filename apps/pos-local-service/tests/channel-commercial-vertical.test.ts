@@ -1,4 +1,4 @@
-import { createPublicKey, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
+import { createHash, createPublicKey, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
 import { rmSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,6 +27,8 @@ import type { ServiceConfig } from "../src/config.js";
 import type { AuthorizationSnapshotClaims, SessionAssertionClaims } from "@pos-platform/contracts";
 import {
   FACTUS_ADAPTER_DECLARATION,
+  type DocumentArtifactRequest,
+  type DocumentArtifactOutcome,
   type DocumentIssuanceOutcome,
   type DocumentIssuancePort,
   type DocumentIssuanceRequest,
@@ -370,6 +372,15 @@ class FakeIssuancePort implements DocumentIssuancePort {
   issue(_request: DocumentIssuanceRequest, _signal: AbortSignal): Promise<DocumentIssuanceOutcome> {
     return Promise.resolve(this.outcome);
   }
+  async fetchArtifact(request: DocumentArtifactRequest): Promise<DocumentArtifactOutcome> {
+    const isXml = request.artifactType === "XML";
+    const bytes = Buffer.from(isXml ? "<Invoice>fixture</Invoice>" : "%PDF-1.7\n% fixture");
+    return { kind: "RETRIEVED", artifact: {
+      artifactType: request.artifactType, bytes, byteLength: bytes.length,
+      mediaType: isXml ? "application/xml" : "application/pdf",
+      checksumSha256: createHash("sha256").update(bytes).digest("hex"),
+    } };
+  }
 }
 
 /**
@@ -660,6 +671,20 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
       });
       expect(issued.result["cufe"]).toBe("b".repeat(96));
       expect(issued.result["issued_number"]).toBe("990000001");
+
+      const documentId = issued.result["document_id"];
+      for (const [format, content] of [["XML", "<Invoice>fixture</Invoice>"], ["PDF", "%PDF-1.7\n% fixture"]]) {
+        const downloaded = await send(reading("fiscal.document.download", { document_id: documentId, format }));
+        expect(downloaded).toMatchObject({ status: "SUCCEEDED", result_code: "RETRIEVED", result: {
+          document_id: documentId, format, content_base64: Buffer.from(content!).toString("base64"),
+          sha256: createHash("sha256").update(content!).digest("hex"),
+        } });
+      }
+      const foreign = await send(reading("fiscal.document.download", {
+        document_id: randomUUID(), format: "XML",
+      }));
+      expect(foreign).toMatchObject({ status: "REJECTED", result_code: "FISCAL_ARTIFACT_DOCUMENT_NOT_FOUND", result: null });
+
 
       const persisted = database.native.prepare(
         "SELECT transport_status, normalized_result, cufe FROM fiscal_electronic_document WHERE sale_id=?",

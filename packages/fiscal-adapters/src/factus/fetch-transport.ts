@@ -1,5 +1,27 @@
 import { HttpTransportError, type HttpRequest, type HttpResponse, type HttpTransport } from "./http.js";
 
+async function readBoundedBody(response: Response, maxBytes: number): Promise<string> {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let size = 0;
+  let result = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return result + decoder.decode();
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new HttpTransportError("factus response too large", "RESPONSE_SIZE_REJECTED", true);
+      }
+      result += decoder.decode(value, { stream: true });
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 /**
  * Transporte real sobre `fetch`.
  *
@@ -21,6 +43,7 @@ export class FetchHttpTransport implements HttpTransport {
     const timer = setTimeout(() => timeout.abort(), this.timeoutMs);
     const abort = (): void => timeout.abort();
     request.signal.addEventListener("abort", abort, { once: true });
+    if (request.signal.aborted) timeout.abort();
 
     let sent = false;
     try {
@@ -35,9 +58,11 @@ export class FetchHttpTransport implements HttpTransport {
       return {
         status: response.status,
         headers: Object.fromEntries(response.headers.entries()),
-        body: await response.text(),
+        body: request.maxResponseBytes === undefined
+          ? await response.text() : await readBoundedBody(response, request.maxResponseBytes),
       };
     } catch (error) {
+      if (error instanceof HttpTransportError) throw error;
       // Sin respuesta. Un aborto por tiempo ocurre con la petición ya enviada;
       // un fallo de resolución o de conexión, antes. Ante la duda, `true`: es
       // el lado que obliga a conciliar en vez de reemitir.

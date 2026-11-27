@@ -1,4 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { FiscalDocumentDownloadResultSchema } from "@pos-platform/contracts";
+import { callCommercial } from "../pos-service.js";
+import { downloadBytes } from "../sheet-workbook.js";
 import { useFiscalIssuance } from "../hooks/useFiscalIssuance.js";
 
 const fiscalHistoryLabels = {
@@ -35,6 +38,35 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
   const [saleId, setSaleId] = useState("");
   useEffect(() => { if (initialSaleId !== null) setSaleId(initialSaleId); }, [initialSaleId]);
   const [customerId, setCustomerId] = useState("");
+  const [download, setDownload] = useState<{ id: string; error: boolean; text: string } | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const pendingDownload = useRef(false);
+  async function exportDocument(id: string, format: "PDF" | "XML") {
+    if (pendingDownload.current) return;
+    pendingDownload.current = true;
+    setDownloading(true);
+    setDownload(null);
+    try {
+      const response = await callCommercial("fiscal.document.download", { document_id: id, format });
+      const parsed = FiscalDocumentDownloadResultSchema.safeParse(response.result);
+      if (response.status !== "SUCCEEDED" || !parsed.success || parsed.data.document_id !== id || parsed.data.format !== format) {
+        const text = response.result_code === "FISCAL_ARTIFACT_NOT_CONFIGURED"
+          ? "La descarga desde FACTUS Sandbox requiere una conexión configurada."
+          : "El archivo fiscal no está disponible para descarga.";
+        setDownload({ id, error: true, text });
+        return;
+      }
+      const bytes = Uint8Array.from(atob(parsed.data.content_base64), (char) => char.charCodeAt(0));
+      downloadBytes(`documento-fiscal-${id}.${format.toLowerCase()}`, bytes,
+        format === "XML" ? "application/xml" : "application/pdf");
+      setDownload({ id, error: false, text: `Descarga ${format} solicitada. SHA-256 ${parsed.data.sha256}` });
+    } catch {
+      setDownload({ id, error: true, text: "No se pudo descargar el archivo fiscal." });
+    } finally {
+      pendingDownload.current = false;
+      setDownloading(false);
+    }
+  }
 
   const issued = fiscal.resultSaleId === saleId.trim() ? fiscal.issued : null;
   const blocked = fiscal.isBlocked(saleId.trim(), "SALES_INVOICE");
@@ -79,6 +111,15 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
                     : fiscalHistoryLabels[document.transport_status]}
                   {document.issued_number && <div>Número {document.issued_number}</div>}
                   {document.cufe && <div style={{ overflowWrap: "anywhere" }}>CUFE/CUDE {document.cufe}</div>}
+                  {document.normalized_result === "ACCEPTED" && document.transport_status === "COMPLETED" &&
+                    <div>
+                      <button type="button" disabled={downloading}
+                        onClick={() => { void exportDocument(document.document_id, "PDF"); }}>Descargar PDF (Sandbox)</button>
+                      <button type="button" disabled={downloading}
+                        onClick={() => { void exportDocument(document.document_id, "XML"); }}>Descargar XML (Sandbox)</button>
+                    </div>}
+                  {download?.id === document.document_id &&
+                    <p role={download.error ? "alert" : "status"} style={{ overflowWrap: "anywhere" }}>{download.text}</p>}
                 </li>
               ))}
             </ul>

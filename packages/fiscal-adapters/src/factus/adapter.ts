@@ -574,6 +574,7 @@ implements
         url: `${factusBaseUrl(this.environment)}${path}`,
         headers: { authorization: `Bearer ${token}`, accept: "application/json" },
         body: undefined,
+        maxResponseBytes: 800 * 1024,
         signal,
       });
     } catch {

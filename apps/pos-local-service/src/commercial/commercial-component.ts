@@ -2,7 +2,7 @@ import { HardwareService } from "../hardware/hardware-service.js";
 import { HardwareStore } from "../hardware/hardware-store.js";
 import { loadHardwareRegistry, loadAutomaticDrawerPolicy } from "../hardware/platform-transports.js";
 import { WindowsCh340Transport, loadWindowsScaleProfile } from "../hardware/windows-ch340-transport.js";
-import { FactusAdapter, FetchHttpTransport, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
+import { FactusAdapter, FetchHttpTransport, type DocumentArtifactPort, type DocumentIssuancePort } from "@pos-platform/fiscal-adapters";
 import type { RuntimeComponent } from "../lifecycle.js";
 import type { LocalDatabaseComponent } from "../local-database-component.js";
 import type { DurableSyncComponent } from "../sync/durable-sync-component.js";
@@ -189,6 +189,7 @@ export class CommercialComponent implements RuntimeComponent {
         readonly issueElectronicDocument: IssueElectronicDocumentUseCase | null;
         readonly fiscalSaleSource: SqliteFiscalSaleSource;
         readonly fiscalDocumentStore: SqliteFiscalDocumentStore;
+        readonly fiscalArtifactPort: DocumentArtifactPort | null;
         readonly synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null;
         readonly fiscalCredentialReference: CredentialReference | null;
       }
@@ -212,7 +213,7 @@ export class CommercialComponent implements RuntimeComponent {
      */
     private readonly fiscalSecretStore: EncryptedFileSecretStore | undefined = undefined,
     /** Inyección para pruebas: sin ella, producción construye `FactusAdapter` real. */
-    private readonly issuancePortOverride: DocumentIssuancePort | undefined = undefined,
+    private readonly issuancePortOverride: (DocumentIssuancePort & Partial<DocumentArtifactPort>) | undefined = undefined,
     private readonly licenseGate?: CashRegisterLicenseGate,
     private readonly sectorLicenseGate?: SectorLicenseGate,
     private readonly licenseEntitlementsReader?: (scope: SyncScope) => readonly string[],
@@ -311,6 +312,7 @@ export class CommercialComponent implements RuntimeComponent {
   get getAdminMetrics(): GetAdminMetricsUseCase { return this.ready.getAdminMetrics; }
   get waitingCarts(): SqliteWaitingCartStore { return this.ready.waitingCarts; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
+  get fiscalArtifactPort(): DocumentArtifactPort | null { return this.ready.fiscalArtifactPort; }
   get fiscalDocumentStore(): SqliteFiscalDocumentStore { return this.ready.fiscalDocumentStore; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
   get fiscalSaleSource(): SqliteFiscalSaleSource { return this.ready.fiscalSaleSource; }
@@ -352,6 +354,7 @@ export class CommercialComponent implements RuntimeComponent {
     const fiscalDocumentStore = new SqliteFiscalDocumentStore(database, this.now);
     let issueElectronicDocument: IssueElectronicDocumentUseCase | null = null;
     let synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null = null;
+    let fiscalArtifactPort: DocumentArtifactPort | null = null;
     let fiscalCredentialReference: CredentialReference | null = null;
     if (this.fiscalSecretStore !== undefined && this.config.fiscal_environment !== undefined) {
       const environment = this.config.fiscal_environment;
@@ -373,6 +376,9 @@ export class CommercialComponent implements RuntimeComponent {
           this.now,
         );
         fiscalCredentialReference = credential;
+        if (environment === "SANDBOX" && typeof issuancePort.fetchArtifact === "function") {
+          fiscalArtifactPort = { fetchArtifact: issuancePort.fetchArtifact.bind(issuancePort) };
+        }
         if ("synchronizeRanges" in issuancePort) {
           synchronizeNumberingRanges = new SynchronizeNumberingRangesUseCase(issuancePort as NumberingRangePort,fiscalDocumentStore,this.now);
         }
@@ -396,6 +402,7 @@ export class CommercialComponent implements RuntimeComponent {
       issueElectronicDocument,
       fiscalSaleSource,
       fiscalDocumentStore,
+      fiscalArtifactPort,
       synchronizeNumberingRanges,
       fiscalCredentialReference,
       sessionStore,
