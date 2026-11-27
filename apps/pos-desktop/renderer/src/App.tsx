@@ -154,7 +154,7 @@ function LocalApp(): React.JSX.Element {
       result.push({
         id: "customers",
         label: "Clientes",
-        render: () => <CustomerPanel />,
+        render: () => <CustomerPanel permissions={permissions} />,
       });
     }
 
