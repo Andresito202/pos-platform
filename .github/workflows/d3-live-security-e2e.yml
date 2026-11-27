@@ -167,6 +167,16 @@ jobs:
           for target in license-catalog cash-register-master commercial-authorization business-owner tenant-initialization cash-register-bindings login-abuse-budget; do
             pnpm --filter @pos-platform/target-migrations postgres:commercial:apply -- "--$target"
           done
+      - name: Verify unverified merchant notice intake against PostgreSQL
+        env:
+          POSTGRES_EXPECTED_DATABASE: camacho_pos
+          REPOSITORY_COMMIT: ${{ env.REVIEWED_SHA }}
+          POSTGRES_MIGRATION_LOCK_TIMEOUT_MS: "5000"
+          POSTGRES_MIGRATION_STATEMENT_TIMEOUT_MS: "60000"
+        run: |
+          pnpm --filter @pos-platform/target-migrations postgres:commercial:apply -- --merchant-payment-notices
+          MERCHANT_NOTICE_TEST_ADMIN_URL="$POSTGRES_ADMIN_URL" MERCHANT_NOTICE_TEST_RUNTIME_URL="$CENTRAL_DATABASE_URL" \
+            pnpm --filter @pos-platform/central-authority exec vitest run tests/merchant-payment-notice-physical.test.ts
       - name: Provision BUSINESS identity and verify real MFA custody
         env:
           D3_DISPOSABLE_IDENTITY_GATE: "YES"
