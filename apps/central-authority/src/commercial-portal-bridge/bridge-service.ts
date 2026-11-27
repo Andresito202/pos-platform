@@ -8,6 +8,7 @@ import {
   CommercialPortalIntrospectResponseSchema,
   CommercialProvisioningRequestSchema,
   CommercialProvisioningResponseSchema,
+  UuidSchema,
   CommercialTrialIssueRequestSchema,
   CommercialTrialIssueResponseSchema,
   CommercialTrialExpireSweepResponseSchema,
@@ -66,6 +67,7 @@ export interface CommercialPortalBridgeStore {
   updateTrial(trial: TrialLicense): Promise<void>;
   putProvisioning(row: ProvisioningRecord): Promise<void>;
   getProvisioningByIdempotency(key: string): Promise<ProvisioningRecord | null>;
+  completeQueuedProvisioning(key: string, payloadHash: string, licenseIds: string[]): Promise<void>;
   claimJti(record: ReplayRecord): Promise<"CLAIMED" | "REPLAY">;
 }
 
@@ -86,6 +88,7 @@ export interface CommercialLicenseIssuer {
     tenantId: string;
     planId: string;
     payloadHash: string;
+    recoveringQueued?: boolean;
   }): Promise<{ licenseIds: string[] }>;
 }
 
@@ -138,6 +141,13 @@ export class MemoryCommercialPortalBridgeStore implements CommercialPortalBridge
   async getProvisioningByIdempotency(key: string): Promise<ProvisioningRecord | null> {
     return this.provisioning.get(key) ?? null;
   }
+  async completeQueuedProvisioning(key: string, payloadHash: string, licenseIds: string[]): Promise<void> {
+    const current = this.provisioning.get(key);
+    if (current?.payloadHash !== payloadHash ||
+        (current.fulfillment !== "QUEUED" && current.fulfillment !== "ALREADY_QUEUED") ||
+        current.licenseIds?.length !== 0 || current.licenseUnits !== licenseIds.length) return;
+    this.provisioning.set(key, { ...current, fulfillment: "ISSUED", licenseIds });
+  }
   async claimJti(record: ReplayRecord): Promise<"CLAIMED" | "REPLAY"> {
     const existing = this.jtis.get(`${record.purpose}:${record.jti}`);
     if (existing && existing.expiresAt.getTime() > Date.now()) return "REPLAY";
@@ -152,6 +162,7 @@ export type CommercialPortalBridgeConfig = {
   fetchImpl?: typeof fetch;
   /** When set, trial/provisioning write real license rows. */
   licenseIssuer?: CommercialLicenseIssuer;
+  recoverBoundProvisioning?: boolean;
   /** Re-check underlying GLOBAL session on introspect. */
   isGlobalSessionActive?: (sessionId: string) => Promise<boolean>;
 };
@@ -384,6 +395,52 @@ export class CommercialPortalBridgeService {
     });
   }
 
+  private async replayProvisioning(
+    row: ProvisioningRecord,
+    payloadHash: string,
+    body: ReturnType<typeof CommercialProvisioningRequestSchema.parse>,
+  ) {
+    if (row.payloadHash !== payloadHash) {
+      throw Object.assign(new Error("IDEMPOTENCY_PAYLOAD_CONFLICT"), { status: 409 });
+    }
+    if (this.config.recoverBoundProvisioning && this.config.licenseIssuer &&
+        (row.fulfillment === "QUEUED" || row.fulfillment === "ALREADY_QUEUED") &&
+        row.licenseIds?.length === 0 && body.planId && body.tenantId && row.tenantId === body.tenantId) {
+      try {
+        const issued = await this.config.licenseIssuer.issueProvisioningLicenses({
+          orderId: body.orderId, licenseUnits: row.licenseUnits, tenantId: body.tenantId,
+          planId: body.planId, payloadHash, recoveringQueued: true,
+        });
+        const licenseIds = issued.licenseIds.map(id => UuidSchema.parse(id));
+        if (licenseIds.length !== row.licenseUnits || new Set(licenseIds).size !== row.licenseUnits) {
+          throw new Error("COMMERCIAL_PROVISIONING_INVALID_LICENSES");
+        }
+        await this.store.completeQueuedProvisioning(row.idempotencyKey, payloadHash, licenseIds);
+        const persisted = await this.store.getProvisioningByIdempotency(row.idempotencyKey);
+        if (!persisted || persisted.payloadHash !== payloadHash || persisted.fulfillment !== "ISSUED") {
+          throw new Error("COMMERCIAL_PROVISIONING_RECEIPT_NOT_COMMITTED");
+        }
+        row = persisted;
+      } catch (error) {
+        if (error instanceof Error &&
+            ["PROVISION_PLAN_REQUIRED", "PROVISION_TENANT_REQUIRED", "PROVISION_LICENSE_REFERENCE_CONFLICT", "PROVISION_SUBSCRIPTION_TERM_REQUIRED"].includes(error.message)) {
+          throw error;
+        }
+        throw Object.assign(new Error("COMMERCIAL_PROVISIONING_RECOVERY_PENDING", { cause: error }), { status: 503 });
+      }
+    }
+    return CommercialProvisioningResponseSchema.parse({
+      status: "DUPLICATE",
+      provisioningId: row.provisioningId,
+      idempotencyKey: row.idempotencyKey,
+      licenseUnits: row.licenseUnits,
+      cajaRule: "ONE_LICENSE_ONE_CAJA",
+      fulfillment: row.fulfillment === "ISSUED" || row.fulfillment === "ALREADY_ISSUED"
+        ? "ALREADY_ISSUED" : "ALREADY_QUEUED",
+      licenseIds: row.licenseIds ?? [],
+    });
+  }
+
   async provision(idempotencyKey: string | undefined, input: unknown) {
     if (!idempotencyKey || idempotencyKey.length < 16) {
       throw Object.assign(new Error("IDEMPOTENCY_KEY_REQUIRED"), { status: 400 });
@@ -391,22 +448,7 @@ export class CommercialPortalBridgeService {
     const body = CommercialProvisioningRequestSchema.parse(input);
     const payloadHash = sha256(JSON.stringify(body));
     const existing = await this.store.getProvisioningByIdempotency(idempotencyKey);
-    if (existing) {
-      if (existing.payloadHash !== payloadHash) {
-        throw Object.assign(new Error("IDEMPOTENCY_PAYLOAD_CONFLICT"), { status: 409 });
-      }
-      return CommercialProvisioningResponseSchema.parse({
-        status: "DUPLICATE",
-        provisioningId: existing.provisioningId,
-        idempotencyKey: existing.idempotencyKey,
-        licenseUnits: existing.licenseUnits,
-        cajaRule: "ONE_LICENSE_ONE_CAJA",
-        fulfillment: existing.fulfillment === "ISSUED" || existing.fulfillment === "ALREADY_ISSUED"
-          ? "ALREADY_ISSUED"
-          : "ALREADY_QUEUED",
-        licenseIds: existing.licenseIds ?? [],
-      });
-    }
+    if (existing) return this.replayProvisioning(existing, payloadHash, body);
     const claim = await this.store.claimJti({
       jti: idempotencyKey,
       purpose: "provision",
@@ -415,22 +457,7 @@ export class CommercialPortalBridgeService {
     });
     if (claim === "REPLAY") {
       const again = await this.store.getProvisioningByIdempotency(idempotencyKey);
-      if (again) {
-        if (again.payloadHash !== payloadHash) {
-          throw Object.assign(new Error("IDEMPOTENCY_PAYLOAD_CONFLICT"), { status: 409 });
-        }
-        return CommercialProvisioningResponseSchema.parse({
-          status: "DUPLICATE",
-          provisioningId: again.provisioningId,
-          idempotencyKey: again.idempotencyKey,
-          licenseUnits: again.licenseUnits,
-          cajaRule: "ONE_LICENSE_ONE_CAJA",
-          fulfillment: again.fulfillment === "ISSUED" || again.fulfillment === "ALREADY_ISSUED"
-            ? "ALREADY_ISSUED"
-            : "ALREADY_QUEUED",
-          licenseIds: again.licenseIds ?? [],
-        });
-      }
+      if (again) return this.replayProvisioning(again, payloadHash, body);
       throw Object.assign(new Error("COMMERCIAL_BRIDGE_REPLAY"), { status: 409 });
     }
 
