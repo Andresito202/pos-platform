@@ -136,7 +136,7 @@ export class RegisterCashPaymentUseCase {
       };
     }
     if (outcome.kind === "IDEMPOTENT") return { kind: "IDEMPOTENT", paymentId: outcome.paymentId };
-    if (outcome.kind === "REGISTERED") {
+    if (outcome.kind === "REGISTERED" || outcome.kind === "DUPLICATE_TRANSFER_REFERENCE") {
       // Inalcanzable: el efectivo confirma siempre. Se trata como defecto.
       throw new Error("cash payment must confirm on registration");
     }

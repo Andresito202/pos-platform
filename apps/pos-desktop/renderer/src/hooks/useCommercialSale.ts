@@ -183,7 +183,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   cancelSale(reasonCode?: string): Promise<void>;
   chargeCash(tenderedAmount?: string, paymentAmount?: string): Promise<void>;
   refreshTransfer(): Promise<void>;
-  registerTransfer(): Promise<void>;
+  registerTransfer(amount: string | undefined, providerCode: string | null, providerReference: string | null): Promise<void>;
   confirmTransfer(): Promise<void>;
   collectFactusPay(): Promise<void>;
   verifyFactusPay(): Promise<void>;
@@ -251,7 +251,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   const runChange = useCallback(async <T,>(
     messageType: CommercialEnvelope["message_type"],
     payload: unknown,
-    onSuccess: (result: T) => void | false,
+    onSuccess: (result: T) => void | false | Promise<void | false>,
   ): Promise<void> => {
     if (busyRef.current || pendingChange.current) return;
     const envelope = buildEnvelope(messageType, payload, newIdempotencyKey());
@@ -267,7 +267,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
           setError(response.result_code);
           if (response.status !== "REJECTED" || response.result === null) uncertain = true;
           if (uncertain) return;
-        } else if (onSuccess(response.result) === false) {
+        } else if (await onSuccess(response.result) === false) {
           uncertain = true;
           return;
         }
@@ -587,54 +587,52 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
    * fuente de `version`, que la confirmación exigirá. También en `IDEMPOTENT`,
    * donde el pago ya existía y su versión puede ser cualquiera.
    *
-   * `provider_code` y `provider_reference` viajan nulos porque el contrato los
-   * admite nulos y la pantalla todavía no los pide. Inventar campos que el
-   * contrato no define sería fabricar datos de un comprobante.
+   * La referencia opcional la aporta el operador como evidencia de atestiguación.
    */
-  const registerTransfer = useCallback(async (): Promise<void> => {
+  const registerTransfer = useCallback(async (
+    amount: string | undefined,
+    providerCode: string | null,
+    providerReference: string | null,
+  ): Promise<void> => {
     const current = sale;
-    if (current === null) return;
+    if (current === null || busyRef.current || pendingChange.current) return;
+    const reportedAmount = amount ?? current.payableAmount;
+    if ((parseCopMicros(reportedAmount) ?? 0n) <= 0n) {
+      setError("INVALID_TRANSFER_AMOUNT");
+      return;
+    }
     setTransferConfirmation(null);
 
-    let registeredId: string | null = null;
-    await run<PaymentRegisterTransferResult>(
-      () => callCommercial("payment.register.transfer", {
-        sale_id: current.saleId,
-        amount: current.payableAmount,
-        provider_code: null,
-        provider_reference: null,
-      }, newIdempotencyKey()),
-      (result) => {
-        if (result.payment_id === null) {
-          setError(result.outcome);
-          return;
-        }
-        registeredId = result.payment_id;
-      },
-    );
-    if (registeredId === null) return;
-
-    await run<PaymentGetResult>(
-      () => callCommercial("payment.get", { payment_id: registeredId }),
-      (result) => {
-        if (
-          result.payment_id === null
-          || result.version === null
-          || result.status === null
-          || result.expected_amount === null
-        ) {
-          setError(result.outcome);
-          return;
-        }
-        setTransfer({
-          paymentId: result.payment_id,
-          version: result.version,
-          status: result.status,
-          expectedAmount: result.expected_amount,
-        });
-      },
-    );
-  }, [sale, run]);
+    await runChange<PaymentRegisterTransferResult>("payment.register.transfer", {
+      sale_id: current.saleId,
+      amount: reportedAmount,
+      provider_code: providerCode,
+      provider_reference: providerReference,
+    }, async (registered) => {
+      if (registered.payment_id === null) {
+        setError(registered.outcome);
+        return false;
+      }
+      const response = await callCommercial<PaymentGetResult>("payment.get", { payment_id: registered.payment_id });
+      const result = response.result;
+      if (response.status !== "SUCCEEDED" || result === null) {
+        setError(response.result_code);
+        return false;
+      }
+      if (result.outcome !== "FOUND" || result.sale_id !== current.saleId ||
+          result.payment_id !== registered.payment_id || result.method !== "TRANSFER" ||
+          result.version === null || result.status === null || result.expected_amount === null) {
+        setError("PAYMENT_TRANSFER_MISMATCH");
+        return false;
+      }
+      setTransfer({
+        paymentId: result.payment_id,
+        version: result.version,
+        status: result.status,
+        expectedAmount: result.expected_amount,
+      });
+    });
+  }, [sale, runChange]);
 
   const refreshTransfer = useCallback(async (): Promise<void> => {
     if (sale === null || transfer === null) return;

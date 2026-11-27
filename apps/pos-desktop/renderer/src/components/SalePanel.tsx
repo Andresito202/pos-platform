@@ -55,6 +55,9 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
   const [denominationCounts, setDenominationCounts] = useState<Record<number, number>>({});
   const [showDenominations, setShowDenominations] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [transferAmount, setTransferAmount] = useState("");
+  const [transferProvider, setTransferProvider] = useState("");
+  const [transferReference, setTransferReference] = useState("");
   const transferCompleted = sale.transferReceiptAmount !== null || sale.transferConfirmation?.sale_completed === true;
   const completed = sale.payment?.sale_completed === true || transferCompleted || sale.factusPayConfirmation?.sale_completed === true;
   const confirmedCoverage = [sale.payment?.confirmed_coverage, sale.transferConfirmation?.confirmed_coverage, sale.factusPayConfirmation?.confirmed_coverage]
@@ -64,6 +67,13 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
       return parsed !== null && parsed > (max === null ? 0n : (parseCopMicros(max) ?? 0n)) ? value : max;
     }, null);
   const remainingAmount = sale.sale === null ? null : remainingPayableScale6(sale.sale.payableAmount, confirmedCoverage);
+  const reportedTransferAmount = transferAmount.trim() ? toScale6(transferAmount) : remainingAmount;
+  const transferInputsLocked = sale.busy || sale.unresolved || completed || sale.transfer !== null;
+  useEffect(() => {
+    setTransferAmount("");
+    setTransferProvider("");
+    setTransferReference("");
+  }, [sale.sale?.saleId]);
   useEffect(() => {
     if (confirmedCoverage !== null && remainingAmount !== null && !completed) setPaymentAmount(remainingAmount);
   }, [confirmedCoverage, remainingAmount, completed]);
@@ -513,18 +523,38 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
             >
               Confirmar cobro en efectivo
             </button>
-            {/* Reportar la transferencia y atestiguarla son dos actos distintos,
-                con dos permisos distintos (`UC-PAY-002` y `UC-PAY-003`). La
-                pantalla no los funde en un botón: el cajero recibe el comprobante
-                y alguien da el dinero por bueno, que no tiene por qué ser el
-                mismo. */}
-            <button
-              data-testid="register-transfer-button"
-              onClick={() => { void sale.registerTransfer(); }}
-              disabled={sale.busy || completed || sale.transfer !== null}
-            >
-              Transferencia
-            </button>
+            <fieldset className="pos-transfer-report" disabled={transferInputsLocked}>
+              <legend>Reporte manual de transferencia</legend>
+              <label>Importe de la transferencia
+                <input value={transferAmount} placeholder={remainingAmount ?? ""}
+                  onChange={event => setTransferAmount(event.target.value)} inputMode="decimal" />
+              </label>
+              <label>Canal de la transferencia
+                <select value={transferProvider} onChange={event => setTransferProvider(event.target.value)}>
+                  <option value="">Sin especificar</option>
+                  <option value="NEQUI">Nequi</option>
+                  <option value="BREB">Bre-B</option>
+                  <option value="OTHER">Otro canal</option>
+                </select>
+              </label>
+              <label>Referencia del comprobante
+                <input type="text" value={transferReference} maxLength={128}
+                  onChange={event => setTransferReference(event.target.value)} />
+              </label>
+              <button
+                type="button"
+                data-testid="register-transfer-button"
+                onClick={() => {
+                  void sale.registerTransfer(
+                    reportedTransferAmount ?? undefined, transferProvider || null, transferReference.trim() || null,
+                  );
+                }}
+                disabled={transferInputsLocked || (parseCopMicros(reportedTransferAmount ?? "") ?? 0n) <= 0n ||
+                  (transferReference.trim() !== "" && transferProvider === "")}
+              >
+                Reportar transferencia
+              </button>
+            </fieldset>
             <button
               data-testid="factus-pay-collect-button"
               onClick={() => { void sale.collectFactusPay(); }}
@@ -672,7 +702,9 @@ export function SalePanel({ permissions }: { permissions?: ReadonlySet<string> }
         <div data-testid="sale-error">
           {sale.error === "INSUFFICIENT_STOCK"
             ? "No se pudo completar el cobro: el inventario ya no es elegible (p. ej. lote vencido). El pago no se registró."
-            : sale.error}
+            : sale.error === "DUPLICATE_TRANSFER_REFERENCE"
+              ? "Esta referencia ya fue registrada para el canal indicado."
+              : sale.error}
           {sale.error === "INSUFFICIENT_STOCK" && sale.sale !== null && (
             <button
               type="button"

@@ -488,6 +488,24 @@ describe("transferencia por atestiguación manual", () => {
     };
   }
 
+  it("rechaza una referencia manual repetida sin modificar la segunda venta", async () => {
+    const env = await buildEnv();
+    const first = seedSale(env.database, { payable: "10000.000000" });
+    const second = seedSale(env.database, { payable: "10000.000000" });
+    const report = {
+      ...transferRequest(first, "4000.000000", "t:first"),
+      providerReference: "  REF-1  ",
+    };
+    expect(env.registerTransfer.execute(SCOPE, SESSION, auth(), report).kind).toBe("REGISTERED");
+    expect(env.registerTransfer.execute(SCOPE, SESSION, auth(), report).kind).toBe("IDEMPOTENT");
+    expect(env.registerTransfer.execute(SCOPE, SESSION, auth(),
+      transferRequest(second, "4000.000000", "t:second"))).toEqual({ kind: "DUPLICATE_TRANSFER_REFERENCE" });
+    expect(saleStatus(env.database, second).status).toBe("READY_FOR_PAYMENT");
+    expect(env.registerTransfer.execute(SCOPE, SESSION, auth(), {
+      ...transferRequest(second, "4000.000000", "t:breb"), providerCode: "BREB",
+    }).kind).toBe("REGISTERED");
+  });
+
   it("reportar deja el pago en CREATED, sin imputar ni completar", async () => {
     const env = await buildEnv();
     const saleId = seedSale(env.database, { payable: "10000.000000" });
