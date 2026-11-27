@@ -70,6 +70,10 @@ export function InventoryPanel({ permissions, entitlements = new Set(), initialP
   const [businessDate, setBusinessDate] = useState(today());
 
   const target = presentationId.trim();
+  const movement = inventory.movement?.presentationId === target ? inventory.movement.result : null;
+  const canReadStock = permissions.has(CanonicalPermission.INVENTORY_STOCK_READ);
+  const stock = canReadStock && !inventory.pending && !batchPending && inventory.stock?.presentationId === target
+    ? inventory.stock.result : null;
 
   return (
     <section data-testid="inventory-panel">
@@ -246,37 +250,38 @@ export function InventoryPanel({ permissions, entitlements = new Set(), initialP
       <button
         data-testid="get-stock-button"
         onClick={() => { void inventory.getStock(target); }}
-        disabled={inventory.busy || !permissions.has(CanonicalPermission.INVENTORY_STOCK_READ) || target === ""}
+        disabled={inventory.busy || inventory.pending || batchPending || !canReadStock || target === ""}
       >
         Consultar
       </button>
 
-      {inventory.movement !== null && (
+      {inventory.checkingStock && <p role="status">Consultando existencia…</p>}
+      {movement !== null && (
         <div data-testid="inventory-movement">
-          <span data-testid="movement-outcome">{inventory.movement.outcome}</span>
-          {inventory.movement.quantity_after !== null && (
-            <span data-testid="movement-quantity-after">{inventory.movement.quantity_after}</span>
+          <span data-testid="movement-outcome">{movement.outcome}</span>
+          {movement.quantity_after !== null && (
+            <span data-testid="movement-quantity-after">{movement.quantity_after}</span>
           )}
           {/* Sólo se rellena en el rechazo por falta de existencia, y es lo que
               permite corregir la captura sin ir a buscar el saldo. */}
-          {inventory.movement.available !== null && (
-            <span data-testid="movement-available">{inventory.movement.available}</span>
+          {movement.available !== null && (
+            <span data-testid="movement-available">{movement.available}</span>
           )}
         </div>
       )}
 
-      {inventory.stock !== null && inventory.stock.outcome === "FOUND" && (
+      {stock !== null && stock.outcome === "FOUND" && (
         <div data-testid="stock-found">
-          <span data-testid="stock-quantity">{inventory.stock.quantity_on_hand}</span>
+          <span data-testid="stock-quantity">{stock.quantity_on_hand}</span>
         </div>
       )}
-      {inventory.stock !== null && inventory.stock.outcome === "NOT_FOUND" && (
+      {stock !== null && stock.outcome === "NOT_FOUND" && (
         <div data-testid="stock-not-found">sin movimientos</div>
       )}
-      {inventory.stock !== null && inventory.stock.outcome === "UNAUTHORIZED" && (
-        <div data-testid="stock-unauthorized">{inventory.stock.outcome}</div>
+      {stock !== null && stock.outcome === "UNAUTHORIZED" && (
+        <div data-testid="stock-unauthorized">{stock.outcome}</div>
       )}
-      {inventory.error !== null && <div data-testid="inventory-error">{inventory.error}</div>}
+      {inventory.error !== null && <div data-testid="inventory-error" role="alert">{inventory.error}</div>}
       </div>
     </section>
   );

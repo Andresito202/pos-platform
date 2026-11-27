@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import {
   CANONICAL_PERMISSION_CODES,
   CatalogProductRegisterRequestSchema,
@@ -9,6 +9,7 @@ import {
   InventoryStockAdjustRequestSchema,
   InventoryStockReceiveRequestSchema,
 } from "@pos-platform/contracts";
+import { notifyCatalogInventoryChanged } from "../../renderer/src/catalog-invalidate.js";
 import { RENDERER_API_METHODS } from "../../src/preload-api.js";
 import { CatalogPanel } from "../../renderer/src/components/CatalogPanel.js";
 import { InventoryPanel } from "../../renderer/src/components/InventoryPanel.js";
@@ -243,6 +244,29 @@ describe("InventoryPanel", () => {
     await waitFor(() => { expect(screen.getByTestId("stock-not-found")).toBeTruthy(); });
     expect(screen.queryByTestId("stock-found")).toBeNull();
     expect(screen.queryByTestId("stock-quantity")).toBeNull();
+  });
+
+  it("descarta el saldo consultado al cambiar de presentación o registrar un movimiento local", async () => {
+    install({
+      status: "SUCCEEDED", result_code: "FOUND",
+      result: {
+        outcome: "FOUND", presentation_id: PRESENTATION,
+        quantity_on_hand: "5.000000", last_movement_sequence: 2,
+      },
+    });
+    render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
+    targetPresentation();
+    fireEvent.click(screen.getByTestId("get-stock-button"));
+    expect((await screen.findByTestId("stock-quantity")).textContent).toBe("5.000000");
+
+    fireEvent.change(screen.getByTestId("inventory-presentation-input"), {
+      target: { value: "44444444-4444-4444-8444-444444444444" },
+    });
+    expect(screen.queryByTestId("stock-found")).toBeNull();
+    targetPresentation();
+    act(() => notifyCatalogInventoryChanged());
+    expect(screen.queryByTestId("stock-found")).toBeNull();
+    expect(calls.get("inventory.stock.get")).toHaveLength(1);
   });
 
   it("rechaza una cantidad fuera de escala 6 sin tocar el canal", async () => {

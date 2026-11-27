@@ -13,7 +13,7 @@ describe("manual inventory retries while panel is mounted", () => {
     const {result}=renderHook(()=>useInventoryAdmin());
     await act(async()=>{await result.current.receive(...args);});
     expect(result.current.pending).toBe(false);
-    expect(result.current.movement?.outcome).toBe(outcome);
+    expect(result.current.movement?.result.outcome).toBe(outcome);
     await act(async()=>{await result.current.receive(...args);});
     expect(mocks.call.mock.calls[1]?.[2]).not.toEqual(mocks.call.mock.calls[0]?.[2]);
   });
