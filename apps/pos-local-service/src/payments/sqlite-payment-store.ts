@@ -170,6 +170,7 @@ export type RegisterPaymentOutcome =
   | { readonly kind: "REGISTERED"; readonly paymentId: string }
   | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "DUPLICATE_TRANSFER_REFERENCE" }
   | { readonly kind: "SALE_NOT_FOUND" }
   | { readonly kind: "SALE_NOT_PAYABLE" }
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
@@ -635,6 +636,20 @@ export class SqlitePaymentStore {
       if (sale.status === "COMPLETED") return { kind: "SALE_ALREADY_COMPLETED" };
       if (!PAYABLE_SALE_STATUSES.has(sale.status)) return { kind: "SALE_NOT_PAYABLE" };
 
+      const reference = input.method === "TRANSFER"
+        ? input.providerReference?.trim() || null
+        : input.providerReference;
+      if (input.method === "TRANSFER" && reference !== null) {
+        // Match the existing tenant/provider reference namespace and also
+        // recognize historical references that include surrounding spaces.
+        const duplicate = this.database.native.prepare(
+          `SELECT 1 FROM payments_payment_attempts
+           WHERE tenant_id=? AND provider_code IS ? AND provider_reference_type='MANUAL_REFERENCE'
+             AND trim(provider_reference)=? LIMIT 1`,
+        ).get(input.scope.tenantId, input.providerCode, reference);
+        if (duplicate) return { kind: "DUPLICATE_TRANSFER_REFERENCE" };
+      }
+
       // 3. Cobertura: el sobrepago se impide ANTES de confirmar (DEC-002).
       const amount = scale6ToBigInt(input.amount);
       const payable = scale6ToBigInt(sale.payable_amount);
@@ -644,7 +659,7 @@ export class SqlitePaymentStore {
         : input.method === "QR"
           ? "EXTERNAL_PROVIDER_AUTHORITATIVE"
           : "MANUAL_ATTESTATION";
-      const providerReferenceType = input.providerReference === null
+      const providerReferenceType = reference === null
         ? null
         : input.method === "QR"
           ? "FACTUS_PAY_REFERENCE"
@@ -703,7 +718,7 @@ export class SqlitePaymentStore {
         input.scope.deviceId, input.scope.installationId,
         input.operatorUserId,
         confirming ? "USER" : null, confirming ? input.operatorUserId : null,
-        input.providerCode, input.providerReference,
+        input.providerCode, reference,
         input.operationId, input.idempotencyKey, input.requestChecksum, input.correlationId, input.causationId,
         nowIso, confirming ? nowIso : null,
       );
@@ -722,7 +737,7 @@ export class SqlitePaymentStore {
         input.paymentId,
         input.method, authorityType, status,
         input.amount, sale.currency_code,
-        input.providerCode, providerReferenceType, input.providerReference,
+        input.providerCode, providerReferenceType, reference,
         confirming ? input.operatorUserId : null,
         `attempt:${input.idempotencyKey}`, input.requestChecksum, input.correlationId, input.causationId,
         nowIso, confirming ? nowIso : null,
@@ -792,7 +807,7 @@ export class SqlitePaymentStore {
         confirmedCoverage: bigIntToScale6(completion.coverage),
         payableAmount: sale.payable_amount,
       };
-    }));
+    }).immediate);
     } finally {
       this.flushDeferredPharmacyReconciliation();
     }

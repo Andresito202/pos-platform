@@ -584,6 +584,7 @@ export const PaymentRegisterTransferOutcomeSchema = z.enum([
   "IDEMPOTENT",
   "UNAUTHORIZED",
   "IDEMPOTENCY_CONFLICT",
+  "DUPLICATE_TRANSFER_REFERENCE",
   "SALE_NOT_FOUND",
   "SALE_NOT_PAYABLE",
   "SALE_ALREADY_COMPLETED",

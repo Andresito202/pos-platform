@@ -498,9 +498,9 @@ describe("SalePanel · transferencia", () => {
 
   const registered = (outcome: string) => succeeded({ outcome, payment_id: PAYMENT });
 
-  const fetched = (version: number, status = "CREATED") => succeeded({
+  const fetched = (version: number, status = "CREATED", expectedAmount = "3500.000000") => succeeded({
     outcome: "FOUND", payment_id: PAYMENT, sale_id: SALE,
-    method: "TRANSFER", status, expected_amount: "3500.000000",
+    method: "TRANSFER", status, expected_amount: expectedAmount,
     confirmed_amount: null, currency_code: "COP", version,
   });
 
@@ -530,6 +530,38 @@ describe("SalePanel · transferencia", () => {
     fireEvent.click(screen.getByTestId("register-transfer-button"));
     await waitFor(() => { expect(screen.getByTestId("transfer-registered")).toBeTruthy(); });
   }
+
+  it("reporta un importe parcial y la referencia del comprobante Nequi", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("REGISTERED"),
+      "payment.get": fetched(3, "CREATED", "1250.000000"),
+    });
+    const report = vi.spyOn(window.posService, "payment.register.transfer");
+    fireEvent.change(screen.getByLabelText("Importe de la transferencia"), { target: { value: "1250" } });
+    fireEvent.change(screen.getByLabelText("Canal de la transferencia"), { target: { value: "NEQUI" } });
+    fireEvent.change(screen.getByLabelText("Referencia del comprobante"), { target: { value: " REF-77 " } });
+    await registerTransfer();
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ payload: {
+      sale_id: SALE, amount: "1250.000000", provider_code: "NEQUI", provider_reference: "REF-77",
+    } }));
+    expect(screen.getByTestId("transfer-pending")).toBeTruthy();
+  });
+
+  it("reintenta el reporte con la misma clave cuando se pierde la respuesta", async () => {
+    await reachSale({
+      "payment.register.transfer": registered("IDEMPOTENT"),
+      "payment.get": fetched(3),
+    });
+    const report = vi.spyOn(window.posService, "payment.register.transfer")
+      .mockRejectedValueOnce(new Error("response lost"));
+    fireEvent.click(screen.getByTestId("register-transfer-button"));
+    const retry = await screen.findByTestId("retry-pending-operation");
+    expect(screen.queryByTestId("transfer-registered")).toBeNull();
+    fireEvent.click(retry);
+    await screen.findByTestId("transfer-registered");
+    expect(report).toHaveBeenCalledTimes(2);
+    expect(report.mock.calls[1]).toEqual(report.mock.calls[0]);
+  });
 
   it("consulta una confirmación externa y solo libera Caja al obtener el comprobante de la venta", async () => {
     const responses = {

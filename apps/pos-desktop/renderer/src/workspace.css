@@ -722,6 +722,14 @@ button.pos-cart-remove svg path {
     grid-column: 1 / -1;
 }
 
+.pos-transfer-report {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    margin: 0;
+}
+
 .pos-sale-results {
     display: grid;
     gap: 10px;

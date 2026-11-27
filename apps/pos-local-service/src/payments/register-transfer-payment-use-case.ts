@@ -26,6 +26,7 @@ export type RegisterTransferPaymentResult =
   | { readonly kind: "IDEMPOTENT"; readonly paymentId: string }
   | { readonly kind: "UNAUTHORIZED"; readonly reason: string }
   | { readonly kind: "IDEMPOTENCY_CONFLICT" }
+  | { readonly kind: "DUPLICATE_TRANSFER_REFERENCE" }
   | { readonly kind: "SALE_NOT_FOUND" }
   | { readonly kind: "SALE_NOT_PAYABLE" }
   | { readonly kind: "SALE_ALREADY_COMPLETED" }
