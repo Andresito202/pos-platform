@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { InventoryMovementResultSchema } from "@pos-platform/contracts";
+import { InventoryMovementResultSchema, InventoryStockGetResultSchema, UuidSchema } from "@pos-platform/contracts";
 import type {
   InventoryMovementResult,
   InventoryStockGetResult,
 } from "@pos-platform/contracts";
-import { notifyCatalogInventoryChanged } from "../catalog-invalidate.js";
+import { notifyCatalogInventoryChanged, onCatalogInventoryChanged } from "../catalog-invalidate.js";
 import { callCommercial, newIdempotencyKey } from "../pos-service.js";
 import { toScale6 } from "../scale6.js";
 
@@ -33,8 +33,9 @@ export type AdjustMovement =
 export interface InventoryAdminState {
   readonly busy: boolean;
   readonly pending: boolean;
-  readonly movement: InventoryMovementResult | null;
-  readonly stock: InventoryStockGetResult | null;
+  readonly movement: { presentationId: string; result: InventoryMovementResult } | null;
+  readonly stock: { presentationId: string; result: InventoryStockGetResult } | null;
+  readonly checkingStock: boolean;
   readonly error: string | null;
 }
 
@@ -54,7 +55,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     window.addEventListener("beforeunload", preventLoss);
     return () => window.removeEventListener("beforeunload", preventLoss);
   }, [pending]);
-  const pendingOperation = useRef<{ messageType: "inventory.stock.receive" | "inventory.stock.adjust"; payload: Record<string, unknown>; key: string } | null>(null);
+  const pendingOperation = useRef<{ messageType: "inventory.stock.receive" | "inventory.stock.adjust"; payload: Record<string, unknown>; key: string; presentationId: string } | null>(null);
   const retryPending = useCallback(async (): Promise<void> => {
     const operation = pendingOperation.current;
     if (!operation || inFlight.current) return;
@@ -68,7 +69,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
       const definitiveRejection = !uncertain.current && response.status === "REJECTED" && parsed.success &&
         response.result_code === parsed.data.outcome && ["PRESENTATION_NOT_FOUND", "INSUFFICIENT_STOCK", "INVALID_QUANTITY", "QUANTITY_PRECISION_EXCEEDED", "STOCK_QUANTITY_OVERFLOW","LOT_TRACKING_REQUIRED","LEGACY_STOCK_RECONCILIATION_REQUIRED","LOT_NOT_FOUND","LOT_NOT_SELLABLE"].includes(parsed.data.outcome);
       if (success || definitiveRejection) {
-        setMovement(parsed.data!);
+        if (parsed.success) setMovement({ presentationId: operation.presentationId, result: parsed.data });
         if (success) notifyCatalogInventoryChanged();
       } else {
         uncertain.current = true;
@@ -81,8 +82,14 @@ export function useInventoryAdmin(): InventoryAdminState & {
       setError("No se recibió confirmación. Reintenta la operación pendiente sin cambiar los datos.");
     } finally { inFlight.current = false; setBusy(false); }
   }, []);
-  const [movement, setMovement] = useState<InventoryMovementResult | null>(null);
-  const [stock, setStock] = useState<InventoryStockGetResult | null>(null);
+  const [movement, setMovement] = useState<InventoryAdminState["movement"]>(null);
+  const [stock, setStock] = useState<InventoryAdminState["stock"]>(null);
+  const [checkingStock, setCheckingStock] = useState(false);
+  const stockRevision = useRef(0);
+  useEffect(() => onCatalogInventoryChanged(() => {
+    stockRevision.current++;
+    setStock(null);
+  }), []);
   const [error, setError] = useState<string | null>(null);
 
   const post = useCallback(async (
@@ -98,7 +105,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     const normalized = toScale6(quantity);
     if (normalized === null) { setError("QUANTITY_NOT_SCALE6"); return; }
     uncertain.current = false;
-    pendingOperation.current = { messageType, key: newIdempotencyKey(), payload: {
+    pendingOperation.current = { messageType, presentationId, key: newIdempotencyKey(), payload: {
       presentation_id: presentationId, movement_type: movementType, quantity: normalized,
       reason_code: reasonCode, business_date: businessDate,
       ...(extras??{}),
@@ -128,29 +135,46 @@ export function useInventoryAdmin(): InventoryAdminState & {
     lotId?{lot_id:lotId}:undefined), [post]);
 
   const getStock = useCallback(async (presentationId: string): Promise<void> => {
-    if (inFlight.current) return;
+    if (inFlight.current || pendingOperation.current) return;
+    const target = UuidSchema.safeParse(presentationId);
+    if (!target.success) {
+      setStock(null);
+      setError("INVENTORY_PRESENTATION_INVALID");
+      return;
+    }
+    const revision = stockRevision.current;
     inFlight.current = true;
     setBusy(true);
+    setCheckingStock(true);
     setError(null);
     setStock(null);
     try {
       const response = await callCommercial<InventoryStockGetResult>(
-        "inventory.stock.get", { presentation_id: presentationId },
+        "inventory.stock.get", { presentation_id: target.data },
       );
-      if (response.result === null) {
-        setError(response.result_code);
+      const parsed = InventoryStockGetResultSchema.safeParse(response.result);
+      if (revision !== stockRevision.current) {
+        setError("La existencia cambió durante la consulta. Vuelve a consultar.");
         return;
       }
-      // `NOT_FOUND` y cero no se colapsan: el contrato los separa y la pantalla
-      // también. «No lo manejamos» no es «hay que reponer».
-      setStock(response.result);
+      if (!parsed.success || parsed.data.outcome !== response.result_code) {
+        setError(response.result_code === "FOUND" ? "INVENTORY_STOCK_RESPONSE_INVALID" : response.result_code);
+        return;
+      }
+      if (parsed.data.outcome === "FOUND" && (response.status !== "SUCCEEDED" ||
+          parsed.data.presentation_id !== target.data || parsed.data.quantity_on_hand === null)) {
+        setError("INVENTORY_STOCK_RESPONSE_INVALID");
+        return;
+      }
+      setStock({ presentationId: target.data, result: parsed.data });
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
       inFlight.current = false;
+      setCheckingStock(false);
       setBusy(false);
     }
   }, []);
 
-  return { busy, pending, movement, stock, error, receive, adjust, getStock, retryPending };
+  return { busy, pending, movement, stock, checkingStock, error, receive, adjust, getStock, retryPending };
 }

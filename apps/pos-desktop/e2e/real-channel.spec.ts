@@ -524,7 +524,7 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
 
   // --- Existencia antes de recibir: no es cero, es «sin movimientos» --------
   await page.getByRole("button", { name: "Inventario", exact: true }).click();
-  await page.getByTestId("inventory-presentation-input").fill(presentationId!);
+  await page.getByTestId("inventory-presentation-input").fill(presentationId!.toUpperCase());
   await page.getByTestId("get-stock-button").click();
   await expect(page.getByTestId("stock-not-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("stock-found").count()).toBe(0);
@@ -536,6 +536,7 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   await expect(page.getByTestId("inventory-movement")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("movement-outcome").textContent()).toBe("POSTED");
   expect(await page.getByTestId("movement-quantity-after").textContent()).toBe("40.000000");
+  await expect(page.getByTestId("stock-not-found")).toHaveCount(0);
 
   // --- Ajuste por merma ----------------------------------------------------
   await page.getByTestId("adjust-quantity-input").fill("3");
@@ -548,6 +549,10 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
   await page.getByTestId("get-stock-button").click();
   await expect(page.getByTestId("stock-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("stock-quantity").textContent()).toBe("37.000000");
+  await page.screenshot({ path: test.info().outputPath("inventario-existencia-local.png"), fullPage: true });
+  await page.getByTestId("inventory-presentation-input").fill(randomUUID());
+  await expect(page.getByTestId("stock-found")).toHaveCount(0);
+  await expect(page.getByTestId("inventory-movement")).toHaveCount(0);
 
   // --- Adquiriente: no esta, se registra, y entonces si esta ---------------
   const identification = `10${String(Date.now()).slice(-8)}`;
