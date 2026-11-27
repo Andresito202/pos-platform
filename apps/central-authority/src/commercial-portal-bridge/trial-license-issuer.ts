@@ -111,7 +111,6 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
     tenantId: string;
     planId: string;
     payloadHash: string;
-    recoveringQueued?: boolean;
   }): Promise<{ licenseIds: string[] }> {
     return this.tx(async (c) => {
       await c.query("SELECT set_config('app.tenant_id',$1,true)", [input.tenantId]);
@@ -121,7 +120,7 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
         [input.planId],
       );
       if (plan.rowCount !== 1) throw Object.assign(new Error("PROVISION_PLAN_REQUIRED"), { status: 400 });
-      if (input.recoveringQueued && plan.rows[0]!.billing_model !== "PERPETUAL") {
+      if (plan.rows[0]!.billing_model !== "PERPETUAL") {
         throw Object.assign(new Error("PROVISION_SUBSCRIPTION_TERM_REQUIRED"), { status: 409 });
       }
       const tenant = await c.query(

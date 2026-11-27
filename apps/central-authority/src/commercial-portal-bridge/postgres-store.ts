@@ -175,25 +175,25 @@ export class PostgresCommercialPortalBridgeStore implements CommercialPortalBrid
     await this.putTrial(trial);
   }
 
-  async putProvisioning(row: ProvisioningRecord): Promise<void> {
-    await this.withClient(async (c) => {
-      await c.query(
-        `INSERT INTO licensing.commercial_provisioning_receipts
-          (idempotency_key, provisioning_id, order_id, tenant_id, license_units, payload_hash, payload, license_ids, fulfillment)
-         VALUES ($1,$2,$3,$4::uuid,$5,$6,$7::jsonb,$8::uuid[],$9)
-         ON CONFLICT (idempotency_key) DO NOTHING`,
-        [
-          row.idempotencyKey,
-          row.provisioningId,
-          row.orderId,
-          row.tenantId ?? null,
-          row.licenseUnits,
-          row.payloadHash,
-          JSON.stringify(row.payload),
-          row.licenseIds ?? [],
-          row.fulfillment ?? "QUEUED",
-        ],
+  async reserveProvisioning(row: ProvisioningRecord): Promise<boolean> {
+    return this.withClient(async c => {
+      // One statement commits the nonce and receipt together. A foreign-key
+      // failure rolls both back, so the same request can retry.
+      const result = await c.query(
+        `WITH claimed AS (
+            INSERT INTO identity.commercial_bridge_jtis (purpose,jti,used_at,expires_at)
+            VALUES ('provision',$1,statement_timestamp(),statement_timestamp()+INTERVAL '30 days')
+            ON CONFLICT (purpose,jti) DO NOTHING
+            RETURNING jti
+          )
+          INSERT INTO licensing.commercial_provisioning_receipts
+            (idempotency_key,provisioning_id,order_id,tenant_id,license_units,payload_hash,payload,license_ids,fulfillment)
+          SELECT jti,$2,$3,$4::uuid,$5,$6,$7::jsonb,'{}'::uuid[],'QUEUED' FROM claimed
+          RETURNING idempotency_key`,
+        [row.idempotencyKey,row.provisioningId,row.orderId,row.tenantId ?? null,
+          row.licenseUnits,row.payloadHash,JSON.stringify(row.payload)],
       );
+      return result.rowCount === 1;
     });
   }
 
