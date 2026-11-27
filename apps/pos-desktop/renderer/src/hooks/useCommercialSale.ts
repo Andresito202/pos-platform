@@ -116,6 +116,7 @@ export interface CommercialSaleState {
   readonly transfer: RegisteredTransfer | null;
   /** Importe del comprobante consultado al actualizar una confirmación externa. */
   readonly transferReceiptAmount: string | null;
+  readonly transferCoverage: string | null;
   /** Resultado de confirmar la transferencia. Sólo aquí puede sonar el cha-ching. */
   readonly transferConfirmation: PaymentTransferConfirmResult | null;
   readonly factusPay: RegisteredFactusPay | null;
@@ -213,6 +214,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   const [closedShift, setClosedShift] = useState<CashShiftCloseResult | null>(null);
   const [transfer, setTransfer] = useState<RegisteredTransfer | null>(null);
   const [transferReceiptAmount, setTransferReceiptAmount] = useState<string | null>(null);
+  const [transferCoverage, setTransferCoverage] = useState<string | null>(null);
   const [transferConfirmation, setTransferConfirmation] =
     useState<PaymentTransferConfirmResult | null>(null);
   const [factusPay, setFactusPay] = useState<RegisteredFactusPay | null>(null);
@@ -255,7 +257,6 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
   ): Promise<void> => {
     if (busyRef.current || pendingChange.current) return;
     const envelope = buildEnvelope(messageType, payload, newIdempotencyKey());
-    let uncertain = false;
     const attempt = async (): Promise<void> => {
       if (busyRef.current) return;
       busyRef.current = true;
@@ -265,15 +266,12 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         const response = await callCommercialEnvelope<T>(envelope);
         if (response.status !== "SUCCEEDED" || response.result === null) {
           setError(response.result_code);
-          if (response.status !== "REJECTED" || response.result === null) uncertain = true;
-          if (uncertain) return;
+          if (response.status !== "REJECTED" || response.result === null) return;
         } else if (await onSuccess(response.result) === false) {
-          uncertain = true;
           return;
         }
         pendingChange.current = null;
       } catch (thrown) {
-        uncertain = true;
         setError(thrown instanceof Error ? thrown.message : String(thrown));
       } finally {
         setUnresolved(pendingChange.current !== null);
@@ -504,6 +502,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         setTransfer(null);
         setTransferConfirmation(null);
         setTransferReceiptAmount(null);
+        setTransferCoverage(null);
         setFactusPay(null);
         setFactusPayConfirmation(null);
         setError(null);
@@ -595,7 +594,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     providerReference: string | null,
   ): Promise<void> => {
     const current = sale;
-    if (current === null || busyRef.current || pendingChange.current) return;
+    if (current === null || busyRef.current || pendingChange.current || transfer?.status === "CREATED") return;
     const reportedAmount = amount ?? current.payableAmount;
     if ((parseCopMicros(reportedAmount) ?? 0n) <= 0n) {
       setError("INVALID_TRANSFER_AMOUNT");
@@ -613,7 +612,9 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         setError(registered.outcome);
         return false;
       }
-      const response = await callCommercial<PaymentGetResult>("payment.get", { payment_id: registered.payment_id });
+      const response = await callCommercial<PaymentGetResult>("payment.get", {
+        payment_id: registered.payment_id, include_sale_coverage: true,
+      });
       const result = response.result;
       if (response.status !== "SUCCEEDED" || result === null) {
         setError(response.result_code);
@@ -625,6 +626,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         setError("PAYMENT_TRANSFER_MISMATCH");
         return false;
       }
+      if (result.sale_confirmed_coverage != null) setTransferCoverage(result.sale_confirmed_coverage);
       setTransfer({
         paymentId: result.payment_id,
         version: result.version,
@@ -632,7 +634,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
         expectedAmount: result.expected_amount,
       });
     });
-  }, [sale, runChange]);
+  }, [sale, transfer?.status, runChange]);
 
   const refreshTransfer = useCallback(async (): Promise<void> => {
     if (sale === null || transfer === null) return;
@@ -640,7 +642,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     const { paymentId } = transfer;
     let confirmed = false;
     await run<PaymentGetResult>(
-      () => callCommercial("payment.get", { payment_id: paymentId }),
+      () => callCommercial("payment.get", { payment_id: paymentId, include_sale_coverage: true }),
       result => {
         if (result.outcome !== "FOUND" || result.sale_id !== saleId || result.payment_id !== paymentId ||
             result.method !== "TRANSFER" || result.status === null || result.version === null ||
@@ -648,6 +650,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
           setError(result.outcome === "FOUND" ? "PAYMENT_TRANSFER_MISMATCH" : result.outcome);
           return;
         }
+        if (result.sale_confirmed_coverage != null) setTransferCoverage(result.sale_confirmed_coverage);
         setTransfer({ paymentId, status: result.status, version: result.version, expectedAmount: result.expected_amount });
         confirmed = result.status === "CONFIRMED";
       },
@@ -718,7 +721,10 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
       },
       (result) => {
         setTransferConfirmation(result);
-        if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") setTransfer({ ...current, status: "CONFIRMED" });
+        if (result.outcome === "CONFIRMED" || result.outcome === "IDEMPOTENT") {
+          if (result.confirmed_coverage !== null) setTransferCoverage(result.confirmed_coverage);
+          setTransfer({ ...current, status: "CONFIRMED" });
+        }
         if (shouldPlayChime(result)) playConfirmationChime();
         if (result.sale_completed === true) void listCatalogItems(catalogQuery.current);
       },
@@ -899,6 +905,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
     setTransfer(null);
     setTransferConfirmation(null);
     setTransferReceiptAmount(null);
+    setTransferCoverage(null);
     setFactusPay(null);
     setFactusPayConfirmation(null);
     setError(null);
@@ -907,7 +914,7 @@ export function useCommercialSale({ canReadCatalog = false }: { canReadCatalog?:
 
   return {
     busy, error, shift, foundItem, lines, sale, payment, closedShift,
-    transfer, transferConfirmation, transferReceiptAmount, factusPay, factusPayConfirmation,
+    transfer, transferConfirmation, transferReceiptAmount, transferCoverage, factusPay, factusPayConfirmation,
     openShift, findItem, addFoundItem, captureWeight, createSale, cancelSale, chargeCash,
     registerTransfer, refreshTransfer, confirmTransfer, collectFactusPay, verifyFactusPay, resumeFactusPay,
     closeShift, reset, unresolved, retryPending, loadTransfer, cancelTransfer,

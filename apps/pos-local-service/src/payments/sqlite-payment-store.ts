@@ -132,6 +132,7 @@ export interface PaymentView {
   readonly status: string;
   readonly expectedAmount: string;
   readonly confirmedAmount: string;
+  readonly saleConfirmedCoverage: string | null;
   readonly currencyCode: string;
   readonly version: number;
   readonly providerCode: string | null;
@@ -292,39 +293,44 @@ export class SqlitePaymentStore {
   // ── Lecturas ────────────────────────────────────────────────────────────────
 
   get(scope: SyncScope, paymentId: string): GetPaymentOutcome {
-    const row = this.database.native.prepare(
-      `SELECT p.id, p.payment_method, p.status, p.expected_amount, p.confirmed_amount,
-              p.currency_code, p.version, p.provider_code, p.provider_reference,
-              g.collection_subject_id
-       FROM payments_payments p
-       JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
-        AND g.company_id = p.company_id AND g.branch_id = p.branch_id
-       WHERE p.tenant_id=? AND p.company_id=? AND p.branch_id=? AND p.id=?`,
-    ).get(scope.tenantId, scope.companyId, scope.branchId, paymentId) as
-      | {
-          id: string; payment_method: string; status: string; expected_amount: string;
-          confirmed_amount: string; currency_code: string; version: number;
-          provider_code: string | null; provider_reference: string | null;
-          collection_subject_id: string;
-        }
-      | undefined;
+    return this.database.native.transaction((): GetPaymentOutcome => {
+      const row = this.database.native.prepare(
+        `SELECT p.id, p.payment_method, p.status, p.expected_amount, p.confirmed_amount,
+                p.currency_code, p.version, p.provider_code, p.provider_reference,
+                g.collection_subject_id, g.collection_subject_type
+         FROM payments_payments p
+         JOIN payments_payment_groups g ON g.tenant_id = p.tenant_id AND g.id = p.payment_group_id
+          AND g.company_id = p.company_id AND g.branch_id = p.branch_id
+         WHERE p.tenant_id=? AND p.company_id=? AND p.branch_id=? AND p.id=?`,
+      ).get(scope.tenantId, scope.companyId, scope.branchId, paymentId) as
+        | {
+            id: string; payment_method: string; status: string; expected_amount: string;
+            confirmed_amount: string; currency_code: string; version: number;
+            provider_code: string | null; provider_reference: string | null;
+            collection_subject_id: string; collection_subject_type: string;
+          }
+        | undefined;
 
-    if (row === undefined) return { kind: "NOT_FOUND" };
-    return {
-      kind: "FOUND",
-      payment: {
-        paymentId: row.id,
-        saleId: row.collection_subject_id,
-        method: row.payment_method,
-        status: row.status,
-        expectedAmount: row.expected_amount,
-        confirmedAmount: row.confirmed_amount,
-        currencyCode: row.currency_code,
-        version: row.version,
-        providerCode: row.provider_code,
-        providerReference: row.provider_reference,
-      },
-    };
+      if (row === undefined) return { kind: "NOT_FOUND" };
+      return {
+        kind: "FOUND",
+        payment: {
+          paymentId: row.id,
+          saleId: row.collection_subject_id,
+          method: row.payment_method,
+          status: row.status,
+          expectedAmount: row.expected_amount,
+          confirmedAmount: row.confirmed_amount,
+          saleConfirmedCoverage: row.collection_subject_type === "SALE"
+            ? bigIntToScale6(this.confirmedCoverage(scope.tenantId, row.collection_subject_id))
+            : null,
+          currencyCode: row.currency_code,
+          version: row.version,
+          providerCode: row.provider_code,
+          providerReference: row.provider_reference,
+        },
+      };
+    })();
   }
 
   /**

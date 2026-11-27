@@ -1210,6 +1210,14 @@ describe("Block 2 — mixed tender, transfer overpay, pending restart", () => {
     expect(registered.kind).toBe("REGISTERED");
     if (registered.kind !== "REGISTERED") return;
 
+    const read = env.get.execute(SCOPE, auth(), { paymentId: registered.paymentId });
+    expect(read).toMatchObject({
+      kind: "FOUND", payment: { status: "CREATED", saleConfirmedCoverage: "4000.000000" },
+    });
+    expect(env.get.execute({ ...SCOPE, branchId: randomUUID() }, auth(), {
+      paymentId: registered.paymentId,
+    }).kind).not.toBe("FOUND");
+
     const confirmed = env.confirmTransfer.execute(SCOPE, SESSION, auth(), {
       paymentId: registered.paymentId, expectedVersion: 1,
       idempotencyKey: "mix:xfer:confirm", correlationId: randomUUID(), causationId: null,
@@ -1218,6 +1226,9 @@ describe("Block 2 — mixed tender, transfer overpay, pending restart", () => {
     if (confirmed.kind !== "CONFIRMED") return;
     expect(confirmed.saleCompleted).toBe(true);
     expect(saleStatus(env.database, saleId).status).toBe("COMPLETED");
+    expect(env.get.execute(SCOPE, auth(), { paymentId: registered.paymentId })).toMatchObject({
+      kind: "FOUND", payment: { status: "CONFIRMED", saleConfirmedCoverage: "10000.000000" },
+    });
   });
 
   it("confirming a transfer that would overpay is rejected without completing the sale", async () => {

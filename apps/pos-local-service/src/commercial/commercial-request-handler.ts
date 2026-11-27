@@ -651,6 +651,9 @@ export class CommercialRequestHandler {
         status: result.payment.status,
         expected_amount: result.payment.expectedAmount,
         confirmed_amount: result.payment.confirmedAmount,
+        ...(request.payload.include_sale_coverage
+          ? { sale_confirmed_coverage: result.payment.saleConfirmedCoverage }
+          : {}),
         currency_code: result.payment.currencyCode,
         version: result.payment.version,
       });

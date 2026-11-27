@@ -423,13 +423,13 @@ test("un cajero vende de verdad: Electron real → canal real → servicio real"
 });
 
 /**
- * El cobro por transferencia, entero y por la cadena real.
+ * El cobro con dos transferencias por la cadena real.
  *
  * Reportar y atestiguar son dos actos con dos permisos distintos, y la pantalla
  * los mantiene separados: entre uno y otro la venta sigue sin cobrarse. Se
  * comprueba aqui contra el servicio real, no contra un doble.
  */
-test("un cajero cobra por transferencia: reportar, leer version y atestiguar", async () => {
+test("Caja cobra en dos transferencias con aprobación manual y saldo persistido", async () => {
   const page = await app.firstWindow();
 
   // Turno nuevo sobre la misma caja, que el cierre anterior libero.
@@ -448,28 +448,41 @@ test("un cajero cobra por transferencia: reportar, leer version y atestiguar", a
   await page.getByTestId("create-sale-button").click();
   await expect(page.getByTestId("sale-created")).toBeVisible({ timeout: 15_000 });
 
-  // 1 · Reportar la transferencia.
+  const payable = (await page.getByTestId("payable-amount").textContent())!.trim();
+  const [pesos, micros] = payable.split(".");
+  const remainder = `${BigInt(pesos!) - 1n}.${micros}`;
+  await page.getByLabel("Importe de la transferencia").fill("1");
+  await page.getByLabel("Canal de la transferencia").selectOption("NEQUI");
+  await page.getByLabel("Referencia del comprobante").fill(randomUUID());
   await page.getByTestId("register-transfer-button").click();
-  await expect(page.getByTestId("transfer-registered")).toBeVisible({ timeout: 15_000 });
-
-  // Reportar no es cobrar: queda pendiente y la venta no se declara cobrada.
   await expect(page.getByTestId("transfer-pending")).toBeVisible();
-  expect(await page.getByTestId("transfer-sale-completed").count()).toBe(0);
-  expect(await page.getByTestId("sale-completed").count()).toBe(0);
+  await expect(page.getByTestId("transfer-status")).toHaveText("CREATED");
+  await expect(page.getByTestId("transfer-expected-amount")).toHaveText("1.000000");
+  await expect(page.getByTestId("register-transfer-button")).toBeDisabled();
+  const first = await page.getByTestId("transfer-payment-id").textContent();
 
-  // El estado y el importe salen de `payment.get` contra el servicio real.
-  expect(await page.getByTestId("transfer-status").textContent()).not.toBe("CONFIRMED");
-  const payable = await page.getByTestId("payable-amount").textContent();
-  expect(await page.getByTestId("transfer-expected-amount").textContent()).toBe(payable);
-
-  // 2 · Atestiguar, que es el unico acto que puede completar la venta.
   await page.getByTestId("confirm-transfer-button").click();
-  await expect(page.getByTestId("transfer-sale-completed")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId("transfer-partial")).toBeVisible();
+  await page.getByRole("button", { name: "Actualizar estado de la transferencia" }).click();
+  await expect(page.getByTestId("payment-remaining")).toHaveText(remainder);
+  await expect(page.getByTestId("register-transfer-button")).toBeEnabled();
+  await page.screenshot({
+    path: test.info().outputPath("caja-transferencia-parcial.png"),
+    fullPage: true,
+  });
 
-  // La cobertura la emite el servicio; la pantalla la muestra.
-  expect(await page.getByTestId("transfer-confirmed-coverage").textContent()).toBe(payable);
-  expect(await page.getByTestId("transfer-partial").count()).toBe(0);
-  expect(await page.getByTestId("sale-error").count()).toBe(0);
+  await page.getByLabel("Canal de la transferencia").selectOption("BREB");
+  await page.getByLabel("Referencia del comprobante").fill(randomUUID());
+  await page.getByTestId("register-transfer-button").click();
+  await expect(page.getByTestId("transfer-pending")).toBeVisible();
+  await expect(page.getByTestId("transfer-payment-id")).not.toHaveText(first!);
+  await expect(page.getByTestId("transfer-expected-amount")).toHaveText(remainder);
+
+  await page.getByTestId("confirm-transfer-button").click();
+  await expect(page.getByTestId("transfer-sale-completed")).toBeVisible();
+  await expect(page.getByTestId("transfer-confirmed-coverage")).toHaveText(payable);
+  await expect(page.getByTestId("payment-remaining")).toHaveText("0.000000");
+  await expect(page.getByTestId("sale-error")).toHaveCount(0);
 });
 
 /**
