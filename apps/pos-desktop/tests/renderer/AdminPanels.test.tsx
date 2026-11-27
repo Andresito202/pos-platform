@@ -247,15 +247,16 @@ describe("InventoryPanel", () => {
   });
 
   it("descarta el saldo consultado al cambiar de presentación o registrar un movimiento local", async () => {
+    const mixedCaseId = "1E8EDA3E-A213-468C-8B76-D5BD1C3E6239";
     install({
       status: "SUCCEEDED", result_code: "FOUND",
       result: {
-        outcome: "FOUND", presentation_id: PRESENTATION,
+        outcome: "FOUND", presentation_id: mixedCaseId.toLowerCase(),
         quantity_on_hand: "5.000000", last_movement_sequence: 2,
       },
     });
     render(<InventoryPanel permissions={new Set(CANONICAL_PERMISSION_CODES)} />);
-    targetPresentation();
+    fireEvent.change(screen.getByTestId("inventory-presentation-input"), { target: { value: mixedCaseId } });
     fireEvent.click(screen.getByTestId("get-stock-button"));
     expect((await screen.findByTestId("stock-quantity")).textContent).toBe("5.000000");
 
@@ -263,10 +264,11 @@ describe("InventoryPanel", () => {
       target: { value: "44444444-4444-4444-8444-444444444444" },
     });
     expect(screen.queryByTestId("stock-found")).toBeNull();
-    targetPresentation();
+    fireEvent.change(screen.getByTestId("inventory-presentation-input"), { target: { value: mixedCaseId } });
     act(() => notifyCatalogInventoryChanged());
     expect(screen.queryByTestId("stock-found")).toBeNull();
     expect(calls.get("inventory.stock.get")).toHaveLength(1);
+    expect(sent("inventory.stock.get")["payload"]).toEqual({ presentation_id: mixedCaseId.toLowerCase() });
   });
 
   it("rechaza una cantidad fuera de escala 6 sin tocar el canal", async () => {

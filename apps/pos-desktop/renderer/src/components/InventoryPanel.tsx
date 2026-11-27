@@ -69,7 +69,7 @@ export function InventoryPanel({ permissions, entitlements = new Set(), initialP
   const [adjustReason, setAdjustReason] = useState("COUNT_CORRECTION");
   const [businessDate, setBusinessDate] = useState(today());
 
-  const target = presentationId.trim();
+  const target = presentationId.trim().toLowerCase();
   const movement = inventory.movement?.presentationId === target ? inventory.movement.result : null;
   const canReadStock = permissions.has(CanonicalPermission.INVENTORY_STOCK_READ);
   const stock = canReadStock && !inventory.pending && !batchPending && inventory.stock?.presentationId === target

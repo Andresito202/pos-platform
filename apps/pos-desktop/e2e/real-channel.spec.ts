@@ -524,7 +524,7 @@ test("una tienda se monta desde la pantalla: alta, existencia y adquiriente", as
 
   // --- Existencia antes de recibir: no es cero, es «sin movimientos» --------
   await page.getByRole("button", { name: "Inventario", exact: true }).click();
-  await page.getByTestId("inventory-presentation-input").fill(presentationId!);
+  await page.getByTestId("inventory-presentation-input").fill(presentationId!.toUpperCase());
   await page.getByTestId("get-stock-button").click();
   await expect(page.getByTestId("stock-not-found")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("stock-found").count()).toBe(0);

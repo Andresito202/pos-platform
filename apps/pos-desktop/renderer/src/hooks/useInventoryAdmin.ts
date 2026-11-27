@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { InventoryMovementResultSchema, InventoryStockGetResultSchema } from "@pos-platform/contracts";
+import { InventoryMovementResultSchema, InventoryStockGetResultSchema, UuidSchema } from "@pos-platform/contracts";
 import type {
   InventoryMovementResult,
   InventoryStockGetResult,
@@ -136,6 +136,12 @@ export function useInventoryAdmin(): InventoryAdminState & {
 
   const getStock = useCallback(async (presentationId: string): Promise<void> => {
     if (inFlight.current || pendingOperation.current) return;
+    const target = UuidSchema.safeParse(presentationId);
+    if (!target.success) {
+      setStock(null);
+      setError("INVENTORY_PRESENTATION_INVALID");
+      return;
+    }
     const revision = stockRevision.current;
     inFlight.current = true;
     setBusy(true);
@@ -144,7 +150,7 @@ export function useInventoryAdmin(): InventoryAdminState & {
     setStock(null);
     try {
       const response = await callCommercial<InventoryStockGetResult>(
-        "inventory.stock.get", { presentation_id: presentationId },
+        "inventory.stock.get", { presentation_id: target.data },
       );
       const parsed = InventoryStockGetResultSchema.safeParse(response.result);
       if (revision !== stockRevision.current) {
@@ -156,11 +162,11 @@ export function useInventoryAdmin(): InventoryAdminState & {
         return;
       }
       if (parsed.data.outcome === "FOUND" && (response.status !== "SUCCEEDED" ||
-          parsed.data.presentation_id !== presentationId || parsed.data.quantity_on_hand === null)) {
+          parsed.data.presentation_id !== target.data || parsed.data.quantity_on_hand === null)) {
         setError("INVENTORY_STOCK_RESPONSE_INVALID");
         return;
       }
-      setStock({ presentationId, result: parsed.data });
+      setStock({ presentationId: target.data, result: parsed.data });
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown));
     } finally {
