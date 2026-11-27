@@ -34,25 +34,27 @@ export class SqliteAdminMetricsStore {
          FROM sales_sales
          WHERE tenant_id=? AND company_id=? AND branch_id=?
            AND installation_id=? AND status='COMPLETED'`,
-      ).all(
+      ).iterate(
         scope.tenantId, scope.companyId, scope.branchId, scope.installationId,
-      ) as Array<{ fiscal_total_amount: string }>
+      ) as IterableIterator<{ fiscal_total_amount: string }>
       : this.database.native.prepare(
         `SELECT fiscal_total_amount
          FROM sales_sales
          WHERE tenant_id=? AND company_id=? AND branch_id=?
            AND installation_id=? AND status='COMPLETED'
            AND business_date=?`,
-      ).all(
+      ).iterate(
         scope.tenantId, scope.companyId, scope.branchId, scope.installationId,
         options.businessDate,
-      ) as Array<{ fiscal_total_amount: string }>;
+      ) as IterableIterator<{ fiscal_total_amount: string }>;
 
-    const amountUnits = rows.reduce(
-      (sum, row) => sum + scale6ToBigInt(row.fiscal_total_amount),
-      0n,
-    );
-    return { count: rows.length, amount: bigIntToScale6(amountUnits) };
+    let count = 0;
+    let amountUnits = 0n;
+    for (const row of rows) {
+      count += 1;
+      amountUnits += scale6ToBigInt(row.fiscal_total_amount);
+    }
+    return { count, amount: bigIntToScale6(amountUnits) };
   }
 
   readInventory(scope: SyncScope): number {
@@ -87,18 +89,20 @@ export class SqliteAdminMetricsStore {
        FROM payments_payments
        WHERE tenant_id=? AND company_id=? AND branch_id=?
          AND installation_id=? AND status='CONFIRMED'`,
-    ).all(
+    ).iterate(
       scope.tenantId, scope.companyId, scope.branchId, scope.installationId,
-    ) as Array<{
+    ) as IterableIterator<{
       payment_method: string;
       confirmed_amount: string;
     }>;
 
+    let confirmedCount = 0;
     let total = 0n;
     let cash = 0n;
     let transfer = 0n;
     let qr = 0n;
     for (const row of confirmed) {
+      confirmedCount += 1;
       const amount = scale6ToBigInt(row.confirmed_amount);
       total += amount;
       if (row.payment_method === "CASH") cash += amount;
@@ -118,7 +122,7 @@ export class SqliteAdminMetricsStore {
     ) as { count: number };
 
     return {
-      confirmed_count: confirmed.length,
+      confirmed_count: confirmedCount,
       confirmed_amount: bigIntToScale6(total),
       confirmed_cash_amount: bigIntToScale6(cash),
       confirmed_transfer_amount: bigIntToScale6(transfer),

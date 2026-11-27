@@ -13,6 +13,7 @@ import { InstitutionalWebsiteLink } from "./components/InstitutionalWebsiteLink.
 import { AdministrativeControlPanel } from "./components/AdministrativeControlPanel.js";
 import { TransferReviewPanel } from "./components/TransferReviewPanel.js";
 import { SalePanel } from "./components/SalePanel.js";
+import { ReportExportPanel } from "./components/ReportExportPanel.js";
 import { ReceiptPanel } from "./components/ReceiptPanel.js";
 import { HardwarePanel } from "./components/HardwarePanel.js";
 import { CatalogPanel } from "./components/CatalogPanel.js";
@@ -156,6 +157,12 @@ function LocalApp(): React.JSX.Element {
         label: "Clientes",
         render: () => <CustomerPanel permissions={permissions} />,
       });
+    }
+
+    if (hasAny(permissions, [
+      "REPORTING_SALES_AGGREGATE_READ", "REPORTING_CASH_AGGREGATE_READ", "REPORTING_PAYMENTS_AGGREGATE_READ",
+    ])) {
+      result.push({ id: "reports", label: "Reportes", render: () => <ReportExportPanel /> });
     }
 
     if (permissions.has("SALES_RECEIPT_READ")) {

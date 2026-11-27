@@ -2,11 +2,12 @@ import { test, expect } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readSheetMatrixFromXlsx } from "../renderer/src/sheet-workbook.js";
 
 /**
  * El POS de escritorio **real** contra el Camacho POS Colombia Service **real**.
@@ -718,4 +719,32 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await page.getByTestId("fiscal-list-button").click();
   await expect(page.getByTestId("fiscal-document-history")).toContainText("no tiene documentos fiscales guardados");
   await page.screenshot({ path: test.info().outputPath("fiscal-consulta-local.png"), fullPage: true });
+});
+
+
+test("Reportes consulta los agregados reales y exporta sin exponer métricas de otros permisos", async () => {
+  const page = await app.firstWindow();
+  await page.getByRole("button", { name: "Reportes", exact: true }).click();
+  const panel = page.getByTestId("report-export-panel");
+  const summary = panel.getByRole("table", { name: "Indicadores disponibles" });
+  await expect(summary).toBeVisible();
+  await expect(summary.getByRole("row", { name: /Ventas completadas Acumulado [1-9]/ })).toBeVisible();
+  await expect(summary.getByRole("row", { name: /Recaudo confirmado/ })).toHaveCount(0);
+  async function exportTo(button: string, path: string) {
+    await app.evaluate(({ BrowserWindow }, destination) => {
+      const session = BrowserWindow.getAllWindows()[0]!.webContents.session;
+      session.once("will-download", (_event, item) => item.setSavePath(destination));
+    }, path);
+    await panel.getByRole("button", { name: button }).click();
+    await expect(panel.getByText("Descarga solicitada.")).toBeVisible();
+    await expect.poll(() => existsSync(path) && readFileSync(path).byteLength > 0).toBe(true);
+  }
+
+  const csvPath = test.info().outputPath("resumen-local.csv");
+  await exportTo("Descargar CSV", csvPath);
+  expect(readFileSync(csvPath, "utf8")).toMatch(/Ventas completadas;Acumulado;Cantidad;[1-9]/);
+  const xlsxPath = test.info().outputPath("resumen-local.xlsx");
+  await exportTo("Descargar Excel", xlsxPath);
+  expect(JSON.stringify(readSheetMatrixFromXlsx(readFileSync(xlsxPath)))).toContain("Importe vendido");
+  await page.screenshot({ path: test.info().outputPath("reportes-exportacion-local.png"), fullPage: true });
 });

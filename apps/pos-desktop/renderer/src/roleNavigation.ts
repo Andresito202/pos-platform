@@ -15,6 +15,7 @@ export const ROLE_SCREEN_ORDER: Readonly<Record<LocalOperatorRole, readonly stri
   SUPERVISOR: ["inventory", "payment-review", "catalog", "customers", "receipts", "fiscal"],
   ADMINISTRADOR: [
     "dashboard",
+    "reports",
     "admin-audit",
     "payment-review",
     "catalog",
