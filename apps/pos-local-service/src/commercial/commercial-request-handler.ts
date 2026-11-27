@@ -28,7 +28,7 @@ type CommercialRequest = Extract<
       | "payment.register.cash" | "payment.register.transfer"
       | "payment.transfer.confirm" | "payment.factus_pay.collect" | "payment.factus_pay.verify" | "payment.factus_pay.resume" | "payment.cancel" | "payment.get"
       | "customer.register" | "customer.get" | "customer.find"
-      | "fiscal.document.issue" | "fiscal.numbering.sync"
+      | "fiscal.document.issue" | "fiscal.document.list" | "fiscal.numbering.sync"
       | "catalog.product.register" | "catalog.product.update" | "catalog.price.publish"
       | "catalog.media.put" | "catalog.media.clear" | "catalog.media.get"
       | "catalog.item.find" | "catalog.item.get" | "catalog.item.list" | "admin.metrics.get"
@@ -255,6 +255,7 @@ export class CommercialRequestHandler {
       case "customer.get":
       case "customer.find": return this.readCustomer(request, connectionId);
       case "fiscal.document.issue": return this.issueDocument(request, connectionId, signal);
+      case "fiscal.document.list": return this.listFiscalDocuments(request, connectionId);
       case "fiscal.numbering.sync": return this.syncNumberingRanges(request, connectionId, signal);
       case "catalog.product.register": return this.registerProduct(request, connectionId);
       case "catalog.product.update": return this.updateProduct(request, connectionId);
@@ -915,6 +916,30 @@ export class CommercialRequestHandler {
     // son desenlaces reales del protocolo de resultado incierto (`DEC-021`
     // §2.1) que el operador necesita ver, no un socket cerrado en silencio.
     return rejected(request, result.kind, { outcome: result.kind, ...documentFields });
+  }
+
+  private listFiscalDocuments(
+    request: Extract<CommercialRequest, { message_type: "fiscal.document.list" }>,
+    connectionId: string,
+  ): unknown {
+    const saleId = request.payload.sale_id;
+    const empty = { sale_id: saleId, documents: [], has_more: false };
+    const authenticated = this.authenticate(connectionId);
+    if ("rejection" in authenticated) {
+      return rejected(request, authenticated.rejection, { outcome: "UNAUTHORIZED", ...empty });
+    }
+    const scope = this.scope();
+    const access = evaluatePermission({
+      actor: createActor("USER", authenticated.identity.userId),
+      permission: CanonicalPermission.FISCAL_DOCUMENT_ISSUE,
+      scope: createOperationScope(scope.tenantId, scope.companyId, scope.branchId),
+      at: new Date(),
+      assignments: toRoleAssignments(authenticated.snapshot.claims),
+    });
+    if (!access.allowed) return rejected(request, "UNAUTHORIZED", { outcome: "UNAUTHORIZED", ...empty });
+    const history = this.commercial.fiscalDocumentStore.listForSale(scope, saleId);
+    if (history.documents.length === 0) return rejected(request, "NOT_FOUND", { outcome: "NOT_FOUND", ...empty });
+    return succeeded(request, "FOUND", { outcome: "FOUND", sale_id: saleId, ...history });
   }
 
   private async syncNumberingRanges(

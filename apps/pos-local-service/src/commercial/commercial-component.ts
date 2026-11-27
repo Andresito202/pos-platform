@@ -188,6 +188,7 @@ export class CommercialComponent implements RuntimeComponent {
          */
         readonly issueElectronicDocument: IssueElectronicDocumentUseCase | null;
         readonly fiscalSaleSource: SqliteFiscalSaleSource;
+        readonly fiscalDocumentStore: SqliteFiscalDocumentStore;
         readonly synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null;
         readonly fiscalCredentialReference: CredentialReference | null;
       }
@@ -310,6 +311,7 @@ export class CommercialComponent implements RuntimeComponent {
   get getAdminMetrics(): GetAdminMetricsUseCase { return this.ready.getAdminMetrics; }
   get waitingCarts(): SqliteWaitingCartStore { return this.ready.waitingCarts; }
   get getReceipt(): GetReceiptUseCase { return this.ready.getReceipt; }
+  get fiscalDocumentStore(): SqliteFiscalDocumentStore { return this.ready.fiscalDocumentStore; }
   get issueElectronicDocument(): IssueElectronicDocumentUseCase | null { return this.ready.issueElectronicDocument; }
   get fiscalSaleSource(): SqliteFiscalSaleSource { return this.ready.fiscalSaleSource; }
   get synchronizeNumberingRanges(): SynchronizeNumberingRangesUseCase | null { return this.ready.synchronizeNumberingRanges; }
@@ -347,6 +349,7 @@ export class CommercialComponent implements RuntimeComponent {
     // (F2 es una operación de operador, separada de este arranque), tampoco:
     // el criterio es el mismo, «no está lista», no un fallo de arranque.
     const fiscalSaleSource = new SqliteFiscalSaleSource(database);
+    const fiscalDocumentStore = new SqliteFiscalDocumentStore(database, this.now);
     let issueElectronicDocument: IssueElectronicDocumentUseCase | null = null;
     let synchronizeNumberingRanges: SynchronizeNumberingRangesUseCase | null = null;
     let fiscalCredentialReference: CredentialReference | null = null;
@@ -364,14 +367,14 @@ export class CommercialComponent implements RuntimeComponent {
         issueElectronicDocument = new IssueElectronicDocumentUseCase(
           fiscalSaleSource,
           catalogStore,
-          new SqliteFiscalDocumentStore(database, this.now),
+          fiscalDocumentStore,
           issuancePort,
           credential,
           this.now,
         );
         fiscalCredentialReference = credential;
         if ("synchronizeRanges" in issuancePort) {
-          synchronizeNumberingRanges = new SynchronizeNumberingRangesUseCase(issuancePort as NumberingRangePort,new SqliteFiscalDocumentStore(database,this.now),this.now);
+          synchronizeNumberingRanges = new SynchronizeNumberingRangesUseCase(issuancePort as NumberingRangePort,fiscalDocumentStore,this.now);
         }
       }
     }
@@ -392,6 +395,7 @@ export class CommercialComponent implements RuntimeComponent {
     this.state = {
       issueElectronicDocument,
       fiscalSaleSource,
+      fiscalDocumentStore,
       synchronizeNumberingRanges,
       fiscalCredentialReference,
       sessionStore,

@@ -713,4 +713,7 @@ test("la emisión fiscal se dispara desde la pantalla y dice la verdad sobre por
   await expect(page.getByTestId("fiscal-retriable")).toBeVisible({ timeout: 15_000 });
   expect(await page.getByTestId("fiscal-retriable-outcome").textContent()).toBe("NOT_ELIGIBLE");
   expect(await page.getByTestId("fiscal-blocked").count()).toBe(0);
+  await page.getByTestId("fiscal-list-button").click();
+  await expect(page.getByTestId("fiscal-document-history")).toContainText("no tiene documentos fiscales guardados");
+  await page.screenshot({ path: test.info().outputPath("fiscal-consulta-local.png"), fullPage: true });
 });

@@ -1,6 +1,9 @@
 import { useCallback, useRef, useState } from "react";
 import {
   FiscalDocumentIssueResultSchema,
+  FiscalDocumentListResultSchema,
+  UuidSchema,
+  type FiscalDocumentListResult,
   FiscalNumberingSyncResultSchema,
   type FiscalDocumentIssueResult,
   type FiscalNumberingSyncResult,
@@ -36,6 +39,9 @@ export interface FiscalIssuanceState {
   readonly resultSaleId: string | null;
   isBlocked(saleId: string, documentType: string): boolean;
   readonly issued: FiscalDocumentIssueResult | null;
+  readonly history: FiscalDocumentListResult | null;
+  readonly historyError: string | null;
+  readonly historyLoading: boolean;
   readonly numberingSync: FiscalNumberingSyncResult | null;
   readonly error: string | null;
 }
@@ -43,6 +49,7 @@ export interface FiscalIssuanceState {
 export function useFiscalIssuance(): FiscalIssuanceState & {
   issue(saleId: string, documentType: string, customer: FiscalCustomerChoice): Promise<void>;
   syncNumbering(): Promise<void>;
+  listDocuments(saleId: string): Promise<void>;
 } {
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
@@ -50,6 +57,9 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
   const [resultSaleId, setResultSaleId] = useState<string | null>(null);
   const isBlocked = useCallback((saleId: string, documentType: string) => blocked.current.has(JSON.stringify([saleId, documentType])), []);
   const [issued, setIssued] = useState<FiscalDocumentIssueResult | null>(null);
+  const [history, setHistory] = useState<FiscalDocumentListResult | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [numberingSync, setNumberingSync] = useState<FiscalNumberingSyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,6 +79,8 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
     setBusy(true);
     setError(null);
     setIssued(null);
+    setHistory(null);
+    setHistoryError(null);
     try {
       const response = await callCommercial<FiscalDocumentIssueResult>(
         "fiscal.document.issue",
@@ -105,6 +117,47 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
     }
   }, []);
 
+  const listDocuments = useCallback(async (saleId: string): Promise<void> => {
+    if (inFlight.current) return;
+    const sale = UuidSchema.safeParse(saleId);
+    setHistory(null);
+    if (!sale.success) {
+      setHistoryError("El identificador de la venta debe ser un UUID válido.");
+      return;
+    }
+    inFlight.current = true;
+    setBusy(true);
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const response = await callCommercial<FiscalDocumentListResult>("fiscal.document.list", { sale_id: sale.data });
+      const parsed = FiscalDocumentListResultSchema.safeParse(response.result);
+      if (!parsed.success || parsed.data.sale_id !== sale.data) {
+        setHistoryError("No se pudo verificar la consulta fiscal.");
+        return;
+      }
+      const result = parsed.data;
+      if (result.outcome === "UNAUTHORIZED") {
+        setHistoryError("No tienes acceso a la consulta fiscal en esta sesión.");
+        return;
+      }
+      const valid = result.outcome === "FOUND"
+        ? response.status === "SUCCEEDED" && result.documents.length > 0
+        : response.status === "REJECTED" && result.documents.length === 0 && !result.has_more;
+      if (!valid || response.result_code !== result.outcome) {
+        setHistoryError("No se pudo verificar la consulta fiscal.");
+        return;
+      }
+      setHistory(result);
+    } catch {
+      setHistoryError("No se pudo consultar el servicio fiscal local. Reintenta la consulta.");
+    } finally {
+      inFlight.current = false;
+      setHistoryLoading(false);
+      setBusy(false);
+    }
+  }, []);
+
   const syncNumbering = useCallback(async (): Promise<void> => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -134,5 +187,8 @@ export function useFiscalIssuance(): FiscalIssuanceState & {
     }
   }, []);
 
-  return { busy, resultSaleId, isBlocked, issued, numberingSync, error, issue, syncNumbering };
+  return {
+    busy, resultSaleId, isBlocked, issued, numberingSync, error, issue, syncNumbering,
+    history, historyError, historyLoading, listDocuments,
+  };
 }

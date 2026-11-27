@@ -1039,6 +1039,27 @@ export const FiscalDocumentIssueRequestSchema = createRequestEnvelopeSchema(
     requireIdempotentOperation(request, context);
   });
 
+export const FiscalDocumentListRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ sale_id: UuidSchema }),
+).safeExtend({ message_type: z.literal("fiscal.document.list") })
+  .superRefine(forbidCallerAssertedIdentity);
+
+export const FiscalDocumentListResultSchema = z.strictObject({
+  outcome: z.enum(["FOUND", "NOT_FOUND", "UNAUTHORIZED"]),
+  sale_id: UuidSchema,
+  has_more: z.boolean(),
+  documents: z.array(z.strictObject({
+    document_id: UuidSchema,
+    document_type: StableCodeSchema,
+    transport_status: z.enum(["CREATED", "IN_PROGRESS", "COMPLETED", "FAILED", "UNKNOWN_OUTCOME", "CANCELLED"]),
+    normalized_result: z.enum(["ACCEPTED", "REJECTED"]).nullable(),
+    issued_number: z.string().max(40).nullable(),
+    cufe: z.string().max(200).nullable(),
+  })).max(20),
+});
+export const FiscalDocumentListResponseSchema = createResponseEnvelopeSchema(FiscalDocumentListResultSchema);
+export type FiscalDocumentListResult = z.infer<typeof FiscalDocumentListResultSchema>;
+
 export const FiscalDocumentIssueOutcomeSchema = z.enum([
   "UNAUTHORIZED",
   "ALREADY_ISSUED",

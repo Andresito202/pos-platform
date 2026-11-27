@@ -251,6 +251,7 @@ export class LocalChannelComponent implements RuntimeComponent {
       case "customer.find":
       case "fiscal.numbering.sync":
       case "fiscal.document.issue":
+      case "fiscal.document.list":
       case "catalog.product.register":
       case "catalog.product.update":
       case "catalog.price.publish":

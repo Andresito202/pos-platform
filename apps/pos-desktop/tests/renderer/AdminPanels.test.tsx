@@ -6,6 +6,7 @@ import {
   CatalogProductRegisterRequestSchema,
   CustomerRegisterRequestSchema,
   FiscalDocumentIssueRequestSchema,
+  FiscalDocumentListRequestSchema,
   InventoryStockAdjustRequestSchema,
   InventoryStockReceiveRequestSchema,
 } from "@pos-platform/contracts";
@@ -403,6 +404,28 @@ describe("FiscalPanel", () => {
   function fillSale(): void {
     fireEvent.change(screen.getByTestId("fiscal-sale-id-input"), { target: { value: SALE } });
   }
+
+  it("consulta el historial guardado sin solicitar otra emisión", async () => {
+    install({
+      status: "SUCCEEDED", result_code: "FOUND",
+      result: {
+        outcome: "FOUND", sale_id: SALE, has_more: false,
+        documents: [{
+          document_id: "55555555-5555-4555-8555-555555555555", document_type: "SALES_INVOICE",
+          transport_status: "UNKNOWN_OUTCOME", normalized_result: null, issued_number: null, cufe: null,
+        }],
+      },
+    });
+    render(<FiscalPanel />);
+    fillSale();
+    fireEvent.click(screen.getByTestId("fiscal-list-button"));
+    expect((await screen.findByTestId("fiscal-document-history")).textContent).toContain("Resultado incierto");
+    expect(() => FiscalDocumentListRequestSchema.parse(sent("fiscal.document.list"))).not.toThrow();
+    expect(calls.has("fiscal.document.issue")).toBe(false);
+
+    fireEvent.change(screen.getByTestId("fiscal-sale-id-input"), { target: { value: CUSTOMER } });
+    expect(screen.queryByTestId("fiscal-document-history")).toBeNull();
+  });
 
   it("construye un sobre que el esquema real del contrato acepta", async () => {
     install({
