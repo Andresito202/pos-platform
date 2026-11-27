@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { FiscalDocumentListResult } from "@pos-platform/contracts";
 import type { LocalDatabase } from "@pos-platform/database-sqlite";
 import {
   evaluateRangeValidity,
@@ -161,6 +162,16 @@ export class SqliteFiscalDocumentStore {
   }
 
   // ── Documento electrónico ──────────────────────────────────────────────────
+
+  listForSale(scope: DocumentScope, saleId: string): Omit<FiscalDocumentListResult, "outcome" | "sale_id"> {
+    const documents = this.database.native.prepare(`
+      SELECT id AS document_id, document_type, transport_status, normalized_result, issued_number, cufe
+      FROM fiscal_electronic_document
+      WHERE tenant_id=? AND company_id=? AND branch_id=? AND sale_id=?
+      ORDER BY created_at DESC, id DESC LIMIT 21
+    `).all(scope.tenantId, scope.companyId, scope.branchId, saleId) as FiscalDocumentListResult["documents"];
+    return { documents: documents.slice(0, 20), has_more: documents.length > 20 };
+  }
 
   /**
    * Recupera el documento vivo de `(venta, tipo)`, si existe.

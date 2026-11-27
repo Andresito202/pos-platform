@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { useFiscalIssuance } from "../hooks/useFiscalIssuance.js";
 
+const fiscalHistoryLabels = {
+  CREATED: "Registrado",
+  IN_PROGRESS: "En proceso",
+  COMPLETED: "Procesado",
+  FAILED: "Fallo de envío registrado",
+  UNKNOWN_OUTCOME: "Resultado incierto · requiere revisión",
+  CANCELLED: "Cancelado",
+};
+
 /**
  * Emisión fiscal de una venta ya cobrada — `DEC-021` F5.
  *
@@ -29,6 +38,7 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
 
   const issued = fiscal.resultSaleId === saleId.trim() ? fiscal.issued : null;
   const blocked = fiscal.isBlocked(saleId.trim(), "SALES_INVOICE");
+  const history = fiscal.history?.sale_id === saleId.trim().toLowerCase() ? fiscal.history : null;
 
   return (
     <section data-testid="fiscal-panel">
@@ -42,6 +52,40 @@ export function FiscalPanel({ initialSaleId = null }: { initialSaleId?: string |
         placeholder="ID de la venta cobrada"
         disabled={fiscal.busy}
       />
+      <button
+        type="button"
+        data-testid="fiscal-list-button"
+        disabled={fiscal.busy || saleId.trim() === ""}
+        onClick={() => { void fiscal.listDocuments(saleId.trim()); }}
+      >
+        Consultar documentos de la venta
+      </button>
+      {fiscal.historyLoading && <p role="status">Consultando documentos guardados…</p>}
+      {fiscal.historyError && <p role="alert">{fiscal.historyError}</p>}
+      {history && (
+        <section aria-label="Documentos guardados" data-testid="fiscal-document-history">
+          <h3>Documentos guardados</h3>
+          {history.outcome === "NOT_FOUND" ? (
+            <p role="status">Esta venta no tiene documentos fiscales guardados en esta sucursal.</p>
+          ) : (
+            <ul>
+              {history.documents.map(document => (
+                <li key={document.document_id}>
+                  <strong>{document.document_type === "SALES_INVOICE" ? "Factura de venta"
+                    : document.document_type === "CREDIT_NOTE" ? "Nota crédito" : document.document_type}</strong>
+                  {" · "}
+                  {document.normalized_result === "ACCEPTED" ? "Aceptado"
+                    : document.normalized_result === "REJECTED" ? "Rechazado"
+                    : fiscalHistoryLabels[document.transport_status]}
+                  {document.issued_number && <div>Número {document.issued_number}</div>}
+                  {document.cufe && <div style={{ overflowWrap: "anywhere" }}>CUFE/CUDE {document.cufe}</div>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {history.has_more && <p>Se muestran los 20 documentos guardados más recientes.</p>}
+        </section>
+      )}
       <button type="button" data-testid="issue-sale-customer-button"
         disabled={fiscal.busy || blocked || saleId.trim() === ""}
         onClick={()=>void fiscal.issue(saleId.trim(),"SALES_INVOICE",{kind:"SALE_CUSTOMER"})}>

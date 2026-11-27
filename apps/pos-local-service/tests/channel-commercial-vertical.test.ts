@@ -648,6 +648,16 @@ describe("la vertical fiscal atraviesa el socket real hasta SQLite (DEC-021 F5)"
 
       expect(issued.status).toBe("SUCCEEDED");
       expect(issued.result["outcome"]).toBe("ISSUED");
+      const history = await send(reading("fiscal.document.list", { sale_id: saleId }));
+      expect(history.status).toBe("SUCCEEDED");
+      expect(history.result).toEqual({
+        outcome: "FOUND", sale_id: saleId, has_more: false,
+        documents: [{
+          document_id: issued.result["document_id"], document_type: "SALES_INVOICE",
+          transport_status: "COMPLETED", normalized_result: "ACCEPTED",
+          issued_number: "990000001", cufe: "b".repeat(96),
+        }],
+      });
       expect(issued.result["cufe"]).toBe("b".repeat(96));
       expect(issued.result["issued_number"]).toBe("990000001");
 

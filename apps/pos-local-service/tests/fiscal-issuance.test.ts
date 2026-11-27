@@ -479,6 +479,7 @@ describe("SqliteFiscalDocumentStore — máquina de estados", () => {
     });
     for (const foreignScope of [{ ...SCOPE, companyId: randomUUID() }, { ...SCOPE, branchId: randomUUID() }]) {
       expect(store.findOpenForSale(foreignScope, saleId, DOCUMENT_TYPE)).toBeNull();
+      expect(store.listForSale(foreignScope, saleId)).toEqual({ documents: [], has_more: false });
       expect(store.findByIdempotencyKey(foreignScope, PROVIDER, ENVIRONMENT, document.idempotencyKey)).toBeNull();
     }
     store.markInProgress(SCOPE, document.id, NOW_ISO);
