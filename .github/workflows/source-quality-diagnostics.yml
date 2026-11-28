@@ -1,0 +1,60 @@
+name: Source quality diagnostics
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.19.0
+      - name: Install pinned Ruff
+        run: python3 -m venv "$RUNNER_TEMP/ruff-env" && "$RUNNER_TEMP/ruff-env/bin/pip" install ruff==0.11.13
+      - name: Python lint (read-only)
+        id: ruff_lint
+        continue-on-error: true
+        run: git ls-files -z -- '*.py' | xargs -0 -r "$RUNNER_TEMP/ruff-env/bin/ruff" check --no-cache
+      - name: Python format (read-only)
+        id: ruff_format
+        continue-on-error: true
+        run: git ls-files -z -- '*.py' | xargs -0 -r "$RUNNER_TEMP/ruff-env/bin/ruff" format --check --no-cache
+      - name: Install pinned Prettier
+        run: npm install --prefix "$RUNNER_TEMP/source-quality" --no-audit --no-fund --ignore-scripts prettier@3.6.2
+      - name: Source format (read-only)
+        id: prettier
+        continue-on-error: true
+        shell: bash
+        run: |
+          git ls-files -z -- '*.ts' '*.tsx' '*.js' '*.mjs' '*.mts' '*.css' '*.json' '*.yaml' '*.yml' \
+            ':!**/node_modules/**' ':!**/.next/**' ':!**/dist/**' ':!**/build/**' \
+            ':!**/generated/**' ':!**/vendor/**' ':!**/artifacts/**' ':!**/migrations/**' \
+            ':!**/target-migrations/**' ':!**/pnpm-lock.yaml' \
+            | xargs -0 -r "$RUNNER_TEMP/source-quality/node_modules/.bin/prettier" --check --no-config
+      - name: Verify tracked JSON syntax
+        shell: bash
+        run: |
+          git ls-files -z -- '*.json' ':!**/node_modules/**' ':!**/.next/**' ':!**/dist/**' ':!**/generated/**' ':!**/vendor/**' ':!**/artifacts/**' ':!**/migrations/**' ':!**/target-migrations/**' ':!**/tsconfig*.json' \
+            | python3 -c 'import json,sys; from pathlib import Path; files=[p for p in sys.stdin.buffer.read().split(b"\0") if p]; [json.loads(Path(p.decode()).read_text(encoding="utf-8-sig")) for p in files]; print(f"Validated {len(files)} JSON files")'
+      - name: Record diagnostic results
+        if: always()
+        env:
+          PRETTIER_OUTCOME: ${{ steps.prettier.outcome }}
+          RUFF_LINT_OUTCOME: ${{ steps.ruff_lint.outcome }}
+          RUFF_FORMAT_OUTCOME: ${{ steps.ruff_format.outcome }}
+        run: |
+          echo "## Non-blocking style baseline" >> "$GITHUB_STEP_SUMMARY"
+          echo "Prettier: $PRETTIER_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          echo "Ruff lint: $RUFF_LINT_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          echo "Ruff format: $RUFF_FORMAT_OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          echo "Style findings are advisory during baseline collection; existing tests and security gates are unchanged." >> "$GITHUB_STEP_SUMMARY"
