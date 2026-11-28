@@ -27,6 +27,7 @@ export function createBusinessAdministrationHandler(
   rejectionVerifier: string,
   turnstileSecret: string | null = null,
   turnstileSiteKey: string | null = null,
+  commercialOrdersEnabled = false,
 ) {
   if ((turnstileSecret === null) !== (turnstileSiteKey === null)) {
     throw Error("BUSINESS_TURNSTILE_PAIR_REQUIRED");
@@ -38,7 +39,7 @@ export function createBusinessAdministrationHandler(
     browserLifetimeMs: l.browser_ms, maximumMfaAgeMs: Math.min(l.mfa_age_ms, l.reauthentication_ms),
     lockTimeoutMs: l.sql_lock_ms, statementTimeoutMs: l.sql_statement_ms });
   const authority = new BusinessBrowserSessionAuthority(policy.origin, l.reauthentication_ms, l.idle_ms);
-  const registers = new BusinessCashRegisters(policy.license_policy);
+  const registers = new BusinessCashRegisters(policy.license_policy, commercialOrdersEnabled);
   const limiter = new FixedWindowRateLimiter(l.requests_per_window, l.maximum_buckets, l.request_window_ms);
   const pending = new Map<string, { email: string; challenge: string; csrf: string; expires: number }>();
   let starting = 0;

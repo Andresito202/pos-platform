@@ -111,6 +111,7 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
     tenantId: string;
     planId: string;
     payloadHash: string;
+    paidOrder?: Parameters<CommercialLicenseIssuer["issueProvisioningLicenses"]>[0]["paidOrder"];
   }): Promise<{ licenseIds: string[] }> {
     return this.tx(async (c) => {
       await c.query("SELECT set_config('app.tenant_id',$1,true)", [input.tenantId]);
@@ -120,8 +121,25 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
         [input.planId],
       );
       if (plan.rowCount !== 1) throw Object.assign(new Error("PROVISION_PLAN_REQUIRED"), { status: 400 });
-      if (plan.rows[0]!.billing_model !== "PERPETUAL") {
+      const terms = plan.rows[0]!;
+      const paidOrder = input.paidOrder;
+      if (!paidOrder && terms.billing_model !== "PERPETUAL") {
         throw Object.assign(new Error("PROVISION_SUBSCRIPTION_TERM_REQUIRED"), { status: 409 });
+      }
+      if (paidOrder && !(await c.query(
+        "SELECT to_regprocedure('licensing.current_paid_commercial_order(uuid)') IS NOT NULL AS ready",
+      )).rows[0]?.ready) {
+        throw Object.assign(new Error("PROVISION_ACTIVATION_SCHEMA_REQUIRED"), { status: 503 });
+      }
+      if (paidOrder && (paidOrder.billingInterval !== terms.billing_model ||
+          terms.deployment_mode !== (terms.billing_model === "PERPETUAL" ? "LOCAL_PERPETUAL" : "HYBRID"))) {
+        throw Object.assign(new Error("PROVISION_TERM_MISMATCH"), { status: 409 });
+      }
+      if (paidOrder && (await c.query(
+        `SELECT 1 FROM organization.companies
+          WHERE id=$1 AND tenant_id=$2 AND status='ACTIVE' FOR SHARE`, [paidOrder.companyId, input.tenantId],
+      )).rowCount !== 1) {
+        throw Object.assign(new Error("PROVISION_COMPANY_REQUIRED"), { status: 409 });
       }
       const tenant = await c.query(
         `SELECT 1 FROM tenancy.tenants WHERE id=$1::uuid AND status='ACTIVE' FOR SHARE`,
@@ -129,7 +147,15 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
       );
       if (tenant.rowCount !== 1) throw Object.assign(new Error("PROVISION_TENANT_REQUIRED"), { status: 400 });
       const licenseIds: string[] = [];
-      const now = new Date();
+      const now = (await c.query<{ now: Date }>("SELECT clock_timestamp() AS now")).rows[0]!.now;
+      const startsAt = paidOrder ? new Date(paidOrder.paidAt) : now;
+      if (startsAt > now) throw Object.assign(new Error("PROVISION_PAYMENT_DATE_INVALID"), { status: 409 });
+      const interval = terms.billing_model === "MONTHLY" ? "1 month" : "1 year";
+      // Calendar terms use Colombia time so retries across UTC month boundaries recover the same contract.
+      const expiresAt = terms.billing_model === "PERPETUAL" ? null : (await c.query<{ expires_at: Date }>(
+        `SELECT (($1::timestamptz AT TIME ZONE 'America/Bogota') + $2::interval)
+           AT TIME ZONE 'America/Bogota' AS expires_at`, [startsAt, interval],
+      )).rows[0]!.expires_at;
       for (let i = 0; i < input.licenseUnits; i += 1) {
         const licenseId = uuidV7();
         const commercialReference = `COMMERCIAL_ORDER:${input.orderId}:${i}:${input.payloadHash.slice(0, 16)}`;
@@ -137,7 +163,7 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
           `INSERT INTO licensing.licenses
             (id, tenant_id, plan_id, deployment_mode, contract_status, not_before, expires_at,
              grace_policy_reference, policy_version, commercial_reference, created_at, updated_at)
-           VALUES ($1::uuid,$2::uuid,$3::uuid,$4,'ACTIVE',$5,NULL,NULL,'COMMERCIAL_ORDER_V1',$6,$5,$5)
+           VALUES ($1::uuid,$2::uuid,$3::uuid,$4,'ACTIVE',$7,$8,NULL,'COMMERCIAL_ORDER_V1',$6,$5,$5)
            ON CONFLICT (commercial_reference) WHERE commercial_reference IS NOT NULL DO NOTHING
            RETURNING id::text`,
           [
@@ -147,6 +173,8 @@ export class PostgresCommercialLicenseIssuer implements CommercialLicenseIssuer 
             plan.rows[0]!.deployment_mode,
             now,
             commercialReference,
+            startsAt,
+            expiresAt,
           ],
         );
         if (inserted.rowCount === 0) {

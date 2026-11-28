@@ -1,9 +1,11 @@
 import {createHash,createPublicKey,sign,type KeyObject} from "node:crypto";
 import {LicenseAllocationRequestSchema,LicenseActivationPolicySchema,LicenseCapacityClaimsSchema,canonicalSessionTrustJson,uuidV7,UuidSchema,
+  CommercialPaidOrderBindingSchema,CommercialOrderActivationStatusRequestSchema,CommercialOrderActivationStatusResponseSchema,
   LICENSE_LOCAL_ACCEPTANCE_PATH,LicenseLocalAcceptanceRequestSchema,LicenseLocalAcceptanceReceiptSchema,
   LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseActivationPageRequestSchema,LicenseActivationPageSchema,SignedLicenseCapacityRevocationSchema,isLicenseSectorEntitlement,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
 import {PostgresDeviceProofReplayVerifier,type DeviceProofRequest,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {reserveCashRegisterLicense,requireActiveBoundRegisters} from "./cash-register-license-binding.js";
+import {findPaidCommercialOrder} from "./commercial-portal-bridge/paid-order-source.js";
 import {requireLicenseAdministrator} from "./license-administration.js";
 
 export const LICENSE_ACTIVATION_PATH="/v1/licensing/activations/resolve";
@@ -48,10 +50,24 @@ export class LicenseCapacityAuthority{
   private async source(c:PoolClient,licenseId:string,credentialId:string){
     // Serialize all issuers for this license before quota/version decisions.
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",["license-capacity:"+licenseId]);
-    const license=(await c.query("SELECT tenant_id FROM licensing.licenses WHERE id=$1 FOR UPDATE",[licenseId])).rows[0];
+    const license=(await c.query("SELECT tenant_id,commercial_reference FROM licensing.licenses WHERE id=$1 FOR UPDATE",[licenseId])).rows[0];
     if(!license)throw Error("LICENSE_PAID_CURRENT_BINDING_REQUIRED");
     await c.query("SELECT set_config('app.tenant_id',$1,true)",[license.tenant_id]);
-    const row=(await c.query(`SELECT l.*,q.company_id,q.plan_version,q.included_registers,q.additional_registers,q.terms_snapshot,
+    const commercial = this.signer.environment === "PREPRODUCTION" && license.commercial_reference?.startsWith("COMMERCIAL_ORDER:")
+      ? await findPaidCommercialOrder(c, licenseId, this.policy) : null;
+    const row = commercial ? (await c.query(`
+      SELECT l.*,d.company_id,d.device_id,d.installation_id,dc.credential_id,clock_timestamp() AS server_now,
+        $4::bigint AS plan_version,1 AS included_registers,0 AS additional_registers,
+        jsonb_build_object('policy_reference','COMMERCIAL_ORDER_V1') AS terms_snapshot
+      FROM licensing.licenses l
+      JOIN identity.device_registry d ON d.tenant_id=l.tenant_id AND d.company_id=$3 AND d.status='ACTIVE'
+      JOIN identity.device_credentials dc ON dc.device_id=d.device_id AND dc.installation_id=d.installation_id
+        AND dc.tenant_id=d.tenant_id AND dc.company_id=d.company_id
+        AND dc.device_key_id=d.device_key_id AND dc.trust_key_id=d.trust_key_id AND dc.status='ACTIVE'
+        AND dc.key_purpose='DEVICE_TRUST' AND dc.issued_at<=clock_timestamp() AND dc.expires_at>clock_timestamp()
+      WHERE l.id=$1 AND dc.credential_id=$2 FOR SHARE OF dc,d`,
+      [licenseId,credentialId,commercial.id,commercial.plan_version])).rows[0]
+      : (await c.query(`SELECT l.*,q.company_id,q.plan_version,q.included_registers,q.additional_registers,q.terms_snapshot,
       d.device_id,d.installation_id,dc.credential_id,clock_timestamp() AS server_now FROM licensing.licenses l
       JOIN payments.payments p ON l.commercial_reference='SUBSCRIPTION_PAYMENT:'||p.id::text AND p.status='CONFIRMED'
       JOIN payments.payment_groups g ON g.id=p.payment_group_id AND g.collection_subject_type='SUBSCRIPTION_QUOTE'
@@ -67,9 +83,9 @@ export class LicenseCapacityAuthority{
       !this.policy.accepted_contract_policy_references.includes(row.policy_version))throw Error("LICENSE_PAID_CURRENT_BINDING_REQUIRED");
     const now=(row.server_now as Date).getTime(),nominal=row.expires_at===null?null:(row.expires_at as Date).getTime();
     if(row.deployment_mode==="LOCAL_PERPETUAL"?(nominal!==null||row.contract_status!=="ACTIVE"):(nominal===null))throw Error("LICENSE_TERM_MODE_MISMATCH");
-    const end=nominal===null?null:nominal+this.policy.subscription_grace_days*86400000;
+    const end=nominal===null?null:nominal+(commercial ? 0 : this.policy.subscription_grace_days*86400000);
     if(end!==null&&now>=end)throw Error("LICENSE_TERM_EXPIRED");
-    return {...row,effectiveExpiry:end===null?null:new Date(end).toISOString()};
+    return {...row,commercialOrder:commercial !== null,effectiveExpiry:end===null?null:new Date(end).toISOString()};
   }
   private async audit(c:PoolClient,action:string,resource:string,correlation:string,payload:unknown,actor?:{user_id:string;sessionId:string}){
     // Device events use their canonical ledger; GLOBAL events remain GLOBAL.
@@ -106,7 +122,11 @@ export class LicenseCapacityAuthority{
           throw Error("LICENSE_ACTIVE_REGISTER_REQUIRED");
       }
 
-      const held=(await c.query("SELECT request_payload FROM licensing.license_activations WHERE license_id=$1",[r.license_id])).rows;
+      const held=(await c.query("SELECT request_payload,device_id,installation_id FROM licensing.license_activations WHERE license_id=$1",[r.license_id])).rows;
+      if (source.commercialOrder && held.some(existing =>
+          existing.device_id !== source.device_id || existing.installation_id !== source.installation_id)) {
+        throw Error("LICENSE_COMMERCIAL_DEVICE_TRANSFER_REQUIRES_RELEASE_PROTOCOL");
+      }
       const registers=new Map<string,string>();
       for(const list of [...held.map(h=>h.request_payload.allocations),r.allocations])for(const a of list){
         if(registers.has(a.register_id)&&registers.get(a.register_id)!==a.branch_id)throw Error("LICENSE_REGISTER_REALLOCATION_REQUIRES_RELEASE_PROTOCOL");
@@ -234,6 +254,63 @@ export class LicenseCapacityAuthority{
     });
   }
 
+  async commercialOrderActivationStatus(idempotencyKey: string | undefined, input: unknown) {
+    if (this.signer.environment !== "PREPRODUCTION") throw Error("COMMERCIAL_ACTIVATION_PREPRODUCTION_REQUIRED");
+    const request = CommercialOrderActivationStatusRequestSchema.parse(input);
+    if (idempotencyKey !== createHash("sha256").update(`provision:${request.orderId}`).digest("hex")) {
+      throw Error("COMMERCIAL_ACTIVATION_ORDER_MISMATCH");
+    }
+    return this.transaction(async c => {
+      const provision = (await c.query(`
+        SELECT tenant_id,license_ids,payload->'paidOrder' AS paid_order
+        FROM licensing.commercial_provisioning_receipts
+        WHERE idempotency_key=$1 AND provisioning_id=$2 AND order_id=$3 AND fulfillment='ISSUED'`,
+        [idempotencyKey,request.provisioningId,request.orderId])).rows[0];
+      const paid = CommercialPaidOrderBindingSchema.safeParse(provision?.paid_order);
+      if (!paid.success) throw Object.assign(Error("COMMERCIAL_ACTIVATION_ORDER_NOT_FOUND"), {status:404});
+      await c.query("SELECT set_config('app.tenant_id',$1,true)",[provision.tenant_id]);
+      const candidates = (await c.query(`
+        SELECT DISTINCT ON (a.license_id) a.id,a.license_id,a.credential_id,
+          a.canonical_payload,a.payload_checksum,e.id AS receipt_id
+        FROM licensing.license_activations a
+        JOIN identity.device_authentication_events e ON e.device_id=a.device_id AND e.credential_id=a.credential_id
+          AND e.tenant_id=a.tenant_id AND e.company_id=a.company_id AND e.installation_id=a.installation_id
+          AND e.evidence_checksum=encode(a.payload_checksum,'hex') AND e.result='ACCEPTED'
+          AND e.reason_code='LICENSE_CAPACITY_ACCEPTED_LOCALLY'
+        WHERE a.license_id=ANY($1::uuid[]) AND a.tenant_id=$2 AND a.company_id=$3
+          AND a.activation_status='ACTIVE' AND a.signing_key_id=$4
+        ORDER BY a.license_id,a.license_version DESC,e.occurred_at,e.id`,
+        [provision.license_ids,provision.tenant_id,paid.data.companyId,this.signer.keyId])).rows;
+      const receipts = [];
+      for (const candidate of candidates) {
+        // Lock and revalidate the live scope after discovering a receipt.
+        const source = await this.source(c,candidate.license_id,candidate.credential_id).catch(error => {
+          if (error instanceof Error && ["LICENSE_PAID_CURRENT_BINDING_REQUIRED","LICENSE_TERM_EXPIRED"].includes(error.message)) return null;
+          throw error;
+        });
+        if (!source) continue;
+        const activation = (await c.query(`
+          SELECT 1 FROM licensing.license_activations WHERE id=$1 AND activation_status='ACTIVE'
+            AND payload_checksum=$2 FOR SHARE`,[candidate.id,candidate.payload_checksum])).rows[0];
+        if (!activation) continue;
+        const claims = LicenseCapacityClaimsSchema.parse(candidate.canonical_payload);
+        const now = (source.server_now as Date).getTime();
+        if (now < Date.parse(claims.not_before) || (claims.expires_at && now >= Date.parse(claims.expires_at))) continue;
+        if (claims.cash_register_capacity.allocations.length !== 1) continue;
+        const registersCurrent = await requireActiveBoundRegisters(c,{
+          tenantId:source.tenant_id,companyId:source.company_id,licenseId:candidate.license_id,
+        },claims.cash_register_capacity.allocations).then(() => true, error => {
+          if (error instanceof Error && error.message === "LICENSE_ACTIVE_BOUND_REGISTER_REQUIRED") return false;
+          throw error;
+        });
+        if (!registersCurrent) continue;
+        receipts.push({licenseId:candidate.license_id,activationId:candidate.id,receiptId:candidate.receipt_id});
+      }
+      if (receipts.length) await this.trustedKey(c);
+      return CommercialOrderActivationStatusResponseSchema.parse({...request,receipts});
+    });
+  }
+
   async assignmentContext(sessionId:string,input:unknown){
     UuidSchema.parse(sessionId);const request=LicenseAssignmentContextRequestSchema.parse(input);
     return this.transaction(async c=>{
@@ -241,7 +318,9 @@ export class LicenseCapacityAuthority{
       const license=(await c.query("SELECT tenant_id FROM licensing.licenses WHERE id=$1",[request.licenseId])).rows[0];
       if(!license)throw Error("LICENSE_NOT_FOUND");
       await c.query("SELECT set_config('app.tenant_id',$1,true)",[license.tenant_id]);
-      const company=(await c.query(`SELECT co.id,co.trade_name FROM licensing.licenses l
+      const commercial=this.signer.environment === "PREPRODUCTION"
+        ? await findPaidCommercialOrder(c,request.licenseId,this.policy) : null;
+      const company=commercial?[commercial]:(await c.query(`SELECT co.id,co.trade_name FROM licensing.licenses l
         JOIN payments.payments p ON l.commercial_reference='SUBSCRIPTION_PAYMENT:'||p.id::text AND p.status='CONFIRMED'
         JOIN payments.payment_groups g ON g.id=p.payment_group_id AND g.collection_subject_type='SUBSCRIPTION_QUOTE'
         JOIN subscriptions.license_quotes q ON q.id=g.collection_subject_id AND q.tenant_id=l.tenant_id AND q.plan_id=l.plan_id

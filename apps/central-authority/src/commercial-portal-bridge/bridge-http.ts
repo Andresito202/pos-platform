@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { COMMERCIAL_BRIDGE_KEY_HEADER } from "@pos-platform/contracts";
 import { readCommercialJsonBody, sendCommercialJson } from "../commercial-https-request-boundary.js";
 import { CommercialPortalBridgeService } from "./bridge-service.js";
+import type { LicenseCapacityAuthority } from "../license-capacity-authority.js";
 import type { GlobalSessionGate } from "./global-session-gate.js";
 
 function header(req: IncomingMessage, name: string): string | undefined {
@@ -29,6 +30,7 @@ async function readOptionalJson(request: IncomingMessage, maxBytes: number): Pro
 export function createCommercialPortalBridgeHandler(
   bridge: CommercialPortalBridgeService,
   gate: GlobalSessionGate,
+  licenses?: Pick<LicenseCapacityAuthority, "commercialOrderActivationStatus">,
 ) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<boolean> => {
     const path = pathOf(request);
@@ -37,7 +39,8 @@ export function createCommercialPortalBridgeHandler(
       path === "/v1/sessions/commercial-bridge/mint" ||
       path === "/v1/commercial/trial/issue" ||
       path === "/v1/commercial/trial/expire-sweep" ||
-      path === "/v1/commercial/provisioning";
+      path === "/v1/commercial/provisioning" ||
+      path === "/v1/commercial/provisioning/activation-status";
     if (!isBridgePath) return false;
     if (request.method !== "POST") {
       sendCommercialJson(response, 405, { code: "METHOD_NOT_ALLOWED" });
@@ -84,6 +87,13 @@ export function createCommercialPortalBridgeHandler(
         const { object } = await readCommercialJsonBody(request, 65_536);
         const idem = header(request, "idempotency-key");
         const result = await bridge.provision(idem, object);
+        sendCommercialJson(response, 200, result);
+        return true;
+      }
+
+      if (path === "/v1/commercial/provisioning/activation-status" && licenses) {
+        const { object } = await readCommercialJsonBody(request, 1_024);
+        const result = await licenses.commercialOrderActivationStatus(header(request, "idempotency-key"), object);
         sendCommercialJson(response, 200, result);
         return true;
       }

@@ -97,8 +97,14 @@ export const POSTGRES_041_DESCRIPTOR = descriptor(
   ["payments.merchant_notification_bridge_consents", "payments.merchant_payment_notification_inbox"], "payments",
 );
 
-type CommercialMigrationTarget="MERCHANT_PAYMENT_NOTICES"|"FISCAL_DOCUMENT_PACKAGES"|"CENTRAL_RATE_LIMIT"|"COMMERCIAL_PORTAL_BRIDGE"|"LOGIN_ABUSE_BUDGET"|"SUBSCRIPTION_FULFILLMENT"|"REPORTING_PERMISSIONS"|"CASH_REGISTER_BINDINGS"|"TENANT_INITIALIZATION"|"BUSINESS_OWNER"|"COMMERCIAL_AUTHORIZATION"|"CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
+export const POSTGRES_042_DESCRIPTOR = {
+  ...descriptor("042_commercial_order_activation", POSTGRES_033_DESCRIPTOR.migrationId, [], "licensing"),
+  dependencies: [POSTGRES_033_DESCRIPTOR.migrationId, POSTGRES_038_DESCRIPTOR.migrationId],
+};
+
+type CommercialMigrationTarget="COMMERCIAL_ORDER_ACTIVATION"|"MERCHANT_PAYMENT_NOTICES"|"FISCAL_DOCUMENT_PACKAGES"|"CENTRAL_RATE_LIMIT"|"COMMERCIAL_PORTAL_BRIDGE"|"LOGIN_ABUSE_BUDGET"|"SUBSCRIPTION_FULFILLMENT"|"REPORTING_PERMISSIONS"|"CASH_REGISTER_BINDINGS"|"TENANT_INITIALIZATION"|"BUSINESS_OWNER"|"COMMERCIAL_AUTHORIZATION"|"CASH_REGISTER_MASTER"|"AUTHENTICATION"|"LICENSING"|"FACTUS_PAY"|"SUBSCRIPTIONS"|"SUBSCRIPTION_PAYMENTS"|"GLOBAL_ADMINISTRATION"|"LICENSE_ACTIVATIONS"|"LICENSE_CATALOG";
 function migrations(target:CommercialMigrationTarget){
+  if(target==="COMMERCIAL_ORDER_ACTIVATION")return [POSTGRES_042_DESCRIPTOR];
   if(target==="MERCHANT_PAYMENT_NOTICES")return [POSTGRES_041_DESCRIPTOR];
   if(target==="FISCAL_DOCUMENT_PACKAGES")return [POSTGRES_039_DESCRIPTOR, POSTGRES_040_DESCRIPTOR];
   if(target==="CENTRAL_RATE_LIMIT")return [POSTGRES_037_DESCRIPTOR];
@@ -340,6 +346,17 @@ async function smoke(c:PoolClient,d:MigrationDescriptor){
       check((await c.query("SELECT 1 FROM pg_trigger WHERE tgrelid=to_regclass($1) AND tgname='subscription_payment_no_truncate' AND tgenabled='O'",[table])).rowCount===1,"Subscription payment history guard missing");
     }
   }
+  if(d===POSTGRES_042_DESCRIPTOR){
+    const result=(await c.query(`SELECT NOT p.prosecdef AND p.proconfig=ARRAY['search_path=pg_catalog']
+      AND has_function_privilege('pos_platform_app',p.oid,'EXECUTE')
+      AND NOT has_function_privilege('pos_worker',p.oid,'EXECUTE')
+      AND NOT has_function_privilege('pos_app',p.oid,'EXECUTE') AS ok
+      FROM pg_proc p WHERE p.oid=to_regprocedure('licensing.current_paid_commercial_order(uuid)')`)).rows[0];
+    check(result?.ok,"Commercial activation source privileges drift");
+    const trigger=(await c.query(`SELECT tgenabled='O' AS ok FROM pg_trigger
+      WHERE tgrelid='licensing.commercial_provisioning_receipts'::regclass AND tgname='commercial_paid_order_receipt_guard'`)).rows[0];
+    check(trigger?.ok,"Commercial activation receipt guard drift");
+  }
   if(d===POSTGRES_015_DESCRIPTOR){
     const fn=(await c.query("SELECT p.prosecdef,p.prosrc,p.proconfig,r.rolname FROM pg_proc p JOIN pg_roles r ON r.oid=p.proowner WHERE p.oid=to_regprocedure('authorization.lock_sas_sources_for_read()')")).rows[0];
     const artifact=await readArtifact(d.upArtifact);
@@ -376,7 +393,11 @@ export async function applyCommercialMigrations(input:{migratorUrl:string;expect
         const predecessor=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_003_DESCRIPTOR.migrationId])).rows[0];
         check(predecessor&&Buffer.from(predecessor.checksum).equals(sha256(await readArtifact(POSTGRES_003_DESCRIPTOR.upArtifact))),"Factus Pay 003 predecessor mismatch");
       }
-      let predecessor=input.target==="MERCHANT_PAYMENT_NOTICES"?POSTGRES_020_DESCRIPTOR:input.target==="FISCAL_DOCUMENT_PACKAGES"?POSTGRES_003_DESCRIPTOR:input.target==="CENTRAL_RATE_LIMIT"?POSTGRES_004_DESCRIPTOR:input.target==="COMMERCIAL_PORTAL_BRIDGE"?POSTGRES_021_DESCRIPTOR:input.target==="LOGIN_ABUSE_BUDGET"?POSTGRES_021_DESCRIPTOR:input.target==="SUBSCRIPTION_FULFILLMENT"?POSTGRES_023_DESCRIPTOR:input.target==="REPORTING_PERMISSIONS"?POSTGRES_033_DESCRIPTOR:input.target==="CASH_REGISTER_BINDINGS"?POSTGRES_032_DESCRIPTOR:input.target==="TENANT_INITIALIZATION"?POSTGRES_031_DESCRIPTOR:input.target==="BUSINESS_OWNER"?POSTGRES_030_DESCRIPTOR:input.target==="COMMERCIAL_AUTHORIZATION"?POSTGRES_029_DESCRIPTOR:input.target==="CASH_REGISTER_MASTER"?POSTGRES_023_DESCRIPTOR:POSTGRES_007_DESCRIPTOR;
+      if(selected.includes(POSTGRES_042_DESCRIPTOR)){
+        const bridge=(await c.query("SELECT checksum FROM platform.target_migration_executions WHERE migration_id=$1 AND status='APPLIED' ORDER BY applied_at DESC LIMIT 1",[POSTGRES_038_DESCRIPTOR.migrationId])).rows[0];
+        check(bridge&&Buffer.from(bridge.checksum).equals(sha256(await readArtifact(POSTGRES_038_DESCRIPTOR.upArtifact))),"Commercial 038 predecessor mismatch");
+      }
+      let predecessor=input.target==="COMMERCIAL_ORDER_ACTIVATION"?POSTGRES_033_DESCRIPTOR:input.target==="MERCHANT_PAYMENT_NOTICES"?POSTGRES_020_DESCRIPTOR:input.target==="FISCAL_DOCUMENT_PACKAGES"?POSTGRES_003_DESCRIPTOR:input.target==="CENTRAL_RATE_LIMIT"?POSTGRES_004_DESCRIPTOR:input.target==="COMMERCIAL_PORTAL_BRIDGE"?POSTGRES_021_DESCRIPTOR:input.target==="LOGIN_ABUSE_BUDGET"?POSTGRES_021_DESCRIPTOR:input.target==="SUBSCRIPTION_FULFILLMENT"?POSTGRES_023_DESCRIPTOR:input.target==="REPORTING_PERMISSIONS"?POSTGRES_033_DESCRIPTOR:input.target==="CASH_REGISTER_BINDINGS"?POSTGRES_032_DESCRIPTOR:input.target==="TENANT_INITIALIZATION"?POSTGRES_031_DESCRIPTOR:input.target==="BUSINESS_OWNER"?POSTGRES_030_DESCRIPTOR:input.target==="COMMERCIAL_AUTHORIZATION"?POSTGRES_029_DESCRIPTOR:input.target==="CASH_REGISTER_MASTER"?POSTGRES_023_DESCRIPTOR:POSTGRES_007_DESCRIPTOR;
       for(const d of selected){
         const checksum=sha256(await readArtifact(d.upArtifact)),prior=sha256(await readArtifact(predecessor.upArtifact));
         const history=(await c.query("SELECT execution_id,checksum,status FROM platform.target_migration_executions WHERE migration_id=$1 ORDER BY started_at",[d.migrationId])).rows;

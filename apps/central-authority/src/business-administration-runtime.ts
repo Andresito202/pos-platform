@@ -11,7 +11,7 @@ function managed(path: string, max: number) {
   if (!s.isFile() || s.isSymbolicLink() || s.size > max || process.platform !== "win32" && (s.mode & 0o077) !== 0) throw Error("BUSINESS_MANAGED_FILE_REQUIRED");
   return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(path));
 }
-export async function prepareBusinessAdministrationRuntime(pool: Pool, provisionFile: string, origin: string) {
+export async function prepareBusinessAdministrationRuntime(pool: Pool, provisionFile: string, origin: string, commercialOrdersEnabled = false) {
   const policy = BusinessAdministrationProvisionSchema.parse(JSON.parse(managed(provisionFile, 32768)));
   validateCommercialHttpsOrigin(origin);
   if (policy.origin !== origin) throw Error("BUSINESS_ORIGIN_MISMATCH");
@@ -35,7 +35,7 @@ export async function prepareBusinessAdministrationRuntime(pool: Pool, provision
   if ((turnstile === null) !== (turnstileSiteKey === null)) {
     throw Error("BUSINESS_TURNSTILE_PAIR_REQUIRED");
   }
-  const api = createBusinessAdministrationHandler(pool, policy, rejection, turnstile, turnstileSiteKey);
+  const api = createBusinessAdministrationHandler(pool, policy, rejection, turnstile, turnstileSiteKey, commercialOrdersEnabled);
   const assets = createGlobalAdministrationAssets({
     directory: policy.renderer.directory, origin, maximumAssetBytes: policy.renderer.maximum_asset_bytes,
     page: "business", turnstileEnabled: turnstileSiteKey !== null,

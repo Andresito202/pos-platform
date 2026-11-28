@@ -41,6 +41,8 @@ describe.runIf(Boolean(server))("033 real PostgreSQL license reservation",()=>{
     await applyCommercialMigrations({...migration,target:"LICENSE_CATALOG"});
     for(const target of ["CASH_REGISTER_MASTER","COMMERCIAL_AUTHORIZATION","BUSINESS_OWNER","TENANT_INITIALIZATION","CASH_REGISTER_BINDINGS"] as const)
       await applyCommercialMigrations({...migration,target});
+    await applyCommercialMigrations({...migration,target:"COMMERCIAL_PORTAL_BRIDGE"});
+    await applyCommercialMigrations({...migration,target:"COMMERCIAL_ORDER_ACTIVATION"});
     root=new Pool({connectionString:url()});runtime=new Pool({connectionString:url("pos_platform_app"),max:4});
     // Fixtures use the real schema and constraints. No provider calls or product
     // credentials: all records disappear with this newly-created test database.
@@ -134,5 +136,13 @@ describe.runIf(Boolean(server))("033 real PostgreSQL license reservation",()=>{
     })],{cwd:resolve("../../apps/central-authority"),encoding:"utf8",windowsHide:true,timeout:30_000,
       env:{...process.env,CASH_BINDING_PROBE_URL:url("pos_platform_app"),CASH_BINDING_PROBE_ADMIN_URL:url()}});
     expect(JSON.parse(result)).toEqual({issued:true,accepted:true,concurrentReceipts:1,replayRejected:true,revokedRejected:true});
+  },35_000);
+  it("issues commercial calendar terms and checks durable activation evidence over HTTPS",()=>{
+    const result=execFileSync(process.execPath,["--import","tsx","tests/helpers/license-local-acceptance-postgres-probe.ts",JSON.stringify({
+      tenant,company,branch,commercial:true,
+    })],{cwd:resolve("../../apps/central-authority"),encoding:"utf8",windowsHide:true,timeout:30_000,
+      env:{...process.env,CASH_BINDING_PROBE_URL:url("pos_platform_app"),CASH_BINDING_PROBE_ADMIN_URL:url()}});
+    expect(JSON.parse(result)).toEqual({issued:true,accepted:true,concurrentReceipts:1,replayRejected:true,revokedRejected:true,
+      commercialStatus:true,calendarTerms:true});
   },35_000);
 });

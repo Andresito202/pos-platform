@@ -7,8 +7,10 @@ export async function requireActiveBoundRegisters(c: PoolClient, source: {
     const register=await c.query(`SELECT r.id FROM cash.cash_registers r
       JOIN licensing.cash_register_bindings b ON b.register_id=r.id AND b.tenant_id=r.tenant_id
         AND b.company_id=r.company_id AND b.branch_id=r.branch_id AND b.license_id=$5
+      JOIN organization.branches br ON br.id=r.branch_id AND br.tenant_id=r.tenant_id
+        AND br.company_id=r.company_id AND br.status='ACTIVE'
       WHERE r.id=$1 AND r.tenant_id=$2 AND r.company_id=$3 AND r.branch_id=$4 AND r.status='ACTIVE'
-      FOR SHARE OF r`,[a.register_id,source.tenantId,source.companyId,a.branch_id,source.licenseId]);
+      FOR SHARE OF r,br`,[a.register_id,source.tenantId,source.companyId,a.branch_id,source.licenseId]);
     if(register.rowCount!==1)throw Error("LICENSE_ACTIVE_BOUND_REGISTER_REQUIRED");
   }
 }
