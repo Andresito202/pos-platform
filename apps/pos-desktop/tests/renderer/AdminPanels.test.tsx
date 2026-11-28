@@ -440,9 +440,33 @@ describe("FiscalPanel", () => {
     expect((await screen.findByTestId("fiscal-document-history")).textContent).toContain("Resultado incierto");
     expect(() => FiscalDocumentListRequestSchema.parse(sent("fiscal.document.list"))).not.toThrow();
     expect(calls.has("fiscal.document.issue")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Descargar XML (Sandbox)" })).toBeNull();
 
     fireEvent.change(screen.getByTestId("fiscal-sale-id-input"), { target: { value: CUSTOMER } });
     expect(screen.queryByTestId("fiscal-document-history")).toBeNull();
+  });
+
+  it("solicita el XML del documento aceptado y muestra el bloqueo de configuración", async () => {
+    const documentId = "55555555-5555-4555-8555-555555555555";
+    install({
+      status: "SUCCEEDED", result_code: "FOUND",
+      result: {
+        outcome: "FOUND", sale_id: SALE, has_more: false,
+        documents: [{
+          document_id: documentId, document_type: "SALES_INVOICE",
+          transport_status: "COMPLETED", normalized_result: "ACCEPTED", issued_number: "123", cufe: null,
+        }],
+      },
+    });
+    render(<FiscalPanel />);
+    fillSale();
+    fireEvent.click(screen.getByTestId("fiscal-list-button"));
+    const download = await screen.findByRole("button", { name: "Descargar XML (Sandbox)" });
+    install({ status: "REJECTED", result_code: "FISCAL_ARTIFACT_NOT_CONFIGURED", result: null });
+    fireEvent.click(download);
+    expect((await screen.findByRole("alert")).textContent).toContain("requiere una conexión configurada");
+    expect(sent("fiscal.document.download").payload).toEqual({ document_id: documentId, format: "XML" });
+    expect(calls.has("fiscal.document.issue")).toBe(false);
   });
 
   it("construye un sobre que el esquema real del contrato acepta", async () => {

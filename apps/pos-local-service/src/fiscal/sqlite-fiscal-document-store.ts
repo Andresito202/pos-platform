@@ -199,6 +199,19 @@ export class SqliteFiscalDocumentStore {
     return row === undefined ? null : toDocument(row);
   }
 
+  findDownloadableDocument(scope: DocumentScope, id: string) {
+    const row = this.database.native.prepare(
+      `SELECT document_type, provider_operation_id
+         FROM fiscal_electronic_document
+        WHERE tenant_id=? AND company_id=? AND branch_id=? AND id=? AND provider='FACTUS'
+          AND environment='SANDBOX' AND transport_status='COMPLETED' AND normalized_result='ACCEPTED'`,
+    ).get(scope.tenantId, scope.companyId, scope.branchId, id) as {
+      document_type: FiscalDocumentType; provider_operation_id: string | null;
+    } | undefined;
+    return row?.provider_operation_id
+      ? { documentType: row.document_type, providerOperationId: row.provider_operation_id } : null;
+  }
+
   findOpenForSale(
     scope: DocumentScope,
     saleId: string,

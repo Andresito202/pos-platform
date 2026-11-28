@@ -1060,6 +1060,21 @@ export const FiscalDocumentListResultSchema = z.strictObject({
 export const FiscalDocumentListResponseSchema = createResponseEnvelopeSchema(FiscalDocumentListResultSchema);
 export type FiscalDocumentListResult = z.infer<typeof FiscalDocumentListResultSchema>;
 
+// Leave headroom in the existing one-MiB signed IPC frame after Base64.
+export const FISCAL_DOWNLOAD_MAX_BYTES = 512 * 1024;
+export const FiscalDocumentDownloadRequestSchema = createRequestEnvelopeSchema(
+  z.strictObject({ document_id: UuidSchema, format: z.enum(["PDF", "XML"]) }),
+).safeExtend({ message_type: z.literal("fiscal.document.download") })
+  .superRefine(forbidCallerAssertedIdentity);
+export const FiscalDocumentDownloadResultSchema = z.strictObject({
+  document_id: UuidSchema,
+  format: z.enum(["PDF", "XML"]),
+  content_base64: z.base64().max(Math.ceil(FISCAL_DOWNLOAD_MAX_BYTES / 3) * 4),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export const FiscalDocumentDownloadResponseSchema = createResponseEnvelopeSchema(FiscalDocumentDownloadResultSchema);
+export type FiscalDocumentDownloadResult = z.infer<typeof FiscalDocumentDownloadResultSchema>;
+
 export const FiscalDocumentIssueOutcomeSchema = z.enum([
   "UNAUTHORIZED",
   "ALREADY_ISSUED",

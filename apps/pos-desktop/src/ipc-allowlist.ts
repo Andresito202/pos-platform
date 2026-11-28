@@ -31,6 +31,7 @@ export const IPC_ALLOWED_CHANNELS = [
   // Emisión fiscal — `DEC-021` F5.
   "pos:fiscal.document.issue",
   "pos:fiscal.document.list",
+  "pos:fiscal.document.download",
   "pos:fiscal.numbering.sync",
   "pos:catalog.product.register",
   "pos:catalog.product.update",
