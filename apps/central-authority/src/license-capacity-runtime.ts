@@ -3,7 +3,7 @@ import {isAbsolute} from "node:path";
 import {createPrivateKey} from "node:crypto";
 import type {IncomingMessage,ServerResponse} from "node:http";
 import {TLSSocket} from "node:tls";
-import {LicenseActivationProvisionSchema,validateCommercialHttpsOrigin} from "@pos-platform/contracts";
+import {LICENSE_LOCAL_ACCEPTANCE_PATH,LicenseActivationProvisionSchema,validateCommercialHttpsOrigin} from "@pos-platform/contracts";
 import type {Pool} from "@pos-platform/database-postgres";
 import {LicenseCapacityAuthority,LICENSE_ACTIVATION_PATH} from "./license-capacity-authority.js";
 import {inspectCommercialHeaders,readCommercialJsonBody,sendCommercialJson} from "./commercial-https-request-boundary.js";
@@ -18,13 +18,16 @@ export function createLicenseCapacityHandler(authority:LicenseCapacityAuthority,
   return async(req:IncomingMessage,res:ServerResponse)=>{
     try{
       if(!(req.socket instanceof TLSSocket)||!req.socket.encrypted||req.headers.host!==new URL(origin).host||req.headers.origin!==undefined||
-        req.method!=="POST"||req.url!==LICENSE_ACTIVATION_PATH){sendCommercialJson(res,403,{code:"LICENSE_NATIVE_REQUEST_REJECTED"});return;}
+        req.method!=="POST"||(req.url!==LICENSE_ACTIVATION_PATH&&req.url!==LICENSE_LOCAL_ACCEPTANCE_PATH)){sendCommercialJson(res,403,{code:"LICENSE_NATIVE_REQUEST_REJECTED"});return;}
       inspectCommercialHeaders(req);
       if(!limiter.allow(req.socket.remoteAddress??"unknown")){sendCommercialJson(res,429,{code:"LICENSE_RATE_LIMITED"});return;}
       const {raw}=await readCommercialJsonBody(req,16384);
       const authorization=req.headers.authorization,requestId=req.headers["x-request-id"],correlationId=req.headers["x-correlation-id"];
       if(typeof authorization!=="string"||typeof requestId!=="string"||typeof correlationId!=="string")throw Error("LICENSE_PROOF_REQUIRED");
-      sendCommercialJson(res,200,await authority.activate({body:raw,authorization,requestId,correlationId}));
+      const proof = {body:raw,authorization,requestId,correlationId};
+      sendCommercialJson(res,200,req.url === LICENSE_LOCAL_ACCEPTANCE_PATH
+        ? await authority.acknowledgeLocalAcceptance(proof)
+        : await authority.activate(proof));
     }catch{sendCommercialJson(res,403,{code:"LICENSE_ACTIVATION_REJECTED"});}
   };
 }

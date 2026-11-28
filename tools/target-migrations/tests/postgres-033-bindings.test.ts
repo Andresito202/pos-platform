@@ -20,7 +20,7 @@ const server=process.env.CASH_BINDING_TEST_URL;
 describe.runIf(Boolean(server))("033 real PostgreSQL license reservation",()=>{
   const database="test_cash_binding_"+id().replaceAll("-","");
   let admin:Pool,root:Pool,runtime:Pool,created=false,temporary:string;
-  const tenant=id(),company=id(),branch=id(),foreignTenant=id(),license=id(),secondLicense=id(),businessLicense=id();
+  const tenant=id(),company=id(),branch=id(),foreignTenant=id(),license=id(),secondLicense=id(),businessLicense=id(),acceptedLicense=id();
   const user=id(),session=id(),membership=id();
   let migration:Parameters<typeof applyCommercialMigrations>[0];
   function url(role?:string){const u=new URL(server!);u.pathname="/"+database;if(role){u.username=role;u.password="";}return u.href;}
@@ -54,7 +54,7 @@ describe.runIf(Boolean(server))("033 real PostgreSQL license reservation",()=>{
     await root.query("INSERT INTO integrations.provider_adapter_versions(provider_adapter_version_id,provider_id,adapter_code,adapter_version,contract_version,implementation_status,verification_status,created_at) VALUES($1,$2,'BINDING_TEST','1',1,'IMPLEMENTED','MOCK_TESTED',now())",[adapter,provider]);
     await root.query("INSERT INTO integrations.external_integrations(id,tenant_id,company_id,provider_id,provider_code_snapshot,provider_adapter_version_id,environment,status,configuration_version,created_at,updated_at) VALUES($1,$2,$3,$4,'BINDING_TEST',$5,'TEST','CREATED',1,now(),now())",[integration,tenant,company,provider,adapter]);
     await root.query("INSERT INTO licensing.plans(id,code,name,billing_model,deployment_mode,currency_code,price_minor,status,created_at,updated_at) VALUES($1,'BINDING_TEST','Test only','MONTHLY','HYBRID','COP',100,'DRAFT',now(),now())",[plan]);
-    for(const l of [license,secondLicense,businessLicense]){
+    for(const l of [license,secondLicense,businessLicense,acceptedLicense]){
       const quote=id(),group=id(),payment=id();
       await root.query(`INSERT INTO subscriptions.license_quotes(id,tenant_id,company_id,merchant_tenant_id,merchant_company_id,integration_id,provider_reference,plan_id,plan_version,currency_code,total_minor,currency_exponent,included_registers,additional_registers,pricing_snapshot,terms_snapshot,entitlements_snapshot,idempotency_key,request_checksum,quote_checksum,created_by_user_id,created_by_session_id,created_at,expires_at)
         VALUES($1::uuid,$2,$3,$2,$3,$4,$5,$6,1,'COP',100,2,1,0,'{}','{"policy_reference":"TEST_ONLY"}','[]',$1::text,$7,$7,$8,$9,now(),now()+interval '1 hour')`,[quote,tenant,company,integration,id(),plan,"a".repeat(64),user,session]);
@@ -128,4 +128,11 @@ describe.runIf(Boolean(server))("033 real PostgreSQL license reservation",()=>{
       {cwd:resolve("../../apps/central-authority"),encoding:"utf8",windowsHide:true,timeout:60000,env:{...process.env,CASH_BINDING_PROBE_URL:url("pos_platform_app")}});
     expect(JSON.parse(result)).toEqual({created:true,replayed:true,staleVersion:true,otherLicense:true,edited:true,retired:true,audited:true,retiredActivationRejected:true});
   },65000);
+  it("records local license acceptance through HTTPS and PostgreSQL",()=>{
+    const result=execFileSync(process.execPath,["--import","tsx","tests/helpers/license-local-acceptance-postgres-probe.ts",JSON.stringify({
+      tenant,company,branch,licenseId:acceptedLicense,
+    })],{cwd:resolve("../../apps/central-authority"),encoding:"utf8",windowsHide:true,timeout:30_000,
+      env:{...process.env,CASH_BINDING_PROBE_URL:url("pos_platform_app"),CASH_BINDING_PROBE_ADMIN_URL:url()}});
+    expect(JSON.parse(result)).toEqual({issued:true,accepted:true,concurrentReceipts:1,replayRejected:true,revokedRejected:true});
+  },35_000);
 });

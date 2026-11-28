@@ -88,6 +88,9 @@ jobs:
       - name: Assemble unsigned commercial APK
         if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
         run: bash tools/android-runtime/gradle-with-network-retry.sh commercialApk
+      - name: Verify signing schemes with an ephemeral laboratory certificate
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
+        run: bash tools/android-runtime/verify-lab-apk-signing.sh apps/pos-android/build/commercial-apk/camacho-pos-colombia-unsigned.apk
       - name: Publish unsigned build artifact
         if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.full_apk)
         uses: actions/upload-artifact@v4

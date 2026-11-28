@@ -1,3 +1,4 @@
+import { LICENSE_LOCAL_ACCEPTANCE_PATH } from "@pos-platform/contracts";
 import { readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { createServer } from "node:https";
@@ -336,7 +337,8 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
     if (handled) return;
   }
 
-  if (request.url === "/v1/licensing/activations/resolve" ||
+  const activation = request.url === "/v1/licensing/activations/resolve" || request.url === LICENSE_LOCAL_ACCEPTANCE_PATH;
+  if (activation ||
       request.url === "/platform" || request.url?.startsWith("/platform/") ||
       request.url?.startsWith("/v1/platform/")) {
     if (!globalHandler || !deployment) {
@@ -347,7 +349,6 @@ const server = createServer({ key: tlsKey, cert: tlsCert, minVersion: "TLSv1.2" 
       send(response, 421, { status: "REJECTED", result_code: "CENTRAL_HOST_REJECTED" });
       return;
     }
-    const activation = request.url === "/v1/licensing/activations/resolve";
     observeHttp(telemetry, request, response, activation ? "licensing.activation" : "platform.administration",
       (status) => activation && (status === 403 || status === 429) ? "license.activation_rejected" : undefined);
     await (activation ? globalHandler.activation : globalHandler.portal)(request, response);

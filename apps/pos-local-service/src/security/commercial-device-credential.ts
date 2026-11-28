@@ -1,5 +1,5 @@
 import {createPublicKey,randomBytes} from "node:crypto";
-import {SyncBatchRequestSchema,UuidSchema,CommercialRefreshRequestSchema,CommercialRevokeRequestSchema,CommercialAccessClaimsSchema} from "@pos-platform/contracts";
+import {LICENSE_LOCAL_ACCEPTANCE_PATH,LicenseLocalAcceptanceRequestSchema,SyncBatchRequestSchema,UuidSchema,CommercialRefreshRequestSchema,CommercialRevokeRequestSchema,CommercialAccessClaimsSchema} from "@pos-platform/contracts";
 import {DeviceTrustVerifier,commercialPossessionChallenge,type CommercialPossessionContext,type DeviceTrustBinding} from "@pos-platform/device-trust";
 import type {LocalDatabaseComponent} from "../local-database-component.js";
 import {SYNC_BATCH_PATH} from "../sync/sync-dispatcher.js";
@@ -60,6 +60,19 @@ export class CommercialDeviceCredentialProvider {
     const {identity,credential}=this.requireVerified(),body=JSON.stringify({activationId});
     return {body,requestId,correlationId,authorization:identity.signRequestAuthorization({method:"POST",path:"/v1/licensing/activations/resolve",
       requestId,correlationId,body,credentialId:credential.claims.credential_id})};
+  }
+  async licenseLocalAcceptanceAuthorization(input: {activationId: string; payloadChecksum: string; requestId: string; correlationId: string}) {
+    const body = JSON.stringify(LicenseLocalAcceptanceRequestSchema.parse({
+      activationId: input.activationId, payloadChecksum: input.payloadChecksum,
+    }));
+    const requestId = UuidSchema.parse(input.requestId);
+    const correlationId = UuidSchema.parse(input.correlationId);
+    const {identity, credential} = this.requireVerified();
+    const authorization = identity.signRequestAuthorization({
+      method: "POST", path: LICENSE_LOCAL_ACCEPTANCE_PATH, requestId, correlationId, body,
+      credentialId: credential.claims.credential_id,
+    });
+    return {body, requestId, correlationId, authorization};
   }
   async sessionAssertionPossession(context:Parameters<CommercialDeviceCredentialProvider["refreshPossession"]>[0]){
     return this.accessPossession(context,"SESSION_ASSERTION");

@@ -15,7 +15,7 @@ import { CommercialDeviceCredentialProvider } from "../security/commercial-devic
 import { DeviceTrustCredentialStore } from "../security/device-trust-credential-store.js";
 import { EncryptedFileSecretStore, type SecretStoreKeyProvider } from "../security/encrypted-secret-store.js";
 import { LocalSecurityComponent } from "../security/local-security-component.js";
-import { downloadLicenseCapacity } from "../security/license-capacity-download.js";
+import { acknowledgeLicenseLocalAcceptance, downloadLicenseCapacity } from "../security/license-capacity-download.js";
 import {
   commercialLicenseCapacitySealStore,
   LicenseCapacityGate,
@@ -187,7 +187,8 @@ export function createAndroidCentralServices(
       return null;
     }
     const acceptLicense = activation && licensePath
-      ? managedLicenseAcceptance(deps, provider, origin, licensePath, activation, provision.request_timeout_ms)
+      ? managedLicenseAcceptance(deps, provider, origin, licensePath, activation, provision.request_timeout_ms,
+        provision.environment === "PREPRODUCTION")
       : undefined;
     const client = new AndroidBusinessNativeCentralClient(
       origin,
@@ -221,6 +222,7 @@ function managedLicenseAcceptance(
   provisionFile: string,
   activation: NonNullable<AndroidCommercialProvision["license_activation"]>,
   timeoutMs: number,
+  acknowledgePreproduction: boolean,
 ): () => Promise<void> {
   parseLicenseCapacityKeys(activation.keys);
   const database = deps.database.database;
@@ -254,6 +256,11 @@ function managedLicenseAcceptance(
     if (!result.usableNow) throw new Error("LICENSE_NOT_YET_VALID");
     const denied = gate.authorize(scope, activation.register_id);
     if (denied) throw new Error(denied);
+    if (acknowledgePreproduction) {
+      await acknowledgeLicenseLocalAcceptance({
+        origin, activationId: activation.activation_id, payloadChecksum: result.payloadChecksum, timeoutMs, provider,
+      });
+    }
   };
 }
 

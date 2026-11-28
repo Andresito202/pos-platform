@@ -1,7 +1,7 @@
 import {readFile,writeFile,rename,unlink,lstat} from "node:fs/promises";
 import {isAbsolute} from "node:path";
 import {createHash,verify} from "node:crypto";
-import {uuidV7,canonicalSessionTrustJson,validateCommercialHttpsOrigin,SignedLicenseCapacityRevocationSchema} from "@pos-platform/contracts";
+import {LICENSE_LOCAL_ACCEPTANCE_PATH,LicenseLocalAcceptanceReceiptSchema,uuidV7,canonicalSessionTrustJson,validateCommercialHttpsOrigin,SignedLicenseCapacityRevocationSchema} from "@pos-platform/contracts";
 import type {LocalDatabase} from "@pos-platform/database-sqlite";
 import {LicenseCapacityProvisionSchema,parseLicenseCapacityProvision,parseLicenseCapacityKeys} from "./license-capacity-gate.js";
 import {LicenseVerifier} from "./license-verifier.js";
@@ -63,8 +63,33 @@ export async function downloadLicenseCapacity(input:{origin:string;activationId:
   }catch(error){if(!(error instanceof Error&&"code" in error&&error.code==='ENOENT'))throw error;}
   if(input.signal.aborted)throw Error("LICENSE_DOWNLOAD_CANCELLED");
   const temporary=input.provisionFile+"."+uuidV7()+".tmp";
-  try{await writeFile(temporary,JSON.stringify(p),{flag:"wx",mode:0o600});
+  try{await writeFile(temporary,JSON.stringify(p),{flag:"wx",mode:0o600,flush:true});
     if(input.signal.aborted)throw Error("LICENSE_DOWNLOAD_CANCELLED");await rename(temporary,input.provisionFile);
   }finally{await unlink(temporary).catch(()=>undefined);}
-  return {status:"STORED" as const,licenseVersion:c.license_version,usableNow:checked.decision==="VALID"};
+  return {status:"STORED" as const,licenseVersion:c.license_version,usableNow:checked.decision==="VALID",payloadChecksum:digest(c)};
+}
+
+
+/** Send proof only after the caller has persisted and authorized the exact artifact. */
+export async function acknowledgeLicenseLocalAcceptance(input: {
+  origin: string; activationId: string; payloadChecksum: string; timeoutMs: number;
+  provider: Pick<CommercialDeviceCredentialProvider, "licenseLocalAcceptanceAuthorization">;
+}, transport: typeof fetch = fetch) {
+  validateCommercialHttpsOrigin(input.origin);
+  const proof = await input.provider.licenseLocalAcceptanceAuthorization({
+    activationId: input.activationId, payloadChecksum: input.payloadChecksum, requestId: uuidV7(), correlationId: uuidV7(),
+  });
+  const response = await transport(new URL(LICENSE_LOCAL_ACCEPTANCE_PATH, input.origin), {
+    method: "POST", body: proof.body, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(input.timeoutMs),
+    headers: {
+      authorization: proof.authorization, "content-type": "application/json",
+      "x-request-id": proof.requestId, "x-correlation-id": proof.correlationId,
+    },
+  });
+  if (!response.ok) throw Error("LICENSE_LOCAL_ACCEPTANCE_ACK_REJECTED");
+  const receipt = LicenseLocalAcceptanceReceiptSchema.parse(await response.json());
+  if (receipt.activationId !== input.activationId || receipt.payloadChecksum !== input.payloadChecksum) {
+    throw Error("LICENSE_LOCAL_ACCEPTANCE_ACK_MISMATCH");
+  }
+  return receipt;
 }
