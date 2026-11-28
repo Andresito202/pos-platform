@@ -88,6 +88,7 @@ export interface CommercialLicenseIssuer {
     tenantId: string;
     planId: string;
     payloadHash: string;
+    paidOrder?: NonNullable<ReturnType<typeof CommercialProvisioningRequestSchema.parse>["paidOrder"]>;
   }): Promise<{ licenseIds: string[] }>;
 }
 
@@ -415,6 +416,7 @@ export class CommercialPortalBridgeService {
         const issued = await this.config.licenseIssuer.issueProvisioningLicenses({
           orderId: body.orderId, licenseUnits: row.licenseUnits, tenantId: body.tenantId,
           planId: body.planId, payloadHash,
+          ...(body.paidOrder ? { paidOrder: body.paidOrder } : {}),
         });
         const licenseIds = issued.licenseIds.map(id => UuidSchema.parse(id));
         if (licenseIds.length !== row.licenseUnits || new Set(licenseIds).size !== row.licenseUnits) {
@@ -428,7 +430,7 @@ export class CommercialPortalBridgeService {
         row = persisted;
       } catch (error) {
         if (error instanceof Error &&
-            ["PROVISION_PLAN_REQUIRED", "PROVISION_TENANT_REQUIRED", "PROVISION_LICENSE_REFERENCE_CONFLICT", "PROVISION_SUBSCRIPTION_TERM_REQUIRED"].includes(error.message)) {
+            ["PROVISION_PLAN_REQUIRED", "PROVISION_TENANT_REQUIRED", "PROVISION_LICENSE_REFERENCE_CONFLICT", "PROVISION_SUBSCRIPTION_TERM_REQUIRED", "PROVISION_COMPANY_REQUIRED", "PROVISION_TERM_MISMATCH", "PROVISION_PAYMENT_DATE_INVALID", "PROVISION_ACTIVATION_SCHEMA_REQUIRED"].includes(error.message)) {
           throw error;
         }
         throw Object.assign(new Error("COMMERCIAL_PROVISIONING_RECOVERY_PENDING", { cause: error }), { status: 503 });
@@ -452,6 +454,12 @@ export class CommercialPortalBridgeService {
       throw Object.assign(new Error("IDEMPOTENCY_KEY_REQUIRED"), { status: 400 });
     }
     const body = CommercialProvisioningRequestSchema.parse(input);
+    if (body.paidOrder && (!this.config.recoverBoundProvisioning || !body.tenantId || !body.planId ||
+        idempotencyKey !== sha256(`provision:${body.orderId}`) ||
+        body.items.some(item => item.planId !== body.planId || item.kitId != null) ||
+        body.items.reduce((units, item) => units + item.quantity, 0) !== body.licenseUnits)) {
+      throw Object.assign(new Error("COMMERCIAL_PAID_ORDER_BINDING_REJECTED"), { status: 409 });
+    }
     const payloadHash = sha256(JSON.stringify(body));
     const existing = await this.store.getProvisioningByIdempotency(idempotencyKey);
     if (existing) return this.resolveProvisioning(existing, payloadHash, body);

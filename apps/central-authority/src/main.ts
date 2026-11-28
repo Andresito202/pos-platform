@@ -177,6 +177,7 @@ const globalHandler = await (async () => {
         factusPay: subscriptionFactusPayGateway,
       }),
       activation: licenseRuntime.handler,
+      licenseAuthority: licenseRuntime.authority,
     };
   } catch (error) {
     subscriptionFulfillmentRuntime?.stopWorker();
@@ -264,7 +265,8 @@ const businessHandler = await (async () => {
   if (businessProvision === undefined) return undefined;
   if (!deployment || deployment.environment === "LOCAL") throw Error("BUSINESS_REAL_DEPLOYMENT_REQUIRED");
   verifyCentralTlsIdentity(deployment, tlsCert, createPrivateKey(tlsKey));
-  try { return await prepareBusinessAdministrationRuntime(pool, businessProvision, deployment.origin); }
+  try { return await prepareBusinessAdministrationRuntime(pool, businessProvision, deployment.origin,
+    deployment.environment === "PREPRODUCTION" && process.env.CENTRAL_COMMERCIAL_PROVISIONING_RECOVERY_ENABLED === "1"); }
   catch (error) { await pool.end(); throw error; }
 })();
 
@@ -276,14 +278,15 @@ const commercialBridgeHandler = (() => {
     throw new Error("COMMERCIAL_BRIDGE_KEYS_TOO_SHORT");
   }
   // Production/main TLS listener always uses PostgreSQL — never process-local memory.
+  const recoverPaidOrders = deployment?.environment === "PREPRODUCTION" &&
+    process.env.CENTRAL_COMMERCIAL_PROVISIONING_RECOVERY_ENABLED === "1";
   const store = new PostgresCommercialPortalBridgeStore(pool);
   const issuer = new PostgresCommercialLicenseIssuer(pool);
   const bridge = new CommercialPortalBridgeService(store, {
     bridgeKey,
     trialWebhookKey,
     licenseIssuer: issuer,
-    recoverBoundProvisioning: deployment?.environment === "PREPRODUCTION" &&
-      process.env.CENTRAL_COMMERCIAL_PROVISIONING_RECOVERY_ENABLED === "1",
+    recoverBoundProvisioning: recoverPaidOrders,
     isGlobalSessionActive: async (sessionId) => {
       const found = await pool.query(
         `SELECT 1 FROM identity.sessions
@@ -300,7 +303,8 @@ const commercialBridgeHandler = (() => {
     origin: deployment?.origin ?? null,
     provisionFile: globalProvision ?? null,
   });
-  return createCommercialPortalBridgeHandler(bridge, gate);
+  return createCommercialPortalBridgeHandler(bridge, gate,
+    recoverPaidOrders ? globalHandler?.licenseAuthority : undefined);
 })();
 
 const androidAssociationPublication = (() => {

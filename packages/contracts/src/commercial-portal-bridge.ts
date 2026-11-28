@@ -124,6 +124,13 @@ export const CommercialTrialIssueResponseSchema = z.strictObject({
   idempotent: z.boolean(),
 });
 
+export const CommercialPaidOrderBindingSchema = z.strictObject({
+  companyId: UuidSchema,
+  paymentReference: z.string().min(1).max(128),
+  paidAt: z.string().datetime(),
+  billingInterval: z.enum(["PERPETUAL", "MONTHLY", "ANNUAL"]),
+});
+
 export const CommercialProvisioningRequestSchema = z.strictObject({
   orderId: z.string().min(1).max(128),
   orderNumber: z.string().min(1).max(128),
@@ -133,6 +140,7 @@ export const CommercialProvisioningRequestSchema = z.strictObject({
   cajaRule: z.literal("ONE_LICENSE_ONE_CAJA"),
   tenantId: UuidSchema.optional(),
   planId: UuidSchema.optional(),
+  paidOrder: CommercialPaidOrderBindingSchema.optional(),
   items: z
     .array(
       z.strictObject({
@@ -147,6 +155,20 @@ export const CommercialProvisioningRequestSchema = z.strictObject({
     .min(1)
     .max(200),
 });
+
+export const CommercialOrderActivationStatusRequestSchema = z.strictObject({
+  orderId: z.string().min(1).max(128),
+  provisioningId: z.string().min(8).max(128),
+});
+
+export const CommercialOrderActivationStatusResponseSchema =
+  CommercialOrderActivationStatusRequestSchema.extend({
+    receipts: z.array(z.strictObject({
+      licenseId: UuidSchema,
+      activationId: UuidSchema,
+      receiptId: UuidSchema,
+    })).max(10_000),
+  });
 
 export const CommercialProvisioningResponseSchema = z.strictObject({
   status: z.enum(["ACCEPTED", "DUPLICATE"]),

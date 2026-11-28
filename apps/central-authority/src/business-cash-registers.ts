@@ -1,5 +1,6 @@
 import { CashRegisterCreateSchema, CashRegisterEditSchema, CashRegisterRetireSchema, CashRegisterPageRequestSchema,
   CashRegisterMasterRowSchema, CashRegisterPageSchema, uuidV7, type LicenseActivationPolicy } from "@pos-platform/contracts";
+import { findPaidCommercialOrder } from "./commercial-portal-bridge/paid-order-source.js";
 import { reserveCashRegisterLicense } from "./cash-register-license-binding.js";
 import type { PoolClient } from "@pos-platform/database-postgres";
 import type { AuthenticatedBusinessSession } from "./business-browser-session-authority.js";
@@ -18,7 +19,7 @@ function row(value: Record<string, unknown>) {
  * reserve paid capacity before a device activation; retirement never releases
  * capacity that an offline artifact could still authorize. */
 export class BusinessCashRegisters {
-  constructor(private readonly policy: LicenseActivationPolicy) {}
+  constructor(private readonly policy: LicenseActivationPolicy, private readonly commercialOrdersEnabled = false) {}
   async execute(c: PoolClient, session: AuthenticatedBusinessSession, operation: string, input: unknown) {
     const schema = operation === "list" ? CashRegisterPageRequestSchema : operation === "create" ? CashRegisterCreateSchema :
       operation === "edit" ? CashRegisterEditSchema : operation === "retire" ? CashRegisterRetireSchema : null;
@@ -29,6 +30,7 @@ export class BusinessCashRegisters {
     // Same ordering as LicenseCapacityAuthority: license lock, then company.
     // This also serializes administration against concurrent GLOBAL allocation.
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["license-capacity:" + r.licenseId]);
+    await c.query("SELECT id FROM licensing.licenses WHERE id=$1 AND tenant_id=$2 FOR SHARE", [r.licenseId, session.tenantId]);
     // Lock before guard takes SHARE locks, avoiding a SHARE -> UPDATE upgrade
     // deadlock between two business requests. Every create locks this same row.
     const company = await c.query(`SELECT id,currency_code FROM organization.companies
@@ -38,7 +40,9 @@ export class BusinessCashRegisters {
     if (actor.tenantId !== session.tenantId || actor.userId !== session.userId) return reject(403, "CASH_REGISTER_SCOPE_REJECTED");
     // Existing paid quote is the company binding and paid-capacity source used
     // by LicenseCapacityAuthority. Client license IDs never confer authority.
-    const licensed = await c.query(`SELECT q.included_registers,q.additional_registers,l.policy_version,q.terms_snapshot
+    const commercial = this.commercialOrdersEnabled ? await findPaidCommercialOrder(c, r.licenseId, this.policy) : null;
+    if (commercial && commercial.id !== r.companyId) return reject(403, "CASH_REGISTER_LICENSE_REQUIRED");
+    const licensed = commercial ? null : await c.query(`SELECT q.included_registers,q.additional_registers,l.policy_version,q.terms_snapshot
       FROM licensing.licenses l
       JOIN payments.payments p ON l.commercial_reference='SUBSCRIPTION_PAYMENT:'||p.id::text AND p.status='CONFIRMED'
       JOIN payments.payment_groups g ON g.id=p.payment_group_id AND g.collection_subject_type='SUBSCRIPTION_QUOTE'
@@ -49,10 +53,10 @@ export class BusinessCashRegisters {
           OR (l.deployment_mode='HYBRID' AND l.expires_at IS NOT NULL
             AND clock_timestamp()<l.expires_at+$4::int*interval '1 day'))
       FOR SHARE OF l,p`, [r.licenseId, session.tenantId, r.companyId, this.policy.subscription_grace_days]);
-    const license = licensed.rows[0];
-    if (licensed.rowCount !== 1 || license?.included_registers !== 1 ||
+    const license = licensed?.rows[0];
+    if (!commercial && (licensed?.rowCount !== 1 || license?.included_registers !== 1 ||
         license.terms_snapshot?.policy_reference !== license.policy_version ||
-        !this.policy.accepted_contract_policy_references.includes(license.policy_version)) return reject(403, "CASH_REGISTER_LICENSE_REQUIRED");
+        !this.policy.accepted_contract_policy_references.includes(license.policy_version))) return reject(403, "CASH_REGISTER_LICENSE_REQUIRED");
     const entitlement = await c.query(`SELECT 1 FROM licensing.license_entitlements
       WHERE license_id=$1 AND capability_code='CASH_REGISTER' AND enabled=true FOR SHARE`, [r.licenseId]);
     if (entitlement.rowCount !== 1) return reject(403, "CASH_REGISTER_LICENSE_REQUIRED");
@@ -90,7 +94,7 @@ export class BusinessCashRegisters {
         }
         return { register: original.data };
       }
-      const capacity = Number(license.included_registers) + Number(license.additional_registers);
+      const capacity = commercial ? 1 : Number(license.included_registers) + Number(license.additional_registers);
       if (!Number.isSafeInteger(capacity) || capacity < 1) return reject(403, "CASH_REGISTER_CAPACITY_INVALID");
       const reserved = await c.query(`SELECT count(*)::text AS used FROM licensing.cash_register_bindings WHERE license_id=$1`, [r.licenseId]);
       const count = Number(reserved.rows[0]?.used);
