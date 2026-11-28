@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { LocalDatabase } from "@pos-platform/database-sqlite";
-import { LicenseCapacityClaimsSchema, type LicenseCapacityClaims } from "@pos-platform/contracts";
+import { LICENSE_LOCAL_ACCEPTANCE_PATH, LicenseCapacityClaimsSchema, type LicenseCapacityClaims } from "@pos-platform/contracts";
 import {
   LicenseCapacityGate,
   compositeLicenseCapacitySealStore,
@@ -12,7 +12,7 @@ import {
   readLicenseCapacityProvision,
 } from "../src/security/license-capacity-gate.js";
 import { LocalSecurityLifecycle } from "../src/security/security-lifecycle.js";
-import { downloadLicenseCapacity } from "../src/security/license-capacity-download.js";
+import { acknowledgeLicenseLocalAcceptance, downloadLicenseCapacity } from "../src/security/license-capacity-download.js";
 import { unsignedLicenseCapacityBytes } from "../src/security/license-verifier.js";
 
 const id = (n: number) => `018f0000-0000-7000-8000-${n.toString().padStart(12,"0")}`;
@@ -87,12 +87,32 @@ it("accepts a downloaded signed license only for its assigned branch and registe
       .rejects.toThrow("LICENSE_DOWNLOAD_ALLOCATION_REJECTED");
     expect(existsSync(f.path)).toBe(false);
   }
-  await expect(downloadLicenseCapacity({
+  const downloaded = await downloadLicenseCapacity({
     ...input, allocation: { branchId: scope.branchId, registerId: id(8) },
-  }, transport)).resolves.toMatchObject({ status: "STORED", usableNow: true });
+  }, transport);
+  const payloadChecksum = createHash("sha256").update(unsignedLicenseCapacityBytes(valid)).digest("hex");
+  expect(downloaded).toMatchObject({ status: "STORED", usableNow: true, payloadChecksum });
   expect(new LicenseCapacityGate(f.db, () => readLicenseCapacityProvision(f.path)).authorize(scope, id(8))).toBeNull();
   f.restart();
   expect(new LicenseCapacityGate(f.db, () => readLicenseCapacityProvision(f.path)).information(scope).status).toBe("CURRENT");
+
+  const receipt = { activationId, payloadChecksum, receiptId: id(22), acknowledgedAt: new Date().toISOString() };
+  const acknowledgment = {
+    origin, activationId, payloadChecksum, timeoutMs: 1_000,
+    provider: {
+      async licenseLocalAcceptanceAuthorization(proof: { activationId: string; payloadChecksum: string; requestId: string; correlationId: string }) {
+        return { ...proof, body: JSON.stringify({ activationId: proof.activationId, payloadChecksum: proof.payloadChecksum }), authorization: "fixture-proof" };
+      },
+    },
+  };
+  const acceptanceTransport: typeof fetch = async (url, init) => {
+    expect(String(url)).toBe(origin + LICENSE_LOCAL_ACCEPTANCE_PATH);
+    expect(init?.body).toBe(JSON.stringify({ activationId, payloadChecksum }));
+    return Response.json(receipt);
+  };
+  await expect(acknowledgeLicenseLocalAcceptance(acknowledgment, acceptanceTransport)).resolves.toEqual(receipt);
+  await expect(acknowledgeLicenseLocalAcceptance(acknowledgment, async () => Response.json({ ...receipt, activationId: id(23) })))
+    .rejects.toThrow("LICENSE_LOCAL_ACCEPTANCE_ACK_MISMATCH");
 });
 
 it("capacity: enforces signature, key revocation, tenant/company/branch/device and expiration",()=>{

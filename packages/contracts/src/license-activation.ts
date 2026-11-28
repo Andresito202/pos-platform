@@ -1,5 +1,17 @@
 import * as z from "zod";
 import {UuidV7Schema,UuidSchema,StableCodeSchema,UtcDateTimeSchema} from "./primitives.js";
+export const LICENSE_LOCAL_ACCEPTANCE_PATH = "/v1/licensing/activations/acknowledge";
+export const LicenseLocalAcceptanceRequestSchema = z.strictObject({
+  activationId: UuidSchema,
+  payloadChecksum: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export const LicenseLocalAcceptanceReceiptSchema = z.strictObject({
+  activationId: UuidSchema,
+  payloadChecksum: z.string().regex(/^[a-f0-9]{64}$/),
+  acknowledgedAt: UtcDateTimeSchema,
+  receiptId: UuidV7Schema,
+});
+
 export const LicenseAllocationRequestSchema=z.strictObject({
   license_id:UuidSchema,credential_id:UuidSchema,idempotency_key:UuidV7Schema,correlation_id:UuidV7Schema,
   allocations:z.array(z.strictObject({register_id:UuidSchema,branch_id:UuidSchema})).min(1).max(10001),

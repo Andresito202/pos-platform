@@ -69,9 +69,17 @@ public final class CommercialApkSigner {
                 .setInputApk(input).setOutputApk(temporary)
                 .setMinSdkVersion(28).setV1SigningEnabled(false).setV2SigningEnabled(true)
                 .setV3SigningEnabled(true).setV4SigningEnabled(false).build().sign();
-            ApkVerifier.Result result = new ApkVerifier.Builder(temporary).setMinCheckedPlatformVersion(28).build().verify();
-            if (!result.isVerified() || !result.isVerifiedUsingV2Scheme() || !result.isVerifiedUsingV3Scheme() || result.getSignerCertificates().size()!=1
-                || !digest(result.getSignerCertificates().get(0)).equals(expected)) throw new SecurityException("RELEASE_SIGNATURE_VERIFICATION_FAILED");
+            // On API 28+ the verifier selects v3 and does not report v2 as verified.
+            // Verify the v2 block separately with the API 27 verifier rules.
+            ApkVerifier.Result v3 = new ApkVerifier.Builder(temporary)
+                .setMinCheckedPlatformVersion(28).build().verify();
+            ApkVerifier.Result v2 = new ApkVerifier.Builder(temporary)
+                .setMinCheckedPlatformVersion(27).setMaxCheckedPlatformVersion(27).build().verify();
+            if (!v3.isVerified() || !v3.isVerifiedUsingV3Scheme() || !v2.isVerified() || !v2.isVerifiedUsingV2Scheme()
+                || v3.getSignerCertificates().size() != 1 || v2.getSignerCertificates().size() != 1
+                || !digest(v3.getSignerCertificates().get(0)).equals(expected)
+                || !digest(v2.getSignerCertificates().get(0)).equals(expected))
+                throw new SecurityException("RELEASE_SIGNATURE_VERIFICATION_FAILED");
             if (!fileDigest(input).equals(expectedInput)) throw new SecurityException("UNSIGNED_APK_CHANGED_DURING_SIGNING");
             Files.move(temporary.toPath(), output.toPath(), StandardCopyOption.ATOMIC_MOVE);
             System.out.println("SIGNED_APK_SHA256=" + fileDigest(output));

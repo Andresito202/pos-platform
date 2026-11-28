@@ -1,5 +1,6 @@
 import {createHash,createPublicKey,sign,type KeyObject} from "node:crypto";
 import {LicenseAllocationRequestSchema,LicenseActivationPolicySchema,LicenseCapacityClaimsSchema,canonicalSessionTrustJson,uuidV7,UuidSchema,
+  LICENSE_LOCAL_ACCEPTANCE_PATH,LicenseLocalAcceptanceRequestSchema,LicenseLocalAcceptanceReceiptSchema,
   LicenseAssignmentContextSchema,LicenseAssignmentContextRequestSchema,LicenseActivationPageRequestSchema,LicenseActivationPageSchema,SignedLicenseCapacityRevocationSchema,isLicenseSectorEntitlement,type LicenseActivationPolicy,type SignedLicenseCapacity} from "@pos-platform/contracts";
 import {PostgresDeviceProofReplayVerifier,type DeviceProofRequest,type Pool,type PoolClient} from "@pos-platform/database-postgres";
 import {reserveCashRegisterLicense,requireActiveBoundRegisters} from "./cash-register-license-binding.js";
@@ -8,6 +9,9 @@ import {requireLicenseAdministrator} from "./license-administration.js";
 export const LICENSE_ACTIVATION_PATH="/v1/licensing/activations/resolve";
 class ActivationPossession extends PostgresDeviceProofReplayVerifier{
   consume(request:DeviceProofRequest){return this.verifyTargetAndConsume(request,LICENSE_ACTIVATION_PATH);}
+  consumeLocalAcceptance(request: DeviceProofRequest) {
+    return this.verifyTargetAndConsume(request, LICENSE_LOCAL_ACCEPTANCE_PATH);
+  }
 }
 const bytes=(v:unknown)=>Buffer.from(canonicalSessionTrustJson(v));
 const checksum=(v:unknown)=>createHash("sha256").update(bytes(v)).digest();
@@ -171,6 +175,65 @@ export class LicenseCapacityAuthority{
       return {artifact:{claims,signature:signature.toString("base64url")},key,idempotent:false};
     });
   }
+  async acknowledgeLocalAcceptance(input: DeviceProofRequest) {
+    if (this.signer.environment !== "PREPRODUCTION") throw Error("LICENSE_LOCAL_ACCEPTANCE_PREPRODUCTION_REQUIRED");
+    const request = LicenseLocalAcceptanceRequestSchema.parse(JSON.parse(input.body));
+    const binding = await this.possession.consumeLocalAcceptance(input);
+    if (!binding) throw Error("LICENSE_FRESH_POSSESSION_REQUIRED");
+    return this.transaction(async c => {
+      const initial = (await c.query(
+        "SELECT license_id FROM licensing.license_activations WHERE id=$1 AND credential_id=$2",
+        [request.activationId, binding.credentialId],
+      )).rows[0];
+      if (!initial) throw Error("LICENSE_ACTIVATION_CREDENTIAL_MISMATCH");
+
+      // source locks the license and revalidates its live contract and device.
+      const source = await this.source(c, initial.license_id, binding.credentialId);
+      await this.trustedKey(c);
+      const activation = (await c.query(
+        "SELECT * FROM licensing.license_activations WHERE id=$1 FOR SHARE",
+        [request.activationId],
+      )).rows[0];
+      if (!activation || activation.activation_status !== "ACTIVE" ||
+          activation.tenant_id !== binding.tenantId || activation.company_id !== binding.companyId ||
+          activation.device_id !== binding.deviceId || activation.installation_id !== binding.installationId ||
+          activation.credential_id !== binding.credentialId || activation.signing_key_id !== this.signer.keyId ||
+          activation.payload_checksum?.toString("hex") !== request.payloadChecksum) {
+        throw Error("LICENSE_LOCAL_ACCEPTANCE_BINDING_REJECTED");
+      }
+
+      const claims = LicenseCapacityClaimsSchema.parse(activation.canonical_payload);
+      const now = (source.server_now as Date).getTime();
+      if (now < Date.parse(claims.not_before) || (claims.expires_at !== null && now >= Date.parse(claims.expires_at))) {
+        throw Error("LICENSE_LOCAL_ACCEPTANCE_ARTIFACT_NOT_CURRENT");
+      }
+      await requireActiveBoundRegisters(c, {
+        tenantId: binding.tenantId, companyId: binding.companyId, licenseId: initial.license_id,
+      }, claims.cash_register_capacity.allocations);
+
+      // The license lock serializes attempts, including concurrent retries
+      // with a new DeviceProof after the original response was lost.
+      const lookup = [binding.deviceId, binding.credentialId, binding.tenantId, binding.companyId,
+        binding.installationId, request.payloadChecksum];
+      const existing = (await c.query(
+        `SELECT id,occurred_at FROM identity.device_authentication_events
+          WHERE device_id=$1 AND credential_id=$2 AND tenant_id=$3 AND company_id=$4
+            AND installation_id=$5 AND evidence_checksum=$6 AND result='ACCEPTED'
+            AND reason_code='LICENSE_CAPACITY_ACCEPTED_LOCALLY'
+          ORDER BY occurred_at,id LIMIT 1`, lookup,
+      )).rows[0];
+      const receipt = existing ?? (await c.query(
+        `INSERT INTO identity.device_authentication_events
+          (id,device_id,credential_id,tenant_id,company_id,installation_id,result,reason_code,correlation_id,occurred_at,evidence_checksum)
+          VALUES($7,$1,$2,$3,$4,$5,'ACCEPTED','LICENSE_CAPACITY_ACCEPTED_LOCALLY',$8,clock_timestamp(),$6)
+          RETURNING id,occurred_at`, [...lookup, uuidV7(), input.correlationId],
+      )).rows[0];
+      return LicenseLocalAcceptanceReceiptSchema.parse({
+        ...request, receiptId: receipt.id, acknowledgedAt: (receipt.occurred_at as Date).toISOString(),
+      });
+    });
+  }
+
   async assignmentContext(sessionId:string,input:unknown){
     UuidSchema.parse(sessionId);const request=LicenseAssignmentContextRequestSchema.parse(input);
     return this.transaction(async c=>{
